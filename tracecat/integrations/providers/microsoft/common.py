@@ -71,12 +71,16 @@ def get_cc_description(service: str = "Microsoft Graph") -> str:
 class MicrosoftAuthorizationCodeOAuthProvider(AuthorizationCodeOAuthProvider):
     """Base class for Microsoft authorization-code OAuth providers."""
 
-    default_authorization_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str | None] = (
         MICROSOFT_DEFAULT_AUTHORIZATION_ENDPOINT
     )
-    default_token_endpoint: ClassVar[str] = MICROSOFT_DEFAULT_TOKEN_ENDPOINT
-    authorization_endpoint_help: ClassVar[list[str]] = MICROSOFT_SOVEREIGN_AUTH_HELP
-    token_endpoint_help: ClassVar[list[str]] = MICROSOFT_SOVEREIGN_TOKEN_HELP
+    default_token_endpoint: ClassVar[str | None] = MICROSOFT_DEFAULT_TOKEN_ENDPOINT
+    authorization_endpoint_help: ClassVar[str | list[str] | None] = (
+        MICROSOFT_SOVEREIGN_AUTH_HELP
+    )
+    token_endpoint_help: ClassVar[str | list[str] | None] = (
+        MICROSOFT_SOVEREIGN_TOKEN_HELP
+    )
 
     def __init__(
         self,
@@ -100,12 +104,16 @@ class MicrosoftAuthorizationCodeOAuthProvider(AuthorizationCodeOAuthProvider):
 class MicrosoftClientCredentialsOAuthProvider(ClientCredentialsOAuthProvider):
     """Base class for Microsoft client-credentials OAuth providers."""
 
-    default_authorization_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str | None] = (
         MICROSOFT_DEFAULT_AUTHORIZATION_ENDPOINT
     )
-    default_token_endpoint: ClassVar[str] = MICROSOFT_DEFAULT_TOKEN_ENDPOINT
-    authorization_endpoint_help: ClassVar[list[str]] = MICROSOFT_SOVEREIGN_AUTH_HELP
-    token_endpoint_help: ClassVar[list[str]] = MICROSOFT_SOVEREIGN_TOKEN_HELP
+    default_token_endpoint: ClassVar[str | None] = MICROSOFT_DEFAULT_TOKEN_ENDPOINT
+    authorization_endpoint_help: ClassVar[str | list[str] | None] = (
+        MICROSOFT_SOVEREIGN_AUTH_HELP
+    )
+    token_endpoint_help: ClassVar[str | list[str] | None] = (
+        MICROSOFT_SOVEREIGN_TOKEN_HELP
+    )
 
     def __init__(
         self,

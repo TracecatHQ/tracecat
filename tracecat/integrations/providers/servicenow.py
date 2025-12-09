@@ -30,9 +30,9 @@ class ServiceNowOAuthProvider(ClientCredentialsOAuthProvider):
         setup_guide_url=SERVICENOW_TOKEN_DOCS_URL,
         troubleshooting_url=SERVICENOW_TOKEN_DOCS_URL,
     )
-    default_authorization_endpoint: ClassVar[str] = (
+    default_authorization_endpoint: ClassVar[str | None] = (
         "https://{instance}.service-now.com/oauth_auth.do"
     )
-    default_token_endpoint: ClassVar[str] = (
+    default_token_endpoint: ClassVar[str | None] = (
         "https://{instance}.service-now.com/oauth_token.do"
     )
