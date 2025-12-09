@@ -778,9 +778,18 @@ def import_and_reload(module_name: str) -> ModuleType:
                         module_name=module_name,
                         error=e,
                     )
-                    # If reload fails, remove from sys.modules and re-import
+                    # Try fresh import, but keep the old module as fallback
                     sys.modules.pop(module_name, None)
-                    loaded_module = importlib.import_module(module_name)
+                    try:
+                        loaded_module = importlib.import_module(module_name)
+                    except (ImportError, ValueError):
+                        # Restore the original working module
+                        sys.modules[module_name] = module
+                        loaded_module = module
+                        logger.warning(
+                            "Fresh import also failed, keeping existing module",
+                            module_name=module_name,
+                        )
         sys.modules[module_name] = loaded_module
         return loaded_module
 
