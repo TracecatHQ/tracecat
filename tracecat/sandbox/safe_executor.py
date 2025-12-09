@@ -865,8 +865,13 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     """Import hook that validates user imports.
 
     This hook distinguishes between:
-    1. Direct imports from user script -> strict validation (only declared deps + safe stdlib)
-    2. Transitive imports from packages -> permissive (allow anything except blocked modules)
+    1. Direct imports from user script -> strict validation (blocked modules + allowlist)
+    2. Transitive imports from packages -> permissive (allow all, packages are trusted)
+
+    Security model:
+    - User scripts cannot directly import os, sys, subprocess, etc.
+    - But packages like numpy CAN use os internally - they're trusted installed code
+    - The user declared the dependency, so we trust the package's internal imports
     """
     global _wrapper_initialized
     base_module = name.split(".")[0]
@@ -875,31 +880,32 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     if not _wrapper_initialized:
         return _original_import(name, globals, locals, fromlist, level)
 
-    # CHECK BLOCKED MODULES FIRST - before any allowlists including underscore-prefixed
-    # This ensures os, sys, etc. are blocked even from packages or internal paths
-    if name in _BLOCKED_MODULES or base_module in _BLOCKED_MODULES:
-        raise ImportError(
-            f"Import of module '{{name}}' is blocked for security reasons."
-        )
-
-    # Allow Python internals (underscore-prefixed) - safe since blocked modules checked above
+    # Allow Python internals (underscore-prefixed) - these are needed for basic operation
     if name.startswith("_") or base_module.startswith("_"):
         return _original_import(name, globals, locals, fromlist, level)
 
-    # Allow internal modules (now safe since dangerous ones blocked above)
+    # Allow internal modules needed for Python operation
     if name in _INTERNAL_MODULES or base_module in _INTERNAL_MODULES:
         return _original_import(name, globals, locals, fromlist, level)
 
-    # Check if this import is from the user script or from a package
+    # CHECK IMPORT ORIGIN FIRST - this determines which validation rules apply
     from_user_script = _is_import_from_user_script(globals)
 
     if not from_user_script:
-        # Import is from an installed package (site-packages) - allow it
-        # since blocked modules were already checked above
+        # Import is from an installed package (site-packages)
+        # Allow all imports - packages are trusted code that may need os, sys, etc.
+        # The user explicitly declared this dependency, so we trust its internals
         return _original_import(name, globals, locals, fromlist, level)
 
-    # From here on, we're validating imports from the user script
-    # Apply strict allowlist validation
+    # === FROM HERE ON, WE'RE VALIDATING DIRECT USER SCRIPT IMPORTS ===
+    # Apply strict validation: blocked modules + allowlist
+
+    # Block dangerous modules from user script
+    if name in _BLOCKED_MODULES or base_module in _BLOCKED_MODULES:
+        raise ImportError(
+            f"Import of module '{{name}}' is blocked for security reasons. "
+            f"User scripts cannot directly import system modules."
+        )
 
     # Allow safe stdlib modules
     if name in _SAFE_STDLIB or base_module in _SAFE_STDLIB:

@@ -818,6 +818,55 @@ class TestTransitiveImports:
         return SafePythonExecutor(cache_dir=str(tmp_path))
 
     @pytest.mark.anyio
+    async def test_package_with_os_dependency_works(self, executor):
+        """Test that packages which internally use os (like numpy) work correctly.
+
+        Many packages (numpy, pandas, etc.) internally import os for path operations,
+        temp files, etc. This should NOT be blocked because:
+        1. The import comes from site-packages (trusted installed code)
+        2. The user explicitly declared the package as a dependency
+        3. Only DIRECT user script imports of os should be blocked
+
+        This test uses 'logging' which is stdlib and uses os internally.
+        """
+        script = """
+import logging
+
+def main():
+    # logging module internally uses os for various operations
+    logger = logging.getLogger('test')
+    logger.setLevel(logging.INFO)
+    return "logging works"
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.output == "logging works"
+
+    @pytest.mark.anyio
+    async def test_numpy_with_internal_os_import(self, executor):
+        """Regression test: numpy (which internally imports os) should work.
+
+        This is a regression test for the issue where numpy failed with:
+        "ImportError: Import of module 'os' is blocked for security reasons"
+
+        The fix ensures that packages can use os internally while still blocking
+        direct user script imports of os.
+        """
+        script = """
+def main():
+    import numpy as np
+    result = np.array([1, 2, 3])
+    return result.tolist()
+"""
+        result = await executor.execute(
+            script=script,
+            dependencies=["numpy"],
+            timeout_seconds=120,  # numpy installation can take time
+        )
+        assert result.success, f"Expected success but got error: {result.error}"
+        assert result.output == [1, 2, 3]
+
+    @pytest.mark.anyio
     async def test_package_transitive_imports_allowed(self, executor):
         """Test that packages can import their transitive dependencies.
 
@@ -867,11 +916,15 @@ def main():
         assert "someunknownpackage" in str(exc_info.value)
 
     @pytest.mark.anyio
-    async def test_blocked_modules_still_blocked_from_packages(self, executor):
-        """Test that blocked modules (os, sys, etc.) are blocked even in transitive imports.
+    async def test_blocked_modules_blocked_in_user_script(self, executor):
+        """Test that user scripts cannot directly import blocked modules (os, sys, etc.).
 
-        Even if a package tries to import os or subprocess, it should be blocked
-        at runtime by the import hook.
+        Security model:
+        - User scripts CANNOT directly import os, sys, subprocess, etc.
+        - But packages CAN use these internally (they're trusted installed code)
+
+        This test verifies that direct user imports of blocked modules fail
+        at AST validation time.
         """
         # This tests the AST validation - os is blocked at validation time
         script = """
