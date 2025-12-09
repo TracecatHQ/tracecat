@@ -379,11 +379,11 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
                 " Please use `var.my_variable`",
                 type=ExprType.ITERATOR,
             )
-        blacklist = ("local_vars", "local_vars_assignment")
-        if collection.data in blacklist:
+        denylist = ("local_vars", "local_vars_assignment")
+        if collection.data in denylist:
             self.add(
                 status="error",
-                msg=f"You cannot use {', '.join(repr(e) for e in blacklist)} expressions in the `for_each` collection.",
+                msg=f"You cannot use {', '.join(repr(e) for e in denylist)} expressions in the `for_each` collection.",
                 type=ExprType.ITERATOR,
             )
 

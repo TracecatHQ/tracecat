@@ -303,6 +303,21 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 ]
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
+TRACECAT__DISABLE_NSJAIL = os.environ.get(
+    "TRACECAT__DISABLE_NSJAIL", "true"
+).lower() in ("true", "1")
+"""Disable nsjail sandbox and use safe Python executor instead.
+
+When True (default), uses SafePythonExecutor with AST-based validation and import
+restrictions. This mode works without privileged Docker mode but has less isolation.
+
+When False, uses nsjail sandbox for full OS-level isolation. Requires:
+- Linux with kernel >= 4.6
+- Docker privileged mode or CAP_SYS_ADMIN capability
+- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
+- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
+"""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"

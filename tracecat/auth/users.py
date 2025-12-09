@@ -80,14 +80,14 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ):
         """Update a user with user privileges."""
         # NOTE(security): Prevent unprivileged users from changing role or is_superuser fields
-        blacklist = ("role", "is_superuser")
+        denylist = ("role", "is_superuser")
         set_fields = user_update.model_fields_set
 
         role = ctx_role.get()
         is_unprivileged = role is not None and role.access_level != AccessLevel.ADMIN
         if not role or (
             # Not admin and trying to change role or is_superuser
-            is_unprivileged and any(field in set_fields for field in blacklist)
+            is_unprivileged and any(field in set_fields for field in denylist)
         ):
             raise PermissionsException("Operation not permitted")
 
