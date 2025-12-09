@@ -144,6 +144,25 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
     return {key: (value or {}) for key, value in data.items()}
 
 
+def normalize_error_line_numbers(obj: Any) -> Any:
+    """Recursively normalize error messages by replacing line numbers with a placeholder.
+
+    This prevents test flakiness when source code line numbers change.
+    """
+    if isinstance(obj, dict):
+        return {
+            k: (
+                re.sub(r"Line: \d+", "Line: <NUM>", v)
+                if k == "message" and isinstance(v, str)
+                else normalize_error_line_numbers(v)
+            )
+            for k, v in obj.items()
+        }
+    elif isinstance(obj, list):
+        return [normalize_error_line_numbers(item) for item in obj]
+    return obj
+
+
 @pytest.fixture
 def runtime_config() -> DSLConfig:
     config = DSLConfig(environment="default")
@@ -2633,7 +2652,8 @@ def assert_error_handler_initiated_correctly(
     exec_id = match.group("execution_id")
     wf_exec_url = f"http://localhost/workspaces/{workspace_id}/workflows/{wf_id_short}/executions/{exec_id}"
 
-    assert group.action_input.trigger_inputs == {
+    # Use normalize_error_line_numbers to avoid flaky assertions when line numbers change
+    assert normalize_error_line_numbers(group.action_input.trigger_inputs) == {
         "errors": [
             {
                 "attempt": 1,
@@ -2654,7 +2674,7 @@ def assert_error_handler_initiated_correctly(
                     "------------------------------\n"
                     "File: /app/tracecat/expressions/core.py\n"
                     "Function: result\n"
-                    "Line: 77"
+                    "Line: <NUM>"
                 ),
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
@@ -2682,7 +2702,7 @@ def assert_error_handler_initiated_correctly(
             "------------------------------\n"
             "File: /app/tracecat/expressions/core.py\n"
             "Function: result\n"
-            "Line: 77"
+            "Line: <NUM>"
         ),
         "orig_wf_exec_id": failing_wf_exec_id,
         "orig_wf_exec_url": wf_exec_url,
@@ -4917,7 +4937,10 @@ async def test_workflow_scatter_gather(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-        assert result == expected
+        # Use normalize_error_line_numbers to avoid flaky assertions when line numbers change
+        assert normalize_error_line_numbers(result) == normalize_error_line_numbers(
+            expected
+        )
 
 
 @pytest.mark.anyio
