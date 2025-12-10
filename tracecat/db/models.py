@@ -203,9 +203,6 @@ def _to_dict(instance: RecordModel) -> dict[str, Any]:
 class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
     __tablename__ = "oauth_account"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("user.id"), nullable=False
-    )
     user: Mapped[User] = relationship(back_populates="oauth_accounts")
 
 
@@ -381,9 +378,6 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     __tablename__ = "access_token"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("user.id"), nullable=False
-    )
     user: Mapped[User] = relationship(back_populates="access_tokens")
 
 
