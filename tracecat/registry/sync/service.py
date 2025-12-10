@@ -3,11 +3,13 @@
 This module orchestrates the full sync flow:
 1. Fetch actions from subprocess (existing)
 2. Build manifest from actions
-3. Create RegistryVersion record
-4. Build wheel from package
-5. Upload wheel to S3/MinIO
-6. Update RegistryVersion.wheel_uri
-7. Populate RegistryIndex entries
+3. Build wheel from package and upload to S3/MinIO
+4. Create RegistryVersion record with wheel URI
+5. Populate RegistryIndex entries
+
+Note: Wheel building is mandatory. If the wheel build fails, no version is
+created. The code must be packagable into a valid wheel to be considered
+a valid registry version.
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ class SyncResult:
         self,
         version: RegistryVersion,
         actions: list[RegistryActionCreate],
-        wheel_uri: str | None = None,
+        wheel_uri: str,
         commit_sha: str | None = None,
     ):
         self.version = version
@@ -93,17 +95,19 @@ class RegistrySyncService(BaseService):
         *,
         target_version: str | None = None,
         target_commit_sha: str | None = None,
-        build_wheel: bool = True,
         ssh_env: SshEnv | None = None,
         commit: bool = True,
     ) -> SyncResult:
         """Sync a repository and create a versioned snapshot.
 
+        This creates an immutable RegistryVersion with a wheel artifact.
+        If the wheel build fails, no version is created - the code must be
+        packagable to be considered a valid version.
+
         Args:
             db_repo: The repository to sync
             target_version: Version string to use (auto-generated if not provided)
             target_commit_sha: Specific commit SHA to sync (HEAD if not provided)
-            build_wheel: Whether to build and upload a wheel
             ssh_env: SSH environment for git operations
             commit: Whether to commit the transaction (default: True)
 
@@ -112,6 +116,7 @@ class RegistrySyncService(BaseService):
 
         Raises:
             RegistrySyncError: If sync fails
+            WheelBuildError: If wheel building fails
         """
         self.logger.info(
             "Starting v2 registry sync",
@@ -153,6 +158,13 @@ class RegistrySyncService(BaseService):
             version=target_version,
         )
         if existing_version:
+            # Existing versions must have a wheel_uri - if not, it's legacy
+            # data from before wheel building was mandatory
+            if existing_version.wheel_uri is None:
+                raise RegistrySyncError(
+                    f"Version {target_version} exists but has no wheel. "
+                    "Delete the version and re-sync to create a valid version with a wheel."
+                )
             self.logger.info(
                 "Version already exists, returning existing",
                 version=target_version,
@@ -165,13 +177,22 @@ class RegistrySyncService(BaseService):
                 commit_sha=commit_sha,
             )
 
-        # Step 5: Create RegistryVersion record
+        # Step 5: Build wheel first - if this fails, we don't create a version
+        # The code must be packagable to be considered a valid version
+        wheel_uri = await self._build_and_upload_wheel(
+            db_repo=db_repo,
+            version_string=target_version,
+            commit_sha=commit_sha,
+            ssh_env=ssh_env,
+        )
+
+        # Step 6: Create RegistryVersion record with wheel URI
         version_create = RegistryVersionCreate(
             repository_id=db_repo.id,
             version=target_version,
             commit_sha=commit_sha,
             manifest=manifest,
-            wheel_uri=None,  # Will be updated after wheel upload
+            wheel_uri=wheel_uri,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -179,27 +200,8 @@ class RegistrySyncService(BaseService):
             "Created registry version",
             version_id=str(version.id),
             version=target_version,
+            wheel_uri=wheel_uri,
         )
-
-        # Step 6: Build and upload wheel (optional)
-        wheel_uri: str | None = None
-        if build_wheel:
-            try:
-                wheel_uri = await self._build_and_upload_wheel(
-                    db_repo=db_repo,
-                    version=version,
-                    commit_sha=commit_sha,
-                    ssh_env=ssh_env,
-                )
-                # Update version with wheel URI
-                await versions_service.update_wheel_uri(
-                    version, wheel_uri, commit=False
-                )
-            except WheelBuildError as e:
-                self.logger.warning(
-                    "Failed to build wheel, continuing without",
-                    error=str(e),
-                )
 
         # Step 7: Populate RegistryIndex entries
         await versions_service.populate_index_from_manifest(version, commit=False)
@@ -230,14 +232,23 @@ class RegistrySyncService(BaseService):
     async def _build_and_upload_wheel(
         self,
         db_repo: RegistryRepository,
-        version: RegistryVersion,
+        version_string: str,
         commit_sha: str | None,
         ssh_env: SshEnv | None = None,
     ) -> str:
         """Build a wheel and upload it to S3.
 
+        Args:
+            db_repo: The repository to build the wheel from
+            version_string: Version string for the S3 key path
+            commit_sha: Git commit SHA (required for git repositories)
+            ssh_env: SSH environment for git operations
+
         Returns:
             S3 URI of the uploaded wheel
+
+        Raises:
+            WheelBuildError: If wheel building or upload fails
         """
         async with aiofiles.tempfile.TemporaryDirectory(
             prefix="tracecat_wheel_"
@@ -276,7 +287,7 @@ class RegistrySyncService(BaseService):
             s3_key = get_wheel_s3_key(
                 organization_id=str(config.TRACECAT__DEFAULT_ORG_ID),
                 repository_origin=db_repo.origin,
-                version=version.version,
+                version=version_string,
                 wheel_name=wheel_result.wheel_name,
             )
 

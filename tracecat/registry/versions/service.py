@@ -88,23 +88,6 @@ class RegistryVersionsService(BaseService):
             await self.session.flush()
         return version
 
-    async def update_wheel_uri(
-        self,
-        version: RegistryVersion,
-        wheel_uri: str,
-        *,
-        commit: bool = True,
-    ) -> RegistryVersion:
-        """Update the wheel URI for a version after uploading the wheel."""
-        version.wheel_uri = wheel_uri
-        self.session.add(version)
-        if commit:
-            await self.session.commit()
-            await self.session.refresh(version)
-        else:
-            await self.session.flush()
-        return version
-
     async def delete_version(
         self,
         version: RegistryVersion,

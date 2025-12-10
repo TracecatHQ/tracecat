@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4c6310af479d"
-down_revision: str | None = "0fd1f09cd98b"
+down_revision: str | None = "591905d1205e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("version", sa.String(), nullable=False),
         sa.Column("commit_sha", sa.String(), nullable=True),
         sa.Column("manifest", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("wheel_uri", sa.String(), nullable=True),
+        sa.Column("wheel_uri", sa.String(), nullable=False),
         sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
         sa.Column(

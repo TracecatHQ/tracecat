@@ -315,14 +315,13 @@ class RegistryActionsService(BaseService):
         *,
         target_version: str | None = None,
         target_commit_sha: str | None = None,
-        build_wheel: bool = True,
         allow_delete_all: bool = False,
     ) -> tuple[str | None, str | None]:
         """Sync actions from a repository using the v2 versioned flow.
 
         This creates an immutable RegistryVersion snapshot with:
         - Frozen manifest stored in DB
-        - Optional wheel uploaded to S3
+        - Wheel uploaded to S3 (mandatory - sync fails if wheel build fails)
         - RegistryIndex entries for fast lookups
 
         Also updates the mutable RegistryAction table for backward compatibility.
@@ -331,11 +330,13 @@ class RegistryActionsService(BaseService):
             db_repo: The repository to sync.
             target_version: Version string (auto-generated if not provided).
             target_commit_sha: Optional commit SHA to sync to.
-            build_wheel: Whether to build and upload a wheel.
             allow_delete_all: If True, allow deleting all actions if list is empty.
 
         Returns:
             Tuple of (commit_sha, version_string)
+
+        Raises:
+            WheelBuildError: If wheel building fails (no version is created)
         """
         # Use the v2 sync service
         sync_service = RegistrySyncService(self.session, self.role)
@@ -350,7 +351,6 @@ class RegistryActionsService(BaseService):
                     db_repo=db_repo,
                     target_version=target_version,
                     target_commit_sha=target_commit_sha,
-                    build_wheel=build_wheel,
                     commit=False,
                 )
                 # Also update the mutable RegistryAction table for backward compatibility
@@ -367,7 +367,6 @@ class RegistryActionsService(BaseService):
                     db_repo=db_repo,
                     target_version=target_version,
                     target_commit_sha=target_commit_sha,
-                    build_wheel=build_wheel,
                     commit=False,
                 )
                 # Also update the mutable RegistryAction table for backward compatibility

@@ -1053,9 +1053,9 @@ class RegistryVersion(OrganizationModel):
         nullable=False,
         doc="Frozen action definitions",
     )
-    wheel_uri: Mapped[str | None] = mapped_column(
+    wheel_uri: Mapped[str] = mapped_column(
         String,
-        nullable=True,
+        nullable=False,
         doc="S3 URI to the wheel file",
     )
 
