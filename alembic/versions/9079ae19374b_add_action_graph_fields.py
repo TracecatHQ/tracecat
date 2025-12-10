@@ -1,4 +1,4 @@
-"""add_action_graph_fields
+"""add action graph fields
 
 Revision ID: 9079ae19374b
 Revises: 0fd1f09cd98b
@@ -16,7 +16,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "9079ae19374b"
-down_revision: str | None = "0fd1f09cd98b"
+down_revision: str | None = "4c6310af479d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
