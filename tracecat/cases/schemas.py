@@ -94,8 +94,19 @@ class CaseFieldReadMinimal(CustomFieldRead):
         cls,
         column: sa.engine.interfaces.ReflectedColumn,
         *,
+        reserved_fields: set[str] | None = None,  # noqa: ARG003 - Ignored; case fields always use RESERVED_CASE_FIELDS
         field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
+        """Create a CaseFieldReadMinimal from a SQLAlchemy reflected column.
+
+        Args:
+            column: The reflected column metadata from SQLAlchemy.
+            reserved_fields: Ignored. Case fields always use RESERVED_CASE_FIELDS.
+            field_schema: Optional schema metadata for the field.
+
+        Returns:
+            A CaseFieldReadMinimal instance populated from the column data.
+        """
         return cls.model_validate(
             super().from_sa(
                 column,
@@ -468,7 +479,7 @@ type CaseEventVariant = Annotated[
 ]
 
 
-class CaseEventRead(RootModel, Schema):
+class CaseEventRead(RootModel):
     """Base read model for all event types."""
 
     model_config = ConfigDict(from_attributes=True)

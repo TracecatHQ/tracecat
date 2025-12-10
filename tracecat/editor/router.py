@@ -1,6 +1,6 @@
 import inspect
 import re
-from typing import Union, get_type_hints
+from typing import Any, Union, get_type_hints
 
 from fastapi import APIRouter, HTTPException, status
 from lark import Lark, LarkError, Token, Tree
@@ -127,6 +127,17 @@ except Exception as e:
     expression_parser = None
 
 
+def format_type(type_hint: Any) -> str:
+    if hasattr(type_hint, "__origin__") and type_hint.__origin__ is Union:
+        return " | ".join(format_type(t) for t in type_hint.__args__)
+    # Handle generic types like list[str], dict[str, int], etc.
+    elif hasattr(type_hint, "__origin__"):
+        args = ", ".join(format_type(arg) for arg in type_hint.__args__)
+        return f"{type_hint.__origin__.__name__}[{args}]"
+    # Handle basic types
+    return getattr(type_hint, "__name__", str(type_hint))
+
+
 @router.get("/functions", response_model=list[EditorFunctionRead])
 async def list_functions(
     role: Role = RoleACL(
@@ -150,16 +161,6 @@ async def list_functions(
                 continue
 
             param_type_hint = type_hints.get(param_name, "Any")
-
-            def format_type(type_hint) -> str:
-                if hasattr(type_hint, "__origin__") and type_hint.__origin__ is Union:
-                    return " | ".join(format_type(t) for t in type_hint.__args__)
-                # Handle generic types like list[str], dict[str, int], etc.
-                elif hasattr(type_hint, "__origin__"):
-                    args = ", ".join(format_type(arg) for arg in type_hint.__args__)
-                    return f"{type_hint.__origin__.__name__}[{args}]"
-                # Handle basic types
-                return getattr(type_hint, "__name__", str(type_hint))
 
             param_type = format_type(param_type_hint)
             parameters.append(

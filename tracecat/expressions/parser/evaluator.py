@@ -207,7 +207,7 @@ class ExprEvaluator(Transformer):
         fn = functions.FUNCTION_MAPPING.get(fn_name)
         if fn is None:
             raise TracecatExpressionError(f"Unknown function {fn_name!r}")
-        final_fn = fn.map if is_mapped else fn
+        final_fn = fn.map if is_mapped else fn  # pyright: ignore[reportFunctionMemberAccess]
         result = final_fn(*fn_args)
         self.logger.trace(f"Function {fn_name!r} returned {result!r}")
         return result
