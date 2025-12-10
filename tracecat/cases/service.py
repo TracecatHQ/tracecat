@@ -12,6 +12,7 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserRead
@@ -282,6 +283,7 @@ class CasesService(BaseWorkspaceService):
 
         # Validate and get sort attribute
         # For "tasks", use a correlated subquery to count tasks; otherwise use Case column
+        task_count_expr: ColumnElement[int] | None = None
         if sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
@@ -310,6 +312,10 @@ class CasesService(BaseWorkspaceService):
                 # Use sort column value for cursor filtering (proper pagination)
                 # For "tasks" column, we need to compare against the task count subquery
                 if sort_column == "tasks":
+                    if task_count_expr is None:
+                        raise TracecatException(
+                            "task_count_expr must be initialized for task sorting"
+                        )
                     sort_filter_col = task_count_expr
                     sort_cursor_value = cursor_sort_value  # Integer comparison
                 else:
