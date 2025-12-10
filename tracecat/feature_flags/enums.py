@@ -9,3 +9,4 @@ class FeatureFlag(StrEnum):
     AGENT_PRESETS = "agent-presets"
     CASE_DURATIONS = "case-durations"
     CASE_TASKS = "case-tasks"
+    REGISTRY_SYNC_V2 = "registry-sync-v2"
