@@ -52,16 +52,27 @@ def metadata():
     return metadata
 
 
+def uuid_to_ref(node_id: str) -> str:
+    """Convert node UUID to ref by taking the last hex character."""
+    # UUIDs like "00000000-0000-0000-0000-00000000000a" -> "a"
+    # UUIDs like "00000000-0000-0000-0000-000000000010" -> "g" (hex 10 = 16 -> 'g')
+    last_hex = node_id[-2:]  # Last 2 hex chars
+    num = int(last_hex, 16)
+    # Map 10->g, 11->h, etc. (a=10 in our UUID scheme, so offset by 10)
+    if num < 10:
+        return chr(ord("a") + num)
+    return chr(ord("a") + num - 10)
+
+
 def build_actions(graph: RFGraph) -> list[ActionStatement]:
-    # Use node ID as ref for testing purposes
+    # Build a mapping from node ID to ref for dependency resolution
+    id_to_ref = {node.id: uuid_to_ref(str(node.id)) for node in graph.action_nodes()}
     return [
         ActionStatement(
-            ref=str(node.id),
+            ref=id_to_ref[node.id],
             action=node.data.type,
             args=node.data.args,
-            depends_on=sorted(
-                str(graph.node_map[nid].id) for nid in graph.dep_list[node.id]
-            ),
+            depends_on=sorted(id_to_ref[nid] for nid in graph.dep_list[node.id]),
         )
         for node in graph.action_nodes()
     ]
@@ -86,7 +97,6 @@ def test_parse_dag_simple_sequence(metadata):
                 "type": "udf",
                 "data": {
                     "type": "udf",
-                    "title": "Action A",
                     "args": {"test": 1},
                 },
             },
@@ -95,7 +105,6 @@ def test_parse_dag_simple_sequence(metadata):
                 "type": "udf",
                 "data": {
                     "type": "udf",
-                    "title": "Action B",
                     "args": {"test": 2},
                 },
             },
@@ -104,7 +113,6 @@ def test_parse_dag_simple_sequence(metadata):
                 "type": "udf",
                 "data": {
                     "type": "udf",
-                    "title": "Action C",
                     "args": {"test": 3},
                 },
             },
@@ -165,37 +173,37 @@ def test_kite(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
@@ -261,67 +269,67 @@ def test_double_kite(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_H),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_h"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_I),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_i"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_J),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_j"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_K),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_k"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_L),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_l"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_M),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_m"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
@@ -394,37 +402,37 @@ def test_tree_1(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
@@ -474,37 +482,37 @@ def test_tree_2(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
@@ -556,37 +564,37 @@ def test_complex_dag_1(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
@@ -652,47 +660,47 @@ def test_complex_dag_2(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_H),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_h"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_I),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_i"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
@@ -773,62 +781,62 @@ def test_complex_dag_3(metadata):
             {
                 "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_H),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_h"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_I),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_i"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_J),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_j"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_K),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_k"},
+                "data": {"type": "udf"},
             },
             {
                 "id": str(UUID_L),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_l"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
