@@ -339,17 +339,22 @@ class RegistryActionsService(BaseService):
         """
         # Use the v2 sync service
         sync_service = RegistrySyncService(self.session, self.role)
-        sync_result = await sync_service.sync_repository_v2(
-            db_repo=db_repo,
-            target_version=target_version,
-            target_commit_sha=target_commit_sha,
-            build_wheel=build_wheel,
-        )
 
-        # Also update the mutable RegistryAction table for backward compatibility
-        # This ensures existing code that queries RegistryAction still works
+        # Both operations should be in the same transaction to ensure atomicity:
+        # - sync_repository_v2 creates RegistryVersion and RegistryIndex entries
+        # - upsert_actions_from_list updates the mutable RegistryAction table
+        # If either fails, both should be rolled back
         if self.session.in_transaction():
             async with self.session.begin_nested():
+                sync_result = await sync_service.sync_repository_v2(
+                    db_repo=db_repo,
+                    target_version=target_version,
+                    target_commit_sha=target_commit_sha,
+                    build_wheel=build_wheel,
+                    commit=False,
+                )
+                # Also update the mutable RegistryAction table for backward compatibility
+                # This ensures existing code that queries RegistryAction still works
                 await self.upsert_actions_from_list(
                     sync_result.actions,
                     db_repo,
@@ -358,6 +363,15 @@ class RegistryActionsService(BaseService):
                 )
         else:
             async with self.session.begin():
+                sync_result = await sync_service.sync_repository_v2(
+                    db_repo=db_repo,
+                    target_version=target_version,
+                    target_commit_sha=target_commit_sha,
+                    build_wheel=build_wheel,
+                    commit=False,
+                )
+                # Also update the mutable RegistryAction table for backward compatibility
+                # This ensures existing code that queries RegistryAction still works
                 await self.upsert_actions_from_list(
                     sync_result.actions,
                     db_repo,

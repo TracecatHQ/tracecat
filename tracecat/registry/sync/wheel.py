@@ -221,7 +221,11 @@ async def build_wheel_from_git(
             cwd=str(clone_path),
             env=git_env,
         )
-        await process.communicate()
+        _, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode().strip()
+            raise WheelBuildError(f"Failed to fetch commit: {error_msg}")
 
         # Checkout the specific commit
         checkout_cmd = ["git", "checkout", commit_sha]

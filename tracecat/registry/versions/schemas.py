@@ -164,7 +164,7 @@ class RegistryIndexRead(BaseModel):
     registry_version_id: UUID
     namespace: str
     name: str
-    action_type: str
+    action_type: RegistryActionType
     description: str
     default_title: str | None
     display_group: str | None

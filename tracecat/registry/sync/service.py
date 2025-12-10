@@ -95,6 +95,7 @@ class RegistrySyncService(BaseService):
         target_commit_sha: str | None = None,
         build_wheel: bool = True,
         ssh_env: SshEnv | None = None,
+        commit: bool = True,
     ) -> SyncResult:
         """Sync a repository and create a versioned snapshot.
 
@@ -104,6 +105,7 @@ class RegistrySyncService(BaseService):
             target_commit_sha: Specific commit SHA to sync (HEAD if not provided)
             build_wheel: Whether to build and upload a wheel
             ssh_env: SSH environment for git operations
+            commit: Whether to commit the transaction (default: True)
 
         Returns:
             SyncResult with the created version and metadata
@@ -202,9 +204,13 @@ class RegistrySyncService(BaseService):
         # Step 7: Populate RegistryIndex entries
         await versions_service.populate_index_from_manifest(version, commit=False)
 
-        # Commit all changes
-        await self.session.commit()
-        await self.session.refresh(version)
+        # Commit all changes if requested
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(version)
+        else:
+            await self.session.flush()
+            await self.session.refresh(version)
 
         self.logger.info(
             "Registry sync v2 completed",
