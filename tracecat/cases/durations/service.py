@@ -374,7 +374,7 @@ class CaseDurationService(BaseWorkspaceService):
         }
 
     async def list_time_series(self, cases: Sequence[Case]) -> list[CaseDurationMetric]:
-        """List durations as slim metrics optimized for time-series platforms.
+        """List durations as metrics optimized for time-series platforms.
 
         Returns flat, OTEL-aligned Gauge metrics suitable for direct ingestion
         into Grafana, Elasticsearch, Splunk, and other observability platforms.
@@ -404,7 +404,7 @@ class CaseDurationService(BaseWorkspaceService):
         cases: Sequence[Case],
         durations_by_case: dict[uuid.UUID, list[CaseDurationComputation]],
     ) -> list[CaseDurationMetric]:
-        """Format computed durations as slim time-series metrics.
+        """Format computed durations as time-series metrics.
 
         Pure formatting function that converts internal models to OTEL-aligned
         metric format for time-series platforms.

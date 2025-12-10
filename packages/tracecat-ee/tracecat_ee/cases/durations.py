@@ -23,7 +23,7 @@ async def list_case_durations(
 ) -> list[dict[str, Any]]:
     """List case durations as OTEL-aligned metrics for the provided case IDs.
 
-    Returns slim metric records optimized for time-series platforms:
+    Returns metric records optimized for time-series platforms:
     - timestamp: When the duration was measured (ISO 8601)
     - metric_name: "case_duration_seconds"
     - value: Duration in seconds
