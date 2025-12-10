@@ -401,7 +401,6 @@ class DSLInput(BaseModel):
                 node = UDFNode(
                     id=dst_id,
                     data=UDFNodeData(
-                        title=action.title,
                         type=action.action,
                     ),
                 )
