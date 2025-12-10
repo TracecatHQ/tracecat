@@ -12,7 +12,7 @@ from tracecat.db.engine import get_async_session_context_manager
 @registry.register(
     default_title="List case durations",
     display_group="Cases",
-    description="List case durations as slim time-series metrics for Grafana, Elasticsearch, and Splunk.",
+    description="List case durations as time-series.",
     namespace="core.cases",
 )
 async def list_case_durations(
@@ -23,7 +23,7 @@ async def list_case_durations(
 ) -> list[dict[str, Any]]:
     """List case durations as OTEL-aligned metrics for the provided case IDs.
 
-    Returns metric records optimized for time-series platforms:
+    Returns a list of time-series metrics with the following fields:
     - timestamp: When the duration was measured (ISO 8601)
     - metric_name: "case_duration_seconds"
     - value: Duration in seconds
