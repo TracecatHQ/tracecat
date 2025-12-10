@@ -268,3 +268,33 @@ class TestWebhookSecret:
             "Webhook secret must NOT use raw UUID format. "
             "This would break backward compatibility with existing webhook URLs."
         )
+
+    def test_secret_golden_value_from_v0_52_0(self):
+        """Golden test with hardcoded value from v0.52.0.
+
+        This test ensures webhook URLs remain stable across versions.
+        The expected value was computed in v0.52.0 and must never change.
+
+        DO NOT UPDATE THE EXPECTED VALUE - if this test fails, the webhook
+        secret computation has changed and will break existing integrations.
+        """
+        webhook_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        signing_secret = "your-signing-secret"
+
+        # Golden value computed in v0.52.0 - DO NOT CHANGE
+        expected_secret = (
+            "34ed3df2ab390f94c64106e35e170f59c08f4fa3cb6563831adfe2fa149938c3"
+        )
+
+        webhook = MagicMock(spec=Webhook)
+        webhook.id = webhook_id
+        secret_getter = Webhook.secret.fget
+        assert secret_getter is not None
+        with patch.dict("os.environ", {"TRACECAT__SIGNING_SECRET": signing_secret}):
+            actual_secret = secret_getter(webhook)
+
+        assert actual_secret == expected_secret, (
+            f"Webhook secret has changed from v0.52.0 golden value. "
+            f"Expected: {expected_secret}, Got: {actual_secret}. "
+            "This will break existing webhook URLs!"
+        )
