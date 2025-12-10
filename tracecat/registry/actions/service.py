@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 
 from pydantic import UUID4, ValidationError
@@ -34,6 +35,7 @@ from tracecat.registry.actions.schemas import (
 )
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
+from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
@@ -266,8 +268,6 @@ class RegistryActionsService(BaseService):
 
             # Validate if enabled
             if should_validate:
-                from collections import defaultdict
-
                 self.logger.info("Validating actions", all_actions=repo.store.keys())
                 val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = (
                     defaultdict(list)
@@ -308,6 +308,84 @@ class RegistryActionsService(BaseService):
                 )
 
         return commit_sha
+
+    async def sync_actions_from_repository_v2(
+        self,
+        db_repo: RegistryRepository,
+        *,
+        target_version: str | None = None,
+        target_commit_sha: str | None = None,
+        allow_delete_all: bool = False,
+    ) -> tuple[str | None, str | None]:
+        """Sync actions from a repository using the v2 versioned flow.
+
+        This creates an immutable RegistryVersion snapshot with:
+        - Frozen manifest stored in DB
+        - Wheel uploaded to S3 (mandatory - sync fails if wheel build fails)
+        - RegistryIndex entries for fast lookups
+
+        Also updates the mutable RegistryAction table for backward compatibility.
+
+        Args:
+            db_repo: The repository to sync.
+            target_version: Version string (auto-generated if not provided).
+            target_commit_sha: Optional commit SHA to sync to.
+            allow_delete_all: If True, allow deleting all actions if list is empty.
+
+        Returns:
+            Tuple of (commit_sha, version_string)
+
+        Raises:
+            WheelBuildError: If wheel building fails (no version is created)
+        """
+        # Use the v2 sync service
+        sync_service = RegistrySyncService(self.session, self.role)
+
+        # Both operations should be in the same transaction to ensure atomicity:
+        # - sync_repository_v2 creates RegistryVersion and RegistryIndex entries
+        # - upsert_actions_from_list updates the mutable RegistryAction table
+        # If either fails, both should be rolled back
+        if self.session.in_transaction():
+            async with self.session.begin_nested():
+                sync_result = await sync_service.sync_repository_v2(
+                    db_repo=db_repo,
+                    target_version=target_version,
+                    target_commit_sha=target_commit_sha,
+                    commit=False,
+                )
+                # Also update the mutable RegistryAction table for backward compatibility
+                # This ensures existing code that queries RegistryAction still works
+                await self.upsert_actions_from_list(
+                    sync_result.actions,
+                    db_repo,
+                    commit=False,
+                    allow_delete_all=allow_delete_all,
+                )
+        else:
+            async with self.session.begin():
+                sync_result = await sync_service.sync_repository_v2(
+                    db_repo=db_repo,
+                    target_version=target_version,
+                    target_commit_sha=target_commit_sha,
+                    commit=False,
+                )
+                # Also update the mutable RegistryAction table for backward compatibility
+                # This ensures existing code that queries RegistryAction still works
+                await self.upsert_actions_from_list(
+                    sync_result.actions,
+                    db_repo,
+                    commit=False,
+                    allow_delete_all=allow_delete_all,
+                )
+
+        self.logger.info(
+            "V2 sync completed with backward compatible RegistryAction update",
+            version=sync_result.version_string,
+            commit_sha=sync_result.commit_sha,
+            num_actions=sync_result.num_actions,
+        )
+
+        return sync_result.commit_sha, sync_result.version_string
 
     async def get_action_or_none(self, action_name: str) -> RegistryAction | None:
         """Get an action by name, returning None if it doesn't exist."""

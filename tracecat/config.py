@@ -237,6 +237,12 @@ TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = os.environ.get(
 )
 """Bucket for case attachments."""
 
+# Bucket for registry wheels
+TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "tracecat-registry"
+)
+"""Bucket for registry wheel files and versioned artifacts."""
+
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
 )
