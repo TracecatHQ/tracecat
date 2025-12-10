@@ -1,11 +1,14 @@
+import hashlib
+import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
 from fastapi import Request
 from fastapi.datastructures import FormData
 
+from tracecat.db.models import Webhook
 from tracecat.webhooks.dependencies import _ip_allowed, parse_webhook_payload
 from tracecat.webhooks.schemas import WebhookApiKeyRead, _normalize_cidrs
 
@@ -194,3 +197,74 @@ class TestWebhookApiKeyRead:
             preview="tc_sk_abcd", created_at=now, revoked_at=now
         )
         assert api_key.is_active is False
+
+
+class TestWebhookSecret:
+    """Test cases for Webhook.secret property.
+
+    The webhook secret must use the legacy prefixed ID format (wh-{uuid.hex})
+    to maintain backward compatibility with existing webhook URLs after the
+    migration from prefixed string IDs to native UUIDs.
+    """
+
+    def test_secret_uses_legacy_prefixed_format(self):
+        """Verify the secret is computed using 'wh-{uuid.hex}' format.
+
+        This test ensures backward compatibility after migrating webhook IDs
+        from prefixed strings (wh-abc123...) to native UUIDs. The secret hash
+        must use the legacy format to prevent webhook URL changes.
+        """
+
+        # Known values for deterministic testing
+        webhook_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        signing_secret = "test-signing-secret"
+
+        # Expected: hash computed with legacy format "wh-{uuid.hex}"
+        legacy_id = f"wh-{webhook_id.hex}"
+        expected_secret = hashlib.sha256(
+            f"{legacy_id}{signing_secret}".encode()
+        ).hexdigest()
+
+        # Create a mock webhook with the ID attribute
+        webhook = MagicMock(spec=Webhook)
+        webhook.id = webhook_id
+        # Call the actual property implementation
+        secret_getter = Webhook.secret.fget
+        assert secret_getter is not None
+        with patch.dict("os.environ", {"TRACECAT__SIGNING_SECRET": signing_secret}):
+            actual_secret = secret_getter(webhook)
+
+        assert actual_secret == expected_secret, (
+            f"Webhook secret should use legacy 'wh-{{uuid.hex}}' format. "
+            f"Expected hash of '{legacy_id}{signing_secret}', "
+            f"got different hash. This would break existing webhook URLs."
+        )
+
+    def test_secret_not_using_raw_uuid_format(self):
+        """Verify the secret is NOT computed using raw UUID string format.
+
+        This is a regression test to catch if someone accidentally changes
+        the secret computation to use the UUID directly without the 'wh-' prefix.
+        """
+
+        webhook_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        signing_secret = "test-signing-secret"
+
+        # Wrong: hash computed with raw UUID string (would break existing URLs)
+        wrong_secret = hashlib.sha256(
+            f"{webhook_id}{signing_secret}".encode()
+        ).hexdigest()
+
+        # Create a mock webhook with the ID attribute
+        webhook = MagicMock(spec=Webhook)
+        webhook.id = webhook_id
+        # Call the actual property implementation
+        secret_getter = Webhook.secret.fget
+        assert secret_getter is not None
+        with patch.dict("os.environ", {"TRACECAT__SIGNING_SECRET": signing_secret}):
+            actual_secret = secret_getter(webhook)
+
+        assert actual_secret != wrong_secret, (
+            "Webhook secret must NOT use raw UUID format. "
+            "This would break backward compatibility with existing webhook URLs."
+        )

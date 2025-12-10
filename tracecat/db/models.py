@@ -764,7 +764,9 @@ class Webhook(WorkspaceModel):
         secret = os.getenv("TRACECAT__SIGNING_SECRET")
         if not secret:
             raise ValueError("TRACECAT__SIGNING_SECRET is not set")
-        return hashlib.sha256(f"{self.id}{secret}".encode()).hexdigest()
+        # Using legacy format to prevent webhook url changes
+        id_part = f"wh-{self.id.hex}"
+        return hashlib.sha256(f"{id_part}{secret}".encode()).hexdigest()
 
     @property
     def url(self) -> str:
