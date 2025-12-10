@@ -940,7 +940,6 @@ class RegistryRepository(OrganizationModel):
         "RegistryVersion",
         back_populates="repository",
         cascade="all, delete",
-        lazy="selectin",
     )
 
 
