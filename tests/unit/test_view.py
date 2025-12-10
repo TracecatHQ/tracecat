@@ -56,11 +56,11 @@ def build_actions(graph: RFGraph) -> list[ActionStatement]:
     # Use node ID as ref for testing purposes
     return [
         ActionStatement(
-            ref=node.id,
+            ref=str(node.id),
             action=node.data.type,
             args=node.data.args,
             depends_on=sorted(
-                graph.node_map[nid].id for nid in graph.dep_list[node.id]
+                str(graph.node_map[nid].id) for nid in graph.dep_list[node.id]
             ),
         )
         for node in graph.action_nodes()
