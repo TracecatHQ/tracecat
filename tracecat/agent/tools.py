@@ -201,8 +201,8 @@ async def create_tool_from_registry(
     if not description:
         raise ValueError(f"Action '{action_name}' has no description")
 
-    # Set function signature and annotations
-    tool_func.__signature__ = sig.signature
+    # Set function signature and annotations for proper introspection
+    tool_func.__signature__ = sig.signature  # type: ignore[attr-defined]
     tool_func.__annotations__ = sig.annotations
 
     # Generate Google-style docstring, excluding fixed args
