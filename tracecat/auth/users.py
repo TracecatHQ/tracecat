@@ -13,6 +13,7 @@ from fastapi_users import (
     InvalidPasswordException,
     UUIDIDMixin,
     models,
+    schemas,
 )
 from fastapi_users.authentication import (
     AuthenticationBackend,
@@ -73,11 +74,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def update(
         self,
-        user_update: UserUpdate,
+        user_update: schemas.BaseUserUpdate,
         user: User,
         safe: bool = False,
         request: Request | None = None,
-    ):
+    ) -> User:
         """Update a user with user privileges."""
         # NOTE(security): Prevent unprivileged users from changing role or is_superuser fields
         denylist = ("role", "is_superuser")
@@ -95,14 +96,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def admin_update(
         self,
-        user_update: UserUpdate,
+        user_update: schemas.BaseUserUpdate,
         user: User,
         request: Request | None = None,
-    ):
+    ) -> User:
         """Update a user with admin privileges. This is only used to bootstrap the first user."""
         return await super().update(user_update, user, safe=False, request=request)
 
-    async def validate_password(self, password: str, user: User) -> None:
+    async def validate_password(
+        self, password: str, user: schemas.BaseUserCreate | User
+    ) -> None:
         if len(password) < config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH:
             raise InvalidPasswordException(
                 f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
@@ -140,7 +143,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
-    async def oauth_callback(
+    async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         oauth_name: str,
         access_token: str,
@@ -154,7 +157,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         is_verified_by_default: bool = False,
     ) -> User:
         await self.validate_email(account_email)
-        return await super().oauth_callback(  # type: ignore
+        return await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,
             access_token,
             account_id,
@@ -168,7 +171,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def create(
         self,
-        user_create: UserCreate,
+        user_create: schemas.BaseUserCreate,
         safe: bool = False,
         request: Request | None = None,
     ) -> User:
