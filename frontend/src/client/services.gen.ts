@@ -1668,6 +1668,37 @@ export const workflowExecutionsTerminateWorkflowExecution = (
 }
 
 /**
+ * Batch Update Positions
+ * Batch update action and trigger positions.
+ *
+ * This endpoint updates all positions in a single transaction for atomicity,
+ * preventing race conditions from concurrent position updates.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const actionsBatchUpdatePositions = (
+  data: ActionsBatchUpdatePositionsData
+): CancelablePromise<ActionsBatchUpdatePositionsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/actions/batch-positions",
+    query: {
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Actions
  * List all actions for a workflow.
  * @param data The data for the request.
@@ -1802,37 +1833,6 @@ export const actionsDeleteAction = (
       workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
     },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Batch Update Positions
- * Batch update action and trigger positions.
- *
- * This endpoint updates all positions in a single transaction for atomicity,
- * preventing race conditions from concurrent position updates.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.workflowId
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const actionsBatchUpdatePositions = (
-  data: ActionsBatchUpdatePositionsData
-): CancelablePromise<ActionsBatchUpdatePositionsResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/actions/batch-positions",
-    query: {
-      workspace_id: data.workspaceId,
-      workflow_id: data.workflowId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

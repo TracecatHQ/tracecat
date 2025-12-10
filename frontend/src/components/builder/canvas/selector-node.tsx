@@ -355,6 +355,10 @@ function ActionCommandGroup({
             )
           } catch (retryError) {
             console.error("Failed to persist node after retry:", retryError)
+            toast({
+              title: "Failed to create new node",
+              description: "Could not create new node after retry.",
+            })
           }
         } else {
           console.error("An error occurred while creating a new node:", error)

@@ -5859,6 +5859,14 @@ export type WorkflowExecutionsTerminateWorkflowExecutionData = {
 
 export type WorkflowExecutionsTerminateWorkflowExecutionResponse = void
 
+export type ActionsBatchUpdatePositionsData = {
+  requestBody: BatchPositionUpdate
+  workflowId: string
+  workspaceId: string
+}
+
+export type ActionsBatchUpdatePositionsResponse = void
+
 export type ActionsListActionsData = {
   workflowId: string
   workspaceId: string
@@ -5897,14 +5905,6 @@ export type ActionsDeleteActionData = {
 }
 
 export type ActionsDeleteActionResponse = void
-
-export type ActionsBatchUpdatePositionsData = {
-  requestBody: BatchPositionUpdate
-  workflowId: string
-  workspaceId: string
-}
-
-export type ActionsBatchUpdatePositionsResponse = void
 
 export type WorkflowsListTagsData = {
   workflowId: string
@@ -8023,6 +8023,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/actions/batch-positions": {
+    post: {
+      req: ActionsBatchUpdatePositionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/actions": {
     get: {
       req: ActionsListActionsData
@@ -8080,21 +8095,6 @@ export type $OpenApiTs = {
     }
     delete: {
       req: ActionsDeleteActionData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/actions/batch-positions": {
-    post: {
-      req: ActionsBatchUpdatePositionsData
       res: {
         /**
          * Successful Response

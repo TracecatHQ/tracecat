@@ -308,6 +308,7 @@ async def get_workflow(
         error_handler=workflow.error_handler,
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,
+        graph_version=workflow.graph_version,
     )
 
 

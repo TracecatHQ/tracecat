@@ -40,9 +40,6 @@ class WorkflowGraphService(BaseWorkspaceService):
         "delete_node",
         "add_edge",
         "delete_edge",
-        "move_nodes",
-        "update_trigger_position",
-        "update_viewport",
     }
 
     async def get_graph(self, workflow_id: WorkflowID) -> GraphResponse | None:

@@ -26,6 +26,26 @@ from tracecat.workflow.actions.service import WorkflowActionService
 router = APIRouter(prefix="/actions", tags=["actions"])
 
 
+@router.post("/batch-positions", status_code=status.HTTP_204_NO_CONTENT)
+async def batch_update_positions(
+    role: WorkspaceUserRole,
+    workflow_id: AnyWorkflowIDPath,
+    params: BatchPositionUpdate,
+    session: AsyncDBSession,
+) -> None:
+    """Batch update action and trigger positions.
+
+    This endpoint updates all positions in a single transaction for atomicity,
+    preventing race conditions from concurrent position updates.
+    """
+    svc = WorkflowActionService(session, role=role)
+    await svc.batch_update_positions(
+        workflow_id=workflow_id,
+        action_positions=params.actions,
+        trigger_position=params.trigger_position,
+    )
+
+
 @router.get("")
 async def list_actions(
     role: WorkspaceUserRole,
@@ -179,23 +199,3 @@ async def delete_action(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
     await svc.delete_action(action)
-
-
-@router.post("/batch-positions", status_code=status.HTTP_204_NO_CONTENT)
-async def batch_update_positions(
-    role: WorkspaceUserRole,
-    workflow_id: AnyWorkflowIDPath,
-    params: BatchPositionUpdate,
-    session: AsyncDBSession,
-) -> None:
-    """Batch update action and trigger positions.
-
-    This endpoint updates all positions in a single transaction for atomicity,
-    preventing race conditions from concurrent position updates.
-    """
-    svc = WorkflowActionService(session, role=role)
-    await svc.batch_update_positions(
-        workflow_id=workflow_id,
-        action_positions=params.actions,
-        trigger_position=params.trigger_position,
-    )

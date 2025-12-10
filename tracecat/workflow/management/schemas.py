@@ -284,7 +284,7 @@ class AddNodePayload(Schema):
     description: str | None = Field(default="", description="Action description")
     inputs: str | None = Field(
         default=None,
-        description="YAML inputs for the action. Defaults to empty string.",
+        description="YAML inputs for the action. Defaults to None.",
     )
     control_flow: dict[str, Any] | None = Field(
         default=None,
