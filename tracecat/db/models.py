@@ -507,6 +507,14 @@ class WorkflowDefinition(WorkspaceModel):
         ForeignKey("workflow.id", ondelete="CASCADE"),
     )
     content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True, default=dict)
+    registry_lock: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Frozen registry versions at commit time. "
+            "Maps repository origin to version string."
+        ),
+    )
 
     workflow: Mapped[Workflow] = relationship(back_populates="definitions")
 
