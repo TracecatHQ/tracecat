@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -88,9 +88,19 @@ from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
+# Global readiness state - set to True after lifespan startup completes
+_app_ready = False
+
+
+def is_app_ready() -> bool:
+    """Check if the API has completed startup."""
+    return _app_ready
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _app_ready
+
     # Temporal
     # Run in background to avoid blocking startup
     asyncio.create_task(add_temporal_search_attributes())
@@ -113,7 +123,15 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
+
+    # Mark app as ready after all startup tasks complete
+    _app_ready = True
+    logger.info("API startup complete, marking as ready")
+
     yield
+
+    # Mark app as not ready during shutdown
+    _app_ready = False
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):
@@ -388,3 +406,18 @@ async def info(session: AsyncDBSession) -> AppInfo:
 @app.get("/health", tags=["public"])
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
+
+
+@app.get("/ready", tags=["public"])
+def check_ready() -> dict[str, str]:
+    """Readiness check - returns 200 only after startup is complete.
+
+    Use this endpoint for Docker healthchecks to ensure the API has finished
+    initializing (including registry sync) before accepting traffic.
+    """
+    if not is_app_ready():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API is not ready yet",
+        )
+    return {"status": "ready"}
