@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeGuard
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -15,7 +15,7 @@ from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.enums import EdgeType
 from tracecat.exceptions import TracecatValidationError
-from tracecat.identifiers import ActionID, action
+from tracecat.identifiers import ActionID
 
 if TYPE_CHECKING:
     from tracecat.db.models import Action, Workflow
@@ -49,7 +49,7 @@ class TSObject(BaseModel):
 class UDFNodeData(TSObject):
     is_configured: bool = False
     number_of_events: int = 0
-    title: str = Field(description="Action title, used to generate the action ref")
+    status: Literal["online", "offline"] = Field(default="offline")
     type: str = Field(description="UDF type")
     args: dict[str, Any] = Field(default_factory=dict, description="Action arguments")
 
@@ -64,19 +64,15 @@ class TriggerNodeData(TSObject):
     schedules: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class RFNode[T: (UDFNodeData | TriggerNodeData)](TSObject):
+class BaseRFNode[T: (UDFNodeData | TriggerNodeData)](TSObject):
     """Base React Flow Graph Node."""
 
     position: Position = Field(default_factory=Position)
     position_absolute: Position = Field(default_factory=Position)
     data: T
 
-    @property
-    def ref(self) -> str:
-        return action.ref(self.data.title)
 
-
-class TriggerNode(RFNode[TriggerNodeData]):
+class TriggerNode(BaseRFNode[TriggerNodeData]):
     """React Flow Graph Trigger Node."""
 
     type: Literal["trigger"] = Field(default="trigger", frozen=True)
@@ -88,7 +84,7 @@ class TriggerNode(RFNode[TriggerNodeData]):
     data: TriggerNodeData = Field(default_factory=TriggerNodeData)
 
 
-class UDFNode(RFNode[UDFNodeData]):
+class UDFNode(BaseRFNode[UDFNodeData]):
     """React Flow Graph UDF Node."""
 
     type: Literal["udf"] = Field(default="udf", frozen=True)
@@ -167,7 +163,7 @@ class RFGraph(TSObject):
 
     @property
     def trigger(self) -> TriggerNode:
-        triggers = [node for node in self.nodes if _is_trigger_node(node)]
+        triggers = [node for node in self.nodes if node.type == "trigger"]
         if len(triggers) != 1:
             raise TracecatValidationError(
                 f"Expected 1 trigger node, got {len(triggers)}"
@@ -233,7 +229,7 @@ class RFGraph(TSObject):
 
     def action_nodes(self) -> list[UDFNode]:
         """Return all `udf` (action) type nodes."""
-        return [node for node in self.nodes if _is_udf_node(node)]
+        return [node for node in self.nodes if node.type == "udf"]
 
     @classmethod
     def from_actions(cls, workflow: Workflow, actions: list[Action]) -> Self:
@@ -262,7 +258,7 @@ class RFGraph(TSObject):
             node = UDFNode(
                 id=act.id,
                 position=Position(x=act.position_x, y=act.position_y),
-                data=UDFNodeData(title=act.title, type=act.type),
+                data=UDFNodeData(type=act.type),
             )
             nodes.append(node)
 
@@ -302,11 +298,3 @@ class RFGraph(TSObject):
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
         return RFGraph.model_validate(initial_data)
-
-
-def _is_trigger_node(node: NodeVariant) -> TypeGuard[TriggerNode]:
-    return node.type == "trigger"
-
-
-def _is_udf_node(node: NodeVariant) -> TypeGuard[UDFNode]:
-    return node.type == "udf"

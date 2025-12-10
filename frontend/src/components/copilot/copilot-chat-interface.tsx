@@ -1,10 +1,11 @@
 "use client"
 
-import { formatDistanceToNow } from "date-fns"
-import { BoxIcon, ChevronDown, Loader2, Plus } from "lucide-react"
+import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
-import type { AgentPresetRead, ChatRead, ChatReadVercel } from "@/client"
+import type { AgentPresetRead, ChatReadVercel } from "@/client"
+import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
+import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
@@ -19,20 +20,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useAgentPreset, useAgentPresets } from "@/hooks/use-agent-presets"
 import {
   parseChatError,
   useCreateChat,
@@ -40,6 +33,7 @@ import {
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
+import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -77,43 +71,31 @@ export function CopilotChatInterface({
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
-    workspaceId,
-    { enabled: true }
-  )
-
   const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: selectedChatId,
     workspaceId,
   })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
-  const presetOptions = presets ?? []
-  const effectivePresetId = chat?.agent_preset_id ?? null
-
-  const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
-    useAgentPreset(workspaceId, effectivePresetId, {
-      enabled: Boolean(effectivePresetId),
-    })
-
-  const handlePresetChange = async (nextPresetId: string | null) => {
-    if (!selectedChatId) return
-    const currentPresetId = chat?.agent_preset_id ?? null
-    if (nextPresetId === currentPresetId) return
-
-    try {
-      await updateChat({
-        chatId: selectedChatId,
-        update: { agent_preset_id: nextPresetId },
-      })
-    } catch (error) {
-      console.error("Failed to update chat preset:", error)
-      toast({
-        title: "Failed to update preset",
-        description: parseChatError(error),
-      })
-    }
-  }
+  const {
+    presets: presetOptions,
+    presetsIsLoading,
+    presetsError,
+    selectedPreset,
+    selectedPresetId: effectivePresetId,
+    handlePresetChange,
+    presetMenuLabel,
+    presetMenuDisabled,
+    showPresetSpinner,
+  } = useChatPresetManager({
+    workspaceId,
+    chat,
+    updateChat,
+    isUpdatingChat: isUpdating,
+    chatLoading,
+    selectedChatId,
+    enabled: true,
+  })
 
   // Auto-create a chat session if none exists
   const autoCreateChat = useCallback(async () => {
@@ -166,12 +148,6 @@ export function CopilotChatInterface({
     setSelectedChatId(chatId)
   }
 
-  const presetMenuLabel = selectedPreset?.name ?? "No preset"
-  const presetMenuDisabled = !selectedChatId || chatLoading || isUpdating
-  const showPresetSpinner =
-    presetsIsLoading || isUpdating || chatLoading || selectedPresetLoading
-  const hasPresetOptions = presetOptions.length > 0
-
   // Show loading while chats are being fetched or auto-created
   if (chatsLoading || (autoCreating && !selectedChatId)) {
     return (
@@ -188,130 +164,27 @@ export function CopilotChatInterface({
         <div className="flex items-center justify-between">
           {/* Conversations dropdown */}
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="px-2">
-                  Conversations
-                  <ChevronDown className="size-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                {chatsError ? (
-                  <DropdownMenuItem disabled>
-                    <span className="text-red-600">Failed to load chats</span>
-                  </DropdownMenuItem>
-                ) : (
-                  <ScrollArea className="max-h-64">
-                    {chats?.map((c: ChatRead) => (
-                      <DropdownMenuItem
-                        key={c.id}
-                        onClick={() => handleSelectChat(c.id)}
-                        className={cn(
-                          "flex items-center justify-between cursor-pointer",
-                          selectedChatId === c.id && "bg-accent"
-                        )}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {c.title}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(c.created_at), {
-                              addSuffix: true,
-                            })}
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </ScrollArea>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ChatHistoryDropdown
+              chats={chats}
+              isLoading={chatsLoading}
+              error={chatsError}
+              selectedChatId={selectedChatId}
+              onSelectChat={handleSelectChat}
+            />
           </div>
 
           {/* Right-side controls: preset selector + new chat */}
           <div className="flex items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="px-2"
-                  disabled={presetMenuDisabled}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <BoxIcon className="size-3 text-muted-foreground" />
-                    <span
-                      className="max-w-[11rem] truncate"
-                      title={presetMenuLabel}
-                    >
-                      {presetMenuLabel}
-                    </span>
-                  </div>
-                  {showPresetSpinner ? (
-                    <Loader2 className="ml-1 size-3 animate-spin text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="ml-1 size-3" />
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                {presetsIsLoading ? (
-                  <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading presets…
-                  </div>
-                ) : presetsError ? (
-                  <DropdownMenuItem disabled>
-                    <span className="text-red-600">Failed to load presets</span>
-                  </DropdownMenuItem>
-                ) : (
-                  <ScrollArea className="max-h-64">
-                    <div className="py-1">
-                      <DropdownMenuItem
-                        onClick={() => handlePresetChange(null)}
-                        className={cn(
-                          "flex cursor-pointer flex-col items-start gap-1 py-2",
-                          effectivePresetId === null && "bg-accent"
-                        )}
-                      >
-                        <span className="text-sm font-medium">No preset</span>
-                        <span className="text-xs text-muted-foreground">
-                          Use workspace default agent instructions.
-                        </span>
-                      </DropdownMenuItem>
-                      {hasPresetOptions ? (
-                        presetOptions.map((preset) => (
-                          <DropdownMenuItem
-                            key={preset.id}
-                            onClick={() => handlePresetChange(preset.id)}
-                            className={cn(
-                              "flex cursor-pointer flex-col items-start gap-1 py-2",
-                              effectivePresetId === preset.id && "bg-accent"
-                            )}
-                          >
-                            <span className="text-sm font-medium">
-                              {preset.name}
-                            </span>
-                            {preset.description && (
-                              <span className="text-xs text-muted-foreground">
-                                {preset.description}
-                              </span>
-                            )}
-                          </DropdownMenuItem>
-                        ))
-                      ) : (
-                        <DropdownMenuItem disabled className="py-2">
-                          <span className="text-xs text-muted-foreground">
-                            No presets available
-                          </span>
-                        </DropdownMenuItem>
-                      )}
-                    </div>
-                  </ScrollArea>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <AgentPresetMenu
+              label={presetMenuLabel}
+              presets={presetOptions}
+              presetsIsLoading={presetsIsLoading}
+              presetsError={presetsError}
+              selectedPresetId={effectivePresetId}
+              disabled={presetMenuDisabled}
+              showSpinner={showPresetSpinner}
+              onSelect={(presetId) => void handlePresetChange(presetId)}
+            />
 
             {/* New chat button */}
             <AlertDialog

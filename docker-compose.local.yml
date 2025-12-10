@@ -14,10 +14,13 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
+  # All services use the production target from the multi-stage Dockerfile
+  # to match the TRACECAT__APP_ENV=production environment variable
   api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     container_name: api
     restart: unless-stopped
     networks:
@@ -89,11 +92,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     restart: unless-stopped
     networks:
       - core
@@ -141,6 +151,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     restart: unless-stopped
     networks:
       - core-db
@@ -174,6 +185,7 @@ services:
       MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
       MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
       # Sandbox
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
       TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache

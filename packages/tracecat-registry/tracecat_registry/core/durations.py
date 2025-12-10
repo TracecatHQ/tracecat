@@ -7,9 +7,9 @@ if is_feature_enabled(FeatureFlag.CASE_DURATIONS):
     logger.info(
         "Case durations feature flag is enabled. Enabling case durations integration."
     )
-    from tracecat_ee.cases.durations import list_case_durations
+    from tracecat_ee.cases.durations import get_case_metrics
 else:
-    list_case_durations = None
+    get_case_metrics = None
     logger.info(
         "Case durations feature flag is not enabled. "
         "Skipping case durations integration."

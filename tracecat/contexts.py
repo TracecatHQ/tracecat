@@ -18,6 +18,7 @@ __all__ = [
     "ctx_interaction",
     "ctx_stream_id",
     "ctx_session",
+    "ctx_client_ip",
     "get_env",
 ]
 
@@ -27,6 +28,7 @@ ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)  # ty
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )
+ctx_client_ip: ContextVar[str | None] = ContextVar("client-ip", default=None)
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)

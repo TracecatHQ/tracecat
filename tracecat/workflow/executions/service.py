@@ -22,6 +22,7 @@ from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Interaction
@@ -687,13 +688,14 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
         )
-        _ = asyncio.create_task(coro)
+        _ = asyncio.ensure_future(coro)
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
             wf_id=wf_id,
             wf_exec_id=wf_exec_id,
         )
 
+    @audit_log(resource_type="workflow_execution", action="create")
     async def create_workflow_execution(
         self,
         dsl: DSLInput,

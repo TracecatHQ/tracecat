@@ -34,7 +34,7 @@ class ExprValidationContext(BaseModel):
     trigger_context: Any = Field(default_factory=dict)
 
 
-class ExprValidator(BaseExprValidator):
+class ExprValidator(BaseExprValidator[ValidationDetail]):
     """Expression validator for workflow actions."""
 
     _visitor_name = "ExprValidator"
@@ -379,11 +379,11 @@ class ExprValidator(BaseExprValidator):
                 " Please use `var.my_variable`",
                 type=ExprType.ITERATOR,
             )
-        blacklist = ("local_vars", "local_vars_assignment")
-        if collection.data in blacklist:
+        denylist = ("local_vars", "local_vars_assignment")
+        if collection.data in denylist:
             self.add(
                 status="error",
-                msg=f"You cannot use {', '.join(repr(e) for e in blacklist)} expressions in the `for_each` collection.",
+                msg=f"You cannot use {', '.join(repr(e) for e in denylist)} expressions in the `for_each` collection.",
                 type=ExprType.ITERATOR,
             )
 
@@ -395,7 +395,9 @@ class TemplateActionValidationContext(BaseModel):
     step_refs: set[str]  # Valid step references
 
 
-class TemplateActionExprValidator(BaseExprValidator):
+class TemplateActionExprValidator(
+    BaseExprValidator[TemplateActionExprValidationResult]
+):
     """Validator for template action expressions."""
 
     _visitor_name = "TemplateActionExprValidator"
@@ -408,7 +410,7 @@ class TemplateActionExprValidator(BaseExprValidator):
     ) -> None:
         super().__init__(**kwargs)
         self._context = validation_context
-        self._results: list[TemplateActionExprValidationResult] = []  # Type override
+        self._results: list[TemplateActionExprValidationResult] = []
 
     @override
     def results(self) -> Iterator[TemplateActionExprValidationResult]:

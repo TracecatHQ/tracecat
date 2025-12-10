@@ -446,9 +446,9 @@ def iter_product(*iterables: Sequence[Any]) -> list[tuple[Any, ...]]:
     return list(itertools.product(*iterables))
 
 
-def create_range(start: int, end: int, step: int = 1) -> range:
+def create_range(start: int, end: int, step: int = 1) -> list[int]:
     """Create a range of integers from start to end (exclusive), with a step size."""
-    return range(start, end, step)
+    return list(range(start, end, step))
 
 
 # Dictionary functions

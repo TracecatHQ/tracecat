@@ -90,7 +90,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
+    def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
         """No-op gather action activity."""
         return input.exec_context.get(ExprContext.ACTIONS, {}).get(input.task.ref)
 
@@ -185,7 +185,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def parse_wait_until_activity(
+    def parse_wait_until_activity(
         wait_until: str,
     ) -> str | None:
         """Parse the wait until datetime. We wrap this in an activity to avoid

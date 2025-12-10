@@ -22,6 +22,7 @@ import {
   type AgentSettingsRead,
   type ApiError,
   type AppSettingsRead,
+  type AuditSettingsRead,
   type AuthSettingsRead,
   actionsDeleteAction,
   actionsGetAction,
@@ -166,6 +167,7 @@ import {
   type SessionRead,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
+  type SettingsUpdateAuditSettingsData,
   type SettingsUpdateAuthSettingsData,
   type SettingsUpdateGitSettingsData,
   type SettingsUpdateOauthSettingsData,
@@ -180,12 +182,14 @@ import {
   secretsUpdateSecretById,
   settingsGetAgentSettings,
   settingsGetAppSettings,
+  settingsGetAuditSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
+  settingsUpdateAuditSettings,
   settingsUpdateAuthSettings,
   settingsUpdateGitSettings,
   settingsUpdateOauthSettings,
@@ -2597,6 +2601,64 @@ export function useOrgAppSettings() {
     updateAppSettings,
     updateAppSettingsIsPending,
     updateAppSettingsError,
+  }
+}
+
+export function useOrgAuditSettings() {
+  const queryClient = useQueryClient()
+
+  // Get Audit settings
+  const {
+    data: auditSettings,
+    isLoading: auditSettingsIsLoading,
+    error: auditSettingsError,
+  } = useQuery<AuditSettingsRead>({
+    queryKey: ["org-audit-settings"],
+    queryFn: async () => await settingsGetAuditSettings(),
+  })
+
+  // Update Audit settings
+  const {
+    mutateAsync: updateAuditSettings,
+    isPending: updateAuditSettingsIsPending,
+    error: updateAuditSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAuditSettingsData) =>
+      await settingsUpdateAuditSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-audit-settings"] })
+      toast({
+        title: "Updated audit settings",
+        description: "Audit settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update audit settings", error)
+          toast({
+            title: "Failed to update audit settings",
+            description: `An error occurred while updating the audit settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    // Update
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+    updateAuditSettingsError,
   }
 }
 

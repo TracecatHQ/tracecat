@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,7 @@ from tracecat.logger import logger
 class BaseService:
     """Base class for services."""
 
-    service_name: str
+    service_name: ClassVar[str]
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         self.session = session
@@ -26,9 +26,21 @@ class BaseService:
     async def with_session(
         cls,
         role: Role | None = None,
+        *,
+        session: AsyncSession | None = None,
     ) -> AsyncGenerator[Self, None]:
-        async with get_async_session_context_manager() as session:
+        """Create a service instance with a database session.
+
+        Args:
+            role: Optional role for authorization context.
+            session: Optional existing session. If provided, caller is responsible
+                for managing its lifecycle (it won't be closed by this context manager).
+        """
+        if session is not None:
             yield cls(session, role=role)
+        else:
+            async with get_async_session_context_manager() as session:
+                yield cls(session, role=role)
 
     @classmethod
     def get_activities(cls) -> list[Callable[..., Any]]:

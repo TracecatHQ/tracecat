@@ -8,6 +8,8 @@ from tracecat.integrations.providers.google import (
     GoogleServiceAccountOAuthProvider,
     GoogleSheetsOAuthProvider,
 )
+from tracecat.integrations.providers.google.drive import GoogleDriveACProvider
+from tracecat.integrations.providers.google.gmail import GoogleGmailACProvider
 from tracecat.integrations.providers.linear.mcp import LinearMCPProvider
 from tracecat.integrations.providers.microsoft import (
     AzureLogAnalyticsACProvider,
@@ -38,6 +40,8 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
     GitHubMCPProvider,
     GoogleDocsOAuthProvider,
+    GoogleDriveACProvider,
+    GoogleGmailACProvider,
     GoogleServiceAccountOAuthProvider,
     GoogleSheetsOAuthProvider,
     LinearMCPProvider,

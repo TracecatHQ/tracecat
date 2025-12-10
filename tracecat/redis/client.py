@@ -2,8 +2,8 @@
 
 import asyncio
 import os
-from collections.abc import Coroutine
-from typing import Any, cast
+from collections.abc import Awaitable
+from typing import Any
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
@@ -219,11 +219,17 @@ class RedisClient:
         """Check if Redis connection is alive."""
         try:
             client = await self._get_client()
-            # Cast needed due to redis library type stub limitations
-            await cast(Coroutine[Any, Any, bool], client.ping())
-            return True
+            ping_result = client.ping()
+            return await self._awaitable_to_bool(ping_result)
         except Exception:
             return False
+
+    async def _awaitable_to_bool(self, value: bool | Awaitable[bool]) -> bool:
+        """Return awaited bool regardless of sync/async Redis ping implementation."""
+        if isinstance(value, Awaitable):
+            resolved = await value
+            return bool(resolved)
+        return bool(value)
 
     async def close(self) -> None:
         """Close the Redis connection."""

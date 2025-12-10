@@ -52,8 +52,8 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
         setup_guide_url="https://developers.google.com/identity/protocols/oauth2/service-account",
         troubleshooting_url="https://cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys",
     )
-    default_authorization_endpoint: ClassVar[str] = GOOGLE_AUTH_URL
-    default_token_endpoint: ClassVar[str] = GOOGLE_TOKEN_URL
+    default_authorization_endpoint: ClassVar[str | None] = GOOGLE_AUTH_URL
+    default_token_endpoint: ClassVar[str | None] = GOOGLE_TOKEN_URL
 
     def __init__(
         self,

@@ -2211,6 +2211,47 @@ distinguish multiple files.`,
   title: "AudioUrl",
 } as const
 
+export const $AuditSettingsRead = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+    },
+  },
+  type: "object",
+  required: ["audit_webhook_url"],
+  title: "AuditSettingsRead",
+  description: "Settings for audit logging.",
+} as const
+
+export const $AuditSettingsUpdate = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+      description:
+        "Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    },
+  },
+  type: "object",
+  title: "AuditSettingsUpdate",
+  description: "Settings for audit logging.",
+} as const
+
 export const $AuthSettingsRead = {
   properties: {
     auth_basic_enabled: {
@@ -6539,6 +6580,7 @@ export const $FeatureFlag = {
     "agent-presets",
     "case-durations",
     "case-tasks",
+    "registry-sync-v2",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
@@ -10923,6 +10965,12 @@ export const $Role = {
       ],
       title: "Workspace Id",
     },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+      default: "00000000-0000-0000-0000-000000000000",
+    },
     workspace_role: {
       anyOf: [
         {
@@ -13724,6 +13772,7 @@ export const $TemplateActionValidationErrorType = {
     "ACTION_NAME_CONFLICT",
     "STEP_VALIDATION_ERROR",
     "EXPRESSION_VALIDATION_ERROR",
+    "SERIALIZATION_ERROR",
   ],
   title: "TemplateActionValidationErrorType",
 } as const

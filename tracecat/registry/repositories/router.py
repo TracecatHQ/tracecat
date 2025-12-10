@@ -14,6 +14,7 @@ from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionRead
@@ -100,18 +101,37 @@ async def sync_registry_repository(
     actions_service = RegistryActionsService(session, role)
     last_synced_at = datetime.now(UTC)
     target_commit_sha = sync_params.target_commit_sha if sync_params else None
+
+    # Check if v2 sync is enabled via feature flag
+    use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
+
     try:
-        # Update the registry actions table
-        commit_sha = await actions_service.sync_actions_from_repository(
-            repo, target_commit_sha=target_commit_sha
-        )
-        logger.info(
-            "Synced repository",
-            origin=repo.origin,
-            commit_sha=commit_sha,
-            target_commit_sha=target_commit_sha,
-            last_synced_at=last_synced_at,
-        )
+        if use_v2_sync:
+            # V2 sync: creates RegistryVersion, builds wheel, populates RegistryIndex
+            commit_sha, version = await actions_service.sync_actions_from_repository_v2(
+                repo, target_commit_sha=target_commit_sha
+            )
+            logger.info(
+                "Synced repository (v2)",
+                origin=repo.origin,
+                commit_sha=commit_sha,
+                version=version,
+                target_commit_sha=target_commit_sha,
+                last_synced_at=last_synced_at,
+            )
+        else:
+            # V1 sync: updates RegistryAction table only
+            commit_sha = await actions_service.sync_actions_from_repository(
+                repo, target_commit_sha=target_commit_sha
+            )
+            logger.info(
+                "Synced repository",
+                origin=repo.origin,
+                commit_sha=commit_sha,
+                target_commit_sha=target_commit_sha,
+                last_synced_at=last_synced_at,
+            )
+
         session.expire(repo)
         # Update the registry repository table
         await repos_service.update_repository(

@@ -725,6 +725,10 @@ The sandbox requires:
 - nsjail binary at /usr/local/bin/nsjail
 - Sandbox rootfs at /var/lib/tracecat/sandbox-rootfs
 - SYS_ADMIN capability (configured in docker-compose)
+
+Note: Safe executor fallback tests are in tests/unit/test_safe_executor_integration.py
+and tests/unit/test_safe_executor.py. These tests run without nsjail and
+will pass on any system with Python 3.12+.
 """
     )
     print("=" * 80 + "\n")

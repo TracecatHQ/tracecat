@@ -547,6 +547,11 @@ class RegistryActionInterface(TypedDict):
     returns: Any
 
 
+RegistryActionInterfaceValidator: TypeAdapter[RegistryActionInterface] = TypeAdapter(
+    RegistryActionInterface
+)
+
+
 class RegistryActionUDFImpl(BaseModel):
     type: Literal["udf"] = Field("udf", frozen=True)
     url: str = Field(..., description="The package url")

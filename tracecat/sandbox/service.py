@@ -1,7 +1,5 @@
 """High-level sandbox service for Python script execution."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import os
@@ -13,9 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from tracecat.config import (
+    TRACECAT__DISABLE_NSJAIL,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
+    TRACECAT__SANDBOX_NSJAIL_PATH,
+    TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
@@ -23,6 +24,7 @@ from tracecat.sandbox.exceptions import (
     SandboxExecutionError,
 )
 from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.safe_executor import SafePythonExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
@@ -44,7 +46,6 @@ class SandboxService:
         self,
         cache_dir: str = TRACECAT__SANDBOX_CACHE_DIR,
     ):
-        self.executor = NsjailExecutor()
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
         self.uv_cache = self.cache_dir / "uv-cache"
@@ -52,6 +53,38 @@ class SandboxService:
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
         self.uv_cache.mkdir(parents=True, exist_ok=True)
+
+        # Initialize executors lazily based on availability
+        self._nsjail_executor: NsjailExecutor | None = None
+        self._safe_executor: SafePythonExecutor | None = None
+
+    def _is_nsjail_available(self) -> bool:
+        """Check if nsjail sandbox is available and configured.
+
+        Returns:
+            True if nsjail can be used, False otherwise.
+        """
+        if TRACECAT__DISABLE_NSJAIL:
+            return False
+
+        nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)
+        rootfs_path = Path(TRACECAT__SANDBOX_ROOTFS_PATH)
+
+        return nsjail_path.exists() and rootfs_path.is_dir()
+
+    @property
+    def nsjail_executor(self) -> NsjailExecutor:
+        """Get the nsjail executor, creating it if needed."""
+        if self._nsjail_executor is None:
+            self._nsjail_executor = NsjailExecutor()
+        return self._nsjail_executor
+
+    @property
+    def safe_executor(self) -> SafePythonExecutor:
+        """Get the safe executor, creating it if needed."""
+        if self._safe_executor is None:
+            self._safe_executor = SafePythonExecutor(cache_dir=str(self.cache_dir))
+        return self._safe_executor
 
     @asynccontextmanager
     async def _create_job_dir(self) -> AsyncIterator[Path]:
@@ -137,7 +170,7 @@ class SandboxService:
         )
 
         # Run installation with network enabled
-        result = await self.executor.execute_install(
+        result = await self.nsjail_executor.execute_install(
             job_dir, cache_key, timeout_seconds
         )
 
@@ -232,11 +265,12 @@ class SandboxService:
         env_vars: dict[str, str] | None = None,
         workspace_id: str | None = None,
     ) -> Any:
-        """Execute a Python script in the nsjail sandbox.
+        """Execute a Python script in a sandbox.
 
-        This is the main entry point for script execution. It handles:
-        1. Package installation (if dependencies specified)
-        2. Script execution with proper isolation
+        This is the main entry point for script execution. It automatically
+        selects the appropriate executor based on nsjail availability:
+        - If nsjail is available: Uses full OS-level isolation
+        - If nsjail is unavailable: Uses safe executor with AST validation
 
         Args:
             script: Python script content to execute.
@@ -244,10 +278,90 @@ class SandboxService:
             dependencies: List of pip packages to install.
             timeout_seconds: Maximum execution time (default from config).
             allow_network: Whether to allow network access during execution.
+                Note: Without nsjail, this only controls import validation.
             env_vars: Environment variables to set in the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
                 When provided, package caches are scoped to the workspace,
                 preventing cross-workspace package poisoning attacks.
+
+        Returns:
+            The return value of the script's main function.
+
+        Raises:
+            SandboxExecutionError: If script execution fails.
+            SandboxValidationError: If script fails validation (safe executor only).
+            PackageInstallError: If package installation fails.
+            SandboxTimeoutError: If execution times out.
+        """
+        if timeout_seconds is None:
+            timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
+
+        # Route to appropriate executor based on nsjail availability
+        if self._is_nsjail_available():
+            logger.debug("Using nsjail executor for script execution")
+            return await self._run_with_nsjail(
+                script=script,
+                inputs=inputs,
+                dependencies=dependencies,
+                timeout_seconds=timeout_seconds,
+                allow_network=allow_network,
+                env_vars=env_vars,
+                workspace_id=workspace_id,
+            )
+        else:
+            logger.info(
+                "nsjail not available, using safe Python executor. "
+                "For full OS-level isolation, set TRACECAT__DISABLE_NSJAIL=false "
+                "and ensure nsjail is installed with the sandbox rootfs."
+            )
+            result = await self.safe_executor.execute(
+                script=script,
+                inputs=inputs,
+                dependencies=dependencies,
+                timeout_seconds=timeout_seconds,
+                allow_network=allow_network,
+                env_vars=env_vars,
+                workspace_id=workspace_id,
+            )
+
+            if not result.success:
+                error_msg = result.error or "Unknown error"
+                logger.error(
+                    "Script execution failed (safe executor)",
+                    error=error_msg,
+                    stdout=result.stdout[:500] if result.stdout else None,
+                    stderr=result.stderr[:500] if result.stderr else None,
+                )
+                raise SandboxExecutionError(error_msg)
+
+            return result.output
+
+    async def _run_with_nsjail(
+        self,
+        script: str,
+        inputs: dict[str, Any] | None = None,
+        dependencies: list[str] | None = None,
+        timeout_seconds: int | None = None,
+        allow_network: bool = False,
+        env_vars: dict[str, str] | None = None,
+        workspace_id: str | None = None,
+    ) -> Any:
+        """Execute a Python script using the nsjail sandbox.
+
+        This method provides full OS-level isolation including:
+        - Network isolation
+        - Filesystem isolation
+        - Process isolation
+        - Resource limits (memory, CPU)
+
+        Args:
+            script: Python script content to execute.
+            inputs: Dictionary of inputs passed to the main function.
+            dependencies: List of pip packages to install.
+            timeout_seconds: Maximum execution time.
+            allow_network: Whether to allow network access during execution.
+            env_vars: Environment variables to set in the sandbox.
+            workspace_id: Optional workspace ID for multi-tenant cache isolation.
 
         Returns:
             The return value of the script's main function.
@@ -298,7 +412,7 @@ class SandboxService:
             )
 
             await self._prepare_execution(job_dir, script, inputs)
-            result = await self.executor.execute(job_dir, config, cache_key)
+            result = await self.nsjail_executor.execute(job_dir, config, cache_key)
 
             if not result.success:
                 # Full Python error is exposed to users

@@ -297,3 +297,23 @@ async def delete_file(key: str, bucket: str) -> None:
             error=str(e),
         )
         raise
+
+
+async def file_exists(key: str, bucket: str) -> bool:
+    """Check if a file exists in S3/MinIO.
+
+    Args:
+        key: The S3 object key
+        bucket: Bucket name (required)
+
+    Returns:
+        True if the file exists, False otherwise
+    """
+    try:
+        async with get_storage_client() as s3_client:
+            await s3_client.head_object(Bucket=bucket, Key=key)
+            return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "404":
+            return False
+        raise

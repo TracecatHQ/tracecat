@@ -29,9 +29,10 @@ class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
         setup_guide_url="https://docs.github.com/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app",
         troubleshooting_url="https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors",
     )
-    default_authorization_endpoint: ClassVar[str] = (
+    # Endpoints stay optional to respect BaseOAuthProvider's nullable defaults
+    default_authorization_endpoint: ClassVar[str | None] = (
         "https://github.com/login/oauth/authorize"
     )
-    default_token_endpoint: ClassVar[str] = (
+    default_token_endpoint: ClassVar[str | None] = (
         "https://github.com/login/oauth/access_token"
     )

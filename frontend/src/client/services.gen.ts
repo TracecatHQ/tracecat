@@ -244,6 +244,7 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
+  PublicCheckReadyResponse,
   PublicIncomingWebhookGetData,
   PublicIncomingWebhookGetResponse,
   PublicIncomingWebhookPostData,
@@ -301,6 +302,7 @@ import type {
   SecretsUpdateSecretByIdResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
+  SettingsGetAuditSettingsResponse,
   SettingsGetAuthSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetOauthSettingsResponse,
@@ -309,6 +311,8 @@ import type {
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
   SettingsUpdateAppSettingsResponse,
+  SettingsUpdateAuditSettingsData,
+  SettingsUpdateAuditSettingsResponse,
   SettingsUpdateAuthSettingsData,
   SettingsUpdateAuthSettingsResponse,
   SettingsUpdateGitSettingsData,
@@ -3763,6 +3767,40 @@ export const settingsUpdateAppSettings = (
 }
 
 /**
+ * Get Audit Settings
+ * @returns AuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetAuditSettings =
+  (): CancelablePromise<SettingsGetAuditSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/audit",
+    })
+  }
+
+/**
+ * Update Audit Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateAuditSettings = (
+  data: SettingsUpdateAuditSettingsData
+): CancelablePromise<SettingsUpdateAuditSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Agent Settings
  * @returns AgentSettingsRead Successful Response
  * @throws ApiError
@@ -6864,5 +6902,22 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
+    })
+  }
+
+/**
+ * Check Ready
+ * Readiness check - returns 200 only after startup is complete.
+ *
+ * Use this endpoint for Docker healthchecks to ensure the API has finished
+ * initializing (including registry sync) before accepting traffic.
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const publicCheckReady =
+  (): CancelablePromise<PublicCheckReadyResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/ready",
     })
   }

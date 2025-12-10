@@ -161,6 +161,21 @@ class AppSettingsUpdate(BaseSettingsGroup):
     )
 
 
+class AuditSettingsRead(BaseSettingsGroup):
+    """Settings for audit logging."""
+
+    audit_webhook_url: str | None
+
+
+class AuditSettingsUpdate(BaseSettingsGroup):
+    """Settings for audit logging."""
+
+    audit_webhook_url: str | None = Field(
+        default=None,
+        description="Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    )
+
+
 class AgentSettingsRead(BaseSettingsGroup):
     agent_default_model: str | None
     agent_fixed_args: str | None

@@ -1,23 +1,11 @@
 "use client"
 
-import { formatDistanceToNow } from "date-fns"
-import {
-  BoxIcon,
-  Check,
-  ChevronDown,
-  ChevronsUpDown,
-  Loader2,
-  MessageSquare,
-  Plus,
-} from "lucide-react"
+import { ChevronDown, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import type {
-  AgentPresetRead,
-  ChatEntity,
-  ChatRead,
-  ChatReadVercel,
-} from "@/client"
+import type { AgentPresetRead, ChatEntity, ChatReadVercel } from "@/client"
+import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
+import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -34,20 +22,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -56,26 +30,18 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
-import { useAgentPreset, useAgentPresets } from "@/hooks/use-agent-presets"
 import {
-  parseChatError,
   useCreateChat,
   useGetChatVercel,
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
+import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -100,7 +66,6 @@ export function ChatInterface({
     chatId
   )
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
-  const [presetMenuOpen, setPresetMenuOpen] = useState(false)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
@@ -111,52 +76,33 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  const presetsEnabled = entityType === "case" || entityType === "copilot"
-  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
-    workspaceId,
-    { enabled: presetsEnabled }
-  )
-
   const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: selectedChatId,
     workspaceId,
   })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
-  const presetOptions = presetsEnabled ? (presets ?? []) : []
-  const effectivePresetId = chat?.agent_preset_id ?? null
+  const presetsEnabled = entityType === "case" || entityType === "copilot"
 
-  // Fetch full preset data when a preset is selected
-  const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
-    useAgentPreset(workspaceId, effectivePresetId, {
-      enabled: presetsEnabled && Boolean(effectivePresetId),
-    })
-
-  const handlePresetChange = async (nextPresetId: string | null) => {
-    if (!selectedChatId) {
-      return
-    }
-    const currentPresetId = chat?.agent_preset_id ?? null
-    if (nextPresetId === currentPresetId) {
-      return
-    }
-
-    try {
-      await updateChat({
-        chatId: selectedChatId,
-        update: {
-          agent_preset_id: nextPresetId,
-        },
-      })
-    } catch (error) {
-      console.error("Failed to update chat preset:", error)
-      toast({
-        title: "Failed to update preset",
-        description: parseChatError(error),
-        variant: "destructive",
-      })
-    }
-  }
+  const {
+    presets: presetOptions,
+    presetsIsLoading,
+    presetsError,
+    selectedPreset,
+    selectedPresetId: effectivePresetId,
+    handlePresetChange,
+    presetMenuLabel,
+    presetMenuDisabled,
+    showPresetSpinner,
+  } = useChatPresetManager({
+    workspaceId,
+    chat,
+    updateChat,
+    isUpdatingChat: isUpdating,
+    chatLoading,
+    selectedChatId,
+    enabled: presetsEnabled,
+  })
 
   // Set the first chat as selected when chats are loaded and no chat is selected
   useEffect(() => {
@@ -186,19 +132,6 @@ export function ChatInterface({
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
   }
-
-  const presetMenuLabel = selectedPreset?.name ?? "No preset"
-  const presetMenuDisabled =
-    !presetsEnabled || !selectedChatId || chatLoading || isUpdating
-  const showPresetSpinner =
-    presetsIsLoading || isUpdating || chatLoading || selectedPresetLoading
-  const hasPresetOptions = presetOptions.length > 0
-
-  useEffect(() => {
-    if (presetMenuDisabled) {
-      setPresetMenuOpen(false)
-    }
-  }, [presetMenuDisabled])
 
   // Show empty state if no chats exist
   if (chats && chats.length === 0) {
@@ -231,52 +164,13 @@ export function ChatInterface({
         <div className="flex items-center justify-between">
           {/* Unified New-chat / History dropdown */}
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="px-2">
-                  Conversations
-                  <ChevronDown className="size-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                {chatsLoading ? (
-                  <div className="p-2">
-                    <div className="space-y-2">
-                      <div className="h-8 bg-muted animate-pulse rounded" />
-                      <div className="h-8 bg-muted animate-pulse rounded" />
-                    </div>
-                  </div>
-                ) : chatsError ? (
-                  <DropdownMenuItem disabled>
-                    <span className="text-red-600">Failed to load chats</span>
-                  </DropdownMenuItem>
-                ) : (
-                  <ScrollArea className="max-h-64">
-                    {chats?.map((chat: ChatRead) => (
-                      <DropdownMenuItem
-                        key={chat.id}
-                        onClick={() => handleSelectChat(chat.id)}
-                        className={cn(
-                          "flex items-center justify-between cursor-pointer",
-                          selectedChatId === chat.id && "bg-accent"
-                        )}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {chat.title}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(chat.created_at), {
-                              addSuffix: true,
-                            })}
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </ScrollArea>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ChatHistoryDropdown
+              chats={chats}
+              isLoading={chatsLoading}
+              error={chatsError}
+              selectedChatId={selectedChatId}
+              onSelectChat={handleSelectChat}
+            />
 
             {/* (left-side plus removed) */}
           </div>
@@ -284,118 +178,17 @@ export function ChatInterface({
           {/* Right-side controls: preset selector + actions */}
           <div className="flex items-center gap-1">
             {presetsEnabled && (
-              <Popover
-                open={presetMenuOpen}
-                onOpenChange={(nextOpen) => {
-                  if (presetMenuDisabled) return
-                  setPresetMenuOpen(nextOpen)
-                }}
-              >
-                <PopoverTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="px-2 justify-between"
-                    role="combobox"
-                    aria-expanded={presetMenuOpen}
-                    disabled={presetMenuDisabled}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BoxIcon className="size-3 text-muted-foreground" />
-                      <span
-                        className="max-w-[11rem] truncate"
-                        title={presetMenuLabel}
-                      >
-                        {presetMenuLabel}
-                      </span>
-                    </div>
-                    {showPresetSpinner ? (
-                      <Loader2 className="ml-1 size-3 animate-spin text-muted-foreground" />
-                    ) : (
-                      <ChevronsUpDown className="ml-1 size-3 opacity-70" />
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-80 p-0">
-                  {presetsIsLoading ? (
-                    <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading presets…
-                    </div>
-                  ) : presetsError ? (
-                    <div className="p-3 text-sm text-red-600">
-                      Failed to load presets
-                    </div>
-                  ) : (
-                    <Command>
-                      <CommandInput
-                        placeholder="Search presets..."
-                        className="h-9"
-                      />
-                      <CommandList className="max-h-64 overflow-y-auto">
-                        <CommandEmpty>No presets found.</CommandEmpty>
-                        <CommandGroup>
-                          <CommandItem
-                            value="no preset"
-                            onSelect={() => {
-                              setPresetMenuOpen(false)
-                              void handlePresetChange(null)
-                            }}
-                            className="flex items-start justify-between gap-2 py-2"
-                          >
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium">
-                                No preset
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                Use workspace default case agent instructions.
-                              </span>
-                            </div>
-                            {effectivePresetId === null ? (
-                              <Check className="mt-1 size-4" />
-                            ) : null}
-                          </CommandItem>
-                          {hasPresetOptions ? (
-                            presetOptions.map((preset) => (
-                              <CommandItem
-                                key={preset.id}
-                                value={`${preset.name} ${preset.description ?? ""}`}
-                                onSelect={() => {
-                                  setPresetMenuOpen(false)
-                                  void handlePresetChange(preset.id)
-                                }}
-                                className="flex items-start justify-between gap-2 py-2"
-                              >
-                                <div className="flex min-w-0 flex-col">
-                                  <span className="truncate text-sm font-medium">
-                                    {preset.name}
-                                  </span>
-                                  {preset.description ? (
-                                    <span className="text-xs text-muted-foreground">
-                                      {preset.description}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                {effectivePresetId === preset.id ? (
-                                  <Check className="mt-1 size-4" />
-                                ) : null}
-                              </CommandItem>
-                            ))
-                          ) : (
-                            <CommandItem
-                              disabled
-                              value="no presets available"
-                              className="py-2 text-xs text-muted-foreground"
-                            >
-                              No presets available
-                            </CommandItem>
-                          )}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  )}
-                </PopoverContent>
-              </Popover>
+              <AgentPresetMenu
+                label={presetMenuLabel}
+                presets={presetOptions}
+                presetsIsLoading={presetsIsLoading}
+                presetsError={presetsError}
+                selectedPresetId={effectivePresetId}
+                disabled={presetMenuDisabled}
+                showSpinner={showPresetSpinner}
+                noPresetDescription="Use workspace default case agent instructions."
+                onSelect={(presetId) => void handlePresetChange(presetId)}
+              />
             )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
