@@ -1,5 +1,6 @@
 import logging
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 import ray
@@ -11,7 +12,7 @@ DEFAULT_NUM_WORKERS = min(os.cpu_count() or 8, 8)
 
 
 @contextmanager
-def setup_ray():
+def setup_ray() -> Iterator[None]:
     context = ray.init(
         namespace="tracecat",
         dashboard_host="0.0.0.0",
