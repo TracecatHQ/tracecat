@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,7 @@ from tracecat.logger import logger
 class BaseService:
     """Base class for services."""
 
-    service_name: str
+    service_name: ClassVar[str]
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         self.session = session
