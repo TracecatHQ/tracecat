@@ -12,7 +12,7 @@ from tracecat.db.engine import get_async_session_context_manager
 @registry.register(
     default_title="List case durations",
     display_group="Cases",
-    description="List case durations as flat records for analytics and data visualization.",
+    description="List case durations as slim time-series metrics for Grafana, Elasticsearch, and Splunk.",
     namespace="core.cases",
 )
 async def list_case_durations(
@@ -21,7 +21,17 @@ async def list_case_durations(
         Doc("List of case IDs to list durations for."),
     ],
 ) -> list[dict[str, Any]]:
-    """List case durations as flat records for the provided case IDs."""
+    """List case durations as OTEL-aligned metrics for the provided case IDs.
+
+    Returns slim metric records optimized for time-series platforms:
+    - timestamp: When the duration was measured (ISO 8601)
+    - metric_name: "case_duration_seconds"
+    - value: Duration in seconds
+    - duration_name: Human-readable name (e.g., "Time to Resolve")
+    - duration_slug: Slugified name for filtering (e.g., "time_to_resolve")
+    - case_priority, case_severity, case_status: Dimensions for groupby
+    - case_id, case_short_id: Identifiers for drill-down
+    """
     if not case_ids:
         return []
 
@@ -45,7 +55,7 @@ async def list_case_durations(
                 raise ValueError(f"Case with ID {case_uuid} not found")
             cases.append(case)
 
-        # Get duration records
-        records = await duration_service.list_records(cases)
+        # Get duration time-series metrics
+        metrics = await duration_service.list_time_series(cases)
 
-    return [record.model_dump(mode="json") for record in records]
+    return [metric.model_dump(mode="json") for metric in metrics]
