@@ -153,23 +153,7 @@ class CaseDurationComputation(BaseModel):
 
 
 class CaseDurationMetric(BaseModel):
-    """OTEL-aligned Gauge metric for time-series platforms.
-
-    Slim, flat record optimized for direct ingestion into Grafana, Elasticsearch,
-    Splunk, and other observability platforms. Follows OpenTelemetry metrics
-    conventions with Prometheus-style naming.
-
-    Design principles:
-    - Flat structure for universal compatibility
-    - Include unit in metric name (case_duration_seconds)
-    - Low-cardinality dimensions for groupby operations
-    - High-cardinality identifiers only for drill-down
-
-    Example use cases:
-    - Mean Time to Resolve (MTTR) aggregated by day/week/month
-    - Response time distributions by severity or priority
-    - SLA compliance tracking over time
-    """
+    """OTEL-aligned Gauge metric for time-series platforms."""
 
     # Timestamp (when the duration was measured - the end point)
     timestamp: datetime = Field(

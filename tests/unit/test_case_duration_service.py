@@ -440,7 +440,7 @@ async def test_duration_handles_reopen_cycles_without_negative_time(
 
 
 @pytest.mark.anyio
-async def test_list_time_series_returns_slim_metrics(
+async def test_list_time_series_returns_metrics(
     session: AsyncSession, svc_role
 ) -> None:
     """Test that list_time_series returns OTEL-aligned metrics for analytics."""
