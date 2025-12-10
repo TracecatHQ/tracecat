@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import aiofiles
 import tracecat_registry
 
 from tracecat.logger import logger
@@ -178,7 +179,9 @@ async def build_wheel_from_git(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Clone the repository to a temp directory
-    with tempfile.TemporaryDirectory(prefix="tracecat_git_") as clone_dir:
+    async with aiofiles.tempfile.TemporaryDirectory(
+        prefix="tracecat_git_"
+    ) as clone_dir:
         clone_path = Path(clone_dir)
 
         # Strip git+ssh:// prefix for git clone
