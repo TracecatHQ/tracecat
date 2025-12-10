@@ -514,9 +514,13 @@ for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
 
 
 # === Agent config === #
+ENABLE_REMOTE_AGENT_EXECUTOR = os.environ.get(
+    "ENABLE_REMOTE_AGENT_EXECUTOR", "false"
+).lower() in ("true", "1")
+"""Whether to enable the remote agent executor."""
+
 TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 30))
 """The maximum number of tools that can be used in an agent."""
-
 
 TRACECAT__AGENT_MAX_TOOL_CALLS = int(
     os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS", 40)
