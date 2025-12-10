@@ -152,61 +152,42 @@ class CaseDurationComputation(BaseModel):
     duration: timedelta | None
 
 
-class CaseDurationRecord(BaseModel):
-    """Flat, denormalized duration record optimized for data visualization tools.
+class CaseDurationMetric(BaseModel):
+    """OTEL-aligned Gauge metric for time-series platforms."""
 
-    Designed for easy upload to analytics platforms like Grafana, Splunk, or
-    data warehouses. All fields are primitive types (strings, numbers) for
-    maximum compatibility. Each record represents a single duration measurement
-    with embedded case context for filtering and grouping.
-
-    Example use cases:
-    - Mean Time to Detect (MTTD) aggregated by day/week/month
-    - Response time distributions by severity or priority
-    - SLA compliance tracking over time
-    """
-
-    # Case identifiers
-    case_id: str = Field(..., description="Case UUID as string")
-    case_short_id: str = Field(..., description="Human-readable case identifier")
-
-    # Case timestamps (ISO 8601 strings for universal compatibility)
-    case_created_at: str = Field(..., description="Case creation timestamp (ISO 8601)")
-    case_updated_at: str = Field(
-        ..., description="Case last update timestamp (ISO 8601)"
+    # Timestamp (when the duration was measured - the end point)
+    timestamp: datetime = Field(
+        ...,
+        description="When the duration was measured (ISO 8601 with timezone)",
     )
 
-    # Case attributes for filtering/grouping
-    case_summary: str = Field(..., description="Case summary text")
-    case_status: str = Field(..., description="Case status value")
+    # Metric identity (Prometheus/OTEL convention: include unit in name)
+    metric_name: str = Field(
+        default="case_duration_seconds",
+        description="Metric name including unit per OTEL/Prometheus conventions",
+    )
+
+    # The measurement value
+    value: float = Field(
+        ...,
+        description="Duration in seconds",
+    )
+
+    # Metric dimensions: duration identification
+    duration_name: str = Field(
+        ...,
+        description="Human-readable duration name (e.g., Time to Resolve, TTA)",
+    )
+    duration_slug: str = Field(
+        ...,
+        description="Slugified duration name for filtering (e.g., time_to_resolve, tta)",
+    )
+
+    # Case dimensions (low cardinality - good for groupby/faceting)
     case_priority: str = Field(..., description="Case priority value")
     case_severity: str = Field(..., description="Case severity value")
+    case_status: str = Field(..., description="Case status value")
 
-    # Duration definition identification
-    duration_id: str = Field(..., description="Duration definition UUID as string")
-    duration_name: str = Field(..., description="Name of the duration definition")
-    duration_description: str | None = Field(
-        default=None, description="Description of the duration definition"
-    )
-
-    # Duration timestamps (ISO 8601 strings, null if not yet reached)
-    started_at: datetime | None = Field(
-        default=None, description="Duration start timestamp (ISO 8601)"
-    )
-    ended_at: datetime | None = Field(
-        default=None, description="Duration end timestamp (ISO 8601)"
-    )
-
-    # Duration value as numeric seconds for easy aggregation
-    duration_seconds: float | None = Field(
-        default=None,
-        description="Duration in seconds (null if incomplete). Use for aggregations.",
-    )
-
-    # Event references (as strings for compatibility)
-    start_event_id: str | None = Field(
-        default=None, description="UUID of the event that started the duration"
-    )
-    end_event_id: str | None = Field(
-        default=None, description="UUID of the event that ended the duration"
-    )
+    # Case identifiers (high cardinality - for drill-down/lookups)
+    case_id: str = Field(..., description="Case UUID for lookups")
+    case_short_id: str = Field(..., description="Human-readable case identifier")

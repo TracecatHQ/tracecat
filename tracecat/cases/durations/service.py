@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
+from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,8 +21,8 @@ from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionRead,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
+    CaseDurationMetric,
     CaseDurationRead,
-    CaseDurationRecord,
     CaseDurationUpdate,
 )
 from tracecat.db.models import Case, CaseDuration, CaseEvent
@@ -372,82 +373,73 @@ class CaseDurationService(BaseWorkspaceService):
             for case_id, events in events_by_case.items()
         }
 
-    async def list_records(self, cases: Sequence[Case]) -> list[CaseDurationRecord]:
-        """List durations as flat records optimized for data visualization.
+    async def compute_time_series(
+        self, cases: Sequence[Case]
+    ) -> list[CaseDurationMetric]:
+        """Compute durations as metrics optimized for time-series platforms.
 
-        Returns a flat list of denormalized records suitable for upload to
-        analytics platforms like Grafana, Splunk, or data warehouses.
+        Returns flat, OTEL-aligned Gauge metrics suitable for direct ingestion
+        into Grafana, Elasticsearch, Splunk, and other observability platforms.
 
-        Each record contains:
-        - Case context (id, status, priority, severity, timestamps)
-        - Duration definition (name, description)
-        - Timing data (started_at, ended_at, duration_seconds)
+        Each metric contains:
+        - timestamp: When the duration was measured (ended_at)
+        - metric_name: "case_duration_seconds" (includes unit)
+        - value: Duration in seconds
+        - duration_type: The type of duration (e.g., "ttr", "tta")
+        - Case dimensions: priority, severity, status (for groupby)
+        - Case identifiers: case_id, case_short_id (for drill-down)
 
         Args:
             cases: Sequence of Case objects (must belong to workspace).
 
         Returns:
-            Flat list of duration records, one per (case, duration_definition) pair.
+            Flat list of duration metrics, one per completed (case, duration) pair.
         """
         if not cases:
             return []
 
         durations_by_case = await self.compute_durations(cases)
-        return self._format_records(cases, durations_by_case)
+        return self._format_time_series(cases, durations_by_case)
 
-    def _format_records(
+    def _format_time_series(
         self,
         cases: Sequence[Case],
         durations_by_case: dict[uuid.UUID, list[CaseDurationComputation]],
-    ) -> list[CaseDurationRecord]:
-        """Format computed durations as flat records.
+    ) -> list[CaseDurationMetric]:
+        """Format computed durations as time-series metrics.
 
-        Pure formatting function that converts internal models to record format.
+        Pure formatting function that converts internal models to OTEL-aligned
+        metric format for time-series platforms.
         """
-        records: list[CaseDurationRecord] = []
+        metrics: list[CaseDurationMetric] = []
 
         for case in cases:
             durations = durations_by_case.get(case.id, [])
             for computation in durations:
-                if computation.duration is None:
+                # Skip incomplete durations (no end time or duration)
+                if computation.duration is None or computation.ended_at is None:
                     continue
 
-                duration_seconds = computation.duration.total_seconds()
-                records.append(
-                    CaseDurationRecord(
-                        # Case identifiers
-                        case_id=str(case.id),
-                        case_short_id=case.short_id,
-                        # Case timestamps as ISO strings
-                        case_created_at=case.created_at.isoformat(),
-                        case_updated_at=case.updated_at.isoformat(),
-                        # Case attributes
-                        case_summary=case.summary,
-                        case_status=case.status.value,
+                metrics.append(
+                    CaseDurationMetric(
+                        # Timestamp is when duration was measured (end point)
+                        timestamp=computation.ended_at,
+                        # Metric identity
+                        metric_name="case_duration_seconds",
+                        value=computation.duration.total_seconds(),
+                        # Duration identification
+                        duration_name=computation.name,
+                        duration_slug=slugify(computation.name, separator="_"),
+                        # Case dimensions (low cardinality)
                         case_priority=case.priority.value,
                         case_severity=case.severity.value,
-                        # Duration definition info
-                        duration_id=str(computation.duration_id),
-                        duration_name=computation.name,
-                        duration_description=computation.description,
-                        # Duration timestamps as ISO strings
-                        started_at=computation.started_at,
-                        ended_at=computation.ended_at,
-                        # Duration as numeric seconds
-                        duration_seconds=duration_seconds,
-                        start_event_id=(
-                            str(computation.start_event_id)
-                            if computation.start_event_id is not None
-                            else None
-                        ),
-                        end_event_id=(
-                            str(computation.end_event_id)
-                            if computation.end_event_id is not None
-                            else None
-                        ),
+                        case_status=case.status.value,
+                        # Case identifiers (high cardinality, for drill-down)
+                        case_id=str(case.id),
+                        case_short_id=case.short_id,
                     )
                 )
-        return records
+        return metrics
 
     def _compute_durations_from_events(
         self,

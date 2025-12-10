@@ -26,6 +26,26 @@ from tracecat.tags.schemas import TagCreate
 pytestmark = pytest.mark.usefixtures("db")
 
 
+def make_case_create(
+    *,
+    summary: str = "Investigate suspicious login",
+    description: str = "Track the suspicious user activity.",
+    status: CaseStatus = CaseStatus.NEW,
+    priority: CasePriority = CasePriority.MEDIUM,
+    severity: CaseSeverity = CaseSeverity.MEDIUM,
+) -> CaseCreate:
+    """Build a CaseCreate payload while keeping type checkers happy."""
+    return CaseCreate.model_validate(
+        {
+            "summary": summary,
+            "description": description,
+            "status": status,
+            "priority": priority,
+            "severity": severity,
+        }
+    )
+
+
 @pytest.mark.anyio
 async def test_compute_case_durations_from_events(
     session: AsyncSession, svc_role
@@ -48,15 +68,7 @@ async def test_compute_case_durations_from_events(
         )
     )
 
-    case = await cases_service.create_case(
-        CaseCreate(
-            summary="Investigate suspicious login",
-            description="Track the suspicious user activity.",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
-        )
-    )
+    case = await cases_service.create_case(make_case_create())
 
     assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_duration(case)
@@ -119,15 +131,7 @@ async def test_duration_filters_match_event_payload(
         )
     )
 
-    case = await cases_service.create_case(
-        CaseCreate(
-            summary="Investigate suspicious login",
-            description="Track the suspicious user activity.",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
-        )
-    )
+    case = await cases_service.create_case(make_case_create())
 
     # Transition to resolved (should not match the CLOSED filter)
     await cases_service.update_case(case, CaseUpdate(status=CaseStatus.RESOLVED))
@@ -169,15 +173,7 @@ async def test_duration_filters_support_multiple_values(
         )
     )
 
-    case = await cases_service.create_case(
-        CaseCreate(
-            summary="Investigate suspicious login",
-            description="Track the suspicious user activity.",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
-        )
-    )
+    case = await cases_service.create_case(make_case_create())
 
     assert not isinstance(duration_service, CaseDurationDefinitionService)
     values = await duration_service.compute_duration(case)
@@ -221,12 +217,9 @@ async def test_duration_supports_tag_events(session: AsyncSession, svc_role) -> 
     )
 
     case = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Investigate missing data",
             description="Ensure data completeness",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
         )
     )
 
@@ -335,15 +328,7 @@ async def test_duration_anchor_selection_first_vs_last(
         )
     )
 
-    case = await cases_service.create_case(
-        CaseCreate(
-            summary="Investigate suspicious login",
-            description="Track the suspicious user activity.",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
-        )
-    )
+    case = await cases_service.create_case(make_case_create())
 
     case = await cases_service.update_case(
         case,
@@ -399,15 +384,7 @@ async def test_duration_handles_reopen_cycles_without_negative_time(
         )
     )
 
-    case = await cases_service.create_case(
-        CaseCreate(
-            summary="Investigate suspicious login",
-            description="Track the suspicious user activity.",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
-        )
-    )
+    case = await cases_service.create_case(make_case_create())
 
     case = await cases_service.update_case(
         case,
@@ -440,10 +417,10 @@ async def test_duration_handles_reopen_cycles_without_negative_time(
 
 
 @pytest.mark.anyio
-async def test_list_records_returns_flat_duration_records(
+async def test_compute_time_series_returns_metrics(
     session: AsyncSession, svc_role
 ) -> None:
-    """Test that list_records returns denormalized records for analytics."""
+    """Test that compute_time_series returns OTEL-aligned metrics for analytics."""
     cases_service = CasesService(session=session, role=svc_role)
     definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
@@ -463,10 +440,9 @@ async def test_list_records_returns_flat_duration_records(
     )
 
     case = await cases_service.create_case(
-        CaseCreate(
-            summary="Test case for records",
-            description="Testing list_records output",
-            status=CaseStatus.NEW,
+        make_case_create(
+            summary="Test case for metrics",
+            description="Testing compute_time_series output",
             priority=CasePriority.HIGH,
             severity=CaseSeverity.CRITICAL,
         )
@@ -475,47 +451,43 @@ async def test_list_records_returns_flat_duration_records(
     await cases_service.update_case(case, CaseUpdate(status=CaseStatus.RESOLVED))
 
     assert not isinstance(duration_service, CaseDurationDefinitionService)
-    records = await duration_service.list_records([case])
+    metrics = await duration_service.compute_time_series([case])
 
-    assert len(records) == 1
-    record = records[0]
+    assert len(metrics) == 1
+    metric = metrics[0]
 
-    # Verify case context fields
-    assert record.case_id == str(case.id)
-    assert record.case_short_id == case.short_id
-    assert record.case_summary == "Test case for records"
-    assert record.case_status == CaseStatus.RESOLVED.value
-    assert record.case_priority == CasePriority.HIGH.value
-    assert record.case_severity == CaseSeverity.CRITICAL.value
+    # Verify metric identity
+    assert metric.metric_name == "case_duration_seconds"
+    assert metric.duration_name == "Time to Resolve"
+    assert metric.duration_slug == "time_to_resolve"  # slugified with underscore
 
-    # Verify duration fields
-    assert record.duration_name == "Time to Resolve"
-    assert record.duration_description == "Elapsed time from creation to resolution"
-    assert record.started_at is not None
-    assert record.ended_at is not None
-    assert record.duration_seconds is not None
-    assert record.duration_seconds >= 0
+    # Verify case identifiers (for drill-down)
+    assert metric.case_id == str(case.id)
+    assert metric.case_short_id == case.short_id
 
-    # Verify event references
-    assert record.start_event_id is not None
-    assert record.end_event_id is not None
+    # Verify case dimensions (for groupby)
+    assert metric.case_status == CaseStatus.RESOLVED.value
+    assert metric.case_priority == CasePriority.HIGH.value
+    assert metric.case_severity == CaseSeverity.CRITICAL.value
+
+    # Verify metric value and timestamp
+    assert metric.timestamp is not None
+    assert metric.value is not None
+    assert metric.value >= 0
 
 
 @pytest.mark.anyio
-async def test_list_records_preserves_missing_event_ids(
+async def test_compute_time_series_formats_duration_slug(
     session: AsyncSession, svc_role
 ) -> None:
-    """Ensure records keep None values when anchor events are missing."""
+    """Ensure duration_slug is properly slugified with underscore separator."""
     cases_service = CasesService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
 
     case = await cases_service.create_case(
-        CaseCreate(
-            summary="Synthetic duration without anchors",
-            description="Verify None anchors stay None",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
+        make_case_create(
+            summary="Test slug formatting",
+            description="Verify duration_slug formatting",
         )
     )
 
@@ -524,7 +496,7 @@ async def test_list_records_preserves_missing_event_ids(
 
     computation = CaseDurationComputation(
         duration_id=uuid.uuid4(),
-        name="Synthetic duration",
+        name="Time To Resolve",  # Mixed case with spaces
         description=None,
         start_event_id=None,
         end_event_id=None,
@@ -533,22 +505,24 @@ async def test_list_records_preserves_missing_event_ids(
         duration=ended_at - started_at,
     )
 
-    records = duration_service._format_records(
+    metrics = duration_service._format_time_series(
         [case],
         {case.id: [computation]},
     )
 
-    assert len(records) == 1
-    record = records[0]
-    assert record.start_event_id is None
-    assert record.end_event_id is None
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.duration_name == "Time To Resolve"  # original name preserved
+    assert metric.duration_slug == "time_to_resolve"  # slugified with underscore
+    assert metric.timestamp == ended_at
+    assert metric.value == 300.0  # 5 minutes in seconds
 
 
 @pytest.mark.anyio
-async def test_list_records_excludes_incomplete_durations(
+async def test_compute_time_series_excludes_incomplete_durations(
     session: AsyncSession, svc_role
 ) -> None:
-    """Test that list_records excludes durations without an end event."""
+    """Test that compute_time_series excludes durations without an end event."""
     cases_service = CasesService(session=session, role=svc_role)
     definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
@@ -566,22 +540,19 @@ async def test_list_records_excludes_incomplete_durations(
         )
     )
 
-    # Case without resolution - should not appear in records
+    # Case without resolution - should not appear in metrics
     case = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Incomplete case",
             description="This case is not resolved",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
         )
     )
 
     assert not isinstance(duration_service, CaseDurationDefinitionService)
-    records = await duration_service.list_records([case])
+    metrics = await duration_service.compute_time_series([case])
 
-    # No records since the duration is incomplete (no end event)
-    assert len(records) == 0
+    # No metrics since the duration is incomplete (no end event)
+    assert len(metrics) == 0
 
 
 @pytest.mark.anyio
@@ -608,10 +579,9 @@ async def test_compute_durations_batch_multiple_cases(
 
     # Create multiple cases with different states
     case1 = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Case 1 - resolved",
             description="First case",
-            status=CaseStatus.NEW,
             priority=CasePriority.HIGH,
             severity=CaseSeverity.HIGH,
         )
@@ -619,21 +589,17 @@ async def test_compute_durations_batch_multiple_cases(
     await cases_service.update_case(case1, CaseUpdate(status=CaseStatus.RESOLVED))
 
     case2 = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Case 2 - in progress",
             description="Second case",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.MEDIUM,
         )
     )
     await cases_service.update_case(case2, CaseUpdate(status=CaseStatus.IN_PROGRESS))
 
     case3 = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Case 3 - resolved",
             description="Third case",
-            status=CaseStatus.NEW,
             priority=CasePriority.LOW,
             severity=CaseSeverity.LOW,
         )
@@ -667,10 +633,10 @@ async def test_compute_durations_batch_multiple_cases(
 
 
 @pytest.mark.anyio
-async def test_list_records_multiple_cases_with_mixed_completion(
+async def test_compute_time_series_multiple_cases_with_mixed_completion(
     session: AsyncSession, svc_role
 ) -> None:
-    """Test list_records with multiple cases, some complete and some incomplete."""
+    """Test compute_time_series with multiple cases, some complete and some incomplete."""
     cases_service = CasesService(session=session, role=svc_role)
     definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
     duration_service = CaseDurationService(session=session, role=svc_role)
@@ -690,10 +656,9 @@ async def test_list_records_multiple_cases_with_mixed_completion(
 
     # Resolved case
     case1 = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Resolved case",
             description="This case is resolved",
-            status=CaseStatus.NEW,
             priority=CasePriority.HIGH,
             severity=CaseSeverity.HIGH,
         )
@@ -702,33 +667,34 @@ async def test_list_records_multiple_cases_with_mixed_completion(
 
     # Unresolved case
     case2 = await cases_service.create_case(
-        CaseCreate(
+        make_case_create(
             summary="Unresolved case",
             description="This case is not resolved",
-            status=CaseStatus.NEW,
             priority=CasePriority.LOW,
             severity=CaseSeverity.LOW,
         )
     )
 
     assert not isinstance(duration_service, CaseDurationDefinitionService)
-    records = await duration_service.list_records([case1, case2])
+    metrics = await duration_service.compute_time_series([case1, case2])
 
-    # Only the resolved case should have a record
-    assert len(records) == 1
-    assert records[0].case_id == str(case1.id)
-    assert records[0].case_summary == "Resolved case"
+    # Only the resolved case should have a metric
+    assert len(metrics) == 1
+    assert metrics[0].case_id == str(case1.id)
+    assert metrics[0].case_priority == CasePriority.HIGH.value
 
 
 @pytest.mark.anyio
-async def test_list_records_empty_cases_list(session: AsyncSession, svc_role) -> None:
-    """Test list_records with empty cases list returns empty list."""
+async def test_compute_time_series_empty_cases_list(
+    session: AsyncSession, svc_role
+) -> None:
+    """Test compute_time_series with empty cases list returns empty list."""
     duration_service = CaseDurationService(session=session, role=svc_role)
 
     assert not isinstance(duration_service, CaseDurationDefinitionService)
-    records = await duration_service.list_records([])
+    metrics = await duration_service.compute_time_series([])
 
-    assert records == []
+    assert metrics == []
 
 
 @pytest.mark.anyio
