@@ -7290,6 +7290,10 @@ export type PublicCheckHealthResponse = {
   [key: string]: string
 }
 
+export type PublicCheckReadyResponse = {
+  [key: string]: string
+}
+
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
     post: {
@@ -10762,6 +10766,18 @@ export type $OpenApiTs = {
     }
   }
   "/health": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+      }
+    }
+  }
+  "/ready": {
     get: {
       res: {
         /**

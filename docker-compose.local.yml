@@ -92,6 +92,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   worker:
     build:

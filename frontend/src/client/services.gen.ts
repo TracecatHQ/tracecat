@@ -238,6 +238,7 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
+  PublicCheckReadyResponse,
   PublicIncomingWebhookGetData,
   PublicIncomingWebhookGetResponse,
   PublicIncomingWebhookPostData,
@@ -6801,5 +6802,22 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
+    })
+  }
+
+/**
+ * Check Ready
+ * Readiness check - returns 200 only after startup is complete.
+ *
+ * Use this endpoint for Docker healthchecks to ensure the API has finished
+ * initializing (including registry sync) before accepting traffic.
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const publicCheckReady =
+  (): CancelablePromise<PublicCheckReadyResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/ready",
     })
   }
