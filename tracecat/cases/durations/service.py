@@ -373,8 +373,10 @@ class CaseDurationService(BaseWorkspaceService):
             for case_id, events in events_by_case.items()
         }
 
-    async def list_time_series(self, cases: Sequence[Case]) -> list[CaseDurationMetric]:
-        """List durations as metrics optimized for time-series platforms.
+    async def compute_time_series(
+        self, cases: Sequence[Case]
+    ) -> list[CaseDurationMetric]:
+        """Compute durations as metrics optimized for time-series platforms.
 
         Returns flat, OTEL-aligned Gauge metrics suitable for direct ingestion
         into Grafana, Elasticsearch, Splunk, and other observability platforms.

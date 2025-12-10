@@ -10,18 +10,18 @@ from tracecat.db.engine import get_async_session_context_manager
 
 
 @registry.register(
-    default_title="List case durations",
+    default_title="Get case metrics",
     display_group="Cases",
-    description="List case durations as time-series.",
+    description="Get case metrics as time-series.",
     namespace="core.cases",
 )
-async def list_case_durations(
+async def get_case_metrics(
     case_ids: Annotated[
         list[str],
-        Doc("List of case IDs to list durations for."),
+        Doc("List of case IDs to get case metrics for."),
     ],
 ) -> list[dict[str, Any]]:
-    """List case durations as OTEL-aligned metrics for the provided case IDs.
+    """Get case metrics as OTEL-aligned time-series for the provided case IDs.
 
     Returns a list of time-series metrics with the following fields:
     - timestamp: When the duration was measured (ISO 8601)
@@ -56,6 +56,6 @@ async def list_case_durations(
             cases.append(case)
 
         # Get duration time-series metrics
-        metrics = await duration_service.list_time_series(cases)
+        metrics = await duration_service.compute_time_series(cases)
 
     return [metric.model_dump(mode="json") for metric in metrics]
