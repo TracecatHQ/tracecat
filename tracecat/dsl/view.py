@@ -15,6 +15,7 @@ from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.enums import EdgeType
 from tracecat.exceptions import TracecatValidationError
+from tracecat.identifiers.action import ActionUUID
 
 if TYPE_CHECKING:
     from tracecat.db.models import Workflow
@@ -234,3 +235,52 @@ class RFGraph(TSObject):
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
         return RFGraph.model_validate(initial_data)
+
+    def normalize_action_ids(self) -> Self:
+        """Normalize all action node IDs to canonical UUID string format.
+
+        This handles backward compatibility with different action ID formats
+        that may exist in the workflow graph (legacy prefixed IDs like `act-<32hex>`).
+
+        Returns:
+            Self: A new RFGraph with normalized action IDs.
+        """
+        # Build mapping of old IDs to normalized IDs for UDF nodes only
+        id_mapping: dict[str, str] = {}
+        for node in self.nodes:
+            if node.type != "udf":
+                continue
+            try:
+                normalized = str(ActionUUID.new(node.id))
+                if normalized != node.id:
+                    id_mapping[node.id] = normalized
+            except ValueError:
+                # Skip nodes with invalid IDs - they'll be caught by validation elsewhere
+                continue
+
+        # If no normalization needed, return self
+        if not id_mapping:
+            return self
+
+        # Create new nodes with normalized IDs
+        new_nodes: list[NodeVariant] = []
+        for node in self.nodes:
+            if node.type == "udf" and node.id in id_mapping:
+                # Create a copy with the normalized ID
+                node_data = node.model_dump(by_alias=True)
+                node_data["id"] = id_mapping[node.id]
+                new_nodes.append(UDFNode.model_validate(node_data))
+            else:
+                new_nodes.append(node)
+
+        # Create new edges with normalized source/target IDs
+        new_edges: list[RFEdge] = []
+        for edge in self.edges:
+            edge_data = edge.model_dump(by_alias=True, exclude={"id"})
+            if edge.source in id_mapping:
+                edge_data["source"] = id_mapping[edge.source]
+            if edge.target in id_mapping:
+                edge_data["target"] = id_mapping[edge.target]
+            new_edges.append(RFEdge.model_validate(edge_data))
+
+        return self.model_copy(update={"nodes": new_nodes, "edges": new_edges})
