@@ -5593,6 +5593,10 @@ export type WorkflowsCommitWorkflowResponse = WorkflowCommitResponse
 
 export type WorkflowsExportWorkflowData = {
   /**
+   * Export current draft state instead of saved definition.
+   */
+  draft?: boolean
+  /**
    * Export format: 'json' or 'yaml'
    */
   format?: "json" | "yaml"

@@ -8,9 +8,10 @@ export async function exportWorkflow({
   workflowId,
   format,
   version,
+  draft,
 }: WorkflowsExportWorkflowData) {
   const response = await client.get(`/workflows/${workflowId}/export`, {
-    params: { version, format, workspace_id: workspaceId },
+    params: { version, format, workspace_id: workspaceId, draft },
   })
 
   // Extract the filename from the Content-Disposition header
