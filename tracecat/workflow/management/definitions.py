@@ -47,8 +47,21 @@ class WorkflowDefinitionsService(BaseService):
         workflow_id: WorkflowID,
         dsl: DSLInput,
         *,
+        registry_lock: dict[str, str] | None = None,
         commit: bool = True,
     ) -> WorkflowDefinition:
+        """Create a new workflow definition.
+
+        Args:
+            workflow_id: The ID of the workflow this definition belongs to.
+            dsl: The DSL input for the workflow definition.
+            registry_lock: Optional registry version lock to freeze with this definition.
+                Maps repository origin to version string.
+            commit: Whether to commit the transaction.
+
+        Returns:
+            The created WorkflowDefinition.
+        """
         if self.role.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
         statement = (
@@ -68,6 +81,7 @@ class WorkflowDefinitionsService(BaseService):
             workflow_id=workflow_id,
             content=dsl.model_dump(exclude_unset=True),
             version=version,
+            registry_lock=registry_lock,
         )
         self.session.add(defn)
         if commit:

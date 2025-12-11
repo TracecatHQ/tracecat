@@ -658,7 +658,7 @@ class Workflow(WorkspaceModel):
         nullable=True,
         doc=(
             "Maps repository origin to pinned version string. "
-            "Example: {'builtin': '1.2.3', 'git+ssh://...': '0.5.0'}"
+            "Example: {'tracecat_registry': '1.2.3', 'git+ssh://...': '0.5.0'}"
         ),
     )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(

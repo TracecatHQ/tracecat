@@ -56,7 +56,6 @@ def upgrade() -> None:
 
     if rows:
         # Build the lock dict: {origin: version}
-        # SQLAlchemy Row objects are tuple-like and work with dict()
         registry_lock: dict[str, str] = dict(rows)  # type: ignore[arg-type]
         lock_json = json.dumps(registry_lock)
         print(f"Backfilling registry_lock with: {registry_lock}")

@@ -7,6 +7,7 @@ from sqlalchemy.orm import aliased
 
 from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.service import BaseService
 
 
@@ -20,17 +21,16 @@ class RegistryLockService(BaseService):
 
     service_name = "registry_lock"
 
-    async def get_latest_versions_lock(self) -> dict[str, str]:
+    async def get_latest_versions_lock(self) -> RegistryLock:
         """Get lock mapping each repository origin to its latest version.
 
         Queries all RegistryRepositories and finds the most recent
         RegistryVersion for each (by created_at).
 
         Returns:
-            dict[str, str]: Maps origin -> version string
+            RegistryLock: Maps origin -> version string.
             Example: {"tracecat_registry": "2024.12.10.123456", "git+ssh://...": "abc1234"}
-
-        Returns empty dict if no versions exist.
+            Returns empty dict if no versions exist.
         """
         # Subquery to get the max created_at for each repository
         subq = (
@@ -66,7 +66,7 @@ class RegistryLockService(BaseService):
         result = await self.session.execute(statement)
         rows = result.all()
 
-        lock: dict[str, str] = {str(origin): str(version) for origin, version in rows}
+        lock: RegistryLock = {str(origin): str(version) for origin, version in rows}
 
         self.logger.info(
             "Computed latest versions lock",
@@ -79,14 +79,14 @@ class RegistryLockService(BaseService):
     async def get_version_lock_for_repositories(
         self,
         repository_ids: list[str],
-    ) -> dict[str, str]:
+    ) -> RegistryLock:
         """Get lock for specific repositories only.
 
         Args:
             repository_ids: List of repository IDs to get versions for
 
         Returns:
-            dict[str, str]: Maps origin -> version string for requested repos
+            RegistryLock: Maps origin -> version string for requested repos.
         """
         if not repository_ids:
             return {}
