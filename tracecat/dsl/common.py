@@ -64,6 +64,7 @@ from tracecat.exceptions import (
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers.action import ActionUUID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
@@ -603,18 +604,55 @@ def context_locator(
     return f"{ctx}.{stmt.ref} -> {loc}"
 
 
+def _normalize_action_id(raw_id: str) -> ActionUUID:
+    """Normalize a raw action ID string to an ActionUUID.
+
+    Handles all supported action ID formats:
+    - UUID string: "550e8400-e29b-41d4-a716-446655440000"
+    - Short ID: "act_xxx"
+    - Legacy prefixed: "act-550e8400e29b41d4a716446655440000"
+
+    Args:
+        raw_id: The raw action ID string from the graph.
+
+    Returns:
+        ActionUUID: The normalized ActionUUID instance.
+
+    Raises:
+        TracecatValidationError: If the ID format is invalid.
+    """
+    try:
+        return ActionUUID.new(raw_id)
+    except ValueError as e:
+        raise TracecatValidationError(
+            f"Invalid action ID in workflow graph: {raw_id!r}"
+        ) from e
+
+
 def build_action_statements(
     graph: RFGraph, actions: list[Action]
 ) -> list[ActionStatement]:
-    """Convert DB Actions into ActionStatements using the graph."""
-    # Use string keys since graph node IDs are strings (UUID format)
-    id2action = {str(action.id): action for action in actions}
+    """Convert DB Actions into ActionStatements using the graph.
+
+    This function handles backward compatibility with different action ID formats
+    that may exist in the workflow graph (UUID strings, short IDs, legacy prefixed IDs).
+    """
+    # Build lookup keyed by canonical ActionUUID for consistent normalization
+    id2action: dict[ActionUUID, Action] = {
+        ActionUUID.from_uuid(action.id): action for action in actions
+    }
 
     statements = []
     for node in graph.action_nodes():
+        # Normalize the node ID for DB lookup
+        node_uuid = _normalize_action_id(node.id)
+
         dependencies: list[str] = []
         for dep_act_id in graph.dep_list[node.id]:
-            base_ref = id2action[dep_act_id].ref
+            # Normalize the dependency ID for DB lookup
+            dep_uuid = _normalize_action_id(dep_act_id)
+            base_ref = id2action[dep_uuid].ref
+            # Edge comparison uses raw string IDs (graph structure, not DB lookup)
             for edge in graph.edges:
                 if edge.source != dep_act_id or edge.target != node.id:
                     continue
@@ -625,7 +663,7 @@ def build_action_statements(
                 dependencies.append(ref)
         dependencies = sorted(dependencies)
 
-        action = id2action[node.id]
+        action = id2action[node_uuid]
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         args = yaml.safe_load(action.inputs) or {}
         interaction = (

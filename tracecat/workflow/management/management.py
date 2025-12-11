@@ -355,7 +355,15 @@ class WorkflowsManagementService(BaseService):
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one()
-        for key, value in params.model_dump(exclude_unset=True).items():
+        set_fields = params.model_dump(exclude_unset=True)
+        if "object" in set_fields:
+            graph = RFGraph.model_validate(set_fields["object"])
+            normalized_graph = graph.normalize_action_ids()
+            set_fields["object"] = normalized_graph.model_dump(
+                by_alias=True, mode="json"
+            )
+
+        for key, value in set_fields.items():
             # Safe because params has been validated
             setattr(workflow, key, value)
         self.session.add(workflow)
