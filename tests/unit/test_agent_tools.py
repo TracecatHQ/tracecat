@@ -6,9 +6,11 @@ from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_core import PydanticUndefined
 
 from tracecat.agent.tools import (
+    JsonValue,
     _create_function_signature,
     _extract_action_metadata,
     _generate_google_style_docstring,
+    _replace_any_with_jsonvalue,
 )
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.schemas import (
@@ -264,3 +266,39 @@ def test_extract_action_metadata_template_without_template_action_raises():
 
     with pytest.raises(ValueError):
         _extract_action_metadata(bound_action)
+
+
+def test_replace_any_with_jsonvalue_direct_any():
+    """Test that direct Any type is replaced with JsonValue."""
+    result = _replace_any_with_jsonvalue(Any)
+    assert result == JsonValue
+
+
+def test_replace_any_with_jsonvalue_union_with_any():
+    """Test that Any within a union is replaced with JsonValue (which gets flattened)."""
+    result = _replace_any_with_jsonvalue(str | Any)
+    args = set(get_args(result))
+    # JsonValue flattens to its component types
+    assert args == {str, int, float, bool, type(None), list, dict}
+    assert Any not in args
+
+
+def test_replace_any_with_jsonvalue_union_without_any():
+    """Test that unions without Any are unchanged."""
+    result = _replace_any_with_jsonvalue(str | int)
+    assert set(get_args(result)) == {str, int}
+
+
+def test_replace_any_with_jsonvalue_complex_union():
+    """Test that complex unions with Any are handled correctly."""
+    result = _replace_any_with_jsonvalue(str | int | Any | None)
+    args = set(get_args(result))
+    # JsonValue flattens, so we get all individual types
+    assert args == {str, int, float, bool, type(None), list, dict}
+    assert Any not in args
+
+
+def test_replace_any_with_jsonvalue_preserves_other_types():
+    """Test that non-Any, non-union types are unchanged."""
+    for typ in [str, int, list[str]]:
+        assert _replace_any_with_jsonvalue(typ) == typ
