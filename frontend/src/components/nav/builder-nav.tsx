@@ -36,6 +36,8 @@ import { Dialog } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -566,11 +568,14 @@ function BuilderNavOptions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
+          <DropdownMenuLabel>Export draft</DropdownMenuLabel>
           <ExportMenuItem
             enabledExport={enabledExport}
             format="yaml"
             workspaceId={workspaceId}
             workflowId={workflowId}
+            draft={true}
+            label="YAML"
             icon={<DownloadIcon className="mr-2 size-4" />}
           />
           <ExportMenuItem
@@ -578,6 +583,28 @@ function BuilderNavOptions({
             format="json"
             workspaceId={workspaceId}
             workflowId={workflowId}
+            draft={true}
+            label="JSON"
+            icon={<DownloadIcon className="mr-2 size-4" />}
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Export saved</DropdownMenuLabel>
+          <ExportMenuItem
+            enabledExport={enabledExport}
+            format="yaml"
+            workspaceId={workspaceId}
+            workflowId={workflowId}
+            draft={false}
+            label="YAML"
+            icon={<DownloadIcon className="mr-2 size-4" />}
+          />
+          <ExportMenuItem
+            enabledExport={enabledExport}
+            format="json"
+            workspaceId={workspaceId}
+            workflowId={workflowId}
+            draft={false}
+            label="JSON"
             icon={<DownloadIcon className="mr-2 size-4" />}
           />
         </DropdownMenuContent>
