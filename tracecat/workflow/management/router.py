@@ -525,6 +525,11 @@ async def export_workflow(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot export draft: {e}",
             ) from e
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot export draft: {e}",
+            ) from e
         external_defn = ExternalWorkflowDefinition(
             workspace_id=workflow.workspace_id,
             workflow_id=WorkflowUUID.new(workflow.id),
