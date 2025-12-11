@@ -55,7 +55,7 @@ dependencies = [
     "pyarrow==16.1.0",
     "pydantic-extra-types>=2.10.2,<3.0.0",
     "pydantic>=2.11.7,<3.0.0",
-    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.22.0",
+    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "ray[default]==2.52.0",

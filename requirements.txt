@@ -1928,9 +1928,9 @@ pydantic==2.12.5 \
     #   pydantic-settings
     #   ray
     #   tracecat
-pydantic-ai-slim==1.22.0 \
-    --hash=sha256:0c962bac44ea81bd731e787e07106ebc49dc1ea9c842b131a5adec0e869aad37 \
-    --hash=sha256:9c2b0504daf3cfd4c06c2454ebf3011b6e08cf05cb18460f2a97c258b8cead6a
+pydantic-ai-slim==1.29.0 \
+    --hash=sha256:3bc48b3024ae1a5ee4b1e8b3766b8222723a0b8efb6959a2cab0494b9ba64fc2 \
+    --hash=sha256:4c6f563af4c5297a9129809bbf9589dff1a99e9417ce5b8fa6ed837d38acd434
     # via tracecat
 pydantic-core==2.41.5 \
     --hash=sha256:0177272f88ab8312479336e1d777f6b124537d47f2123f89cb37e0accea97f90 \
@@ -1999,9 +1999,9 @@ pydantic-extra-types==2.10.6 \
     --hash=sha256:6106c448316d30abf721b5b9fecc65e983ef2614399a24142d689c7546cc246a \
     --hash=sha256:c63d70bf684366e6bbe1f4ee3957952ebe6973d41e7802aea0b770d06b116aeb
     # via tracecat
-pydantic-graph==1.22.0 \
-    --hash=sha256:388c2153fddd7a7f7befcca24ff520fe29b26ac01b5ebc49051a4dcd7198226b \
-    --hash=sha256:cc3d396e27f6a664211ed5ebacb205e6f1e2e42f1ca21846a587e3b52b438fe8
+pydantic-graph==1.29.0 \
+    --hash=sha256:5b2e12902423007508ecd216b4d47e7c95b544530868adc32b93756dcb6b1ba0 \
+    --hash=sha256:87cd673f7333c2db312595696beff597f4de4f6767c954d4e65964f54cb4b073
     # via pydantic-ai-slim
 pydantic-settings==2.12.0 \
     --hash=sha256:005538ef951e3c2a68e1c08b292b5f2e71490def8589d4221b95dab00dafcfd0 \
