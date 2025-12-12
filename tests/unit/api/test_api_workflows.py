@@ -37,6 +37,7 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
         icon_url="https://example.com/icon.png",
         trigger_position_x=0.0,
         trigger_position_y=0.0,
+        graph_version=1,
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
         tags=[],
