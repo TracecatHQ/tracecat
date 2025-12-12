@@ -480,11 +480,19 @@ async def export_workflow(
         default=None,
         description="Workflow definition version. If not provided, the latest version is exported.",
     ),
+    draft: bool = Query(
+        default=False,
+        description="Export current draft state instead of saved definition.",
+    ),
 ):
     """
     Export a workflow's current state and optionally its definitions and logs.
 
-    Supported formats are JSON and CSV.
+    Supported formats are JSON and YAML.
+
+    When `draft=True`, exports the current draft state from the workflow canvas
+    without requiring a saved definition. When `draft=False` (default), exports
+    from a saved workflow definition version.
     """
     # Check if workflow exports are enabled
     if not await get_setting(
@@ -496,26 +504,61 @@ async def export_workflow(
         )
 
     logger.info(
-        "Exporting workflow", workflow_id=workflow_id, format=format, version=version
+        "Exporting workflow",
+        workflow_id=workflow_id,
+        format=format,
+        version=version,
+        draft=draft,
     )
-    service = WorkflowDefinitionsService(session, role=role)
-    defn = await service.get_definition_by_workflow_id(workflow_id, version=version)
-    if not defn:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow definition not found",
+
+    if draft:
+        # Build DSL from current workflow state (no saved definition required)
+        mgmt_service = WorkflowsManagementService(session, role=role)
+        workflow = await mgmt_service.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found",
+            )
+        try:
+            dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot export draft: {e}",
+            ) from e
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot export draft: {e}",
+            ) from e
+        external_defn = ExternalWorkflowDefinition(
+            workspace_id=workflow.workspace_id,
+            workflow_id=WorkflowUUID.new(workflow.id),
+            definition=dsl,
         )
-    external_defn = ExternalWorkflowDefinition.from_database(defn)
+    else:
+        # Existing behavior: fetch from WorkflowDefinition
+        service = WorkflowDefinitionsService(session, role=role)
+        defn = await service.get_definition_by_workflow_id(workflow_id, version=version)
+        if not defn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow definition not found",
+            )
+        external_defn = ExternalWorkflowDefinition.from_database(defn)
     filename = f"{external_defn.workflow_id}__{slugify(external_defn.definition.title)}.{format}"
     if format == "json":
         return Response(
-            content=external_defn.model_dump_json(indent=2),
+            content=external_defn.model_dump_json(indent=2, exclude_none=True),
             media_type="application/json",
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     elif format == "yaml":
         return Response(
-            content=yaml.dump(external_defn.model_dump(mode="json"), indent=2),
+            content=yaml.dump(
+                external_defn.model_dump(mode="json", exclude_none=True), indent=2
+            ),
             media_type="application/yaml",
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )

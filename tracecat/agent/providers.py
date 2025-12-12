@@ -1,3 +1,5 @@
+import os
+
 import orjson
 from google.oauth2 import service_account
 from pydantic_ai.models import Model
@@ -93,6 +95,10 @@ def get_model(
                 provider=GoogleProvider(credentials=credentials),
             )
         case "bedrock":
+            bearer_token = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
+            if bearer_token:
+                os.environ["AWS_BEARER_TOKEN_BEDROCK"] = bearer_token
+
             session = get_sync_session()
             client = session.client(service_name="bedrock-runtime")
             settings = None

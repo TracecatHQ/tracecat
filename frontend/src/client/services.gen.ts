@@ -1124,12 +1124,17 @@ export const workflowsCommitWorkflow = (
  * Export Workflow
  * Export a workflow's current state and optionally its definitions and logs.
  *
- * Supported formats are JSON and CSV.
+ * Supported formats are JSON and YAML.
+ *
+ * When `draft=True`, exports the current draft state from the workflow canvas
+ * without requiring a saved definition. When `draft=False` (default), exports
+ * from a saved workflow definition version.
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
  * @param data.format Export format: 'json' or 'yaml'
  * @param data.version Workflow definition version. If not provided, the latest version is exported.
+ * @param data.draft Export current draft state instead of saved definition.
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -1145,6 +1150,7 @@ export const workflowsExportWorkflow = (
     query: {
       format: data.format,
       version: data.version,
+      draft: data.draft,
       workspace_id: data.workspaceId,
     },
     errors: {

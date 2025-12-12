@@ -16,6 +16,7 @@ from pydantic.alias_generators import to_camel
 from tracecat.dsl.enums import EdgeType
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import ActionID
+from tracecat.identifiers.action import ActionUUID
 
 if TYPE_CHECKING:
     from tracecat.db.models import Action, Workflow
@@ -298,3 +299,56 @@ class RFGraph(TSObject):
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
         return RFGraph.model_validate(initial_data)
+
+    def normalize_action_ids(self) -> Self:
+        """Normalize all action node IDs to canonical UUID string format.
+
+        This handles backward compatibility with different action ID formats
+        that may exist in the workflow graph (legacy prefixed IDs like `act-<32hex>`).
+
+        Returns:
+            Self: A new RFGraph with normalized action IDs.
+        """
+        # Build mapping of old IDs to normalized IDs for UDF nodes only
+        id_mapping: dict[str, str] = {}
+        for node in self.nodes:
+            if node.type != "udf":
+                continue
+            try:
+                old_id = str(node.id)
+                normalized = str(ActionUUID.new(node.id))
+                if normalized != old_id:
+                    id_mapping[old_id] = normalized
+            except ValueError:
+                # Skip nodes with invalid IDs - they'll be caught by validation elsewhere
+                continue
+
+        # If no normalization needed, return self
+        if not id_mapping:
+            return self
+
+        # Create new nodes with normalized IDs
+        new_nodes: list[NodeVariant] = []
+        for node in self.nodes:
+            node_id_str = str(node.id)
+            if node.type == "udf" and node_id_str in id_mapping:
+                # Create a copy with the normalized ID
+                node_data = node.model_dump(by_alias=True)
+                node_data["id"] = id_mapping[node_id_str]
+                new_nodes.append(UDFNode.model_validate(node_data))
+            else:
+                new_nodes.append(node)
+
+        # Create new edges with normalized source/target IDs
+        new_edges: list[RFEdge] = []
+        for edge in self.edges:
+            edge_data = edge.model_dump(by_alias=True, exclude={"id"})
+            source_str = str(edge.source)
+            target_str = str(edge.target)
+            if source_str in id_mapping:
+                edge_data["source"] = id_mapping[source_str]
+            if target_str in id_mapping:
+                edge_data["target"] = id_mapping[target_str]
+            new_edges.append(RFEdge.model_validate(edge_data))
+
+        return self.model_copy(update={"nodes": new_nodes, "edges": new_edges})

@@ -8,12 +8,16 @@ export function ExportMenuItem({
   workspaceId,
   workflowId,
   icon,
+  draft = false,
+  label,
 }: {
   enabledExport?: boolean
   format: "json" | "yaml"
   workspaceId: string
   workflowId: string
   icon?: React.ReactNode
+  draft?: boolean
+  label?: string
 }) {
   return (
     <ToggleableDropdownItem
@@ -26,6 +30,7 @@ export function ExportMenuItem({
             workspaceId,
             workflowId,
             format,
+            draft,
           })
         } catch (error) {
           console.error(
@@ -37,7 +42,7 @@ export function ExportMenuItem({
       }}
     >
       {icon}
-      Export to {format.toUpperCase()}
+      {label ?? `Export to ${format.toUpperCase()}`}
     </ToggleableDropdownItem>
   )
 }

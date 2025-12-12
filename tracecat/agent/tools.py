@@ -3,8 +3,11 @@
 import inspect
 import keyword
 import textwrap
+import types
 from dataclasses import dataclass
-from typing import Any, Protocol
+from functools import reduce
+from operator import or_
+from typing import Any, Protocol, Union, get_args, get_origin
 
 import orjson
 from pydantic_ai import ModelRetry
@@ -33,6 +36,9 @@ from tracecat.logger import logger
 from tracecat.registry.actions.schemas import BoundRegistryAction, RegistryActionOptions
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
+
+# Define JsonValue type for tool parameters that accept any JSON-compatible value
+JsonValue = str | int | float | bool | None | list | dict
 
 
 def create_tool_call_message(
@@ -435,6 +441,39 @@ class FunctionSignature:
     param_mapping: dict[str, str]
 
 
+def _replace_any_with_jsonvalue(annotation: Any) -> Any:
+    """Replace Any type annotations with JsonValue for better tool schema generation.
+
+    Handles both direct Any types and Any within union types (e.g., str | Any).
+
+    Args:
+        annotation: The type annotation to check and potentially replace
+
+    Returns:
+        JsonValue if annotation is Any, or a union with Any replaced by JsonValue
+    """
+    # Check if the annotation is exactly Any
+    if annotation is Any:
+        return JsonValue
+
+    # Check if it's a Union type (handles both Union[X, Y] and X | Y syntax)
+    origin = get_origin(annotation)
+    if origin is Union or isinstance(annotation, types.UnionType):
+        # Get all the union members
+        args = get_args(annotation)
+        # Replace any Any members with JsonValue
+        new_args = tuple(JsonValue if arg is Any else arg for arg in args)
+
+        # If we made changes, reconstruct the union
+        if new_args != args:
+            # Use reduce with | operator to reconstruct union (Python 3.10+ syntax)
+            if len(new_args) == 1:
+                return new_args[0]
+            return reduce(or_, new_args)
+
+    return annotation
+
+
 def _create_function_signature(
     model_cls: type, fixed_args: set[str] | None = None
 ) -> FunctionSignature:
@@ -460,6 +499,8 @@ def _create_function_signature(
 
         # Use the Pydantic field's annotation directly
         annotation = field_info.annotation
+        # Replace Any with JsonValue for strictness (OpenAI specific) in tool schema generation
+        annotation = _replace_any_with_jsonvalue(annotation)
 
         # Handle defaults from Pydantic field
         if field_info.default is not PydanticUndefined:
