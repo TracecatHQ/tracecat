@@ -34,6 +34,7 @@ from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.servicenow import ServiceNowOAuthProvider
+from tracecat.integrations.providers.slack import SlackOAuthProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
@@ -65,6 +66,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftGraphCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
+    SlackOAuthProvider,
     ServiceNowOAuthProvider,
 ]
 
