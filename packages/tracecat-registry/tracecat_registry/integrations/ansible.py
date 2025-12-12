@@ -35,7 +35,7 @@ ansible_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Run playbook",
+    default_title="Run Ansible playbook",
     description="Run Ansible playbook on a single host given a list of plays in JSON format. Supports SSH host-connection mode only.",
     display_group="Ansible",
     doc_url="https://docs.ansible.com/ansible/latest/index.html",
@@ -77,14 +77,14 @@ def run_playbook(
     ignore_events: Annotated[
         list[str] | None,
         Field(
-            description="List of events to ignore from the playbook. If None, filters out `verbose` events as default."
+            description="List of events to ignore from the playbook. Returns all events by default."
         ),
     ] = None,
 ) -> list[dict[str, Any]] | list[str]:
     ssh_key = secrets.get("ANSIBLE_SSH_KEY")
     passwords = secrets.get_or_default("ANSIBLE_PASSWORDS")
 
-    ignore_events = ignore_events or ["verbose"]
+    ignore_events = ignore_events or []
 
     # NOTE: Tracecat secrets does NOT preserve newlines, so we need to manually add them
     # Need to do this jankness until we support different secret types in Tracecat
@@ -135,10 +135,26 @@ def run_playbook(
         inventory=inventory,
         **runner_kwargs,
     )
-
     if isinstance(result, Runner):
+        # Check stdout for errors
+        if result.stdout:
+            if "Error loading key" in result.stdout:
+                raise ValueError(
+                    "Failed to load SSH key. Please check the key begins and ends with `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`."
+                )
+
         # Events are a generator, so we need to convert to a list
+        # Filter out internal implementation details (temp paths, ssh key loading, etc.)
         events = result.events
-        return [event for event in events if event.get("event") not in ignore_events]
+        filtered_events = []
+        for event in events:
+            if event.get("event") in ignore_events:
+                continue
+            # Filter out verbose events that expose internal temp paths
+            stdout = event.get("stdout", "")
+            if "Identity added:" in stdout:
+                continue
+            filtered_events.append(event)
+        return filtered_events
     else:
         raise ValueError("Ansible runner returned no result.")
