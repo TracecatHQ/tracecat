@@ -119,7 +119,7 @@ class DurableModel(Model):
         result = await workflow.execute_activity_method(
             AgentActivities.model_request,
             args=(args, agent_ctx),
-            start_to_close_timeout=timedelta(seconds=120),
+            start_to_close_timeout=timedelta(seconds=300),
         )
         resp = ModelResponseTA.validate_python(result.model_response)
         logger.debug(f"DurableModel response: {to_json(resp, indent=2).decode()}")
