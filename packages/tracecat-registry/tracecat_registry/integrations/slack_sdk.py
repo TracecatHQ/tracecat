@@ -238,8 +238,8 @@ async def search_messages(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    bot_token = secrets.get("SLACK_BOT_TOKEN")
-    client = AsyncWebClient(token=bot_token)
+    user_token = secrets.get(slack_oauth_secret.token_name)
+    client = AsyncWebClient(token=user_token)
     result: AsyncSlackResponse = await client.search_messages(
         query=query,
         count=count,
