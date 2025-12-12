@@ -1,7 +1,7 @@
 """Generic interface for Slack SDK."""
 
-from typing import Annotated, Any, Literal, cast
 import asyncio
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
@@ -9,7 +9,12 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from slack_sdk.webhook.async_client import AsyncWebhookClient
 
-from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecret,
+    registry,
+    secrets,
+)
 
 
 slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
@@ -188,3 +193,57 @@ async def post_response(
         "status_code": response.status_code,
         "body": response.body,
     }
+
+
+### User OAuth UDFs
+
+slack_oauth_secret = RegistryOAuthSecret(
+    provider_id="slack",
+    grant_type="authorization_code",
+)
+"""Slack OAuth2.0 user token.
+
+- name: `slack_oauth`
+- provider_id: `slack`
+- token_name: `SLACK_USER_TOKEN`
+"""
+
+
+@registry.register(
+    default_title="Search messages",
+    description="Search for messages matching a query in a Slack workspace.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/methods/search.messages",
+    namespace="tools.slack",
+    secrets=[slack_oauth_secret],
+)
+async def search_messages(
+    query: Annotated[
+        str,
+        Field(
+            ...,
+            description="Search query. To search within a channel / specific user, add `in:channel_name` / `from:<@user_id>` to the query.",
+        ),
+    ],
+    count: Annotated[int, Field(..., description="Number of messages to return.")] = 20,
+    sort: Annotated[
+        Literal["score", "timestamp"],
+        Field(..., description="Sort by score or timestamp."),
+    ] = "score",
+    cursor: Annotated[
+        str | None,
+        Field(
+            ...,
+            description="For the first call send '*', for subsequent calls send the value of `next_cursor` from the previous call.",
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    bot_token = secrets.get("SLACK_BOT_TOKEN")
+    client = AsyncWebClient(token=bot_token)
+    result: AsyncSlackResponse = await client.search_messages(
+        query=query,
+        count=count,
+        sort=sort,
+        cursor=cursor,
+    )
+    return cast(dict[str, Any], result.data)
