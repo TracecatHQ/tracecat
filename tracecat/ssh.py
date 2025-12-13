@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
-import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -223,37 +223,39 @@ async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
 
 
 def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
-    """Synchronously add the SSH key to the agent then remove it."""
-    with tempfile.NamedTemporaryFile(mode="w", delete=True) as temp_key_file:
-        temp_key_file.write(key_data)
-        temp_key_file.write("\n")
-        temp_key_file.flush()
-        logger.debug("Added SSH key to temp file", key_file=temp_key_file.name)
-        os.chmod(temp_key_file.name, 0o600)
+    """Synchronously add the SSH key to the agent without writing to disk.
 
-        try:
-            # Validate the key using paramiko
-            paramiko.Ed25519Key.from_private_key_file(temp_key_file.name)
-        except paramiko.SSHException as e:
-            logger.error(f"Invalid SSH key: {str(e)}")
-            raise
+    Uses stdin to pass the key directly to ssh-add, avoiding any filesystem writes.
+    This is important for multi-tenant security.
+    """
+    # Ensure key ends with newline (required by ssh-add)
+    key_with_newline = key_data if key_data.endswith("\n") else key_data + "\n"
 
-        try:
-            result = subprocess.run(
-                ["ssh-add", temp_key_file.name],
-                capture_output=True,
-                text=True,
-                env=env.to_dict(),
-                check=False,
-            )
+    # Validate the key using paramiko (reads from string, no disk)
+    try:
+        paramiko.Ed25519Key.from_private_key(StringIO(key_with_newline))
+    except paramiko.SSHException as e:
+        logger.error(f"Invalid SSH key: {str(e)}")
+        raise
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Failed to add SSH key: {result.stderr.strip()}")
+    try:
+        # Pass key via stdin using '-' flag - never touches disk
+        result = subprocess.run(
+            ["ssh-add", "-"],
+            input=key_with_newline,
+            capture_output=True,
+            text=True,
+            env=env.to_dict(),
+            check=False,
+        )
 
-            logger.info("Added SSH key to agent")
-        except Exception as e:
-            logger.error("Error adding SSH key", error=e)
-            raise
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to add SSH key: {result.stderr.strip()}")
+
+        logger.info("Added SSH key to agent (via stdin, no disk write)")
+    except Exception as e:
+        logger.error("Error adding SSH key", error=e)
+        raise
 
 
 async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
