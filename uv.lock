@@ -4283,14 +4283,16 @@ dependencies = [
     { name = "slack-sdk" },
     { name = "tavily-python" },
     { name = "tenacity" },
-    { name = "types-aioboto3", extra = ["s3", "sts"] },
-    { name = "types-boto3", extra = ["s3", "sts"] },
 ]
 
 [package.optional-dependencies]
 cli = [
     { name = "rich" },
     { name = "typer" },
+]
+dev = [
+    { name = "types-aioboto3", extra = ["s3", "sts"] },
+    { name = "types-boto3", extra = ["s3", "sts"] },
 ]
 
 [package.metadata]
@@ -4313,10 +4315,10 @@ requires-dist = [
     { name = "tavily-python", specifier = "==0.7.6" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.15.1" },
-    { name = "types-aioboto3", extras = ["s3", "sts"], specifier = ">=15.0.0" },
-    { name = "types-boto3", extras = ["s3", "sts"], specifier = ">=1.39.0,<2.0.0" },
+    { name = "types-aioboto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=15.0.0" },
+    { name = "types-boto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=1.39.0,<2.0.0" },
 ]
-provides-extras = ["cli"]
+provides-extras = ["cli", "dev"]
 
 [[package]]
 name = "trove-classifiers"

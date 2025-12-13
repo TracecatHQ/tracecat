@@ -4,15 +4,20 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 import boto3
 import aioboto3
-from types_aiobotocore_sts.type_defs import (
-    CredentialsTypeDef as AsyncCredentialsTypeDef,
-)
-from types_boto3_sts.type_defs import CredentialsTypeDef
+
+if TYPE_CHECKING:
+    from types_aiobotocore_sts.type_defs import (
+        CredentialsTypeDef as AsyncCredentialsTypeDef,
+    )
+    from types_boto3_sts.type_defs import CredentialsTypeDef
+else:
+    AsyncCredentialsTypeDef = dict[str, Any]
+    CredentialsTypeDef = dict[str, Any]
 
 from tracecat_registry import (
     RegistrySecret,
