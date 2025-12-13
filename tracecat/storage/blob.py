@@ -3,6 +3,7 @@
 import os
 
 import aioboto3
+from aiobotocore.session import ClientCreatorContext
 from botocore.exceptions import ClientError
 
 from tracecat import config
@@ -10,7 +11,7 @@ from tracecat.logger import logger
 
 
 # Core storage utility functions
-def get_storage_client():
+def get_storage_client() -> ClientCreatorContext:
     """Get a configured S3 client for either AWS S3 or MinIO.
 
     Uses environment variables for credentials:
