@@ -30,7 +30,7 @@ def _get_gmail_token() -> str:
 
 
 @registry.register(
-    default_title="Search Gmail Messages",
+    default_title="Search Gmail messages",
     display_group="Gmail",
     description="Search Gmail messages using Gmail's powerful query syntax",
     namespace="tools.gmail",
@@ -114,7 +114,7 @@ async def search_messages(
 
 
 @registry.register(
-    default_title="Get Gmail Message",
+    default_title="Get Gmail message",
     display_group="Gmail",
     description="Get full content of a Gmail message by ID",
     namespace="tools.gmail",
@@ -197,7 +197,7 @@ async def get_message(
 
 
 @registry.register(
-    default_title="Get Gmail Message Headers",
+    default_title="Get Gmail message headers",
     display_group="Gmail",
     description="Get only headers of a Gmail message (faster than full message)",
     namespace="tools.gmail",
@@ -239,7 +239,7 @@ async def get_message_headers(
 
 
 @registry.register(
-    default_title="List Gmail Labels",
+    default_title="List Gmail labels",
     display_group="Gmail",
     description="List all Gmail labels for the user",
     namespace="tools.gmail",
@@ -266,7 +266,7 @@ async def list_labels(
 
 
 @registry.register(
-    default_title="Get Gmail Thread",
+    default_title="Get Gmail thread",
     display_group="Gmail",
     description="Get all messages in an email thread",
     namespace="tools.gmail",
