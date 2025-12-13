@@ -107,6 +107,10 @@ class RegistryVersionCreate(BaseModel):
     )
     manifest: RegistryVersionManifest
     wheel_uri: str = Field(..., description="S3 URI to the wheel file")
+    wheelhouse_uri: str | None = Field(
+        default=None,
+        description="S3 URI prefix to the dependency wheelhouse directory",
+    )
 
 
 class RegistryVersionRead(BaseModel):
@@ -118,6 +122,7 @@ class RegistryVersionRead(BaseModel):
     commit_sha: str | None
     manifest: RegistryVersionManifest
     wheel_uri: str
+    wheelhouse_uri: str | None
     created_at: datetime
 
 
@@ -129,6 +134,7 @@ class RegistryVersionReadMinimal(BaseModel):
     version: str
     commit_sha: str | None
     wheel_uri: str
+    wheelhouse_uri: str | None
     created_at: datetime
     action_count: int = Field(
         default=0,

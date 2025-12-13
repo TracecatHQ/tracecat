@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,28 +44,28 @@ class WheelBuildError(Exception):
     """Raised when wheel building fails."""
 
 
+@dataclass
 class WheelBuildResult:
     """Result of building a wheel."""
 
-    def __init__(
-        self,
-        wheel_path: Path,
-        wheel_name: str,
-        content_hash: str,
-        package_name: str,
-        version: str,
-    ):
-        self.wheel_path = wheel_path
-        self.wheel_name = wheel_name
-        self.content_hash = content_hash
-        self.package_name = package_name
-        self.version = version
+    wheel_path: Path
+    wheel_name: str
+    content_hash: str
+    package_name: str
+    version: str
 
-    def __repr__(self) -> str:
-        return (
-            f"WheelBuildResult(wheel_name={self.wheel_name!r}, "
-            f"package={self.package_name}, version={self.version})"
-        )
+
+@dataclass
+class WheelhouseBuildResult:
+    """Result of building a dependency wheelhouse."""
+
+    wheelhouse_dir: Path
+    wheel_files: list[Path]
+    requirements_hash: str
+
+    @property
+    def num_wheels(self) -> int:
+        return len(self.wheel_files)
 
 
 async def build_wheel_from_path(
@@ -328,6 +329,238 @@ def _slugify_origin(origin: str) -> str:
     # Remove leading/trailing underscores
     slug = slug.strip("_")
     return slug[:100]  # Limit length
+
+
+async def build_wheelhouse_from_path(
+    package_path: Path,
+    output_dir: Path | None = None,
+) -> WheelhouseBuildResult:
+    """Build a wheelhouse of all dependencies for a package.
+
+    Uses `uv pip compile` to get exact dependency versions from the lock file,
+    then downloads wheels for all dependencies.
+
+    Args:
+        package_path: Path to the package directory (must contain pyproject.toml)
+        output_dir: Directory to output the wheels (defaults to temp dir)
+
+    Returns:
+        WheelhouseBuildResult with paths to all dependency wheels
+
+    Raises:
+        WheelBuildError: If the build fails
+    """
+    if not package_path.exists():
+        raise WheelBuildError(f"Package path does not exist: {package_path}")
+
+    pyproject = package_path / "pyproject.toml"
+    if not pyproject.exists():
+        raise WheelBuildError(f"No pyproject.toml found in {package_path}")
+
+    # Use temp dir if no output dir specified
+    if output_dir is None:
+        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_wheelhouse_"))
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    wheelhouse_dir = output_dir / "wheelhouse"
+    wheelhouse_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        "Building wheelhouse from package",
+        package_path=str(package_path),
+        output_dir=str(wheelhouse_dir),
+    )
+
+    # Step 1: Export requirements from lock file using uv
+    # This gives us the exact pinned versions
+    requirements_file = output_dir / "requirements.txt"
+    export_cmd = [
+        "uv",
+        "export",
+        "--frozen",
+        "--no-hashes",
+        "--no-emit-project",  # Exclude the project itself
+        "--no-dev",  # Exclude dev dependencies (type stubs, pytest, etc.)
+        "--format",
+        "requirements-txt",
+        "--output-file",
+        str(requirements_file),
+    ]
+    process = await asyncio.create_subprocess_exec(
+        *export_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(package_path),
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode().strip()
+        logger.error("Failed to export requirements", error=error_msg)
+        raise WheelBuildError(f"Failed to export requirements: {error_msg}")
+
+    if not requirements_file.exists():
+        raise WheelBuildError("Requirements file was not created")
+
+    # Compute hash of requirements for caching/deduplication
+    requirements_content = requirements_file.read_text()
+    requirements_hash = hashlib.sha256(requirements_content.encode()).hexdigest()
+
+    logger.info(
+        "Exported requirements",
+        requirements_file=str(requirements_file),
+        requirements_hash=requirements_hash[:16],
+    )
+
+    # Step 2: Download wheels for all dependencies.
+    # uv's pip-compatible interface does not implement `download`.
+    # Use pip itself via `uv tool run` to fetch wheels without installing.
+    wheel_cmd = [
+        "uv",
+        "tool",
+        "run",
+        "--from",
+        "pip",
+        "pip",
+        "download",
+        "--requirement",
+        str(requirements_file),
+        "--dest",
+        str(wheelhouse_dir),
+        "--only-binary",
+        ":all:",  # Only download pre-built wheels, no source builds
+    ]
+    process = await asyncio.create_subprocess_exec(
+        *wheel_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(package_path),
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode().strip()
+        # Log but don't fail - some packages might not have wheels
+        logger.warning(
+            "Some wheels could not be downloaded (falling back to any available)",
+            error=error_msg,
+        )
+        # Retry without --only-binary to get source distributions if needed
+        wheel_cmd_fallback = [
+            "uv",
+            "tool",
+            "run",
+            "--from",
+            "pip",
+            "pip",
+            "download",
+            "--requirement",
+            str(requirements_file),
+            "--dest",
+            str(wheelhouse_dir),
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *wheel_cmd_fallback,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(package_path),
+        )
+        _, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode().strip()
+            logger.error("Failed to download dependencies", error=error_msg)
+            raise WheelBuildError(f"Failed to download dependencies: {error_msg}")
+
+    # Collect all wheel files
+    wheel_files = list(wheelhouse_dir.glob("*.whl"))
+
+    logger.info(
+        "Wheelhouse built successfully",
+        num_wheels=len(wheel_files),
+        requirements_hash=requirements_hash[:16],
+    )
+
+    return WheelhouseBuildResult(
+        wheelhouse_dir=wheelhouse_dir,
+        wheel_files=wheel_files,
+        requirements_hash=requirements_hash,
+    )
+
+
+def get_wheelhouse_s3_prefix(
+    organization_id: str,
+    repository_origin: str,
+    version: str,
+) -> str:
+    """Generate the S3 prefix for a wheelhouse directory.
+
+    Format: {org_id}/wheelhouse/{origin_slug}/{version}/
+
+    Args:
+        organization_id: Organization UUID
+        repository_origin: Repository origin (e.g., "tracecat_registry", "git+ssh://...")
+        version: Version string
+
+    Returns:
+        S3 key prefix string (ending with /)
+    """
+    origin_slug = _slugify_origin(repository_origin)
+    return f"{organization_id}/wheelhouse/{origin_slug}/{version}/"
+
+
+async def upload_wheelhouse(
+    wheelhouse_result: WheelhouseBuildResult,
+    prefix: str,
+    bucket: str,
+    max_concurrency: int = 10,
+) -> str:
+    """Upload all wheels in a wheelhouse to S3/MinIO.
+
+    Args:
+        wheelhouse_result: Result from build_wheelhouse_from_path
+        prefix: S3 key prefix for the wheelhouse
+        bucket: Bucket name
+        max_concurrency: Maximum number of concurrent uploads
+
+    Returns:
+        The S3 URI prefix of the uploaded wheelhouse (s3://{bucket}/{prefix})
+    """
+    sem = asyncio.Semaphore(max_concurrency)
+
+    async def _upload_single_wheel(wheel_path: Path) -> None:
+        async with sem:
+            key = f"{prefix}{wheel_path.name}"
+            content = wheel_path.read_bytes()
+            await blob.upload_file(
+                content=content,
+                key=key,
+                bucket=bucket,
+                content_type="application/zip",
+            )
+            logger.debug(
+                "Uploaded dependency wheel",
+                wheel_name=wheel_path.name,
+                key=key,
+            )
+
+    # Upload all wheels concurrently (limited by semaphore)
+    await asyncio.gather(
+        *[
+            _upload_single_wheel(wheel_path)
+            for wheel_path in wheelhouse_result.wheel_files
+        ]
+    )
+
+    s3_uri = f"s3://{bucket}/{prefix}"
+    logger.info(
+        "Wheelhouse uploaded successfully",
+        prefix=prefix,
+        bucket=bucket,
+        s3_uri=s3_uri,
+        num_wheels=wheelhouse_result.num_wheels,
+    )
+    return s3_uri
 
 
 async def upload_wheel(

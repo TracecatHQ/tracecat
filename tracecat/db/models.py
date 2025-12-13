@@ -1065,6 +1065,11 @@ class RegistryVersion(OrganizationModel):
         nullable=False,
         doc="S3 URI to the wheel file",
     )
+    wheelhouse_uri: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="S3 URI prefix to the dependency wheelhouse directory",
+    )
 
     repository: Mapped[RegistryRepository] = relationship(back_populates="versions")
     index_entries: Mapped[list[RegistryIndex]] = relationship(

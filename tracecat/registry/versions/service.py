@@ -79,6 +79,7 @@ class RegistryVersionsService(BaseService):
             commit_sha=params.commit_sha,
             manifest=to_jsonable_python(params.manifest),
             wheel_uri=params.wheel_uri,
+            wheelhouse_uri=params.wheelhouse_uri,
         )
         self.session.add(version)
         if commit:
