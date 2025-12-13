@@ -4,6 +4,8 @@ import type { CancelablePromise } from "./core/CancelablePromise"
 import { OpenAPI } from "./core/OpenAPI"
 import { request as __request } from "./core/request"
 import type {
+  ActionsBatchUpdatePositionsData,
+  ActionsBatchUpdatePositionsResponse,
   ActionsCreateActionData,
   ActionsCreateActionResponse,
   ActionsDeleteActionData,
@@ -187,6 +189,10 @@ import type {
   FoldersMoveFolderResponse,
   FoldersUpdateFolderData,
   FoldersUpdateFolderResponse,
+  GraphApplyGraphOperationsData,
+  GraphApplyGraphOperationsResponse,
+  GraphGetGraphData,
+  GraphGetGraphResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -1437,6 +1443,69 @@ export const workflowsMoveWorkflowToFolder = (
 }
 
 /**
+ * Get Graph
+ * Get the canonical graph projection for a workflow.
+ *
+ * Returns the graph built from Actions (single source of truth),
+ * not from Workflow.object.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns GraphResponse Successful Response
+ * @throws ApiError
+ */
+export const graphGetGraph = (
+  data: GraphGetGraphData
+): CancelablePromise<GraphGetGraphResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/{workflow_id}/graph",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Apply Graph Operations
+ * Apply graph operations with optimistic concurrency.
+ *
+ * Validates base_version matches current graph_version.
+ * Returns 409 Conflict with latest graph if versions mismatch.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns GraphResponse Successful Response
+ * @throws ApiError
+ */
+export const graphApplyGraphOperations = (
+  data: GraphApplyGraphOperationsData
+): CancelablePromise<GraphApplyGraphOperationsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workflows/{workflow_id}/graph",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Workflow Executions
  * List all workflow executions.
  * @param data The data for the request.
@@ -1595,6 +1664,37 @@ export const workflowExecutionsTerminateWorkflowExecution = (
     },
     query: {
       workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Update Positions
+ * Batch update action and trigger positions.
+ *
+ * This endpoint updates all positions in a single transaction for atomicity,
+ * preventing race conditions from concurrent position updates.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const actionsBatchUpdatePositions = (
+  data: ActionsBatchUpdatePositionsData
+): CancelablePromise<ActionsBatchUpdatePositionsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/actions/batch-positions",
+    query: {
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",

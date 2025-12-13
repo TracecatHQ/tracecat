@@ -43,8 +43,7 @@ async def workflow_id(
         status="active",
         entrypoint=None,
         returns=None,
-        object=None,
-    )  # type: ignore
+    )
     session.add(workflow)
     await session.commit()
     try:

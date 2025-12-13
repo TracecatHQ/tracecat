@@ -300,13 +300,15 @@ async def get_workflow(
         expects_schema=expects_schema,
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
-        object=workflow.object,
         config=DSLConfig(**workflow.config),
         actions=actions_responses,
         webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),
         schedules=ScheduleRead.list_adapter().validate_python(workflow.schedules),
         alias=workflow.alias,
         error_handler=workflow.error_handler,
+        trigger_position_x=workflow.trigger_position_x,
+        trigger_position_y=workflow.trigger_position_y,
+        graph_version=workflow.graph_version,
     )
 
 

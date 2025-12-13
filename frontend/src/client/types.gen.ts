@@ -33,6 +33,32 @@ export type ActionCreate = {
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  position_x?: number
+  position_y?: number
+  upstream_edges?: Array<ActionEdge>
+}
+
+/**
+ * Represents an incoming edge to an action.
+ *
+ * Stored in Action.upstream_edges to represent incoming connections.
+ */
+export type ActionEdge = {
+  source_id: string
+  source_type: "trigger" | "udf"
+  source_handle?: "success" | "error"
+}
+
+export type source_type = "trigger" | "udf"
+
+export type source_handle = "success" | "error"
+
+/**
+ * Position update for a single action.
+ */
+export type ActionPositionUpdate = {
+  action_id: string
+  position: Position
 }
 
 export type ActionRead = {
@@ -45,6 +71,9 @@ export type ActionRead = {
   control_flow?: ActionControlFlow
   is_interactive: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  position_x?: number
+  position_y?: number
+  upstream_edges?: Array<ActionEdge>
   readonly ref: string
 }
 
@@ -151,6 +180,9 @@ export type ActionUpdate = {
   control_flow?: ActionControlFlow | null
   is_interactive?: boolean | null
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  position_x?: number | null
+  position_y?: number | null
+  upstream_edges?: Array<ActionEdge> | null
 }
 
 /**
@@ -567,6 +599,14 @@ export type AuthSettingsUpdate = {
    * Session expiration time in seconds.
    */
   auth_session_expire_time_seconds?: number
+}
+
+/**
+ * Batch update for action and trigger positions.
+ */
+export type BatchPositionUpdate = {
+  actions?: Array<ActionPositionUpdate>
+  trigger_position?: Position | null
 }
 
 export type BinaryContent = {
@@ -2225,6 +2265,75 @@ export type GitSettingsUpdate = {
   git_repo_package_name?: string | null
 }
 
+/**
+ * A single graph operation.
+ */
+export type GraphOperation = {
+  type: GraphOperationType
+  /**
+   * Operation-specific payload
+   */
+  payload: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Graph operation types.
+ */
+export type GraphOperationType =
+  | "add_node"
+  | "update_node"
+  | "delete_node"
+  | "add_edge"
+  | "delete_edge"
+  | "move_nodes"
+  | "update_trigger_position"
+  | "update_viewport"
+
+/**
+ * Request for PATCH /workflows/{id}/graph.
+ *
+ * Applies a batch of graph operations with optimistic concurrency.
+ */
+export type GraphOperationsRequest = {
+  /**
+   * Expected current graph_version. Returns 409 if mismatched.
+   */
+  base_version: number
+  /**
+   * List of operations to apply atomically
+   */
+  operations: Array<GraphOperation>
+}
+
+/**
+ * Response for GET /workflows/{id}/graph.
+ *
+ * Returns the canonical graph projection from Actions.
+ */
+export type GraphResponse = {
+  /**
+   * Graph version for optimistic concurrency
+   */
+  version: number
+  /**
+   * React Flow nodes
+   */
+  nodes: Array<{
+    [key: string]: unknown
+  }>
+  /**
+   * React Flow edges
+   */
+  edges: Array<{
+    [key: string]: unknown
+  }>
+  viewport?: {
+    [key: string]: unknown
+  }
+}
+
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
@@ -2779,6 +2888,11 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type Position = {
+  x?: number
+  y?: number
 }
 
 /**
@@ -5220,9 +5334,6 @@ export type WorkflowRead = {
   actions: {
     [key: string]: ActionRead
   }
-  object: {
-    [key: string]: unknown
-  } | null
   workspace_id: string
   version?: number | null
   webhook: WebhookRead
@@ -5238,6 +5349,9 @@ export type WorkflowRead = {
   config: DSLConfig_Output | null
   alias?: string | null
   error_handler?: string | null
+  trigger_position_x?: number
+  trigger_position_y?: number
+  graph_version?: number
 }
 
 /**
@@ -5293,9 +5407,6 @@ export type WorkflowUpdate = {
    */
   description?: string | null
   status?: "online" | "offline" | null
-  object?: {
-    [key: string]: unknown
-  } | null
   version?: number | null
   entrypoint?: string | null
   icon_url?: string | null
@@ -5687,6 +5798,21 @@ export type WorkflowsMoveWorkflowToFolderData = {
 
 export type WorkflowsMoveWorkflowToFolderResponse = void
 
+export type GraphGetGraphData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type GraphGetGraphResponse = GraphResponse
+
+export type GraphApplyGraphOperationsData = {
+  requestBody: GraphOperationsRequest
+  workflowId: string
+  workspaceId: string
+}
+
+export type GraphApplyGraphOperationsResponse = GraphResponse
+
 export type WorkflowExecutionsListWorkflowExecutionsData = {
   limit?: number | null
   trigger?: Array<TriggerType> | null
@@ -5736,6 +5862,14 @@ export type WorkflowExecutionsTerminateWorkflowExecutionData = {
 }
 
 export type WorkflowExecutionsTerminateWorkflowExecutionResponse = void
+
+export type ActionsBatchUpdatePositionsData = {
+  requestBody: BatchPositionUpdate
+  workflowId: string
+  workspaceId: string
+}
+
+export type ActionsBatchUpdatePositionsResponse = void
 
 export type ActionsListActionsData = {
   workflowId: string
@@ -7777,6 +7911,34 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/graph": {
+    get: {
+      req: GraphGetGraphData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GraphResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: GraphApplyGraphOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GraphResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflow-executions": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionsData
@@ -7853,6 +8015,21 @@ export type $OpenApiTs = {
   "/workflow-executions/{execution_id}/terminate": {
     post: {
       req: WorkflowExecutionsTerminateWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/actions/batch-positions": {
+    post: {
+      req: ActionsBatchUpdatePositionsData
       res: {
         /**
          * Successful Response

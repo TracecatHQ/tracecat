@@ -1,3 +1,5 @@
+from typing import cast
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
@@ -13,13 +15,35 @@ from tracecat.workflow.actions.dependencies import AnyActionIDPath
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
     ActionCreate,
+    ActionEdge,
     ActionRead,
     ActionReadMinimal,
     ActionUpdate,
+    BatchPositionUpdate,
 )
 from tracecat.workflow.actions.service import WorkflowActionService
 
 router = APIRouter(prefix="/actions", tags=["actions"])
+
+
+@router.post("/batch-positions", status_code=status.HTTP_204_NO_CONTENT)
+async def batch_update_positions(
+    role: WorkspaceUserRole,
+    workflow_id: AnyWorkflowIDPath,
+    params: BatchPositionUpdate,
+    session: AsyncDBSession,
+) -> None:
+    """Batch update action and trigger positions.
+
+    This endpoint updates all positions in a single transaction for atomicity,
+    preventing race conditions from concurrent position updates.
+    """
+    svc = WorkflowActionService(session, role=role)
+    await svc.batch_update_positions(
+        workflow_id=workflow_id,
+        action_positions=params.actions,
+        trigger_position=params.trigger_position,
+    )
 
 
 @router.get("")
@@ -134,6 +158,9 @@ async def get_action(
             if action.interaction is not None
             else None
         ),
+        position_x=action.position_x,
+        position_y=action.position_y,
+        upstream_edges=cast(list[ActionEdge], action.upstream_edges),
     )
 
 

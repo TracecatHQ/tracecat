@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
@@ -28,7 +29,6 @@ class WorkflowRead(Schema):
     description: str
     status: str
     actions: dict[str, ActionRead]
-    object: dict[str, Any] | None  # React Flow object
     workspace_id: WorkspaceID
     version: int | None = None
     webhook: WebhookRead
@@ -40,6 +40,9 @@ class WorkflowRead(Schema):
     config: DSLConfig | None
     alias: str | None = None
     error_handler: str | None = None
+    trigger_position_x: float = 0.0
+    trigger_position_y: float = 0.0
+    graph_version: int = 1
 
 
 class WorkflowDefinitionReadMinimal(Schema):
@@ -91,7 +94,6 @@ class WorkflowUpdate(BaseModel):
         description="Optional workflow description, up to 1000 characters",
     )
     status: Literal["online", "offline"] | None = None
-    object: dict[str, Any] | None = None
     version: int | None = None
     entrypoint: str | None = None
     icon_url: str | None = None
@@ -219,3 +221,141 @@ class WorkflowEntrypointValidationResponse(BaseModel):
 
 class WorkflowMoveToFolder(BaseModel):
     folder_path: str | None = None
+
+
+# =============================================================================
+# Graph API Schemas
+# =============================================================================
+
+
+class GraphResponse(Schema):
+    """Response for GET /workflows/{id}/graph.
+
+    Returns the canonical graph projection from Actions.
+    """
+
+    version: int = Field(description="Graph version for optimistic concurrency")
+    nodes: list[dict[str, Any]] = Field(description="React Flow nodes")
+    edges: list[dict[str, Any]] = Field(description="React Flow edges")
+    viewport: dict[str, Any] = Field(
+        default_factory=lambda: {"x": 0, "y": 0, "zoom": 1}
+    )
+
+
+class GraphOperationType(StrEnum):
+    """Graph operation types."""
+
+    ADD_NODE = "add_node"
+    UPDATE_NODE = "update_node"
+    DELETE_NODE = "delete_node"
+    ADD_EDGE = "add_edge"
+    DELETE_EDGE = "delete_edge"
+    MOVE_NODES = "move_nodes"
+    UPDATE_TRIGGER_POSITION = "update_trigger_position"
+    UPDATE_VIEWPORT = "update_viewport"
+
+
+class GraphOperation(Schema):
+    """A single graph operation."""
+
+    type: GraphOperationType
+    payload: dict[str, Any] = Field(description="Operation-specific payload")
+
+
+class GraphOperationsRequest(Schema):
+    """Request for PATCH /workflows/{id}/graph.
+
+    Applies a batch of graph operations with optimistic concurrency.
+    """
+
+    base_version: int = Field(
+        description="Expected current graph_version. Returns 409 if mismatched."
+    )
+    operations: list[GraphOperation] = Field(
+        description="List of operations to apply atomically"
+    )
+
+
+class AddNodePayload(Schema):
+    """Payload for add_node operation."""
+
+    type: str = Field(description="Action type (UDF key)")
+    title: str = Field(description="Action title")
+    description: str | None = Field(default="", description="Action description")
+    inputs: str | None = Field(
+        default=None,
+        description="YAML inputs for the action. Defaults to None.",
+    )
+    control_flow: dict[str, Any] | None = Field(
+        default=None,
+        description="Control flow configuration for the action",
+    )
+    position_x: float = 0.0
+    position_y: float = 0.0
+
+
+class UpdateNodePayload(Schema):
+    """Payload for update_node operation."""
+
+    action_id: uuid.UUID
+    title: str | None = None
+    description: str | None = None
+    inputs: str | None = None
+    control_flow: dict[str, Any] | None = None
+
+
+class DeleteNodePayload(Schema):
+    """Payload for delete_node operation."""
+
+    action_id: uuid.UUID
+
+
+class AddEdgePayload(Schema):
+    """Payload for add_edge operation."""
+
+    source_id: str = Field(
+        description="Source node ID. For trigger: 'trigger-{uuid}', for action: action UUID"
+    )
+    source_type: Literal["trigger", "udf"] = Field(description="Type of source node")
+    target_id: uuid.UUID = Field(description="Target action ID")
+    source_handle: Literal["success", "error"] | None = Field(
+        default=None,
+        description="Edge handle type. Required for 'udf' source, ignored for 'trigger'",
+    )
+
+
+class DeleteEdgePayload(Schema):
+    """Payload for delete_edge operation."""
+
+    source_id: str = Field(
+        description="Source node ID. For trigger: 'trigger-{uuid}', for action: action UUID"
+    )
+    source_type: Literal["trigger", "udf"] = Field(description="Type of source node")
+    target_id: uuid.UUID
+    source_handle: Literal["success", "error"] | None = Field(
+        default=None,
+        description="Edge handle type. Required for 'udf' source, ignored for 'trigger'",
+    )
+
+
+class MoveNodesPayload(Schema):
+    """Payload for move_nodes operation (layout only)."""
+
+    positions: list[dict[str, Any]] = Field(
+        description="List of {action_id, x, y} positions"
+    )
+
+
+class UpdateTriggerPositionPayload(Schema):
+    """Payload for update_trigger_position operation."""
+
+    x: float
+    y: float
+
+
+class UpdateViewportPayload(Schema):
+    """Payload for update_viewport operation."""
+
+    x: float
+    y: float
+    zoom: float

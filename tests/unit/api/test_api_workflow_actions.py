@@ -27,7 +27,6 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
         entrypoint="action-1",
         expects={"input": {"type": "string"}},
         returns=None,
-        object={"nodes": [], "edges": []},
         config={},
         alias="test-workflow",
         error_handler=None,
