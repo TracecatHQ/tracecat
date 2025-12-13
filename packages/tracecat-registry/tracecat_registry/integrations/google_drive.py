@@ -27,7 +27,7 @@ def _get_drive_token() -> str:
 
 
 @registry.register(
-    default_title="List Drive Files",
+    default_title="List Drive files",
     display_group="Google Drive",
     description="List and search files in Google Drive",
     namespace="tools.google_drive",
@@ -73,7 +73,7 @@ async def list_files(
 
 
 @registry.register(
-    default_title="Get Drive File",
+    default_title="Get Drive file",
     display_group="Google Drive",
     description="Get metadata for a specific file",
     namespace="tools.google_drive",
@@ -101,7 +101,7 @@ async def get_file(
 
 
 @registry.register(
-    default_title="Upload Drive File",
+    default_title="Upload Drive file",
     display_group="Google Drive",
     description="Upload a file to Google Drive",
     namespace="tools.google_drive",
@@ -153,7 +153,7 @@ async def upload_file(
 
 
 @registry.register(
-    default_title="Create Drive Folder",
+    default_title="Create Drive folder",
     display_group="Google Drive",
     description="Create a new folder in Google Drive",
     namespace="tools.google_drive",
@@ -190,7 +190,7 @@ async def create_folder(
 
 
 @registry.register(
-    default_title="Delete Drive File",
+    default_title="Delete Drive file",
     display_group="Google Drive",
     description="Move a file or folder to trash",
     namespace="tools.google_drive",
@@ -218,7 +218,7 @@ async def delete_file(
 
 
 @registry.register(
-    default_title="Permanently Delete Drive File",
+    default_title="Permanently delete Drive file",
     display_group="Google Drive",
     description="Permanently delete a file (bypass trash)",
     namespace="tools.google_drive",
@@ -245,7 +245,7 @@ async def permanently_delete_file(
 
 
 @registry.register(
-    default_title="Get Drive File Permissions",
+    default_title="Get Drive file permissions",
     display_group="Google Drive",
     description="List all permissions for a file",
     namespace="tools.google_drive",
@@ -274,7 +274,7 @@ async def get_file_permissions(
 
 
 @registry.register(
-    default_title="Add Drive Permission",
+    default_title="Add Drive permission",
     display_group="Google Drive",
     description="Grant access to a file or folder",
     namespace="tools.google_drive",
@@ -315,7 +315,7 @@ async def add_permission(
 
 
 @registry.register(
-    default_title="Update Drive Permission",
+    default_title="Update Drive permission",
     display_group="Google Drive",
     description="Modify an existing permission",
     namespace="tools.google_drive",
@@ -346,7 +346,7 @@ async def update_permission(
 
 
 @registry.register(
-    default_title="Revoke Drive Permission",
+    default_title="Revoke Drive permission",
     display_group="Google Drive",
     description="Remove access to a file or folder",
     namespace="tools.google_drive",
