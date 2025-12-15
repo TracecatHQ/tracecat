@@ -73,6 +73,8 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
+      # Agent
+      ENABLE_REMOTE_AGENT_EXECUTOR: ${ENABLE_REMOTE_AGENT_EXECUTOR}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:

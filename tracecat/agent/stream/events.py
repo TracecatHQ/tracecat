@@ -4,10 +4,15 @@ from dataclasses import dataclass
 from typing import Annotated, Literal
 
 import orjson
+from claude_agent_sdk.types import Message as ClaudeSDKMessage
+from claude_agent_sdk.types import StreamEvent as ClaudeSDKStreamEvent
 from pydantic import Discriminator, TypeAdapter
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
 AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
+ClaudeSDKStreamEventTA: TypeAdapter[ClaudeSDKStreamEvent] = TypeAdapter(
+    ClaudeSDKStreamEvent
+)
 
 
 @dataclass(slots=True, kw_only=True)
@@ -16,7 +21,7 @@ class StreamDelta:
 
     kind: Literal["event"] = "event"
     id: str
-    event: AgentStreamEvent
+    event: AgentStreamEvent | ClaudeSDKStreamEvent
 
     def sse(self) -> str:
         return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
@@ -28,7 +33,7 @@ class StreamMessage:
 
     kind: Literal["message"] = "message"
     id: str
-    message: ModelMessage
+    message: ModelMessage | ClaudeSDKMessage
 
     def sse(self) -> str:
         return f"id: {self.id}\nevent: message\ndata: {orjson.dumps(self.message).decode()}\n\n"

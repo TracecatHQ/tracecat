@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, runtime_checkable
 
 import pydantic
+from claude_agent_sdk import Message as ClaudeSDKMessage
 from pydantic import TypeAdapter
 from pydantic_ai import ModelResponse
 from pydantic_ai.messages import ModelMessage
@@ -48,15 +50,23 @@ ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
 
 @runtime_checkable
 class MessageStore(Protocol):
-    async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
+    """Message store supporting both v1 (ModelMessage) and v2 (ClaudeSDKMessage)."""
+
+    async def load(
+        self, session_id: uuid.UUID
+    ) -> Sequence[ModelMessage | ClaudeSDKMessage]:
+        """Load messages. Returns v1 or v2 based on what's stored."""
+        ...
 
     async def store(
         self,
         session_id: uuid.UUID,
-        messages: list[ModelMessage],
+        messages: Sequence[ModelMessage | ClaudeSDKMessage],
         *,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
-    ) -> None: ...
+    ) -> None:
+        """Store messages. Version determined by ENABLE_REMOTE_AGENT_EXECUTOR flag."""
+        ...
 
 
 @runtime_checkable

@@ -23,6 +23,15 @@ from typing import (
 )
 
 import pydantic
+from claude_agent_sdk import (
+    AssistantMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
+from claude_agent_sdk.types import StreamEvent as ClaudeSDKStreamEvent
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import (
     AgentStreamEvent,
@@ -760,12 +769,66 @@ class VercelStreamContext:
         return events
 
     async def handle_event(
-        self, event: AgentStreamEvent
+        self, event: AgentStreamEvent | ClaudeSDKStreamEvent
     ) -> AsyncIterator[VercelSSEPayload]:
-        """Processes a pydantic-ai agent event and yields Vercel SDK SSE events."""
+        """Processes agent events (v1 pydantic-ai or v2 Claude SDK) and yields Vercel SDK SSE events."""
         for data_event in self.flush_data_events():
             yield data_event
 
+        # Handle Claude SDK StreamEvent (v2)
+        if isinstance(event, ClaudeSDKStreamEvent):
+            claude_event = event.event
+            event_type = (
+                claude_event.get("type") if isinstance(claude_event, dict) else None
+            )
+
+            match event_type:
+                case "content_block_start":
+                    index = claude_event.get("index", 0)
+                    content_block = claude_event.get("content_block", {})
+                    block_type = content_block.get("type")
+
+                    if block_type == "text":
+                        state = self._create_part_state(index, "text")
+                        yield TextStartEventPayload(id=state.part_id)
+                    elif block_type == "thinking":
+                        state = self._create_part_state(index, "reasoning")
+                        yield ReasoningStartEventPayload(id=state.part_id)
+
+                case "content_block_delta":
+                    index = claude_event.get("index", 0)
+                    delta = claude_event.get("delta", {})
+                    delta_type = delta.get("type")
+                    state = self.part_states.get(index)
+
+                    if state:
+                        if delta_type == "text_delta":
+                            text = delta.get("text", "")
+                            if state.part_type == "text":
+                                yield TextDeltaEventPayload(
+                                    id=state.part_id, delta=text
+                                )
+                        elif delta_type == "thinking_delta":
+                            thinking = delta.get("thinking", "")
+                            if state.part_type == "reasoning":
+                                yield ReasoningDeltaEventPayload(
+                                    id=state.part_id, delta=thinking
+                                )
+
+                case "content_block_stop":
+                    index = claude_event.get("index", 0)
+                    # Properly finalize the part (removes from state and yields end events)
+                    for end_event in self._finalize_part(index):
+                        yield end_event
+
+                case "message_stop":
+                    # End of message
+                    pass
+
+            # Early return - Claude SDK events handled
+            return
+
+        # Handle pydantic-ai events (v1) - original logic
         # End the previous part if a new one is starting
         if isinstance(event, PartStartEvent):
             # Close any existing stream for this index so the next start begins cleanly.
@@ -1028,13 +1091,52 @@ def _extract_approval_payload_from_message(
             return None
 
 
-def convert_model_messages_to_ui(
+def convert_chat_messages_to_ui(
     messages: list[ChatMessage],
 ) -> list[UIMessage]:
-    """Convert persisted ModelMessage format to Vercel UIMessage format.
+    """Unified converter that handles both v1 and v2 based on message type.
+
+    Routes to appropriate converter based on message structure. This is the
+    recommended entry point for converting stored messages to UI format.
 
     Args:
         messages: List of ChatMessage objects from the database
+
+    Returns:
+        List of UIMessage objects for the Vercel AI SDK
+    """
+    from claude_agent_sdk import Message as ClaudeSDKMessage
+
+    # Group messages by type for batch conversion
+    v1_messages: list[ChatMessage] = []
+    v2_messages: list[ChatMessage] = []
+
+    for msg in messages:
+        if isinstance(msg.message, ClaudeSDKMessage):
+            v2_messages.append(msg)
+        else:
+            v1_messages.append(msg)
+
+    result: list[UIMessage] = []
+
+    # Convert v1 messages
+    if v1_messages:
+        result.extend(convert_model_messages_to_ui(v1_messages))
+
+    # Convert v2 messages
+    if v2_messages:
+        result.extend(convert_claude_messages_to_ui(v2_messages))
+
+    return result
+
+
+def convert_model_messages_to_ui(
+    messages: list[ChatMessage],
+) -> list[UIMessage]:
+    """Convert persisted ModelMessage format (v1) to Vercel UIMessage format.
+
+    Args:
+        messages: List of ChatMessage objects from the database with v1 schema
 
     Returns:
         List of UIMessage objects for the Vercel AI SDK
@@ -1046,6 +1148,13 @@ def convert_model_messages_to_ui(
         # Extract message data from the ChatMessage schema
         message_id = chat_message.id
         message_data = chat_message.message
+
+        if not isinstance(message_data, (ModelRequest, ModelResponse)):
+            logger.debug(
+                "Skipping non-v1 message for Vercel UI conversion",
+                message_id=message_id,
+            )
+            continue
 
         # Determine role from message kind
         role: Literal["system", "user", "assistant"] = (
@@ -1194,6 +1303,142 @@ def convert_model_messages_to_ui(
     return UIMessagesTA.validate_python(raw_messages)
 
 
+def convert_claude_messages_to_ui(messages: list[ChatMessage]) -> list[UIMessage]:
+    """Convert Claude SDK Message payloads to Vercel UIMessage format."""
+    mutable_messages: list[MutableMessage] = []
+    tool_entries: dict[str, MutableToolPart] = {}
+
+    for chat_message in messages:
+        # Extract message data from the ChatMessage schema
+        message_id = chat_message.id
+        message_data = chat_message.message
+
+        role: Literal["system", "user", "assistant"] = (
+            "assistant" if isinstance(message_data, AssistantMessage) else "user"
+        )
+
+        mutable_message = MutableMessage(id=message_id, role=role, parts=[])
+
+        # Handle content - for UserMessage it can be str or list
+        content_blocks = []
+        if isinstance(message_data, UserMessage):
+            if isinstance(message_data.content, str):
+                # Convert string content to TextBlock
+                content_blocks = [TextBlock(text=message_data.content)]
+            else:
+                content_blocks = message_data.content
+        elif isinstance(message_data, AssistantMessage):
+            # AssistantMessage.content is always a list
+            content_blocks = message_data.content
+
+        for part in content_blocks:
+            # if approval_payload and isinstance(part, TextPart):
+            #     # Skip approval header text from UI parts
+            #     if part.content == APPROVAL_REQUEST_HEADER:
+            #         continue
+
+            match part:
+                case ToolUseBlock(id=tool_call_id, name=tool_name, input=tool_input):
+                    # Convert ToolUseBlock to tool call part
+                    tool_part = MutableToolPart(
+                        type=f"tool-{tool_name}",
+                        tool_call_id=tool_call_id,
+                        state="input-available",
+                        input=tool_input,
+                    )
+                    mutable_message.parts.append(tool_part)
+                    tool_entries[tool_call_id] = tool_part
+
+                case ToolResultBlock(
+                    tool_use_id=tool_call_id, content=content, is_error=is_error
+                ):
+                    # Convert ToolResultBlock to tool return or error
+                    existing_part = tool_entries.get(tool_call_id)
+                    input_payload = existing_part.input if existing_part else {}
+
+                    if is_error:
+                        # Handle error case
+                        error_text = (
+                            content if isinstance(content, str) else str(content)
+                        )
+                        if existing_part is not None:
+                            existing_part.state = "output-error"
+                            existing_part.output = None
+                            existing_part.error_text = error_text
+                        else:
+                            # Create new tool part with error
+                            tool_part = MutableToolPart(
+                                type="tool-unknown",  # Name not available in ToolResultBlock
+                                tool_call_id=tool_call_id,
+                                state="output-error",
+                                input=input_payload,
+                                error_text=error_text,
+                            )
+                            mutable_message.parts.append(tool_part)
+                            tool_entries[tool_call_id] = tool_part
+                    else:
+                        # Handle success case
+                        if existing_part is not None:
+                            existing_part.state = "output-available"
+                            existing_part.output = content
+                            existing_part.error_text = None
+                        else:
+                            # Create new tool part with output
+                            tool_part = MutableToolPart(
+                                type="tool-unknown",  # Name not available in ToolResultBlock
+                                tool_call_id=tool_call_id,
+                                state="output-available",
+                                input=input_payload,
+                                output=content,
+                            )
+                            mutable_message.parts.append(tool_part)
+                            tool_entries[tool_call_id] = tool_part
+
+                case TextBlock(text=text):
+                    # Convert TextBlock to text UI part
+                    mutable_message.parts.append(
+                        TextUIPart(type="text", text=text, state="done")
+                    )
+
+                case ThinkingBlock(thinking=thinking_text):
+                    # Convert ThinkingBlock to reasoning UI part
+                    mutable_message.parts.append(
+                        ReasoningUIPart(
+                            type="reasoning", text=thinking_text, state="done"
+                        )
+                    )
+
+                case _:
+                    # Fallback for unknown block types
+                    logger.warning(f"Unknown content block type: {type(part)}")
+
+        # if approval_payload:
+        #     mutable_message.parts.append(
+        #         DataUIPart(type=APPROVAL_DATA_PART_TYPE, data=approval_payload)
+        #     )
+
+        if mutable_message.parts:
+            mutable_messages.append(mutable_message)
+
+    raw_messages: list[dict[str, Any]] = []
+    for message in mutable_messages:
+        parts: list[UIMessagePart] = []
+        for part in message.parts:
+            if isinstance(part, MutableToolPart):
+                parts.append(part.to_ui_part())
+            else:
+                parts.append(part)
+        raw_messages.append(
+            {
+                "id": message.id,
+                "role": message.role,
+                "parts": parts,
+            }
+        )
+
+    return UIMessagesTA.validate_python(raw_messages)
+
+
 async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
     """Stream Redis events as Vercel AI SDK frames without persisting adapter output."""
 
@@ -1212,9 +1457,15 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     async for msg in context.handle_event(agent_event):
                         yield format_sse(msg)
                 case StreamMessage(message=message):
-                    if approval_payload := _extract_approval_payload_from_message(
-                        message
-                    ):
+                    # Only check for approvals in v1 messages (ModelMessage)
+                    # Claude SDK messages (v2) don't use the approval pattern
+                    approval_payload = None
+                    if isinstance(message, (ModelRequest, ModelResponse)):
+                        approval_payload = _extract_approval_payload_from_message(
+                            message
+                        )
+
+                    if approval_payload:
                         # Finalize any open tool parts involved in approvals so
                         # the UI receives tool-input-available before the approval card.
                         try:

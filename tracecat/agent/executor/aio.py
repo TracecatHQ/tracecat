@@ -1,11 +1,13 @@
 """Public agent execution service (CE)."""
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from typing import Any, Final
 
 from pydantic_ai import UsageLimits
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -17,12 +19,16 @@ from pydantic_ai.tools import DeferredToolRequests
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.stream.common import (
+    PersistableStreamingAgentDeps,
+)
 from tracecat.agent.stream.events import StreamError
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.types import StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
+from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 
 
@@ -92,7 +98,13 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
         )
 
         if self.deps.message_store:
-            message_history = await self.deps.message_store.load(args.session_id)
+            loaded_messages = await self.deps.message_store.load(args.session_id)
+            # Filter to only v1 messages (ModelMessage) for pydantic-ai compatibility
+            message_history = [
+                msg
+                for msg in loaded_messages
+                if isinstance(msg, (ModelRequest, ModelResponse))
+            ]
         else:
             message_history = None
 
@@ -106,7 +118,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             await self.deps.stream_writer.stream.append(user_message)
 
         result: ExecutorResult = None
-        new_messages: list[ModelRequest | ModelResponse] | None = None
+        new_messages: list[ModelMessage] | None = None
         approval_message: ModelResponse | None = None
 
         try:
@@ -168,3 +180,50 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                 )
 
         return result
+
+
+class RemoteAgentRunHandle(BaseAgentRunHandle[Any]):
+    """Handle for remotely dispatched runs."""
+
+    def __init__(self, coro: Coroutine[Any, Any, Any], run_id: str):
+        super().__init__(run_id)
+        self._task: Final[asyncio.Task[Any]] = asyncio.create_task(coro)
+
+    async def result(self) -> Any:
+        return await self._task
+
+    async def cancel(self) -> None:
+        self._task.cancel()
+        try:
+            await self._task
+        except asyncio.CancelledError:
+            return
+
+
+class RemoteAgentExecutor(BaseAgentExecutor[Any]):
+    """Dispatch agent turns to the executor service via HTTP."""
+
+    def __init__(
+        self,
+        *,
+        deps: PersistableStreamingAgentDeps | None = None,
+        role: Role | None = None,
+        client_factory: Callable[[Role | None], ExecutorClient] = ExecutorClient,
+        **kwargs: Any,
+    ):
+        super().__init__(role, **kwargs)
+        self._deps = deps
+        self._client_factory = client_factory
+
+    async def start(self, args: RunAgentArgs) -> BaseAgentRunHandle[Any]:
+        logger.info(
+            "Dispatching agent run to executor",
+            session_id=args.session_id,
+            workspace_id=self.workspace_id,
+        )
+        if self._deps is None:
+            raise ValueError("RemoteAgentExecutor requires deps to be provided")
+        client = self._client_factory(self.role)
+        deps_spec = self._deps.to_spec()
+        coro = client.run_agent(args, deps_spec)
+        return RemoteAgentRunHandle(coro, run_id=str(args.session_id))

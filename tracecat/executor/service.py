@@ -7,7 +7,7 @@ import traceback
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import ray
 import uvloop
@@ -16,6 +16,7 @@ from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
 
 from tracecat import config
+from tracecat.agent.schemas import RunAgentArgs
 from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
@@ -59,6 +60,9 @@ from tracecat.ssh import get_ssh_command
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
+if TYPE_CHECKING:
+    from tracecat.agent.stream.common import PersistableStreamingAgentDeps
+
 """All these methods are used in the registry executor, not on the worker"""
 
 
@@ -75,6 +79,7 @@ class DispatchActionContext:
 
 _git_context_lock = asyncio.Lock()
 _git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
+_active_runs: dict[str, asyncio.Task[Any]] = {}
 
 
 async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
@@ -522,6 +527,52 @@ async def _dispatch_action(
         logger.debug("Shut down any pending tasks")
         for t in tasks:
             t.cancel()
+
+
+async def run_agent_turn(
+    args: RunAgentArgs, deps: PersistableStreamingAgentDeps
+) -> Any:
+    """Run an agent turn."""
+    from tracecat.agent.runtime import AgentRuntime
+
+    stream_workspace_id = deps.stream_writer.stream.workspace_id
+    if stream_workspace_id is None:
+        raise TracecatAuthorizationError("Workspace required to run agent")
+
+    role = ctx_role.get()
+    if role is None or role.workspace_id is None:
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            workspace_id=stream_workspace_id,
+        )
+        ctx_role.set(role)
+
+    logger.info(
+        "Executor: starting agent run",
+        session_id=args.session_id,
+    )
+
+    runtime = AgentRuntime(deps=deps)
+    task = asyncio.create_task(runtime.run(args))
+    _active_runs[str(args.session_id)] = task
+    try:
+        return await task
+    finally:
+        _active_runs.pop(str(args.session_id), None)
+
+
+async def cancel_agent_turn(run_id: str) -> bool:
+    """Cancel an agent run."""
+    task = _active_runs.get(run_id)
+    if not task:
+        return False
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return True
+    return False
 
 
 """Utilities"""

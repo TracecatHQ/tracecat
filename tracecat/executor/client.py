@@ -10,6 +10,8 @@ import orjson
 from fastapi import status
 
 from tracecat import config
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
 from tracecat.auth.types import Role
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
@@ -87,6 +89,46 @@ class ExecutorClient:
         except Exception as e:
             raise ExecutorClientError(
                 f"Unexpected error calling action {action_type!r} in executor: {e}"
+            ) from e
+
+    async def run_agent(
+        self, args: RunAgentArgs, deps_spec: PersistableStreamingAgentDepsSpec
+    ) -> Any:
+        """Invoke an agent turn on the executor."""
+        # Combine args and deps into a single payload
+        payload = {
+            "agent_args": args.model_dump(mode="json"),
+            "deps_spec": deps_spec.model_dump(mode="json"),
+        }
+        content = orjson.dumps(payload)
+        try:
+            async with self._client() as client:
+                response = await client.post(
+                    "/run-agent",
+                    headers={"Content-Type": "application/json"},
+                    content=content,
+                    timeout=self._timeout,
+                )
+            response.raise_for_status()
+            return orjson.loads(response.content)
+        except Exception as e:
+            raise ExecutorClientError(
+                f"Unexpected error calling run-agent-turn in executor: {e}"
+            ) from e
+
+    async def cancel_agent_run(self, run_id: str) -> bool:
+        """Cancel an agent turn."""
+        try:
+            async with self._client() as client:
+                response = await client.post(
+                    f"/run-agent/{run_id}/cancel",
+                    timeout=self._timeout,
+                )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            raise ExecutorClientError(
+                f"Unexpected error calling cancel-agent-turn in executor: {e}"
             ) from e
 
     # === Validation ===

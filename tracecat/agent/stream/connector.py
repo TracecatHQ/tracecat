@@ -7,10 +7,12 @@ from time import monotonic
 from typing import Any
 
 import orjson
+from claude_agent_sdk.types import StreamEvent as ClaudeSDKStreamEvent
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
+    ClaudeSDKStreamEventTA,
     StreamConnected,
     StreamDelta,
     StreamEnd,
@@ -131,11 +133,33 @@ class AgentStream:
                                         logger.debug("End-of-stream marker")
                                         yield StreamEnd(id=msg_id)
                                     case {"event_kind": event_kind}:
+                                        # Legacy pydantic-ai agent events (v1)
                                         event = AgentStreamEventTA.validate_python(data)
                                         logger.debug(
-                                            "Stream event", kind=event_kind, event=event
+                                            "Stream event (v1)",
+                                            kind=event_kind,
+                                            event=event,
                                         )
                                         yield StreamDelta(id=msg_id, event=event)
+                                    case {"event": event_data, **rest}:
+                                        _ = rest
+                                        # Claude Agent SDK StreamEvent (v2)
+                                        # Has structure: {uuid, session_id, event, parent_tool_use_id}
+                                        event_type = (
+                                            event_data.get("type")
+                                            if isinstance(event_data, dict)
+                                            else "unknown"
+                                        )
+                                        logger.debug(
+                                            "Stream event (v2 Claude SDK)",
+                                            event_type=event_type,
+                                            message_id=msg_id,
+                                        )
+                                        # Deserialize to ClaudeSDKStreamEvent
+                                        stream_event = (
+                                            ClaudeSDKStreamEventTA.validate_python(data)
+                                        )
+                                        yield StreamDelta(id=msg_id, event=stream_event)
                                     case {"kind": "error", "error": error_message}:
                                         logger.warning(
                                             "Stream error received",
@@ -214,10 +238,16 @@ class AgentStream:
                         yield event.sse()
                         break
                     case StreamDelta(event=delta):
-                        logger.debug("Stream event", event_kind=delta.event_kind)
+                        # Log event type - handle both v1 (has event_kind) and v2 (ClaudeSDKStreamEvent)
+                        event_type = (
+                            getattr(delta, "event_kind", None)
+                            or delta.event.get("type")
+                            if isinstance(delta, ClaudeSDKStreamEvent)
+                            else "unknown"
+                        )
+                        logger.debug("Stream event", event_type=event_type)
                         yield event.sse()
-                    case StreamMessage(message=message):
-                        logger.debug("Model message", kind=message.kind)
+                    case StreamMessage():
                         yield event.sse()
                     case _:
                         logger.warning(

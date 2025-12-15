@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import AgentStreamEvent
 
+from tracecat import config
 from tracecat.agent.adapter import vercel
-from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.executor.aio import AioStreamingAgentExecutor, RemoteAgentExecutor
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
@@ -84,10 +85,9 @@ async def list_chats(
         limit=limit,
     )
 
-    chats = [
+    return [
         ChatReadMinimal.model_validate(chat, from_attributes=True) for chat in chats
     ]
-    return chats
 
 
 @router.get("/{chat_id}")
@@ -142,9 +142,9 @@ async def get_chat_vercel(
             detail="Chat not found",
         )
 
-    # Convert messages to UIMessage format
+    # Convert messages to UIMessage format using unified converter
     messages = [ChatMessage.from_db(message) for message in chat.messages]
-    ui_messages = vercel.convert_model_messages_to_ui(messages)
+    ui_messages = vercel.convert_chat_messages_to_ui(messages)
 
     # Return ChatReadVercel with converted messages
     return ChatReadVercel(
@@ -211,7 +211,11 @@ async def chat_with_vercel_streaming(
         deps = await PersistableStreamingAgentDeps.new(
             chat_id, workspace_id, persistent=True, namespace="chat"
         )
-        executor = AioStreamingAgentExecutor(deps=deps)
+
+        if config.ENABLE_REMOTE_AGENT_EXECUTOR:
+            executor = RemoteAgentExecutor(deps=deps)
+        else:
+            executor = AioStreamingAgentExecutor(deps=deps)
 
         # Run chat turn (handles both start and continue cases)
         await svc.run_chat_turn(

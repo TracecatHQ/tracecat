@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import UUID4, BaseModel, Discriminator, Field
+from pydantic import UUID4, BaseModel, Discriminator, Field, TypeAdapter
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
@@ -16,6 +16,9 @@ from tracecat.chat.enums import ChatEntity
 
 if TYPE_CHECKING:
     from tracecat.db import models
+from claude_agent_sdk import Message as ClaudeSDKMessage
+
+ClaudeMessageTA: TypeAdapter[ClaudeSDKMessage] = TypeAdapter(ClaudeSDKMessage)
 
 
 class BasicChatRequest(BaseModel):
@@ -157,13 +160,29 @@ class ChatMessage(BaseModel):
     """Model for chat metadata with a single message."""
 
     id: str = Field(..., description="Unique chat identifier")
-    message: ModelMessage = Field(..., description="The message from the chat")
+    message: ModelMessage | ClaudeSDKMessage = Field(
+        ...,
+        description="The message from the chat (pydantic-ai v1 or Claude SDK v2)",
+    )
 
     @classmethod
     def from_db(cls, value: models.ChatMessage) -> ChatMessage:
+        data = value.data or {}
+
+        # Infer version by attempting deserialization (try v2 first, then v1)
+        try:
+            parsed_message = ClaudeMessageTA.validate_python(data)
+        except Exception:
+            try:
+                parsed_message = ModelMessageTA.validate_python(data)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to parse message as either v1 or v2: {e}"
+                ) from e
+
         return cls(
             id=str(value.id),
-            message=ModelMessageTA.validate_python(value.data),
+            message=parsed_message,
         )
 
 

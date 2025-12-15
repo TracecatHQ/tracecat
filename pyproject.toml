@@ -73,6 +73,9 @@ dependencies = [
     "croniter>=6.0.0",
     # Security: CVE-2025-66471 - urllib3 streaming API vulnerability
     "urllib3>=2.6.0",
+    "claude-agent-sdk>=0.1.14",
+    "litellm>=1.80.10",
+    "litellm[proxy]>=1.80.10",
 ]
 dynamic = ["version"]
 
@@ -88,6 +91,17 @@ tracecat-ee = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.uv]
+# Force compatible versions for litellm integration
+override-dependencies = [
+    # Keep these as lower bounds so we can pick up newer compatible releases without
+    # editing the override list each time litellm updates.
+    "grpcio>=1.67.1",  # Latest version compatible with litellm
+    "python-multipart>=0.0.18",  # Compatible with both litellm and fastapi-users
+    "boto3>=1.40.14",  # Required by pydantic-ai[bedrock], override litellm's constraint
+    "uvicorn>=0.33.0",  # Override litellm's uvicorn<0.32 requirement
+]
 
 [dependency-groups]
 dev = [

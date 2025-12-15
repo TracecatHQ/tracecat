@@ -3,6 +3,7 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 
+from pydantic_ai import ModelResponse
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -30,6 +31,7 @@ from tracecat.chat.schemas import (
     ChatRequest,
     ChatResponse,
     ChatUpdate,
+    ClaudeMessageTA,
     ContinueRunRequest,
     VercelChatRequest,
 )
@@ -429,7 +431,7 @@ class ChatService(BaseWorkspaceService):
     async def append_message(
         self,
         chat_id: uuid.UUID,
-        message: ModelMessage,
+        message: ChatMessage,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> DBChatMessage:
         """Persist a message to the database."""
@@ -437,7 +439,9 @@ class ChatService(BaseWorkspaceService):
             chat_id=chat_id,
             kind=kind.value,
             workspace_id=self.workspace_id,
-            data=ModelMessageTA.dump_python(message, mode="json"),
+            data=ModelMessageTA.dump_python(message.message, mode="json")
+            if isinstance(message.message, (ModelRequest, ModelResponse))
+            else ClaudeMessageTA.dump_python(message.message, mode="json"),
         )
 
         self.session.add(db_message)
@@ -456,7 +460,7 @@ class ChatService(BaseWorkspaceService):
     async def append_messages(
         self,
         chat_id: uuid.UUID,
-        messages: Sequence[ModelMessage],
+        messages: Sequence[ChatMessage],
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:
         """Persist multiple messages to the database in a single transaction."""
@@ -464,15 +468,28 @@ class ChatService(BaseWorkspaceService):
             return
 
         # Create all DB message objects at once
-        db_messages = [
-            DBChatMessage(
-                chat_id=chat_id,
-                kind=kind.value,
-                workspace_id=self.workspace_id,
-                data=ModelMessageTA.dump_python(message, mode="json"),
+        db_messages = []
+        for message in messages:
+            # Handle both ChatMessage wrappers and raw ModelMessage (backward compat)
+            if isinstance(message, ChatMessage):
+                raw_message = message.message
+            else:
+                raw_message = message
+
+            # Store payload directly (version inferred on load from structure)
+            if isinstance(raw_message, (ModelRequest, ModelResponse)):
+                payload = ModelMessageTA.dump_python(raw_message, mode="json")
+            else:
+                payload = ClaudeMessageTA.dump_python(raw_message, mode="json")
+
+            db_messages.append(
+                DBChatMessage(
+                    chat_id=chat_id,
+                    kind=kind.value,
+                    workspace_id=self.workspace_id,
+                    data=payload,
+                )
             )
-            for message in messages
-        ]
 
         # Add all messages to session at once
         self.session.add_all(db_messages)
@@ -510,8 +527,64 @@ class ChatService(BaseWorkspaceService):
 
         messages: list[ModelMessage] = []
         for db_msg in db_messages:
-            validated_msg = ModelMessageTA.validate_python(db_msg.data)
+            data = db_msg.data or {}
+            if (
+                isinstance(data, dict)
+                and "schema_version" in data
+                and "payload" in data
+            ):
+                schema_version = data.get("schema_version", "v1")
+                payload = data.get("payload")
+            else:
+                schema_version = "v1"
+                payload = data
+
+            if schema_version != "v1":
+                logger.debug(
+                    "Skipping non-v1 message when listing messages",
+                    message_id=db_msg.id,
+                    schema_version=schema_version,
+                )
+                continue
+
+            validated_msg = ModelMessageTA.validate_python(payload)
             messages.append(validated_msg)
+        return messages
+
+    async def list_all_messages(
+        self,
+        chat_id: uuid.UUID,
+        *,
+        kinds: Sequence[MessageKind] | None = None,
+    ) -> list[ChatMessage]:
+        """Retrieve all chat messages (both v1 and v2) as ChatMessage wrappers."""
+        stmt = (
+            select(DBChatMessage)
+            .where(
+                DBChatMessage.chat_id == chat_id,
+                DBChatMessage.workspace_id == self.workspace_id,
+            )
+            .order_by(DBChatMessage.created_at.asc())
+        )
+
+        if kinds:
+            stmt = stmt.where(DBChatMessage.kind.in_({kind.value for kind in kinds}))
+
+        result = await self.session.execute(stmt)
+        db_messages = result.scalars().all()
+
+        messages: list[ChatMessage] = []
+        for db_msg in db_messages:
+            try:
+                chat_msg = ChatMessage.from_db(db_msg)
+                messages.append(chat_msg)
+            except Exception as e:
+                logger.warning(
+                    "Failed to parse message, skipping",
+                    message_id=db_msg.id,
+                    error=str(e),
+                )
+                continue
         return messages
 
     async def get_chat_messages(self, chat: Chat) -> list[ChatMessage]:

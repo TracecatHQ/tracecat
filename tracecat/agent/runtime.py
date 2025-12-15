@@ -4,6 +4,15 @@ import uuid
 from timeit import default_timer
 from typing import Any
 
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    StreamEvent,
+    UserMessage,
+)
+from claude_agent_sdk.types import (
+    Message as ClaudeSDKMessage,
+)
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
@@ -11,10 +20,12 @@ from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.gateway import LiteLLMProcess
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.chat.enums import MessageKind
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
     TRACECAT__AGENT_MAX_RETRIES,
@@ -210,3 +221,104 @@ async def run_agent(
             exc_msg=str(e),
             message_history=to_jsonable_python(message_nodes),
         ) from e
+
+
+class AgentRuntime:
+    """Runtime for an agent."""
+
+    def __init__(self, deps: PersistableStreamingAgentDeps):
+        self.deps = deps
+
+    async def run(self, args: RunAgentArgs) -> Any:
+        """Run an agent."""
+        if args.config is None:
+            raise ValueError("Agent config is required")
+
+        litellm_proc = LiteLLMProcess.get_or_create(agent_config=args.config)
+        collected_messages: list[ClaudeSDKMessage] = []
+        stream = getattr(self.deps.stream_writer, "stream", None)
+
+        # Persist user message immediately (before execution)
+        user_message = UserMessage(content=args.user_prompt)
+        if store := self.deps.message_store:
+            try:
+                await store.store(
+                    args.session_id,
+                    [user_message],
+                    kind=MessageKind.CHAT_MESSAGE,
+                )
+                logger.debug("Persisted user message", session_id=args.session_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to persist user message",
+                    error=str(e),
+                    session_id=args.session_id,
+                )
+
+        try:
+            await litellm_proc.ensure_started()
+            options = ClaudeAgentOptions(
+                include_partial_messages=True,
+                env={
+                    "MAX_THINKING_TOKENS": "1024",
+                    "ANTHROPIC_BASE_URL": litellm_proc.base_url,
+                },
+                model="agent",
+                system_prompt=args.config.instructions
+                if args.config and args.config.instructions
+                else None,
+            )
+            async with ClaudeSDKClient(options=options) as client:
+                logger.info(
+                    "Executor: connected to Claude SDK",
+                    session_id=args.session_id,
+                )
+                await client.query(args.user_prompt)
+                async for message in client.receive_response():
+                    if isinstance(message, StreamEvent):
+                        await self.deps.stream_writer.stream.append(message)
+                    elif isinstance(message, AssistantMessage):
+                        collected_messages.append(message)
+                    else:
+                        logger.debug(
+                            "Executor: other message type",
+                            message_type=type(message).__name__,
+                        )
+
+        except Exception as e:
+            logger.error(
+                "Executor: error in StreamingAgentRunner",
+                error=str(e),
+                session_id=args.session_id,
+            )
+            await self.deps.stream_writer.stream.error(str(e))
+            raise e
+        finally:
+            await self.deps.stream_writer.stream.done()
+            if stream is not None:
+                logger.info(
+                    "Executor: stream closed",
+                    session_id=args.session_id,
+                    stream_key=getattr(stream, "_stream_key", None),
+                )
+
+            # Persist assistant messages even if there was an error
+            if store := self.deps.message_store:
+                if collected_messages:
+                    try:
+                        await store.store(
+                            args.session_id,
+                            collected_messages,
+                            kind=MessageKind.CHAT_MESSAGE,
+                        )
+                        logger.debug(
+                            "Persisted assistant messages",
+                            session_id=args.session_id,
+                            message_count=len(collected_messages),
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to persist assistant messages",
+                            error=str(e),
+                            session_id=args.session_id,
+                        )

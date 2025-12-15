@@ -5,6 +5,11 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic_core import to_jsonable_python
 
 from tracecat import config
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.stream.common import (
+    PersistableStreamingAgentDeps,
+    PersistableStreamingAgentDepsSpec,
+)
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
@@ -18,7 +23,11 @@ from tracecat.exceptions import (
     TracecatSettingsError,
 )
 from tracecat.executor.schemas import ExecutorActionErrorInfo
-from tracecat.executor.service import dispatch_action_on_cluster
+from tracecat.executor.service import (
+    cancel_agent_turn,
+    dispatch_action_on_cluster,
+    run_agent_turn,
+)
 from tracecat.logger import logger
 
 router = APIRouter()
@@ -90,6 +99,41 @@ async def run_action(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,
+        ) from e
+
+
+@router.post("/run-agent", tags=["execution"])
+async def run_agent(
+    *,
+    agent_args: RunAgentArgs,
+    deps_spec: PersistableStreamingAgentDepsSpec,
+) -> Any:
+    """Execute an agent turn via the harness."""
+    try:
+        # Use provided deps_spec or fall back to default
+        deps = await PersistableStreamingAgentDeps.from_spec(deps_spec)
+        result = await run_agent_turn(agent_args, deps)
+        return result
+    except Exception as e:
+        logger.warning("Unexpected error running agent", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        ) from e
+
+
+@router.post("/run-agent/{run_id}/cancel", tags=["execution"])
+async def cancel_agent_run(
+    *,
+    run_id: str,
+) -> dict[str, str]:
+    """Cancel an agent run."""
+    try:
+        ok = await cancel_agent_turn(run_id)
+        return {"run_id": run_id, "status": "cancelled" if ok else "not-found"}
+    except Exception as e:
+        logger.warning("Unexpected error cancelling agent run", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         ) from e
 
 

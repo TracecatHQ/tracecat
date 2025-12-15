@@ -61,7 +61,7 @@ async def test_append_message(
     user_message = ModelRequest(parts=[UserPromptPart(content="Hello, AI!")])
     db_message = await chat_service.append_message(
         chat_id=chat.id,
-        message=user_message,
+        message=ChatMessage(id="1", message=user_message),
         kind=MessageKind.CHAT_MESSAGE,
     )
 
@@ -93,10 +93,20 @@ async def test_append_messages_batch(
 
     # Create multiple messages
     messages = [
-        ModelRequest(parts=[UserPromptPart(content="First message")]),
-        ModelResponse(parts=[TextPart(content="First response")]),
-        ModelRequest(parts=[UserPromptPart(content="Second message")]),
-        ModelResponse(parts=[TextPart(content="Second response")]),
+        ChatMessage(
+            id="1",
+            message=ModelRequest(parts=[UserPromptPart(content="First message")]),
+        ),
+        ChatMessage(
+            id="2", message=ModelResponse(parts=[TextPart(content="First response")])
+        ),
+        ChatMessage(
+            id="3",
+            message=ModelRequest(parts=[UserPromptPart(content="Second message")]),
+        ),
+        ChatMessage(
+            id="4", message=ModelResponse(parts=[TextPart(content="Second response")])
+        ),
     ]
 
     # Batch append messages
@@ -168,10 +178,20 @@ async def test_list_messages(
 
     # Add multiple messages individually
     messages = [
-        ModelRequest(parts=[UserPromptPart(content="First message")]),
-        ModelResponse(parts=[TextPart(content="First response")]),
-        ModelRequest(parts=[UserPromptPart(content="Second message")]),
-        ModelResponse(parts=[TextPart(content="Second response")]),
+        ChatMessage(
+            id="1",
+            message=ModelRequest(parts=[UserPromptPart(content="First message")]),
+        ),
+        ChatMessage(
+            id="2", message=ModelResponse(parts=[TextPart(content="First response")])
+        ),
+        ChatMessage(
+            id="3",
+            message=ModelRequest(parts=[UserPromptPart(content="Second message")]),
+        ),
+        ChatMessage(
+            id="4", message=ModelResponse(parts=[TextPart(content="Second response")])
+        ),
     ]
 
     for msg in messages:
@@ -217,9 +237,18 @@ async def test_get_chat_messages(
 
     # Add messages
     messages = [
-        ModelRequest(parts=[UserPromptPart(content="User message 1")]),
-        ModelResponse(parts=[TextPart(content="Assistant response 1")]),
-        ModelRequest(parts=[UserPromptPart(content="User message 2")]),
+        ChatMessage(
+            id="1",
+            message=ModelRequest(parts=[UserPromptPart(content="User message 1")]),
+        ),
+        ChatMessage(
+            id="2",
+            message=ModelResponse(parts=[TextPart(content="Assistant response 1")]),
+        ),
+        ChatMessage(
+            id="3",
+            message=ModelRequest(parts=[UserPromptPart(content="User message 2")]),
+        ),
     ]
 
     await chat_service.append_messages(
@@ -263,7 +292,7 @@ async def test_chat_message_from_db(
     message = ModelRequest(parts=[UserPromptPart(content="Test message")])
     db_message = await chat_service.append_message(
         chat_id=chat.id,
-        message=message,
+        message=ChatMessage(id="1", message=message),
         kind=MessageKind.CHAT_MESSAGE,
     )
 
@@ -333,9 +362,15 @@ async def test_list_messages_ordering(
     msg2 = ModelRequest(parts=[UserPromptPart(content="Message 2")])
     msg3 = ModelRequest(parts=[UserPromptPart(content="Message 3")])
 
-    await chat_service.append_message(chat_id=chat.id, message=msg1)
-    await chat_service.append_message(chat_id=chat.id, message=msg2)
-    await chat_service.append_message(chat_id=chat.id, message=msg3)
+    await chat_service.append_message(
+        chat_id=chat.id, message=ChatMessage(id="1", message=msg1)
+    )
+    await chat_service.append_message(
+        chat_id=chat.id, message=ChatMessage(id="2", message=msg2)
+    )
+    await chat_service.append_message(
+        chat_id=chat.id, message=ChatMessage(id="3", message=msg3)
+    )
 
     # Retrieve messages
     messages = await chat_service.list_messages(chat.id)
@@ -370,8 +405,14 @@ async def test_mixed_message_types(
     user_msg = ModelRequest(parts=[UserPromptPart(content="User question")])
     assistant_msg = ModelResponse(parts=[TextPart(content="Assistant answer")])
 
-    await chat_service.append_message(chat_id=chat.id, message=user_msg)
-    await chat_service.append_message(chat_id=chat.id, message=assistant_msg)
+    await chat_service.append_message(
+        chat_id=chat.id,
+        message=ChatMessage(id="1", message=user_msg),
+    )
+    await chat_service.append_message(
+        chat_id=chat.id,
+        message=ChatMessage(id="2", message=assistant_msg),
+    )
 
     # Retrieve and verify types are preserved
     messages = await chat_service.list_messages(chat.id)
@@ -404,12 +445,18 @@ async def test_list_messages_filtered_by_kind(
 
     await chat_service.append_message(
         chat_id=chat.id,
-        message=ModelRequest(parts=[UserPromptPart(content="Run tool")]),
+        message=ChatMessage(
+            id="1",
+            message=ModelRequest(parts=[UserPromptPart(content="Run tool")]),
+        ),
         kind=MessageKind.CHAT_MESSAGE,
     )
     await chat_service.append_message(
         chat_id=chat.id,
-        message=ModelResponse(parts=[TextPart(content="Needs approval")]),
+        message=ChatMessage(
+            id="2",
+            message=ModelResponse(parts=[TextPart(content="Needs approval")]),
+        ),
         kind=MessageKind.APPROVAL_REQUEST,
     )
 
