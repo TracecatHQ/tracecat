@@ -335,7 +335,12 @@ class WorkflowsManagementService(BaseService):
             )
         )
         result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
+        workflow = result.scalar_one_or_none()
+        if workflow is not None:
+            # Reconcile stale graph references (one-time fix for out-of-sync data)
+            if await self._reconcile_graph_object_with_actions(workflow):
+                await self.session.refresh(workflow)
+        return workflow
 
     async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
         statement = select(Workflow.id).where(
@@ -680,6 +685,61 @@ class WorkflowsManagementService(BaseService):
             await self.session.delete(action)
             self.logger.info(f"Deleted orphaned action: {action.title}")
         await self.session.commit()
+
+    async def _reconcile_graph_object_with_actions(self, workflow: Workflow) -> bool:
+        """Remove stale node/edge references from workflow.object.
+
+        This handles the case where Actions have been deleted but workflow.object
+        still contains references to them. Cleans up the graph and persists the fix.
+
+        Returns True if reconciliation was performed, False if no changes needed.
+        """
+        if not workflow.object:
+            return False
+
+        actions = workflow.actions
+        valid_action_ids = {str(action.id) for action in actions}
+        trigger_id = f"trigger-{workflow.id}"
+
+        graph_obj = workflow.object
+        nodes = graph_obj.get("nodes", [])
+        edges = graph_obj.get("edges", [])
+
+        # Filter nodes: keep trigger and valid action nodes
+        valid_nodes = [
+            node
+            for node in nodes
+            if node.get("type") == "trigger" or str(node.get("id")) in valid_action_ids
+        ]
+
+        # Filter edges: keep edges where both source and target are valid
+        valid_node_ids = valid_action_ids | {trigger_id}
+        valid_edges = [
+            edge
+            for edge in edges
+            if str(edge.get("source")) in valid_node_ids
+            and str(edge.get("target")) in valid_node_ids
+        ]
+
+        # Check if anything was removed
+        if len(valid_nodes) == len(nodes) and len(valid_edges) == len(edges):
+            return False
+
+        # Log what was cleaned up
+        removed_nodes = len(nodes) - len(valid_nodes)
+        removed_edges = len(edges) - len(valid_edges)
+        self.logger.warning(
+            "Reconciled stale graph references",
+            workflow_id=str(workflow.id),
+            removed_nodes=removed_nodes,
+            removed_edges=removed_edges,
+        )
+
+        # Update and persist
+        workflow.object = {**graph_obj, "nodes": valid_nodes, "edges": valid_edges}
+        self.session.add(workflow)
+        await self.session.commit()
+        return True
 
     @staticmethod
     @activity.defn
