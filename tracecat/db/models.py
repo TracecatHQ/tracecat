@@ -635,8 +635,41 @@ class Workflow(WorkspaceModel):
     returns: Mapped[Any | None] = mapped_column(
         JSONB, nullable=True, doc="Workflow return values"
     )
-    object: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, doc="React flow graph object"
+    trigger_position_x: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        doc="Trigger node X position",
+    )
+    trigger_position_y: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        doc="Trigger node Y position",
+    )
+    graph_version: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+        doc="Graph version for optimistic concurrency control. Incremented on each graph mutation.",
+    )
+    viewport_x: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        doc="Viewport X position",
+    )
+    viewport_y: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        doc="Viewport Y position",
+    )
+    viewport_zoom: Mapped[float] = mapped_column(
+        Float,
+        default=1.0,
+        nullable=False,
+        doc="Viewport zoom level",
     )
     config: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -774,7 +807,9 @@ class Webhook(WorkspaceModel):
         secret = os.getenv("TRACECAT__SIGNING_SECRET")
         if not secret:
             raise ValueError("TRACECAT__SIGNING_SECRET is not set")
-        return hashlib.sha256(f"{self.id}{secret}".encode()).hexdigest()
+        # Using legacy format to prevent webhook url changes
+        id_part = f"wh-{self.id.hex}"
+        return hashlib.sha256(f"{id_part}{secret}".encode()).hexdigest()
 
     @property
     def url(self) -> str:
@@ -898,6 +933,24 @@ class Action(WorkspaceModel):
         String,
         nullable=True,
         doc="Override environment for this action's execution",
+    )
+    position_x: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        doc="Node X position in workflow canvas",
+    )
+    position_y: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+        doc="Node Y position in workflow canvas",
+    )
+    upstream_edges: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        doc="List of incoming edges: [{'source_id': 'act-xxx', 'source_handle': 'success'}]",
     )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,

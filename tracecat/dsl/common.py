@@ -64,6 +64,8 @@ from tracecat.exceptions import (
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers import ActionID
+from tracecat.identifiers.action import ActionUUID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
@@ -385,10 +387,16 @@ class DSLInput(BaseModel):
     def dump_yaml(self) -> str:
         return yaml.dump(self.model_dump())
 
-    def to_graph(self, trigger_node: TriggerNode, ref2id: dict[str, str]) -> RFGraph:
+    def to_graph(
+        self, trigger_node: TriggerNode, ref2id: dict[str, ActionID]
+    ) -> RFGraph:
         """Construct a new react flow graph from this DSLInput.
 
         We depend on the trigger from the old graph to create the new graph.
+
+        Args:
+            trigger_node: The trigger node from the workflow
+            ref2id: Mapping from action ref (slugified title) to action ID (UUID)
         """
 
         # Create nodes and edges
@@ -603,18 +611,59 @@ def context_locator(
     return f"{ctx}.{stmt.ref} -> {loc}"
 
 
+def _normalize_action_id(raw_id: str | ActionID) -> ActionUUID:
+    """Normalize a raw action ID to an ActionUUID.
+
+    Handles all supported action ID formats:
+    - UUID string: "550e8400-e29b-41d4-a716-446655440000"
+    - Short ID: "act_xxx"
+    - Legacy prefixed: "act-550e8400e29b41d4a716446655440000"
+    - UUID object (ActionID)
+
+    Args:
+        raw_id: The raw action ID from the graph (string or UUID).
+
+    Returns:
+        ActionUUID: The normalized ActionUUID instance.
+
+    Raises:
+        TracecatValidationError: If the ID format is invalid.
+    """
+    try:
+        return ActionUUID.new(raw_id)
+    except ValueError as e:
+        raise TracecatValidationError(
+            f"Invalid action ID in workflow graph: {raw_id!r}"
+        ) from e
+
+
 def build_action_statements(
     graph: RFGraph, actions: list[Action]
 ) -> list[ActionStatement]:
-    """Convert DB Actions into ActionStatements using the graph."""
-    # Use string keys since graph node IDs are strings (UUID format)
-    id2action = {str(action.id): action for action in actions}
+    """Convert DB Actions into ActionStatements using the graph.
+
+    DEPRECATED: Use build_action_statements_from_actions() instead.
+    This function is kept for backward compatibility during the transition.
+
+    This function handles backward compatibility with different action ID formats
+    that may exist in the workflow graph (UUID strings, short IDs, legacy prefixed IDs).
+    """
+    # Build lookup keyed by canonical ActionUUID for consistent normalization
+    id2action: dict[ActionUUID, Action] = {
+        ActionUUID.from_uuid(action.id): action for action in actions
+    }
 
     statements = []
     for node in graph.action_nodes():
+        # Normalize the node ID for DB lookup
+        node_uuid = _normalize_action_id(node.id)
+
         dependencies: list[str] = []
         for dep_act_id in graph.dep_list[node.id]:
-            base_ref = id2action[dep_act_id].ref
+            # Normalize the dependency ID for DB lookup
+            dep_uuid = _normalize_action_id(dep_act_id)
+            base_ref = id2action[dep_uuid].ref
+            # Edge comparison uses raw string IDs (graph structure, not DB lookup)
             for edge in graph.edges:
                 if edge.source != dep_act_id or edge.target != node.id:
                     continue
@@ -625,7 +674,73 @@ def build_action_statements(
                 dependencies.append(ref)
         dependencies = sorted(dependencies)
 
-        action = id2action[node.id]
+        action = id2action[node_uuid]
+        control_flow = ActionControlFlow.model_validate(action.control_flow)
+        args = yaml.safe_load(action.inputs) or {}
+        interaction = (
+            ActionInteractionValidator.validate_python(action.interaction)
+            if action.is_interactive and action.interaction
+            else None
+        )
+        action_stmt = ActionStatement(
+            id=action.id,
+            ref=action.ref,
+            action=action.type,
+            args=args,
+            depends_on=dependencies,
+            run_if=control_flow.run_if,
+            for_each=control_flow.for_each,
+            retry_policy=control_flow.retry_policy,
+            start_delay=control_flow.start_delay,
+            wait_until=control_flow.wait_until,
+            join_strategy=control_flow.join_strategy,
+            interaction=interaction,
+            environment=control_flow.environment,
+        )
+        statements.append(action_stmt)
+    return statements
+
+
+def build_action_statements_from_actions(
+    actions: list[Action],
+) -> list[ActionStatement]:
+    """Convert DB Actions into ActionStatements using upstream_edges.
+
+    This function uses Action.upstream_edges directly as the source of truth
+    for dependencies, eliminating the need for a separate RFGraph object.
+    """
+    id2action = {action.id: action for action in actions}
+
+    statements = []
+    for action in actions:
+        dependencies: list[str] = []
+
+        # Build dependencies from upstream_edges
+        for edge_data in action.upstream_edges:
+            source_id_str = edge_data.get("source_id")
+            source_handle = edge_data.get("source_handle", "success")
+
+            # Convert string source_id to ActionID (UUID) for lookup
+            if source_id_str:
+                try:
+                    source_id = ActionID(source_id_str)
+                except ValueError:
+                    continue  # Skip invalid UUIDs
+            else:
+                continue
+
+            if source_id in id2action:
+                source_action = id2action[source_id]
+                base_ref = source_action.ref
+
+                if source_handle == "error":
+                    ref = dep_from_edge_components(base_ref, EdgeType.ERROR)
+                else:
+                    ref = base_ref
+                dependencies.append(ref)
+
+        dependencies = sorted(dependencies)
+
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         args = yaml.safe_load(action.inputs) or {}
         interaction = (

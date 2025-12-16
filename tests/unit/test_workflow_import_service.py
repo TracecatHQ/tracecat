@@ -9,7 +9,6 @@ from tracecat.db.models import Schedule, Tag, Workflow, WorkflowDefinition, Work
 from tracecat.dsl.common import DSLConfig, DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
@@ -133,12 +132,9 @@ class TestWorkflowImportService:
         assert "core.transform.transform" in action_types
         assert "core.http_request" in action_types
 
-        # Verify React Flow graph was generated
-        assert workflow.object is not None
-        rf_graph = RFGraph.model_validate(workflow.object)
-        assert rf_graph.trigger is not None
-        assert len(rf_graph.nodes) >= 3  # trigger + 2 actions
-        assert len(rf_graph.edges) >= 2  # trigger -> first action, first -> second
+        # Verify workflow graph metadata was initialized
+        assert workflow.trigger_position_x == 0.0
+        assert workflow.trigger_position_y == 0.0
 
         # Verify webhook was created
         assert workflow.webhook is not None
@@ -269,10 +265,9 @@ class TestWorkflowImportService:
         assert "core.http_request" in action_types
         assert "core.transform.reshape" in action_types
 
-        # Verify React Flow graph was regenerated
-        assert workflow.object is not None
-        rf_graph = RFGraph.model_validate(workflow.object)
-        assert len(rf_graph.nodes) >= 4  # trigger + 3 actions
+        # Verify workflow graph metadata still initialized
+        assert workflow.trigger_position_x == 0.0
+        assert workflow.trigger_position_y == 0.0
 
         # Verify a new workflow definition version was created
         stmt = (

@@ -55,24 +55,16 @@ MODEL_CONFIGS = {
             "required": ["anthropic"],
         },
     ),
-    "anthropic.claude-sonnet-4-5-20250929-v1:0": ModelConfig(
-        name="anthropic.claude-sonnet-4-5-20250929-v1:0",
-        provider="bedrock",
-        org_secret_name="agent-bedrock-credentials",
+    "claude-opus-4-5-20251101": ModelConfig(
+        name="claude-opus-4-5-20251101",
+        provider="anthropic",
+        org_secret_name="agent-anthropic-credentials",
         secrets={
-            "required": ["bedrock"],
+            "required": ["anthropic"],
         },
     ),
-    "anthropic.claude-haiku-4-5-20251001-v1:0": ModelConfig(
-        name="anthropic.claude-haiku-4-5-20251001-v1:0",
-        provider="bedrock",
-        org_secret_name="agent-bedrock-credentials",
-        secrets={
-            "required": ["bedrock"],
-        },
-    ),
-    "openai.gpt-oss-120b-1:0": ModelConfig(
-        name="openai.gpt-oss-120b-1:0",
+    "bedrock": ModelConfig(
+        name="bedrock",  # Placeholder; actual ARN from AWS_MODEL_ARN credential will be used at runtime
         provider="bedrock",
         org_secret_name="agent-bedrock-credentials",
         secrets={
@@ -122,13 +114,28 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 key="AWS_ACCESS_KEY_ID",
                 label="Access Key ID",
                 type="text",
-                description="Your AWS access key ID for Bedrock access.",
+                description="Your AWS access key ID for Bedrock access. Required if using IAM credentials.",
+                required=False,
             ),
             ProviderCredentialField(
                 key="AWS_SECRET_ACCESS_KEY",
                 label="Secret Access Key",
                 type="password",
-                description="Your AWS secret access key for Bedrock access.",
+                description="Your AWS secret access key for Bedrock access. Required if using IAM credentials.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="AWS_BEARER_TOKEN_BEDROCK",
+                label="API Key",
+                type="password",
+                description="Your API Key for Bedrock access.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="AWS_MODEL_ARN",
+                label="Model ARN",
+                type="text",
+                description="Your model ARN for Bedrock access.",
             ),
             ProviderCredentialField(
                 key="AWS_REGION",

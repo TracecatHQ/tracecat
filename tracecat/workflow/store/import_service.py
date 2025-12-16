@@ -11,7 +11,6 @@ from sqlalchemy import select
 from tracecat.db.models import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -315,16 +314,7 @@ class WorkflowImportService(BaseWorkspaceService):
         actions = await self._create_actions_from_dsl(dsl, wf_id)
         existing_workflow.actions = actions
 
-        # Ensure IDs are generated before regenerating the graph
-        await self.session.flush()
-
-        # 5. Regenerate the React Flow graph
-        base_graph = RFGraph.with_defaults(existing_workflow)
-        ref2id = {act.ref: str(act.id) for act in actions}
-        updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
-        existing_workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
-
-        # 6. Update folder if specified
+        # 5. Update folder if specified
         if remote_workflow.folder_path:
             folder_id = await self._ensure_folder_exists(remote_workflow.folder_path)
             existing_workflow.folder_id = folder_id
@@ -332,7 +322,7 @@ class WorkflowImportService(BaseWorkspaceService):
             # If folder_path is explicitly None, remove from folder
             existing_workflow.folder_id = None
 
-        # 7. Update related entities
+        # 6. Update related entities
         await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_tags(existing_workflow, remote_workflow.tags)

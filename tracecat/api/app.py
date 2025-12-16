@@ -78,6 +78,7 @@ from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.graph.router import router as workflow_graph_router
 from tracecat.workflow.management.folders.router import (
     router as workflow_folders_router,
 )
@@ -230,6 +231,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(workspaces_router)
     app.include_router(workflow_management_router)
+    app.include_router(workflow_graph_router)
     app.include_router(workflow_executions_router)
     app.include_router(workflow_actions_router)
     app.include_router(workflow_tags_router)

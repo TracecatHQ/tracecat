@@ -8,8 +8,7 @@ import {
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 import React, { useCallback, useEffect, useMemo, useRef } from "react"
-import { actionsCreateAction, type RegistryActionReadMinimal } from "@/client"
-import type { ActionNodeType } from "@/components/builder/canvas/action-node"
+import type { GraphOperation, RegistryActionReadMinimal } from "@/client"
 import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
 import {
@@ -25,7 +24,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import {
+  useBuilderRegistryActions,
+  useGraph,
+  useGraphOperations,
+} from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
@@ -217,7 +220,12 @@ function ActionCommandGroup({
   inputValue: string
 }) {
   const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
-  const { getNode, setNodes, setEdges } = reactFlow
+  const { getNode, getEdges, setNodes, setEdges } = reactFlow
+  const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
+  const { applyGraphOperations, refetchGraph } = useGraphOperations(
+    workspaceId,
+    workflowId ?? ""
+  )
 
   // Move sortedActions and filterResults logic here
   const sortedActions = useMemo(() => {
@@ -236,58 +244,143 @@ function ActionCommandGroup({
       console.log("Selected action:", registryAction)
       const { position } = getNode(nodeId) as Node<SelectorNodeData>
 
+      // Find any incoming edge to the selector node before we modify state
+      const currentEdges = getEdges()
+      const incomingEdge = currentEdges.find((e) => e.target === nodeId)
+
+      const type = registryAction.action
+      const title = registryAction.default_title || registryAction.action
+
       try {
-        const type = registryAction.action
-        const title = registryAction.default_title || registryAction.action
-        const { id } = await actionsCreateAction({
-          workspaceId,
-          requestBody: {
-            workflow_id: workflowId,
+        const addNodeOp: GraphOperation = {
+          type: "add_node",
+          payload: {
             type,
             title,
+            position_x: position.x,
+            position_y: position.y,
           },
+        }
+
+        // Step 1: create node
+        const graphAfterAdd = await applyGraphOperations({
+          baseVersion: graphData?.version ?? 1,
+          operations: [addNodeOp],
         })
-        const newNode = {
-          id,
-          type: "udf",
-          position,
-          data: {
-            type,
-            isConfigured: false,
-          },
-        } as ActionNodeType
-        // Given successful creation, we can now remove the selector node
-        // Find the current "selector" node and replace it with the new node
-        // XXX: Actually just filter all ephemeral nodes
-        // Create Action in database
-        setNodes((prevNodes) =>
-          prevNodes
-            .filter((n) => !isEphemeral(n))
-            .map((n) => ({ ...n, selected: false }))
-            .concat({ ...newNode, selected: true })
-        )
-        // At this point, we have an edge between some other node and the selector node
-        // We need to create an edge between the new node and the other node
+
+        // Identify the new node by diffing ids
+        const previousIds = new Set((graphData?.nodes ?? []).map((n) => n.id))
+        const newNode = graphAfterAdd.nodes.find((n) => !previousIds.has(n.id))
+        const newNodeId = newNode?.id
+
+        // Step 2: connect incoming edge to the new node
+        if (incomingEdge && newNodeId) {
+          const isTrigger = incomingEdge.source.startsWith("trigger")
+          const addEdgeOp: GraphOperation = {
+            type: "add_edge",
+            payload: {
+              source_id: incomingEdge.source,
+              source_type: isTrigger ? "trigger" : "udf",
+              target_id: newNodeId,
+              source_handle: isTrigger
+                ? undefined
+                : ((incomingEdge.sourceHandle as "success" | "error") ??
+                  "success"),
+            },
+          }
+
+          await applyGraphOperations({
+            baseVersion: graphAfterAdd.version,
+            operations: [addEdgeOp],
+          })
+        }
+
+        // Let the canvas react to graph cache updates; just remove ephemeral selector locally
+        setNodes((prevNodes) => prevNodes.filter((n) => !isEphemeral(n)))
         setEdges((prevEdges) =>
-          prevEdges.map((edge) =>
-            edge.target === nodeId
-              ? {
-                  ...edge,
-                  target: newNode.id,
-                }
-              : edge
-          )
+          prevEdges.filter((edge) => edge.target !== nodeId)
         )
       } catch (error) {
-        console.error("An error occurred while creating a new node:", error)
-        toast({
-          title: "Failed to create new node",
-          description: "Could not create new node.",
-        })
-        return // Abort
+        const apiError = error as { status?: number }
+        if (apiError.status === 409) {
+          console.log("Version conflict, refetching graph and retrying...")
+          try {
+            const latestGraph = await refetchGraph()
+            const addNodeOp: GraphOperation = {
+              type: "add_node",
+              payload: {
+                type,
+                title,
+                position_x: position.x,
+                position_y: position.y,
+              },
+            }
+            const graphAfterAdd = await applyGraphOperations({
+              baseVersion: latestGraph.version,
+              operations: [addNodeOp],
+            })
+
+            const previousIds = new Set(
+              (latestGraph.nodes ?? []).map((n) => n.id)
+            )
+            const newNode = graphAfterAdd.nodes.find(
+              (n) => !previousIds.has(n.id)
+            )
+            const newNodeId = newNode?.id
+
+            if (incomingEdge && newNodeId) {
+              const isTrigger = incomingEdge.source.startsWith("trigger")
+              const addEdgeOp: GraphOperation = {
+                type: "add_edge",
+                payload: {
+                  source_id: incomingEdge.source,
+                  source_type: isTrigger ? "trigger" : "udf",
+                  target_id: newNodeId,
+                  source_handle: isTrigger
+                    ? undefined
+                    : ((incomingEdge.sourceHandle as "success" | "error") ??
+                      "success"),
+                },
+              }
+
+              await applyGraphOperations({
+                baseVersion: graphAfterAdd.version,
+                operations: [addEdgeOp],
+              })
+            }
+
+            setNodes((prevNodes) => prevNodes.filter((n) => !isEphemeral(n)))
+            setEdges((prevEdges) =>
+              prevEdges.filter((edge) => edge.target !== nodeId)
+            )
+          } catch (retryError) {
+            console.error("Failed to persist node after retry:", retryError)
+            toast({
+              title: "Failed to create new node",
+              description: "Could not create new node after retry.",
+            })
+          }
+        } else {
+          console.error("An error occurred while creating a new node:", error)
+          toast({
+            title: "Failed to create new node",
+            description: "Could not create new node.",
+          })
+        }
       }
     },
-    [getNode, nodeId, workflowId, workspaceId, setNodes, setEdges]
+    [
+      getNode,
+      getEdges,
+      nodeId,
+      workflowId,
+      workspaceId,
+      setNodes,
+      setEdges,
+      applyGraphOperations,
+      refetchGraph,
+      graphData?.version,
+    ]
   )
 
   return (

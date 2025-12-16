@@ -187,19 +187,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Create kind cluster
-        run: |
-          kind create cluster --name tracecat-ci
-          kubectl cluster-info --context kind-tracecat-ci
-          kubectl get nodes
-
       - name: Run environment setup script
         run: |
           echo "y

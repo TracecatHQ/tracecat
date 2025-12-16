@@ -356,7 +356,15 @@ class WorkflowsManagementService(BaseService):
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one()
-        for key, value in params.model_dump(exclude_unset=True).items():
+        set_fields = params.model_dump(exclude_unset=True)
+        if "object" in set_fields:
+            graph = RFGraph.model_validate(set_fields["object"])
+            normalized_graph = graph.normalize_action_ids()
+            set_fields["object"] = normalized_graph.model_dump(
+                by_alias=True, mode="json"
+            )
+
+        for key, value in set_fields.items():
             # Safe because params has been validated
             setattr(workflow, key, value)
         self.session.add(workflow)
@@ -439,12 +447,6 @@ class WorkflowsManagementService(BaseService):
         self.session.add(webhook)
         workflow.webhook = webhook
 
-        await self.session.flush()
-
-        graph = RFGraph.with_defaults(workflow)
-        self.logger.info("Graph", graph=graph)
-        workflow.object = graph.model_dump(by_alias=True, mode="json")
-        self.session.add(workflow)
         await self.session.commit()
         await self.session.refresh(workflow)
         return workflow
@@ -500,10 +502,6 @@ class WorkflowsManagementService(BaseService):
     async def build_dsl_from_workflow(self, workflow: Workflow) -> DSLInput:
         """Build a DSLInput from a Workflow."""
 
-        if not workflow.object:
-            raise TracecatValidationError(
-                "Empty workflow graph object. Is `workflow.object` set?"
-            )
         # XXX: Invoking workflow.actions instantiates the actions relationship
         actions = workflow.actions
         # If it still falsy, raise a user facing error
@@ -511,33 +509,12 @@ class WorkflowsManagementService(BaseService):
             raise TracecatValidationError(
                 "Workflow has no actions. Please add an action to the workflow before saving."
             )
-        graph = RFGraph.from_workflow(workflow)
+        # Build graph from Actions as the source of truth
+        graph = RFGraph.from_actions(workflow, actions)
         if not graph.entrypoints:
             raise TracecatValidationError(
                 "Workflow has no entrypoints. Please add an action to the workflow before saving."
             )
-        graph_actions = graph.action_nodes()
-        if len(graph_actions) != len(actions):
-            self.logger.warning(
-                f"Mismatch between graph actions (view) and workflow actions (model): {len(graph_actions)=} != {len(actions)=}"
-            )
-            self.logger.debug("Actions", graph_actions=graph_actions, actions=actions)
-            # NOTE: This likely occurs due to race conditions in the FE
-            # To recover from this, we will use the RFGraph object (view) as the source
-            # of truth, and remove any orphaned `Actions` in the database
-            await self._synchronize_graph_with_db_actions(actions, graph)
-            # Refetch the actions
-            await self.session.refresh(workflow)
-            # Check again
-            actions = workflow.actions
-            if not actions:
-                raise TracecatValidationError(
-                    "Workflow has no actions. Please add an action to the workflow before saving."
-                )
-            if len(graph_actions) != len(actions):
-                raise TracecatValidationError(
-                    "Couldn't synchronize actions between graph and database."
-                )
         action_statements = build_action_statements(graph, actions)
         return DSLInput(
             title=workflow.title,
@@ -649,18 +626,6 @@ class WorkflowsManagementService(BaseService):
 
         workflow.actions = actions  # Associate actions with the workflow
 
-        # Ensure IDs are generated before constructing the graph
-        await self.session.flush()
-
-        # Create and set the graph for the Workflow
-        base_graph = RFGraph.with_defaults(workflow)
-        self.logger.info("Creating graph for workflow", graph=base_graph)
-
-        # Add DSL contents to the Workflow
-        ref2id = {act.ref: str(act.id) for act in actions}
-        updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
-        workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
-
         # Commit the transaction
         if commit:
             await self.session.commit()
@@ -677,24 +642,6 @@ class WorkflowsManagementService(BaseService):
         lock_service = RegistryLockService(self.session, self.role)
         lock = await lock_service.get_latest_versions_lock()
         return lock if lock else None
-
-    async def _synchronize_graph_with_db_actions(
-        self, actions: list[Action], graph: RFGraph
-    ) -> None:
-        """Recover actions based on the action nodes."""
-        action_nodes = graph.action_nodes()
-
-        # Set difference of action IDs
-        ids_in_graph = {node.id for node in action_nodes}
-        ids_in_db = {str(action.id) for action in actions}
-        # Delete actions that don't exist in the action_nodes
-        orphaned_action_ids = ids_in_db - ids_in_graph
-        for action in actions:
-            if str(action.id) not in orphaned_action_ids:
-                continue
-            await self.session.delete(action)
-            self.logger.info(f"Deleted orphaned action: {action.title}")
-        await self.session.commit()
 
     @staticmethod
     @activity.defn

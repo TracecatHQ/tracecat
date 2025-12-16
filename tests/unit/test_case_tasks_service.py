@@ -65,7 +65,6 @@ async def test_workflow(
         status="active",
         entrypoint=None,
         returns=None,
-        object=None,
     )
     session.add(workflow)
     await session.commit()

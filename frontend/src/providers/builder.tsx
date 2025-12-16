@@ -23,7 +23,6 @@ import type {
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
-import { pruneReactFlowInstance } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
@@ -64,7 +63,7 @@ export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
-  const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
+  const { workspaceId, workflowId, error } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedActionEventRef, setSelectedActionEventRef] = useState<
@@ -95,16 +94,14 @@ export const WorkflowBuilderProvider: React.FC<
   const setReactFlowNodes = useCallback(
     (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
       reactFlowInstance.setNodes(nodes)
-      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
-    [workflowId, reactFlowInstance]
+    [reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
     (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
       reactFlowInstance.setEdges(edges)
-      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
-    [workflowId, reactFlowInstance]
+    [reactFlowInstance]
   )
 
   const setActionDraft = useCallback((actionId: string, draft: unknown) => {

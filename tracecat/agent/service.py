@@ -255,6 +255,16 @@ class AgentManagementService(BaseService):
                 f"Please configure credentials for this provider first."
             )
 
+        # For Bedrock, the model name must be the ARN from credentials
+        if provider == "bedrock":
+            arn = credentials.get("AWS_MODEL_ARN")
+            if not arn:
+                raise TracecatNotFoundError(
+                    "AWS_MODEL_ARN not found in Bedrock credentials. "
+                    "Please configure the Model ARN in your Bedrock credentials."
+                )
+            model_config = model_config.model_copy(update={"name": arn})
+
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):
             yield model_config

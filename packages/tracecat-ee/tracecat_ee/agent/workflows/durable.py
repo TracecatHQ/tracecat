@@ -155,7 +155,7 @@ class DurableAgentWorkflow:
                 base_url=cfg.base_url,
             ),
             activity_config=workflow.ActivityConfig(
-                start_to_close_timeout=timedelta(seconds=60),
+                start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             ),
             deps_type=PersistableStreamingAgentDepsSpec,

@@ -130,7 +130,6 @@ class TestToDict:
         # Create a workflow with JSONB fields
         expects_data = {"input": {"type": "string"}}
         config_data = {"timeout": 300}
-        object_data = {"nodes": [], "edges": []}
 
         workflow = Workflow(
             workspace_id=svc_workspace.id,
@@ -139,7 +138,6 @@ class TestToDict:
             status="offline",
             expects=expects_data,
             config=config_data,
-            object=object_data,
         )
         session.add(workflow)
         await session.flush()
@@ -151,8 +149,6 @@ class TestToDict:
         assert result["expects"] == expects_data
         assert "config" in result
         assert result["config"] == config_data
-        assert "object" in result
-        assert result["object"] == object_data
 
     async def test_to_dict_with_enum_fields(
         self, session: AsyncSession, svc_workspace: Workspace

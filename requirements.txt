@@ -274,12 +274,6 @@ botocore==1.40.61 \
     #   aiobotocore
     #   boto3
     #   s3transfer
-botocore-stubs==1.41.6 \
-    --hash=sha256:2b53574c4ea4f8d5887e516ef2208b996fd988fc2a613f676ea9144597f20cd2 \
-    --hash=sha256:859e4147b5b14dc5eb64fc84fa02424839354368a0fea41da52c7a1d06427e37
-    # via
-    #   types-aioboto3
-    #   types-boto3
 cachetools==5.5.2 \
     --hash=sha256:1a661caa9175d26759571b2e19580f9d6393969e5dfca11fdb1f947a23e640d4 \
     --hash=sha256:d26a22bcc62eb95c3beabd9f1ee5e820d3d2704fe2967cbe350e20c8ffcd3f0a
@@ -1860,9 +1854,9 @@ pydantic==2.12.5 \
     #   pydantic-settings
     #   ray
     #   tracecat
-pydantic-ai-slim==1.22.0 \
-    --hash=sha256:0c962bac44ea81bd731e787e07106ebc49dc1ea9c842b131a5adec0e869aad37 \
-    --hash=sha256:9c2b0504daf3cfd4c06c2454ebf3011b6e08cf05cb18460f2a97c258b8cead6a
+pydantic-ai-slim==1.29.0 \
+    --hash=sha256:3bc48b3024ae1a5ee4b1e8b3766b8222723a0b8efb6959a2cab0494b9ba64fc2 \
+    --hash=sha256:4c6f563af4c5297a9129809bbf9589dff1a99e9417ce5b8fa6ed837d38acd434
     # via tracecat
 pydantic-core==2.41.5 \
     --hash=sha256:0177272f88ab8312479336e1d777f6b124537d47f2123f89cb37e0accea97f90 \
@@ -1931,9 +1925,9 @@ pydantic-extra-types==2.10.6 \
     --hash=sha256:6106c448316d30abf721b5b9fecc65e983ef2614399a24142d689c7546cc246a \
     --hash=sha256:c63d70bf684366e6bbe1f4ee3957952ebe6973d41e7802aea0b770d06b116aeb
     # via tracecat
-pydantic-graph==1.22.0 \
-    --hash=sha256:388c2153fddd7a7f7befcca24ff520fe29b26ac01b5ebc49051a4dcd7198226b \
-    --hash=sha256:cc3d396e27f6a664211ed5ebacb205e6f1e2e42f1ca21846a587e3b52b438fe8
+pydantic-graph==1.29.0 \
+    --hash=sha256:5b2e12902423007508ecd216b4d47e7c95b544530868adc32b93756dcb6b1ba0 \
+    --hash=sha256:87cd673f7333c2db312595696beff597f4de4f6767c954d4e65964f54cb4b073
     # via pydantic-ai-slim
 pydantic-settings==2.12.0 \
     --hash=sha256:005538ef951e3c2a68e1c08b292b5f2e71490def8589d4221b95dab00dafcfd0 \
@@ -2603,38 +2597,6 @@ typer==0.20.0 \
     #   fastapi-cli
     #   fastapi-cloud-cli
     #   modal
-types-aioboto3==15.5.0 \
-    --hash=sha256:5769a1c3df7ca1abedf3656ddf0b970c9b0436d0f88cf4686040b55cd2a02925 \
-    --hash=sha256:8aed7c9b6fe9b59e6ce74f7a6db7b8a9912a34c8f80ed639fac1fa59d6b20aa1
-    # via tracecat-registry
-types-aiobotocore==2.26.0.post1 \
-    --hash=sha256:a0aadb9dfd10ecb2bca4b2eac59c71a7536b50145f3027aebf80084589252ed4 \
-    --hash=sha256:de72760a09029ef74c92cf07e8081f5286d1d0f78a509e86b491d9aecb6a4f38
-    # via types-aioboto3
-types-aiobotocore-s3==2.25.2 \
-    --hash=sha256:151301e84bb2f1cbf30f0d1ef791bb75c141cfbfe47b93fd317b7f1ba3eb35e4 \
-    --hash=sha256:678aa425491af19bd6d011d59ecdbbb7ae7e95800efddcf4fd559ab72c94e194
-    # via types-aioboto3
-types-aiobotocore-sts==2.25.2 \
-    --hash=sha256:1342271243d03fd8d4a1eab566d9137f70ec723bb6ad613669c74152ac3a0427 \
-    --hash=sha256:487da184371dc9761fd3ed663d519f4a19f690d7dcc1fe8f551b6dd805f08549
-    # via types-aioboto3
-types-awscrt==0.29.1 \
-    --hash=sha256:545f100e17d7633aa1791f92a8a4716f8ee1fc7cc9ee98dd31676d6c5e07e733 \
-    --hash=sha256:f583bef3d42a307b3f3c02ef8d5d49fbec04e02bf3aacd3ada3953213c9150a7
-    # via botocore-stubs
-types-boto3==1.41.5 \
-    --hash=sha256:c0e129bfd62b2ae58c53285c7a4895127f1bdfe7921d558d3c8525cf387d6d0c \
-    --hash=sha256:d37e3615f2319404407efc8dbdf10111c74c9e47296d3e0d691d2b95742254bd
-    # via tracecat-registry
-types-boto3-s3==1.41.1 \
-    --hash=sha256:2a991334affac08e348085da391892730d383ebb8174f809e24273fee0c7b30a \
-    --hash=sha256:6ee17eadb7608a75d5a572a35f2efd334c7de80f95e9c8e36f0d0481a230e380
-    # via types-boto3
-types-boto3-sts==1.41.0 \
-    --hash=sha256:ac002224e6d72e728e660cbaf9d095e918af7330698d0be89690d081378a4b4c \
-    --hash=sha256:bc7c7bf7ae844f9d8c31cf3c25b7a42d2ad849546dd8064bbd0b63da5892e4cb
-    # via types-boto3
 types-certifi==2021.10.8.3 \
     --hash=sha256:72cf7798d165bc0b76e1c10dd1ea3097c7063c42c21d664523b928e88b554a4f \
     --hash=sha256:b2d1e325e69f71f7c78e5943d410e650b4707bb0ef32e4ddf3da37f54176e88a
@@ -2643,12 +2605,6 @@ types-protobuf==6.32.1.20251105 \
     --hash=sha256:641002611ff87dd9fedc38a39a29cacb9907ae5ce61489b53e99ca2074bef764 \
     --hash=sha256:a15109d38f7cfefd2539ef86d3f93a6a41c7cad53924f8aa1a51eaddbb72a660
     # via temporalio
-types-s3transfer==0.15.0 \
-    --hash=sha256:1e617b14a9d3ce5be565f4b187fafa1d96075546b52072121f8fda8e0a444aed \
-    --hash=sha256:43a523e0c43a88e447dfda5f4f6b63bf3da85316fdd2625f650817f2b170b5f7
-    # via
-    #   types-aioboto3
-    #   types-boto3
 types-toml==0.10.8.20240310 \
     --hash=sha256:3d41501302972436a6b8b239c850b26689657e25281b48ff0ec06345b8830331 \
     --hash=sha256:627b47775d25fa29977d9c70dc0cbab3f314f32c8d8d0c012f2ef5de7aaec05d

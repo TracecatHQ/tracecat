@@ -96,7 +96,7 @@
     "lucide-react": "^0.542.0",
     "motion": "^12.23.22",
     "nanoid": "^5.1.6",
-    "next": "15.5.7",
+    "next": "15.5.9",
     "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
     "ipaddr.js": "^2.1.0",

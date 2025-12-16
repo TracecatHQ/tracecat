@@ -166,10 +166,69 @@ export const $ActionCreate = {
       ],
       title: "Interaction",
     },
+    position_x: {
+      type: "number",
+      title: "Position X",
+      default: 0,
+    },
+    position_y: {
+      type: "number",
+      title: "Position Y",
+      default: 0,
+    },
+    upstream_edges: {
+      items: {
+        $ref: "#/components/schemas/ActionEdge",
+      },
+      type: "array",
+      title: "Upstream Edges",
+    },
   },
   type: "object",
   required: ["workflow_id", "type", "title"],
   title: "ActionCreate",
+} as const
+
+export const $ActionEdge = {
+  properties: {
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    source_type: {
+      type: "string",
+      enum: ["trigger", "udf"],
+      title: "Source Type",
+    },
+    source_handle: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Source Handle",
+    },
+  },
+  type: "object",
+  required: ["source_id", "source_type"],
+  title: "ActionEdge",
+  description: `Represents an incoming edge to an action.
+
+Stored in Action.upstream_edges to represent incoming connections.`,
+} as const
+
+export const $ActionPositionUpdate = {
+  properties: {
+    action_id: {
+      type: "string",
+      format: "uuid",
+      title: "Action Id",
+    },
+    position: {
+      $ref: "#/components/schemas/Position",
+    },
+  },
+  type: "object",
+  required: ["action_id", "position"],
+  title: "ActionPositionUpdate",
+  description: "Position update for a single action.",
 } as const
 
 export const $ActionRead = {
@@ -231,6 +290,23 @@ export const $ActionRead = {
         },
       ],
       title: "Interaction",
+    },
+    position_x: {
+      type: "number",
+      title: "Position X",
+      default: 0,
+    },
+    position_y: {
+      type: "number",
+      title: "Position Y",
+      default: 0,
+    },
+    upstream_edges: {
+      items: {
+        $ref: "#/components/schemas/ActionEdge",
+      },
+      type: "array",
+      title: "Upstream Edges",
     },
     ref: {
       type: "string",
@@ -601,6 +677,42 @@ export const $ActionUpdate = {
         },
       ],
       title: "Interaction",
+    },
+    position_x: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position X",
+    },
+    position_y: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position Y",
+    },
+    upstream_edges: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ActionEdge",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Upstream Edges",
     },
   },
   type: "object",
@@ -2215,6 +2327,31 @@ export const $AuthSettingsUpdate = {
   },
   type: "object",
   title: "AuthSettingsUpdate",
+} as const
+
+export const $BatchPositionUpdate = {
+  properties: {
+    actions: {
+      items: {
+        $ref: "#/components/schemas/ActionPositionUpdate",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    trigger_position: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Position",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "BatchPositionUpdate",
+  description: "Batch update for action and trigger positions.",
 } as const
 
 export const $BinaryContent = {
@@ -7204,6 +7341,103 @@ export const $GitSettingsUpdate = {
   title: "GitSettingsUpdate",
 } as const
 
+export const $GraphOperation = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/GraphOperationType",
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+      description: "Operation-specific payload",
+    },
+  },
+  type: "object",
+  required: ["type", "payload"],
+  title: "GraphOperation",
+  description: "A single graph operation.",
+} as const
+
+export const $GraphOperationType = {
+  type: "string",
+  enum: [
+    "add_node",
+    "update_node",
+    "delete_node",
+    "add_edge",
+    "delete_edge",
+    "move_nodes",
+    "update_trigger_position",
+    "update_viewport",
+  ],
+  title: "GraphOperationType",
+  description: "Graph operation types.",
+} as const
+
+export const $GraphOperationsRequest = {
+  properties: {
+    base_version: {
+      type: "integer",
+      title: "Base Version",
+      description: "Expected current graph_version. Returns 409 if mismatched.",
+    },
+    operations: {
+      items: {
+        $ref: "#/components/schemas/GraphOperation",
+      },
+      type: "array",
+      title: "Operations",
+      description: "List of operations to apply atomically",
+    },
+  },
+  type: "object",
+  required: ["base_version", "operations"],
+  title: "GraphOperationsRequest",
+  description: `Request for PATCH /workflows/{id}/graph.
+
+Applies a batch of graph operations with optimistic concurrency.`,
+} as const
+
+export const $GraphResponse = {
+  properties: {
+    version: {
+      type: "integer",
+      title: "Version",
+      description: "Graph version for optimistic concurrency",
+    },
+    nodes: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Nodes",
+      description: "React Flow nodes",
+    },
+    edges: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Edges",
+      description: "React Flow edges",
+    },
+    viewport: {
+      additionalProperties: true,
+      type: "object",
+      title: "Viewport",
+    },
+  },
+  type: "object",
+  required: ["version", "nodes", "edges"],
+  title: "GraphResponse",
+  description: `Response for GET /workflows/{id}/graph.
+
+Returns the canonical graph projection from Actions.`,
+} as const
+
 export const $HTTPValidationError = {
   properties: {
     detail: {
@@ -8894,6 +9128,23 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $Position = {
+  properties: {
+    x: {
+      type: "number",
+      title: "X",
+      default: 0,
+    },
+    y: {
+      type: "number",
+      title: "Y",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "Position",
 } as const
 
 export const $PriorityChangedEventRead = {
@@ -16673,18 +16924,6 @@ export const $WorkflowRead = {
       type: "object",
       title: "Actions",
     },
-    object: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Object",
-    },
     workspace_id: {
       type: "string",
       format: "uuid",
@@ -16783,6 +17022,21 @@ export const $WorkflowRead = {
       ],
       title: "Error Handler",
     },
+    trigger_position_x: {
+      type: "number",
+      title: "Trigger Position X",
+      default: 0,
+    },
+    trigger_position_y: {
+      type: "number",
+      title: "Trigger Position Y",
+      default: 0,
+    },
+    graph_version: {
+      type: "integer",
+      title: "Graph Version",
+      default: 1,
+    },
   },
   type: "object",
   required: [
@@ -16791,7 +17045,6 @@ export const $WorkflowRead = {
     "description",
     "status",
     "actions",
-    "object",
     "workspace_id",
     "webhook",
     "schedules",
@@ -17030,18 +17283,6 @@ export const $WorkflowUpdate = {
         },
       ],
       title: "Status",
-    },
-    object: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Object",
     },
     version: {
       anyOf: [

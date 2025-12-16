@@ -118,22 +118,21 @@ if [[ "$new_ip" =~ ^([^:]+)(:([0-9]+))?$ ]]; then
     # If port is specified, update PUBLIC_APP_PORT
     if [ -n "$port" ]; then
         app_port="$port"
-        # Include port in URLs
-        public_app_url="http://${hostname}:${port}"
-        public_api_url="http://${hostname}:${port}/api/"
+        base_url="http://${hostname}:${port}"
     else
         # No port specified, use default port 80 (or keep existing PUBLIC_APP_PORT)
         app_port=""
-        public_app_url="http://${hostname}"
-        public_api_url="http://${hostname}/api/"
+        base_url="http://${hostname}"
     fi
 else
     # Fallback if regex doesn't match
     hostname="$new_ip"
     app_port=""
-    public_app_url="http://${hostname}"
-    public_api_url="http://${hostname}/api/"
+    base_url="http://${hostname}"
 fi
+
+public_app_url="$base_url"
+public_api_url="${base_url}/api"
 
 
 # Prompt user for PostgreSQL SSL mode

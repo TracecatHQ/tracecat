@@ -2940,7 +2940,7 @@ email = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "1.22.0"
+version = "1.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
@@ -2951,9 +2951,9 @@ dependencies = [
     { name = "pydantic-graph" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/4d/35875395f89a59fe7d0d8810457406db968ed9e9043012258a5c32624956/pydantic_ai_slim-1.22.0.tar.gz", hash = "sha256:0c962bac44ea81bd731e787e07106ebc49dc1ea9c842b131a5adec0e869aad37", size = 313768, upload-time = "2025-11-22T00:37:24.766Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/4e/cf6badd293814326308acd3ad17262d03a6f006dcc2c9ddac1b1f81ce7ce/pydantic_ai_slim-1.29.0.tar.gz", hash = "sha256:3bc48b3024ae1a5ee4b1e8b3766b8222723a0b8efb6959a2cab0494b9ba64fc2", size = 329307, upload-time = "2025-12-10T00:38:27.009Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/80/c2049fdf0caf9b4fcf19dc9c0f8b4f802a0f32cce5672d844de31eaa7ee9/pydantic_ai_slim-1.22.0-py3-none-any.whl", hash = "sha256:9c2b0504daf3cfd4c06c2454ebf3011b6e08cf05cb18460f2a97c258b8cead6a", size = 414554, upload-time = "2025-11-22T00:37:13.726Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/ff/ca7bf7226c5d772d77be85e41721f2caa1d08fafac9e851405faa3def099/pydantic_ai_slim-1.29.0-py3-none-any.whl", hash = "sha256:4c6f563af4c5297a9129809bbf9589dff1a99e9417ce5b8fa6ed837d38acd434", size = 430893, upload-time = "2025-12-10T00:38:19.901Z" },
 ]
 
 [package.optional-dependencies]
@@ -3059,7 +3059,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "1.22.0"
+version = "1.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -3067,9 +3067,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ce/de/f4dcfa706de97fce1d3d9983be84d632752c7b7ac03878bb6cc46a381e67/pydantic_graph-1.22.0.tar.gz", hash = "sha256:cc3d396e27f6a664211ed5ebacb205e6f1e2e42f1ca21846a587e3b52b438fe8", size = 58366, upload-time = "2025-11-22T00:37:26.64Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/da/a27008203273e6adc8ebdfa1390ead7bc66d710229d9bd6955c98e07407a/pydantic_graph-1.29.0.tar.gz", hash = "sha256:87cd673f7333c2db312595696beff597f4de4f6767c954d4e65964f54cb4b073", size = 58454, upload-time = "2025-12-10T00:38:29.012Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/2e/b1cb0000768a39b00249c460f742f697a0f59785179862f1b33b8237b515/pydantic_graph-1.22.0-py3-none-any.whl", hash = "sha256:388c2153fddd7a7f7befcca24ff520fe29b26ac01b5ebc49051a4dcd7198226b", size = 72260, upload-time = "2025-11-22T00:37:16.294Z" },
+    { url = "https://files.pythonhosted.org/packages/33/ff/52f4c1f6b65da79c4853dea925e46e7003be7391543550bebdf320e3a032/pydantic_graph-1.29.0-py3-none-any.whl", hash = "sha256:5b2e12902423007508ecd216b4d47e7c95b544530868adc32b93756dcb6b1ba0", size = 72330, upload-time = "2025-12-10T00:38:22.487Z" },
 ]
 
 [[package]]
@@ -4218,7 +4218,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.1.19" },
     { name = "pyarrow", specifier = "==16.1.0" },
     { name = "pydantic", specifier = ">=2.11.7,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "google", "mcp", "openai"], specifier = "==1.22.0" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "google", "mcp", "openai"], specifier = "==1.29.0" },
     { name = "pydantic-extra-types", specifier = ">=2.10.2,<3.0.0" },
     { name = "pygithub", specifier = ">=2.7.0" },
     { name = "pysaml2", specifier = "==7.5.0" },
@@ -4283,14 +4283,16 @@ dependencies = [
     { name = "slack-sdk" },
     { name = "tavily-python" },
     { name = "tenacity" },
-    { name = "types-aioboto3", extra = ["s3", "sts"] },
-    { name = "types-boto3", extra = ["s3", "sts"] },
 ]
 
 [package.optional-dependencies]
 cli = [
     { name = "rich" },
     { name = "typer" },
+]
+dev = [
+    { name = "types-aioboto3", extra = ["s3", "sts"] },
+    { name = "types-boto3", extra = ["s3", "sts"] },
 ]
 
 [package.metadata]
@@ -4313,10 +4315,10 @@ requires-dist = [
     { name = "tavily-python", specifier = "==0.7.6" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.15.1" },
-    { name = "types-aioboto3", extras = ["s3", "sts"], specifier = ">=15.0.0" },
-    { name = "types-boto3", extras = ["s3", "sts"], specifier = ">=1.39.0,<2.0.0" },
+    { name = "types-aioboto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=15.0.0" },
+    { name = "types-boto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=1.39.0,<2.0.0" },
 ]
-provides-extras = ["cli"]
+provides-extras = ["cli", "dev"]
 
 [[package]]
 name = "trove-classifiers"

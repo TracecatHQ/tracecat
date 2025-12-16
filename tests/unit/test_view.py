@@ -1,9 +1,27 @@
+import uuid
+
 import pytest
 from pydantic import BaseModel
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.view import RFGraph, TriggerNode, TriggerNodeData
+
+# Fixed UUIDs for testing - deterministic for reproducibility
+WORKFLOW_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+UUID_A = uuid.UUID("00000000-0000-0000-0000-00000000000a")
+UUID_B = uuid.UUID("00000000-0000-0000-0000-00000000000b")
+UUID_C = uuid.UUID("00000000-0000-0000-0000-00000000000c")
+UUID_D = uuid.UUID("00000000-0000-0000-0000-00000000000d")
+UUID_E = uuid.UUID("00000000-0000-0000-0000-00000000000e")
+UUID_F = uuid.UUID("00000000-0000-0000-0000-00000000000f")
+UUID_G = uuid.UUID("00000000-0000-0000-0000-000000000010")
+UUID_H = uuid.UUID("00000000-0000-0000-0000-000000000011")
+UUID_I = uuid.UUID("00000000-0000-0000-0000-000000000012")
+UUID_J = uuid.UUID("00000000-0000-0000-0000-000000000013")
+UUID_K = uuid.UUID("00000000-0000-0000-0000-000000000014")
+UUID_L = uuid.UUID("00000000-0000-0000-0000-000000000015")
+UUID_M = uuid.UUID("00000000-0000-0000-0000-000000000016")
 
 
 @pytest.fixture(scope="session")
@@ -14,18 +32,19 @@ def metadata():
         entrypoint: DSLEntrypoint
         trigger: TriggerNode
 
+    trigger_id = f"trigger-{WORKFLOW_UUID}"
     metadata = TestMetadata(
         title="TEST_WORKFLOW",
         description="TEST_DESCRIPTION",
         entrypoint=DSLEntrypoint(ref="action_a"),
         trigger=TriggerNode(
-            id="trigger-TEST_WORKFLOW_ID",
+            id=trigger_id,
             type="trigger",
             data=TriggerNodeData(
                 title="Trigger",
                 status="online",
                 is_configured=True,
-                webhook={},  # Empty dict for webhook
+                webhook={},
             ),
         ),
     )
@@ -33,16 +52,27 @@ def metadata():
     return metadata
 
 
+def uuid_to_ref(node_id: str) -> str:
+    """Convert node UUID to ref by taking the last hex character."""
+    # UUIDs like "00000000-0000-0000-0000-00000000000a" -> "a"
+    # UUIDs like "00000000-0000-0000-0000-000000000010" -> "g" (hex 10 = 16 -> 'g')
+    last_hex = node_id[-2:]  # Last 2 hex chars
+    num = int(last_hex, 16)
+    # Map 10->g, 11->h, etc. (a=10 in our UUID scheme, so offset by 10)
+    if num < 10:
+        return chr(ord("a") + num)
+    return chr(ord("a") + num - 10)
+
+
 def build_actions(graph: RFGraph) -> list[ActionStatement]:
-    # Use node ID as ref for testing purposes
+    # Build a mapping from node ID to ref for dependency resolution
+    id_to_ref = {node.id: uuid_to_ref(str(node.id)) for node in graph.action_nodes()}
     return [
         ActionStatement(
-            ref=node.id,
+            ref=id_to_ref[node.id],
             action=node.data.type,
-            args=node.data.args,  # For testing convenience
-            depends_on=sorted(
-                graph.node_map[nid].id for nid in graph.dep_list[node.id]
-            ),
+            args=node.data.args,
+            depends_on=sorted(id_to_ref[nid] for nid in graph.dep_list[node.id]),
         )
         for node in graph.action_nodes()
     ]
@@ -56,44 +86,45 @@ def test_parse_dag_simple_sequence(metadata):
     Checks:
     1. The sequence is correctly parsed
     2. The depends_on field is correctly set
-    3. Action refs (slugs) are correfly constructed
+    3. Action refs (slugs) are correctly constructed
     """
 
     rf_obj = {
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
                 "data": {
                     "type": "udf",
-                    "title": "Action A",
                     "args": {"test": 1},
                 },
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
                 "data": {
                     "type": "udf",
-                    "title": "Action B",
                     "args": {"test": 2},
                 },
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
                 "data": {
                     "type": "udf",
-                    "title": "Action C",
                     "args": {"test": 3},
                 },
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "b_c", "source": "b", "target": "c"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "b_c", "source": str(UUID_B), "target": str(UUID_C)},
         ],
     }
 
@@ -140,50 +171,54 @@ def test_kite(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "b_c", "source": "b", "target": "c"},
-            {"id": "c_f", "source": "c", "target": "f"},
-            {"id": "a_d", "source": "a", "target": "d"},
-            {"id": "d_e", "source": "d", "target": "e"},
-            {"id": "e_f", "source": "e", "target": "f"},
-            {"id": "f_g", "source": "f", "target": "g"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "b_c", "source": str(UUID_B), "target": str(UUID_C)},
+            {"id": "c_f", "source": str(UUID_C), "target": str(UUID_F)},
+            {"id": "a_d", "source": str(UUID_A), "target": str(UUID_D)},
+            {"id": "d_e", "source": str(UUID_D), "target": str(UUID_E)},
+            {"id": "e_f", "source": str(UUID_E), "target": str(UUID_F)},
+            {"id": "f_g", "source": str(UUID_F), "target": str(UUID_G)},
         ],
     }
 
@@ -232,87 +267,91 @@ def test_double_kite(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "h",
+                "id": str(UUID_H),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_h"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "i",
+                "id": str(UUID_I),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_i"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "j",
+                "id": str(UUID_J),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_j"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "k",
+                "id": str(UUID_K),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_k"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "l",
+                "id": str(UUID_L),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_l"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "m",
+                "id": str(UUID_M),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_m"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "b_c", "source": "b", "target": "c"},
-            {"id": "c_f", "source": "c", "target": "f"},
-            {"id": "a_d", "source": "a", "target": "d"},
-            {"id": "d_e", "source": "d", "target": "e"},
-            {"id": "e_f", "source": "e", "target": "f"},
-            {"id": "f_g", "source": "f", "target": "g"},
-            {"id": "g_h", "source": "g", "target": "h"},
-            {"id": "h_k", "source": "h", "target": "k"},
-            {"id": "g_i", "source": "g", "target": "i"},
-            {"id": "i_j", "source": "i", "target": "j"},
-            {"id": "j_l", "source": "j", "target": "l"},
-            {"id": "k_m", "source": "k", "target": "m"},
-            {"id": "l_m", "source": "l", "target": "m"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "b_c", "source": str(UUID_B), "target": str(UUID_C)},
+            {"id": "c_f", "source": str(UUID_C), "target": str(UUID_F)},
+            {"id": "a_d", "source": str(UUID_A), "target": str(UUID_D)},
+            {"id": "d_e", "source": str(UUID_D), "target": str(UUID_E)},
+            {"id": "e_f", "source": str(UUID_E), "target": str(UUID_F)},
+            {"id": "f_g", "source": str(UUID_F), "target": str(UUID_G)},
+            {"id": "g_h", "source": str(UUID_G), "target": str(UUID_H)},
+            {"id": "h_k", "source": str(UUID_H), "target": str(UUID_K)},
+            {"id": "g_i", "source": str(UUID_G), "target": str(UUID_I)},
+            {"id": "i_j", "source": str(UUID_I), "target": str(UUID_J)},
+            {"id": "j_l", "source": str(UUID_J), "target": str(UUID_L)},
+            {"id": "k_m", "source": str(UUID_K), "target": str(UUID_M)},
+            {"id": "l_m", "source": str(UUID_L), "target": str(UUID_M)},
         ],
     }
 
@@ -361,49 +400,53 @@ def test_tree_1(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "a_c", "source": "a", "target": "c"},
-            {"id": "b_d", "source": "b", "target": "d"},
-            {"id": "b_e", "source": "b", "target": "e"},
-            {"id": "c_f", "source": "c", "target": "f"},
-            {"id": "c_g", "source": "c", "target": "g"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "a_c", "source": str(UUID_A), "target": str(UUID_C)},
+            {"id": "b_d", "source": str(UUID_B), "target": str(UUID_D)},
+            {"id": "b_e", "source": str(UUID_B), "target": str(UUID_E)},
+            {"id": "c_f", "source": str(UUID_C), "target": str(UUID_F)},
+            {"id": "c_g", "source": str(UUID_C), "target": str(UUID_G)},
         ],
     }
 
@@ -437,49 +480,53 @@ def test_tree_2(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "a_e", "source": "a", "target": "e"},
-            {"id": "b_c", "source": "b", "target": "c"},
-            {"id": "b_d", "source": "b", "target": "d"},
-            {"id": "e_f", "source": "e", "target": "f"},
-            {"id": "f_g", "source": "f", "target": "g"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "a_e", "source": str(UUID_A), "target": str(UUID_E)},
+            {"id": "b_c", "source": str(UUID_B), "target": str(UUID_C)},
+            {"id": "b_d", "source": str(UUID_B), "target": str(UUID_D)},
+            {"id": "e_f", "source": str(UUID_E), "target": str(UUID_F)},
+            {"id": "f_g", "source": str(UUID_F), "target": str(UUID_G)},
         ],
     }
 
@@ -515,52 +562,56 @@ def test_complex_dag_1(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "a_c", "source": "a", "target": "c"},
-            {"id": "b_d", "source": "b", "target": "d"},
-            {"id": "b_e", "source": "b", "target": "e"},
-            {"id": "c_e", "source": "c", "target": "e"},
-            {"id": "c_f", "source": "c", "target": "f"},
-            {"id": "d_g", "source": "d", "target": "g"},
-            {"id": "e_g", "source": "e", "target": "g"},
-            {"id": "f_g", "source": "f", "target": "g"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "a_c", "source": str(UUID_A), "target": str(UUID_C)},
+            {"id": "b_d", "source": str(UUID_B), "target": str(UUID_D)},
+            {"id": "b_e", "source": str(UUID_B), "target": str(UUID_E)},
+            {"id": "c_e", "source": str(UUID_C), "target": str(UUID_E)},
+            {"id": "c_f", "source": str(UUID_C), "target": str(UUID_F)},
+            {"id": "d_g", "source": str(UUID_D), "target": str(UUID_G)},
+            {"id": "e_g", "source": str(UUID_E), "target": str(UUID_G)},
+            {"id": "f_g", "source": str(UUID_F), "target": str(UUID_G)},
         ],
     }
 
@@ -607,65 +658,69 @@ def test_complex_dag_2(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "h",
+                "id": str(UUID_H),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_h"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "i",
+                "id": str(UUID_I),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_i"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "a_c", "source": "a", "target": "c"},
-            {"id": "b_d", "source": "b", "target": "d"},
-            {"id": "b_e", "source": "b", "target": "e"},
-            {"id": "c_e", "source": "c", "target": "e"},
-            {"id": "c_f", "source": "c", "target": "f"},
-            {"id": "d_g", "source": "d", "target": "g"},
-            {"id": "e_g", "source": "e", "target": "g"},
-            {"id": "e_h", "source": "e", "target": "h"},
-            {"id": "f_h", "source": "f", "target": "h"},
-            {"id": "g_i", "source": "g", "target": "i"},
-            {"id": "h_i", "source": "h", "target": "i"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "a_c", "source": str(UUID_A), "target": str(UUID_C)},
+            {"id": "b_d", "source": str(UUID_B), "target": str(UUID_D)},
+            {"id": "b_e", "source": str(UUID_B), "target": str(UUID_E)},
+            {"id": "c_e", "source": str(UUID_C), "target": str(UUID_E)},
+            {"id": "c_f", "source": str(UUID_C), "target": str(UUID_F)},
+            {"id": "d_g", "source": str(UUID_D), "target": str(UUID_G)},
+            {"id": "e_g", "source": str(UUID_E), "target": str(UUID_G)},
+            {"id": "e_h", "source": str(UUID_E), "target": str(UUID_H)},
+            {"id": "f_h", "source": str(UUID_F), "target": str(UUID_H)},
+            {"id": "g_i", "source": str(UUID_G), "target": str(UUID_I)},
+            {"id": "h_i", "source": str(UUID_H), "target": str(UUID_I)},
         ],
     }
 
@@ -724,82 +779,86 @@ def test_complex_dag_3(metadata):
         "nodes": [
             metadata.trigger,
             {
-                "id": "a",
+                "id": str(UUID_A),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_a"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "b",
+                "id": str(UUID_B),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_b"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "c",
+                "id": str(UUID_C),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_c"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "d",
+                "id": str(UUID_D),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_d"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "e",
+                "id": str(UUID_E),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_e"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "f",
+                "id": str(UUID_F),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_f"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "g",
+                "id": str(UUID_G),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_g"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "h",
+                "id": str(UUID_H),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_h"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "i",
+                "id": str(UUID_I),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_i"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "j",
+                "id": str(UUID_J),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_j"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "k",
+                "id": str(UUID_K),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_k"},
+                "data": {"type": "udf"},
             },
             {
-                "id": "l",
+                "id": str(UUID_L),
                 "type": "udf",
-                "data": {"type": "udf", "title": "action_l"},
+                "data": {"type": "udf"},
             },
         ],
         "edges": [
-            {"id": "trigger_edge", "source": metadata.trigger.id, "target": "a"},
-            {"id": "a_b", "source": "a", "target": "b"},
-            {"id": "a_e", "source": "a", "target": "e"},
-            {"id": "b_c", "source": "b", "target": "c"},
-            {"id": "b_d", "source": "b", "target": "d"},
-            {"id": "c_g", "source": "c", "target": "g"},
-            {"id": "d_g", "source": "d", "target": "g"},
-            {"id": "e_f", "source": "e", "target": "f"},
-            {"id": "e_i", "source": "e", "target": "i"},
-            {"id": "e_h", "source": "e", "target": "h"},
-            {"id": "f_j", "source": "f", "target": "j"},
-            {"id": "g_k", "source": "g", "target": "k"},
-            {"id": "h_k", "source": "h", "target": "k"},
-            {"id": "i_j", "source": "i", "target": "j"},
-            {"id": "j_l", "source": "j", "target": "l"},
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "a_e", "source": str(UUID_A), "target": str(UUID_E)},
+            {"id": "b_c", "source": str(UUID_B), "target": str(UUID_C)},
+            {"id": "b_d", "source": str(UUID_B), "target": str(UUID_D)},
+            {"id": "c_g", "source": str(UUID_C), "target": str(UUID_G)},
+            {"id": "d_g", "source": str(UUID_D), "target": str(UUID_G)},
+            {"id": "e_f", "source": str(UUID_E), "target": str(UUID_F)},
+            {"id": "e_i", "source": str(UUID_E), "target": str(UUID_I)},
+            {"id": "e_h", "source": str(UUID_E), "target": str(UUID_H)},
+            {"id": "f_j", "source": str(UUID_F), "target": str(UUID_J)},
+            {"id": "g_k", "source": str(UUID_G), "target": str(UUID_K)},
+            {"id": "h_k", "source": str(UUID_H), "target": str(UUID_K)},
+            {"id": "i_j", "source": str(UUID_I), "target": str(UUID_J)},
+            {"id": "j_l", "source": str(UUID_J), "target": str(UUID_L)},
         ],
     }
 

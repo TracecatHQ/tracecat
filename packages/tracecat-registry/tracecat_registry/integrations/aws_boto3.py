@@ -4,15 +4,20 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 import boto3
 import aioboto3
-from types_aiobotocore_sts.type_defs import (
-    CredentialsTypeDef as AsyncCredentialsTypeDef,
-)
-from types_boto3_sts.type_defs import CredentialsTypeDef
+
+if TYPE_CHECKING:
+    from types_aiobotocore_sts.type_defs import (
+        CredentialsTypeDef as AsyncCredentialsTypeDef,
+    )
+    from types_boto3_sts.type_defs import CredentialsTypeDef
+else:
+    AsyncCredentialsTypeDef = dict[str, Any]
+    CredentialsTypeDef = dict[str, Any]
 
 from tracecat_registry import (
     RegistrySecret,
@@ -85,6 +90,7 @@ async def get_session() -> aioboto3.Session:
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
     aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
+    aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
         aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
@@ -113,6 +119,8 @@ async def get_session() -> aioboto3.Session:
             aws_secret_access_key=aws_secret_access_key,
             region_name=aws_region,
         )
+    elif aws_bearer_token_bedrock:
+        session = aioboto3.Session(region_name=aws_region)
     else:
         # NOTE: This is critical. We must not allow Boto3's default behavior of
         # using the AWS credentials from the environment.
@@ -128,6 +136,7 @@ def get_sync_session() -> boto3.Session:
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
     aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
+    aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
         aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
@@ -156,6 +165,8 @@ def get_sync_session() -> boto3.Session:
             aws_secret_access_key=aws_secret_access_key,
             region_name=aws_region,
         )
+    elif aws_bearer_token_bedrock:
+        session = boto3.Session(region_name=aws_region)
     else:
         # NOTE: This is critical. We must not allow Boto3's default behavior of
         # using the AWS credentials from the environment.
