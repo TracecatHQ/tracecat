@@ -1777,6 +1777,10 @@ export type DSLRunArgs = {
    * The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.
    */
   schedule_id?: string | null
+  /**
+   * Execution type (draft or published). Draft executions use live aliases for child workflows.
+   */
+  execution_type?: ExecutionType
 }
 
 /**
@@ -1963,6 +1967,13 @@ export type EventGroup_TypeVar_ = {
   join_strategy?: JoinStrategy
   related_wf_exec_id?: string | null
 }
+
+/**
+ * Execution type for a workflow execution.
+ *
+ * Distinguishes between draft (development) and published (production) executions.
+ */
+export type ExecutionType = "draft" | "published"
 
 export type ExpectedField = {
   type: string

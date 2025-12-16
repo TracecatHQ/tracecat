@@ -111,7 +111,11 @@ with workflow.unsafe.imports_passed_through():
         DSLValidationResult,
         ValidationDetailListTA,
     )
-    from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+    from tracecat.workflow.executions.enums import (
+        ExecutionType,
+        TemporalSearchAttr,
+        TriggerType,
+    )
     from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -165,6 +169,8 @@ class DSLWorkflow:
         self.role = args.role
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
+        self.execution_type = args.execution_type
+        """Execution type (draft or published). Draft executions use live aliases for child workflows."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
         self.wf_exec_id = wf_info.workflow_id
@@ -181,7 +187,9 @@ class DSLWorkflow:
         ctx_role.set(self.role)
         ctx_logger.set(self.logger)
 
-        self.logger.debug("DSL workflow started", args=args)
+        self.logger.debug(
+            "DSL workflow started", args=args, execution_type=self.execution_type
+        )
         try:
             self.logger.info(
                 "Workflow info",
@@ -934,8 +942,11 @@ class DSLWorkflow:
                 f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
             )
 
+        # For draft executions, use live aliases; for published executions, use committed aliases
         activity_inputs = ResolveWorkflowAliasActivityInputs(
-            workflow_alias=evaluated_alias, role=self.role
+            workflow_alias=evaluated_alias,
+            role=self.role,
+            use_committed=self.execution_type == ExecutionType.PUBLISHED,
         )
         wf_id = await workflow.execute_activity(
             WorkflowsManagementService.resolve_workflow_alias_activity,
