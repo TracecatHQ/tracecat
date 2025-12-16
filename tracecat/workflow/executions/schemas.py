@@ -24,6 +24,7 @@ from tracecat.dsl.common import (
     AgentActionMemo,
     ChildWorkflowMemo,
     DSLRunArgs,
+    get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
 from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
@@ -51,7 +52,6 @@ from tracecat.workflow.executions.common import (
 )
 from tracecat.workflow.executions.enums import (
     ExecutionType,
-    TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
@@ -105,20 +105,6 @@ class WorkflowExecutionBase(BaseModel):
 class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
     @staticmethod
     def from_dataclass(execution: WorkflowExecution) -> WorkflowExecutionReadMinimal:
-        # Extract execution_type from search attributes
-        execution_type = ExecutionType.PUBLISHED
-        try:
-            typed_attrs = execution.typed_search_attributes
-            if typed_attrs:
-                execution_type_attr = typed_attrs.get(
-                    TemporalSearchAttr.EXECUTION_TYPE.key
-                )
-                if execution_type_attr is not None:
-                    execution_type = ExecutionType(execution_type_attr)
-        except Exception:
-            # Fall back to PUBLISHED if attribute not found or invalid
-            pass
-
         return WorkflowExecutionReadMinimal(
             id=execution.id,
             run_id=execution.run_id,
@@ -133,7 +119,9 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             trigger_type=get_trigger_type_from_search_attr(
                 execution.typed_search_attributes, execution.id
             ),
-            execution_type=execution_type,
+            execution_type=get_execution_type_from_search_attr(
+                execution.typed_search_attributes
+            ),
         )
 
 

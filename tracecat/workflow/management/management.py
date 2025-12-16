@@ -51,6 +51,7 @@ from tracecat.validation.schemas import (
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow
+from tracecat.workflow.executions.enums import ExecutionType
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     GetErrorHandlerWorkflowIDActivityInputs,
@@ -749,7 +750,10 @@ class WorkflowsManagementService(BaseService):
                 # Short workflow ID
                 handler_wf_id = WorkflowUUID.new(id_or_alias)
             else:
-                handler_wf_id = await service.resolve_workflow_alias(id_or_alias)
+                use_committed = args.execution_type == ExecutionType.PUBLISHED
+                handler_wf_id = await service.resolve_workflow_alias(
+                    id_or_alias, use_committed=use_committed
+                )
                 if not handler_wf_id:
                     raise RuntimeError(
                         f"Couldn't find matching workflow for alias {id_or_alias!r}"
