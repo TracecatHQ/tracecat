@@ -19,7 +19,11 @@ import { usePathname, useRouter } from "next/navigation"
 import React from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { DSLValidationResult, ValidationResult } from "@/client"
+import type {
+  DSLValidationResult,
+  ValidationDetail,
+  ValidationResult,
+} from "@/client"
 import { ApiError } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
@@ -291,7 +295,7 @@ function WorkflowManualTrigger({
           detail?: unknown
         }>
         console.error("Error details", tracecatError.body)
-        const { detail, message: bodyMessage } = tracecatError.body
+        const detail = tracecatError.body.detail
         let detailMessage: string | undefined
         if (typeof detail === "string") {
           detailMessage = detail
@@ -309,13 +313,19 @@ function WorkflowManualTrigger({
             detailMessage = undefined
           }
         }
+        const details =
+          Array.isArray(detail) && detail.every((d) => "msg" in (d as object))
+            ? (detail as ValidationDetail[])
+            : detailMessage
+              ? [{ type: "api_error", msg: detailMessage }]
+              : null
         // Convert API error to ValidationResult format for consistent display
         const validationError: DSLValidationResult = {
           type: "dsl",
           status: "error",
-          msg: detailMessage || bodyMessage || "Failed to start workflow",
+          msg: detailMessage || "Failed to start workflow",
           ref: null,
-          detail: typeof detail === "object" ? detail : null,
+          detail: details,
         }
         setManualTriggerErrors([validationError])
       }
