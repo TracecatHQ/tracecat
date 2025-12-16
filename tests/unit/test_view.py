@@ -89,6 +89,101 @@ def build_actions(graph: RFGraph) -> list[ActionStatement]:
     ]
 
 
+def test_single_action_node(metadata):
+    """Single action node - simplest non-trivial case.
+
+    trigger -> A
+
+    Checks:
+    1. A single action node with no dependencies works correctly
+    2. The graph has exactly one entrypoint
+    3. No action-to-action edges exist
+    """
+    rf_obj = {
+        "nodes": [
+            metadata.trigger,
+            {
+                "id": str(UUID_A),
+                "type": "udf",
+                "data": {"type": "udf", "args": {"test": 1}},
+            },
+        ],
+        "edges": [
+            {
+                "id": "trigger_edge",
+                "source": metadata.trigger.id,
+                "target": str(UUID_A),
+            },
+        ],
+    }
+
+    expected_wf_ir = [
+        ActionStatement(
+            ref="a",
+            action="udf",
+            args={"test": 1},
+        ),
+    ]
+    graph = RFGraph.model_validate(rf_obj)
+
+    # Verify graph structure
+    assert len(graph.action_nodes()) == 1
+    assert len(graph.action_edges()) == 0  # No action-to-action edges
+    assert len(graph.entrypoints) == 1
+    assert graph.entrypoints[0].id == UUID_A
+
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
+    assert dsl.actions == expected_wf_ir
+
+
+def test_parallel_branches_no_convergence(metadata):
+    r"""Parallel branches that never converge.
+
+    trigger -> A -> B
+    trigger -> C -> D
+
+    Checks:
+    1. Multiple entrypoints work correctly
+    2. Independent parallel branches are parsed correctly
+    3. No dependencies between the branches
+    """
+    rf_obj = {
+        "nodes": [
+            metadata.trigger,
+            {"id": str(UUID_A), "type": "udf", "data": {"type": "udf"}},
+            {"id": str(UUID_B), "type": "udf", "data": {"type": "udf"}},
+            {"id": str(UUID_C), "type": "udf", "data": {"type": "udf"}},
+            {"id": str(UUID_D), "type": "udf", "data": {"type": "udf"}},
+        ],
+        "edges": [
+            {"id": "trigger_a", "source": metadata.trigger.id, "target": str(UUID_A)},
+            {"id": "trigger_c", "source": metadata.trigger.id, "target": str(UUID_C)},
+            {"id": "a_b", "source": str(UUID_A), "target": str(UUID_B)},
+            {"id": "c_d", "source": str(UUID_C), "target": str(UUID_D)},
+        ],
+    }
+
+    expected_wf_ir = [
+        ActionStatement(ref="a", action="udf", args={}),
+        ActionStatement(ref="b", action="udf", args={}, depends_on=["a"]),
+        ActionStatement(ref="c", action="udf", args={}),
+        ActionStatement(ref="d", action="udf", args={}, depends_on=["c"]),
+    ]
+    graph = RFGraph.model_validate(rf_obj)
+
+    # Verify graph structure
+    assert len(graph.action_nodes()) == 4
+    assert len(graph.action_edges()) == 2  # A->B, C->D
+    assert len(graph.entrypoints) == 2  # A and C
+    entrypoint_ids = {ep.id for ep in graph.entrypoints}
+    assert entrypoint_ids == {UUID_A, UUID_C}
+
+    stmts = build_actions(graph)
+    dsl = DSLInput(actions=stmts, **metadata.model_dump())
+    assert dsl.actions == expected_wf_ir
+
+
 def test_parse_dag_simple_sequence(metadata):
     """Simple sequence
 
