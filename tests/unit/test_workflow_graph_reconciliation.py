@@ -1,7 +1,7 @@
 """Tests for workflow graph reconciliation logic.
 
-Tests the _reconcile_graph_object_with_actions method which cleans up
-stale node/edge references in workflow.object when Actions have been deleted.
+Ensures stale upstream edge references are removed when actions are deleted
+or when trigger references become invalid.
 """
 
 import uuid
@@ -23,47 +23,24 @@ async def workflow_with_actions(
     session: AsyncSession,
     svc_workspace: Workspace,
 ) -> AsyncGenerator[tuple[Workflow, list[Action]], None]:
-    """Create a workflow with actions and a matching graph object."""
+    """Create a workflow with actions and upstream_edges graph data."""
     workflow_id = uuid.uuid4()
-    action1_id = uuid.uuid4()
-    action2_id = uuid.uuid4()
-    trigger_id = f"trigger-{workflow_id}"
 
-    # Create workflow with graph object containing two action nodes
     workflow = Workflow(
         id=workflow_id,
         title="Test Workflow",
         description="Test workflow for reconciliation",
         status="offline",
         workspace_id=svc_workspace.id,
-        object={
-            "nodes": [
-                {"id": trigger_id, "type": "trigger", "position": {"x": 0, "y": 0}},
-                {
-                    "id": str(action1_id),
-                    "type": "udf",
-                    "position": {"x": 100, "y": 100},
-                },
-                {
-                    "id": str(action2_id),
-                    "type": "udf",
-                    "position": {"x": 200, "y": 200},
-                },
-            ],
-            "edges": [
-                {"source": trigger_id, "target": str(action1_id)},
-                {"source": str(action1_id), "target": str(action2_id)},
-            ],
-            "viewport": {"x": 0, "y": 0, "zoom": 1},
-        },
         config={},
     )
     session.add(workflow)
     await session.flush()
 
-    # Create matching actions
+    trigger_edge = {"source_id": f"trigger-{workflow_id}", "source_type": "trigger"}
+
     action1 = Action(
-        id=action1_id,
+        id=uuid.uuid4(),
         workspace_id=svc_workspace.id,
         workflow_id=workflow_id,
         type="core.http_request",
@@ -71,9 +48,13 @@ async def workflow_with_actions(
         description="First action",
         inputs="",
         control_flow={},
+        position_x=100,
+        position_y=100,
+        upstream_edges=[trigger_edge],
     )
+
     action2 = Action(
-        id=action2_id,
+        id=uuid.uuid4(),
         workspace_id=svc_workspace.id,
         workflow_id=workflow_id,
         type="core.http_request",
@@ -81,12 +62,19 @@ async def workflow_with_actions(
         description="Second action",
         inputs="",
         control_flow={},
+        position_x=200,
+        position_y=200,
+        upstream_edges=[
+            {
+                "source_id": str(action1.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
     )
-    session.add(action1)
-    session.add(action2)
-    await session.commit()
 
-    # Refresh to load relationships
+    session.add_all([action1, action2])
+    await session.commit()
     await session.refresh(workflow, ["actions"])
 
     try:
@@ -106,18 +94,17 @@ async def test_reconcile_no_changes_needed(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation returns False when graph is already in sync."""
-    workflow, actions = workflow_with_actions
+    """Return False when upstream_edges are already in sync."""
+    workflow, _ = workflow_with_actions
 
     service = WorkflowsManagementService(session, role=svc_role)
     result = await service._reconcile_graph_object_with_actions(workflow)
 
     assert result is False
-    # Graph should be unchanged - refresh to ensure we have latest state
-    await session.refresh(workflow)
-    assert workflow.object is not None
-    assert len(workflow.object["nodes"]) == 3  # trigger + 2 actions
-    assert len(workflow.object["edges"]) == 2
+    await session.refresh(workflow, ["actions"])
+    assert len(workflow.actions) == 2
+    assert workflow.actions[0].upstream_edges
+    assert workflow.actions[1].upstream_edges
 
 
 @pytest.mark.anyio
@@ -126,31 +113,21 @@ async def test_reconcile_removes_stale_nodes(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation removes nodes referencing deleted actions."""
+    """Remove upstream_edges that point to deleted actions."""
     workflow, actions = workflow_with_actions
 
-    # Delete one action from DB (simulating out-of-sync state)
-    deleted_action = actions[1]
+    deleted_action = actions[0]
     await session.delete(deleted_action)
     await session.commit()
     await session.refresh(workflow, ["actions"])
-
-    # Verify setup: graph has 3 nodes but only 1 action exists
-    assert workflow.object is not None
-    assert len(workflow.object["nodes"]) == 3
-    assert len(workflow.actions) == 1
 
     service = WorkflowsManagementService(session, role=svc_role)
     result = await service._reconcile_graph_object_with_actions(workflow)
 
     assert result is True
-    # Graph should now have only trigger + 1 valid action - refresh to ensure we have latest state
-    await session.refresh(workflow)
-    assert workflow.object is not None
-    assert len(workflow.object["nodes"]) == 2
-    node_ids = {node["id"] for node in workflow.object["nodes"]}
-    assert str(deleted_action.id) not in node_ids
-    assert str(actions[0].id) in node_ids
+    await session.refresh(workflow, ["actions"])
+    remaining_action = workflow.actions[0]
+    assert remaining_action.upstream_edges == []
 
 
 @pytest.mark.anyio
@@ -159,13 +136,15 @@ async def test_reconcile_removes_stale_edges(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation removes edges referencing deleted actions."""
+    """Remove trigger edges with invalid IDs."""
     workflow, actions = workflow_with_actions
+    action1_id = actions[0].id
 
-    # Delete one action from DB
-    deleted_action = actions[1]
-    deleted_action_id = str(deleted_action.id)
-    await session.delete(deleted_action)
+    # Corrupt trigger edge
+    actions[0].upstream_edges = [
+        {"source_id": "trigger-invalid", "source_type": "trigger"}
+    ]
+    session.add(actions[0])
     await session.commit()
     await session.refresh(workflow, ["actions"])
 
@@ -173,13 +152,10 @@ async def test_reconcile_removes_stale_edges(
     result = await service._reconcile_graph_object_with_actions(workflow)
 
     assert result is True
-    # Edge from action1 -> action2 should be removed (action2 deleted) - refresh to ensure we have latest state
-    await session.refresh(workflow)
-    assert workflow.object is not None
-    assert len(workflow.object["edges"]) == 1
-    remaining_edge = workflow.object["edges"][0]
-    assert remaining_edge["target"] != deleted_action_id
-    assert remaining_edge["source"] != deleted_action_id
+    await session.refresh(workflow, ["actions"])
+    # Find action1 by ID since workflow.actions order is not guaranteed
+    action1 = next(a for a in workflow.actions if a.id == action1_id)
+    assert action1.upstream_edges == []
 
 
 @pytest.mark.anyio
@@ -188,10 +164,9 @@ async def test_reconcile_removes_all_stale_references(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation removes all stale nodes and edges when all actions deleted."""
+    """Handle workflows without actions gracefully."""
     workflow, actions = workflow_with_actions
 
-    # Delete all actions
     for action in actions:
         await session.delete(action)
     await session.commit()
@@ -200,14 +175,7 @@ async def test_reconcile_removes_all_stale_references(
     service = WorkflowsManagementService(session, role=svc_role)
     result = await service._reconcile_graph_object_with_actions(workflow)
 
-    assert result is True
-    # Only trigger node should remain - refresh to ensure we have latest state
-    await session.refresh(workflow)
-    assert workflow.object is not None
-    assert len(workflow.object["nodes"]) == 1
-    assert workflow.object["nodes"][0]["type"] == "trigger"
-    # No edges should remain
-    assert len(workflow.object["edges"]) == 0
+    assert result is False
 
 
 @pytest.mark.anyio
@@ -216,25 +184,19 @@ async def test_reconcile_preserves_trigger_node(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation always preserves the trigger node."""
+    """Trigger edges with correct IDs should be preserved."""
     workflow, actions = workflow_with_actions
-    trigger_id = f"trigger-{workflow.id}"
-
-    # Delete all actions
-    for action in actions:
-        await session.delete(action)
-    await session.commit()
-    await session.refresh(workflow, ["actions"])
 
     service = WorkflowsManagementService(session, role=svc_role)
     await service._reconcile_graph_object_with_actions(workflow)
 
-    # Trigger should always be preserved - refresh to ensure we have latest state
-    await session.refresh(workflow)
-    assert workflow.object is not None
-    assert len(workflow.object["nodes"]) == 1
-    assert workflow.object["nodes"][0]["id"] == trigger_id
-    assert workflow.object["nodes"][0]["type"] == "trigger"
+    await session.refresh(workflow, ["actions"])
+    trigger_edges = [
+        edge
+        for edge in actions[0].upstream_edges
+        if edge.get("source_type") == "trigger"
+    ]
+    assert trigger_edges
 
 
 @pytest.mark.anyio
@@ -243,23 +205,20 @@ async def test_reconcile_persists_changes(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation persists the cleaned graph to the database."""
+    """Persist upstream_edges cleanup to the database."""
     workflow, actions = workflow_with_actions
 
-    # Delete one action
-    await session.delete(actions[1])
+    await session.delete(actions[0])
     await session.commit()
     await session.refresh(workflow, ["actions"])
 
     service = WorkflowsManagementService(session, role=svc_role)
     await service._reconcile_graph_object_with_actions(workflow)
 
-    # Fetch workflow fresh from DB to verify persistence
-    session.expire(workflow)  # expire is sync
-    await session.refresh(workflow)
+    session.expire(workflow)
+    await session.refresh(workflow, ["actions"])
 
-    assert workflow.object is not None
-    assert len(workflow.object["nodes"]) == 2  # trigger + 1 action
+    assert workflow.actions[0].upstream_edges == []
 
 
 @pytest.mark.anyio
@@ -268,14 +227,13 @@ async def test_reconcile_empty_graph_object(
     svc_workspace: Workspace,
     svc_role: Role,
 ) -> None:
-    """Test that reconciliation handles None graph object gracefully."""
+    """Workflows without actions should not error."""
     workflow = Workflow(
         id=uuid.uuid4(),
         title="Empty Workflow",
         description="Workflow with no graph",
         status="offline",
         workspace_id=svc_workspace.id,
-        object=None,
         config={},
     )
     session.add(workflow)
@@ -298,27 +256,21 @@ async def test_get_workflow_triggers_reconciliation(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that get_workflow automatically reconciles stale references."""
+    """get_workflow should reconcile stale upstream_edges before returning."""
     workflow, actions = workflow_with_actions
     workflow_id = WorkflowUUID.new(workflow.id)
 
-    # Delete one action to create out-of-sync state
-    await session.delete(actions[1])
+    await session.delete(actions[0])
     await session.commit()
 
-    # Use a fresh session to simulate a new request
     service = WorkflowsManagementService(session, role=svc_role)
-
-    # Clear session cache to force fresh load
     session.expire_all()
 
     fetched_workflow = await service.get_workflow(workflow_id)
 
     assert fetched_workflow is not None
-    # Graph should be reconciled automatically
-    assert fetched_workflow.object is not None
-    assert len(fetched_workflow.object["nodes"]) == 2  # trigger + 1 remaining action
-    assert len(fetched_workflow.object["edges"]) == 1  # only trigger -> action1
+    assert len(fetched_workflow.actions) == 1
+    assert fetched_workflow.actions[0].upstream_edges == []
 
 
 @pytest.mark.anyio
@@ -327,26 +279,16 @@ async def test_reconcile_preserves_viewport(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Test that reconciliation preserves viewport and other graph properties."""
+    """Non-graph action fields should be preserved during reconciliation."""
     workflow, actions = workflow_with_actions
 
-    # Set custom viewport
-    assert workflow.object is not None
-    workflow.object["viewport"] = {"x": 100, "y": 200, "zoom": 1.5}
-    workflow.object["customProperty"] = "should_be_preserved"
-    session.add(workflow)
-    await session.commit()
-
-    # Delete one action
-    await session.delete(actions[1])
+    actions[1].description = "Updated description"
+    session.add(actions[1])
     await session.commit()
     await session.refresh(workflow, ["actions"])
 
     service = WorkflowsManagementService(session, role=svc_role)
     await service._reconcile_graph_object_with_actions(workflow)
 
-    # Viewport and other properties should be preserved - refresh to ensure we have latest state
-    await session.refresh(workflow)
-    assert workflow.object is not None
-    assert workflow.object["viewport"] == {"x": 100, "y": 200, "zoom": 1.5}
-    assert workflow.object["customProperty"] == "should_be_preserved"
+    await session.refresh(workflow, ["actions"])
+    assert workflow.actions[1].description == "Updated description"
