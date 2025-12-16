@@ -23,6 +23,7 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
@@ -317,7 +318,6 @@ async def validate_live_workflow(
     workflow_id: AnyWorkflowIDPath,
 ) -> DSLInput:
     """Build DSL from the live workflow (for draft executions)."""
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     role = ctx_role.get()
     async with WorkflowsManagementService.with_session(role=role) as mgmt_service:

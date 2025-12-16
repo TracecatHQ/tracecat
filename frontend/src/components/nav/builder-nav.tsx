@@ -18,9 +18,8 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import React from "react"
 import { useForm } from "react-hook-form"
-import YAML from "yaml"
 import { z } from "zod"
-import type { ValidationResult } from "@/client"
+import type { DSLValidationResult, ValidationResult } from "@/client"
 import { ApiError } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
@@ -66,11 +65,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -258,10 +252,9 @@ function WorkflowManualTrigger({
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
     null
   )
-  const [manualTriggerErrors, setManualTriggerErrors] = React.useState<Record<
-    string,
-    string
-  > | null>(null)
+  const [manualTriggerErrors, setManualTriggerErrors] = React.useState<
+    ValidationResult[] | null
+  >(null)
   const [isTriggering, setIsTriggering] = React.useState(false)
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
@@ -292,9 +285,21 @@ function WorkflowManualTrigger({
       expandSidebarAndFocusEvents()
     } catch (error) {
       if (error instanceof ApiError) {
-        const tracecatError = error as TracecatApiError<Record<string, string>>
-        console.error("Error details", tracecatError.body.detail)
-        setManualTriggerErrors(tracecatError.body.detail)
+        const tracecatError = error as TracecatApiError<{
+          type: string
+          message: string
+          detail: unknown
+        }>
+        console.error("Error details", tracecatError.body)
+        // Convert API error to ValidationResult format for consistent display
+        const validationError: DSLValidationResult = {
+          type: "dsl",
+          status: "error",
+          msg: tracecatError.body.detail.message,
+          ref: null,
+          detail: null,
+        }
+        setManualTriggerErrors([validationError])
       }
     }
   }
@@ -312,49 +317,59 @@ function WorkflowManualTrigger({
   const executionPending = createDraftExecutionIsPending || isTriggering
   return (
     <Form {...form}>
-      <div
-        className={cn(
-          "flex h-7 divide-x rounded-lg border border-input overflow-hidden",
-          manualTriggerErrors
-            ? "divide-white/30 dark:divide-black/30"
-            : "divide-white/20 dark:divide-black/40"
-        )}
+      <ValidationErrorView
+        side="bottom"
+        validationErrors={manualTriggerErrors || []}
+        noErrorTooltip={
+          <span>
+            {disabled
+              ? "Cannot run workflow."
+              : executionPending
+                ? "Starting workflow execution..."
+                : "Run the current draft workflow with trigger inputs."}
+          </span>
+        }
       >
-        {/* Main Button */}
-        <Button
-          type="button"
-          variant={manualTriggerErrors ? "destructive" : "default"}
-          className="h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs"
-          disabled={disabled || executionPending}
-          onClick={() => runWorkflow({ payload: undefined })}
-        >
-          {executionPending ? (
-            <Spinner className="size-3" segmentColor="currentColor" />
-          ) : manualTriggerErrors ? (
-            <AlertTriangleIcon className="size-3" />
-          ) : (
-            <PlayIcon className="size-3" />
+        <div
+          className={cn(
+            "flex h-7 divide-x rounded-lg border border-input overflow-hidden",
+            manualTriggerErrors
+              ? "divide-white/30 dark:divide-black/30"
+              : "divide-white/20 dark:divide-black/40"
           )}
-          <span>Run</span>
-        </Button>
-        {/* Dropdown Button */}
-        <Tooltip delayDuration={500}>
+        >
+          {/* Main Button */}
+          <Button
+            type="button"
+            variant={manualTriggerErrors ? "destructive" : "default"}
+            className="h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs"
+            disabled={disabled || executionPending}
+            onClick={() => runWorkflow({ payload: undefined })}
+          >
+            {executionPending ? (
+              <Spinner className="size-3" segmentColor="currentColor" />
+            ) : manualTriggerErrors ? (
+              <AlertTriangleIcon className="size-3" />
+            ) : (
+              <PlayIcon className="size-3" />
+            )}
+            <span>Run</span>
+          </Button>
+          {/* Dropdown Button */}
           <Popover
             open={open && !disabled}
             onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
           >
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant={manualTriggerErrors ? "destructive" : "default"}
-                  className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold"
-                  disabled={disabled || executionPending}
-                >
-                  <ChevronDownIcon className="size-3" />
-                </Button>
-              </PopoverTrigger>
-            </TooltipTrigger>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant={manualTriggerErrors ? "destructive" : "default"}
+                className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold"
+                disabled={disabled || executionPending}
+              >
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </PopoverTrigger>
             <PopoverContent className="w-fit max-w-xl p-3 sm:max-w-2xl">
               <form onSubmit={form.handleSubmit(runWithPayload)}>
                 <div className="flex h-fit flex-col">
@@ -398,31 +413,8 @@ function WorkflowManualTrigger({
               </form>
             </PopoverContent>
           </Popover>
-          <TooltipContent
-            side="bottom"
-            className={cn("text-xs shadow-lg", manualTriggerErrors && "p-0")}
-          >
-            {manualTriggerErrors ? (
-              <div className="space-y-2 overflow-auto rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
-                <span className="text-xs font-bold text-rose-500">
-                  Trigger Validation Errors
-                </span>
-                <div className="mt-1 space-y-1">
-                  <pre className="text-wrap text-rose-500">
-                    {YAML.stringify(manualTriggerErrors)}
-                  </pre>
-                </div>
-              </div>
-            ) : disabled ? (
-              "Cannot run workflow."
-            ) : executionPending ? (
-              "Starting workflow execution..."
-            ) : (
-              "Run the current draft workflow with trigger inputs."
-            )}
-          </TooltipContent>
-        </Tooltip>
-      </div>
+        </div>
+      </ValidationErrorView>
     </Form>
   )
 }

@@ -1041,10 +1041,10 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
     onError: (error: TracecatApiError<Record<string, string>>) => {
       switch (error.status) {
         case 400:
-          console.error("Invalid workflow trigger inputs", error)
+          console.error("Workflow validation failed", error)
           return toast({
-            title: "Invalid workflow trigger inputs",
-            description: "Please hover over the run button for details.",
+            title: "Workflow validation failed with 1 error",
+            description: "Please hover over the run button to view errors.",
           })
         default:
           console.error("Unexpected error starting draft workflow", error)
