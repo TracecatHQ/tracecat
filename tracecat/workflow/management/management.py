@@ -21,7 +21,11 @@ from tracecat.db.models import (
     WorkflowDefinition,
     WorkflowTag,
 )
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
+from tracecat.dsl.common import (
+    DSLEntrypoint,
+    DSLInput,
+    build_action_statements_from_actions,
+)
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import (
@@ -502,13 +506,7 @@ class WorkflowsManagementService(BaseService):
             raise TracecatValidationError(
                 "Workflow has no actions. Please add an action to the workflow before saving."
             )
-        # Build graph from Actions as the source of truth
-        graph = RFGraph.from_actions(workflow, actions)
-        if not graph.entrypoints:
-            raise TracecatValidationError(
-                "Workflow has no entrypoints. Please add an action to the workflow before saving."
-            )
-        action_statements = build_action_statements(graph, actions)
+        action_statements = build_action_statements_from_actions(actions)
         return DSLInput(
             title=workflow.title,
             description=workflow.description,
