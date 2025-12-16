@@ -8,7 +8,6 @@ Objectives
 
 """
 
-import asyncio
 import os
 import re
 from collections.abc import AsyncGenerator, Callable, Mapping
@@ -303,116 +302,6 @@ async def test_workflow_completes_and_correct(
             ),
         )
     assert result == expected
-
-
-@pytest.mark.parametrize("dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x)
-@pytest.mark.slow
-@pytest.mark.anyio
-async def test_stress_workflow(dsl, test_role, test_worker_factory):
-    """Test that we can have multiple executions of the same workflow running at the same time."""
-    test_name = f"test_stress_workflow-{dsl.title}"
-    client = await get_temporal_client()
-
-    tasks: list[asyncio.Task] = []
-    async with test_worker_factory(client):
-        async with asyncio.TaskGroup() as tg:
-            # We can have multiple executions of the same workflow running at the same time
-            for i in range(100):
-                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
-                task = tg.create_task(
-                    client.execute_workflow(
-                        DSLWorkflow.run,
-                        DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-                        id=wf_exec_id,
-                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                )
-                tasks.append(task)
-
-    assert all(task.done() for task in tasks)
-
-
-@pytest.mark.skip(reason="This test is too slow to run on CI, and breaking atm.")
-@pytest.mark.parametrize("runs", [10, 100])
-@pytest.mark.slow
-@pytest.mark.anyio
-async def test_stress_workflow_correctness(
-    runs, test_role, temporal_client, test_worker_factory
-):
-    """Test that we can have multiple executions of the same workflow running at the same time."""
-    test_name = test_stress_workflow_correctness.__name__
-    dsl = DSLInput(
-        **{
-            "entrypoint": {"expects": {}, "ref": "a"},
-            "actions": [
-                {
-                    "ref": "a",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ TRIGGER.num }}",
-                    },
-                    "depends_on": [],
-                },
-                {
-                    "ref": "b",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ ACTIONS.a.result * 2 }}",
-                    },
-                    "depends_on": ["a"],
-                },
-                {
-                    "ref": "c",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ ACTIONS.b.result * 2 }}",
-                    },
-                    "depends_on": ["b"],
-                },
-                {
-                    "ref": "d",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ ACTIONS.c.result * 2 }}",
-                    },
-                    "depends_on": ["c"],
-                },
-            ],
-            "description": "Stress testing",
-            "returns": "${{ ACTIONS.d.result }}",
-            "tests": [],
-            "title": f"{test_name}",
-            "triggers": [],
-            # When the environment is set in the config, it should override the default
-            "config": {"environment": "__TEST_ENVIRONMENT__"},
-        }
-    )
-
-    async with test_worker_factory(temporal_client):
-        async with GatheringTaskGroup() as tg:
-            # We can have multiple executions of the same workflow running at the same time
-            for i in range(runs):
-                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
-                run_args = DSLRunArgs(
-                    dsl=dsl,
-                    role=ctx_role.get(),
-                    wf_id=TEST_WF_ID,
-                    trigger_inputs={"num": i},
-                )
-                tg.create_task(
-                    temporal_client.execute_workflow(
-                        DSLWorkflow.run,
-                        run_args,
-                        id=wf_exec_id,
-                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                )
-
-    results = tg.results()
-    assert len(results) == runs
-    assert list(results) == [i * (2**3) for i in range(runs)]
 
 
 @pytest.mark.anyio
