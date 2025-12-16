@@ -10833,6 +10833,20 @@ export const $RunActionInput = {
       ],
       title: "Session Id",
     },
+    registry_lock: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Registry Lock",
+    },
   },
   type: "object",
   required: ["task", "exec_context", "run_context"],

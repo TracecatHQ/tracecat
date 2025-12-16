@@ -121,6 +121,7 @@ with workflow.unsafe.imports_passed_through():
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
         ResolveWorkflowAliasActivityInputs,
+        WorkflowDefinitionActivityResult,
     )
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -214,17 +215,20 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
-        # Set DSL
+        # Set DSL and registry_lock
         if args.dsl:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
             self.dsl = args.dsl
+            self.registry_lock = None  # No lock when DSL is pushed directly
             self.dispatch_type = "push"
         else:
             # Otherwise, fetch the latest workflow definition
             self.logger.debug("Fetching latest workflow definition")
             try:
-                self.dsl = await self._get_workflow_definition(args.wf_id)
+                result = await self._get_workflow_definition(args.wf_id)
+                self.dsl = result.dsl
+                self.registry_lock = result.registry_lock
             except TracecatException as e:
                 self.logger.error("Failed to fetch workflow definition")
                 raise ApplicationError(
@@ -949,7 +953,7 @@ class DSLWorkflow:
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
-    ) -> DSLInput:
+    ) -> WorkflowDefinitionActivityResult:
         activity_inputs = GetWorkflowDefinitionActivityInputs(
             role=self.role, workflow_id=workflow_id, version=version
         )
@@ -1046,7 +1050,8 @@ class DSLWorkflow:
         else:
             raise ValueError("Either workflow_id or workflow_alias must be provided")
 
-        dsl = await self._get_workflow_definition(child_wf_id, version=args.version)
+        result = await self._get_workflow_definition(child_wf_id, version=args.version)
+        dsl = result.dsl
 
         self.logger.debug(
             "Got workflow definition",
@@ -1086,6 +1091,7 @@ class DSLWorkflow:
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
+            registry_lock=self.registry_lock,
         )
 
         return await workflow.execute_local_activity(
@@ -1133,6 +1139,7 @@ class DSLWorkflow:
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             session_id=session_id,
+            registry_lock=self.registry_lock,
         )
 
         return await workflow.execute_activity(
@@ -1229,7 +1236,8 @@ class DSLWorkflow:
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
 
-        dsl = await self._get_workflow_definition(handler_wf_id)
+        result = await self._get_workflow_definition(handler_wf_id)
+        dsl = result.dsl
 
         self.logger.debug(
             "Got workflow definition for error handler",

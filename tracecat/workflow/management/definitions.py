@@ -9,7 +9,10 @@ from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.management.schemas import (
+    GetWorkflowDefinitionActivityInputs,
+    WorkflowDefinitionActivityResult,
+)
 
 
 class WorkflowDefinitionsService(BaseService):
@@ -95,7 +98,7 @@ class WorkflowDefinitionsService(BaseService):
 @activity.defn
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
-) -> DSLInput:
+) -> WorkflowDefinitionActivityResult:
     async with WorkflowDefinitionsService.with_session(role=input.role) as service:
         defn = await service.get_definition_by_workflow_id(
             input.workflow_id, version=input.version
@@ -105,4 +108,4 @@ async def get_workflow_definition_activity(
             logger.error(msg)
             raise TracecatException(msg)
         dsl = DSLInput(**defn.content)
-    return dsl
+    return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=defn.registry_lock)

@@ -3498,6 +3498,9 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+  registry_lock?: {
+    [key: string]: string
+  } | null
 }
 
 /**
