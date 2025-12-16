@@ -7,9 +7,9 @@ import {
   CopyIcon,
   DownloadIcon,
   GitBranchIcon,
+  LayersPlusIcon,
   MoreHorizontal,
   PlayIcon,
-  SaveIcon,
   SquarePlay,
   Trash2Icon,
   WorkflowIcon,
@@ -401,11 +401,11 @@ function WorkflowManualTrigger({
                   >
                     {executionPending ? (
                       <Spinner
-                        className="mr-2 size-3"
+                        className="mr-2 size-3.5"
                         segmentColor="currentColor"
                       />
                     ) : (
-                      <PlayIcon className="mr-2 size-3" />
+                      <PlayIcon className="mr-2 size-3.5" />
                     )}
                     <span>{executionPending ? "Starting..." : "Run"}</span>
                   </Button>
@@ -478,9 +478,9 @@ function WorkflowSaveActions({
             )}
           >
             {validationErrors ? (
-              <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
+              <AlertTriangleIcon className="mr-2 size-3.5 fill-red-500 stroke-white" />
             ) : (
-              <SaveIcon className="mr-2 size-4" />
+              <LayersPlusIcon className="mr-2 size-3.5" />
             )}
             Publish
           </Button>
