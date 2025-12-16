@@ -1,8 +1,9 @@
-from tracecat.agent.runtime import run_agent
-from typing import Any, Annotated
+from typing import Annotated, Any
+
 from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
+from tracecat_registry.context import get_context
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 
 
@@ -36,12 +37,13 @@ async def mcp(
     token = secrets.get(linear_mcp_oauth_secret.token_name)
     mcp_server_url = "https://mcp.linear.app/mcp"
     mcp_server_headers = {"Authorization": f"Bearer {token}"}
-    output = await run_agent(
+
+    ctx = get_context()
+    output = await ctx.agent.run_agent(
         user_prompt=user_prompt,
         model_name=model_name,
         model_provider=model_provider,
         instructions=instructions,
-        mcp_server_url=mcp_server_url,
-        mcp_server_headers=mcp_server_headers,
+        mcp_servers=[{"url": mcp_server_url, "headers": mcp_server_headers}],
     )
-    return output.model_dump(mode="json")
+    return output

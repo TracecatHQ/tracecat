@@ -163,12 +163,21 @@ class AgentClient:
         retries: int = 6,
         base_url: str | None = None,
     ) -> Any:
-        """Run an agent action.
+        """Run an agent action without tool calling support.
 
         Args:
             user_prompt: The user prompt to the agent.
             model_name: The name of the model to use.
             model_provider: The provider of the model to use.
+            instructions: System instructions for the agent.
+            output_type: Expected output format (type string or JSON schema).
+            model_settings: Model-specific configuration parameters.
+            max_requests: Maximum number of requests for the agent.
+            retries: Maximum number of retry attempts.
+            base_url: Custom base URL for the model provider's API.
+
+        Returns:
+            Agent execution result.
         """
         payload: dict[str, Any] = {
             "user_prompt": user_prompt,
@@ -182,3 +191,72 @@ class AgentClient:
             "base_url": base_url,
         }
         return await self._client.post("/agent/action", json=payload)
+
+    async def run_agent(
+        self,
+        *,
+        user_prompt: str,
+        model_name: str,
+        model_provider: str,
+        instructions: str | None = None,
+        output_type: str | dict[str, Any] | None = None,
+        model_settings: dict[str, Any] | None = None,
+        max_requests: int = 20,
+        max_tool_calls: int | None = None,
+        retries: int = 6,
+        base_url: str | None = None,
+        mcp_servers: list[dict[str, Any]] | None = None,
+        actions: list[str] | None = None,
+        namespaces: list[str] | None = None,
+        tool_approvals: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
+        """Run an AI agent with full feature support including MCP servers and tool calling.
+
+        Args:
+            user_prompt: The user prompt to the agent.
+            model_name: The name of the model to use.
+            model_provider: The provider of the model to use.
+            instructions: System instructions for the agent.
+            output_type: Expected output format (type string or JSON schema).
+            model_settings: Model-specific configuration parameters.
+            max_requests: Maximum number of requests for the agent.
+            max_tool_calls: Maximum number of tool calls for the agent.
+            retries: Maximum number of retry attempts.
+            base_url: Custom base URL for the model provider's API.
+            mcp_servers: List of MCP server configurations with 'url' and optional 'headers'.
+            actions: List of action identifiers available to the agent.
+            namespaces: Optional list of namespaces to restrict available tools.
+            tool_approvals: Optional per-tool approval requirements keyed by action name.
+
+        Returns:
+            Agent execution result with output, message_history, duration, usage, and session_id.
+        """
+        payload: dict[str, Any] = {
+            "user_prompt": user_prompt,
+            "model_name": model_name,
+            "model_provider": model_provider,
+        }
+        if instructions is not None:
+            payload["instructions"] = instructions
+        if output_type is not None:
+            payload["output_type"] = output_type
+        if model_settings is not None:
+            payload["model_settings"] = model_settings
+        if max_requests != 20:
+            payload["max_requests"] = max_requests
+        if max_tool_calls is not None:
+            payload["max_tool_calls"] = max_tool_calls
+        if retries != 6:
+            payload["retries"] = retries
+        if base_url is not None:
+            payload["base_url"] = base_url
+        if mcp_servers is not None:
+            payload["mcp_servers"] = mcp_servers
+        if actions is not None:
+            payload["actions"] = actions
+        if namespaces is not None:
+            payload["namespaces"] = namespaces
+        if tool_approvals is not None:
+            payload["tool_approvals"] = tool_approvals
+
+        return await self._client.post("/agent/run", json=payload)

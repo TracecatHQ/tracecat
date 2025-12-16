@@ -15,11 +15,11 @@ from tracecat_registry.integrations.agents.prompts.slackbot import (
     SlackPrompts,
 )
 from tracecat_registry.integrations.slack_sdk import call_method, slack_secret
-from tracecat.agent.runtime import run_agent
+from tracecat_registry.context import get_context
 
 from tracecat_registry import registry
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
-from tracecat.registry.fields import ActionType, TextArea
+from tracecat_registry.fields import ActionType, TextArea
 from pydantic import BaseModel
 from typing_extensions import Doc
 from typing import Annotated, Any
@@ -304,7 +304,8 @@ async def slackbot(
         )
 
     try:
-        response = await run_agent(
+        ctx = get_context()
+        response = await ctx.agent.run_agent(
             user_prompt=prompts.user_prompt,
             model_name=model_name,
             model_provider=model_provider,
