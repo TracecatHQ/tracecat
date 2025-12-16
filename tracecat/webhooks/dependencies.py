@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
@@ -20,6 +21,7 @@ from tracecat.dsl.schemas import TriggerInputs
 from tracecat.ee.interactions.connectors import parse_slack_interaction_input
 from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
@@ -327,8 +329,27 @@ async def validate_live_workflow(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Workflow not found",
             )
-        dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
-        return dsl
+        try:
+            dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
+            return dsl
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "type": "TracecatValidationError",
+                    "message": str(e),
+                    "detail": e.detail,
+                },
+            ) from e
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "type": "ValidationError",
+                    "message": str(e),
+                    "detail": e.errors(),
+                },
+            ) from e
 
 
 LiveWorkflowDSLDep = Annotated["DSLInput", Depends(validate_live_workflow)]

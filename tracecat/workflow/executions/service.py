@@ -710,19 +710,44 @@ class WorkflowExecutionsService:
         This method schedules the workflow execution and returns immediately.
         """
         wf_exec_id = generate_exec_id(wf_id)
-        coro = self._dispatch_workflow(
+        coro = self.create_draft_workflow_execution(
             dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            trigger_inputs=payload,
+            payload=payload,
             trigger_type=trigger_type,
-            execution_type=ExecutionType.DRAFT,
+            wf_exec_id=wf_exec_id,
         )
         _ = asyncio.ensure_future(coro)
         return WorkflowExecutionCreateResponse(
             message="Draft workflow execution started",
             wf_id=wf_id,
             wf_exec_id=wf_exec_id,
+        )
+
+    @audit_log(resource_type="workflow_execution", action="create")
+    async def create_draft_workflow_execution(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+        wf_exec_id: WorkflowExecutionID | None = None,
+    ) -> WorkflowDispatchResponse:
+        """Create a new draft workflow execution.
+
+        Note: This method blocks until the workflow execution completes.
+        """
+        if wf_exec_id is None:
+            wf_exec_id = generate_exec_id(wf_id)
+
+        return await self._dispatch_workflow(
+            dsl=dsl,
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+            trigger_inputs=payload,
+            trigger_type=trigger_type,
+            execution_type=ExecutionType.DRAFT,
         )
 
     @audit_log(resource_type="workflow_execution", action="create")

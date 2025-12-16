@@ -286,18 +286,36 @@ function WorkflowManualTrigger({
     } catch (error) {
       if (error instanceof ApiError) {
         const tracecatError = error as TracecatApiError<{
-          type: string
-          message: string
-          detail: unknown
+          type?: string
+          message?: string
+          detail?: unknown
         }>
         console.error("Error details", tracecatError.body)
+        const { detail, message: bodyMessage } = tracecatError.body
+        let detailMessage: string | undefined
+        if (typeof detail === "string") {
+          detailMessage = detail
+        } else if (
+          detail &&
+          typeof detail === "object" &&
+          "message" in detail &&
+          typeof (detail as { message?: unknown }).message === "string"
+        ) {
+          detailMessage = (detail as { message?: string }).message
+        } else if (detail) {
+          try {
+            detailMessage = JSON.stringify(detail)
+          } catch {
+            detailMessage = undefined
+          }
+        }
         // Convert API error to ValidationResult format for consistent display
         const validationError: DSLValidationResult = {
           type: "dsl",
           status: "error",
-          msg: tracecatError.body.detail.message,
+          msg: detailMessage || bodyMessage || "Failed to start workflow",
           ref: null,
-          detail: null,
+          detail: typeof detail === "object" ? detail : null,
         }
         setManualTriggerErrors([validationError])
       }

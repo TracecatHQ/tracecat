@@ -410,12 +410,21 @@ class WorkflowsManagementService(BaseService):
                            If False, resolve from live Workflow aliases (for draft executions).
         """
         if use_committed:
-            # For live executions: resolve from latest committed WorkflowDefinition
+            # For published executions: resolve using the workflow that currently owns
+            # the alias, then fetch the latest committed definition for that workflow.
+            workflow_stmt = select(Workflow.id).where(
+                Workflow.workspace_id == self.role.workspace_id,
+                Workflow.alias == alias,
+            )
+            workflow_result = await self.session.execute(workflow_stmt)
+            workflow_id = workflow_result.scalar_one_or_none()
+            if workflow_id is None:
+                return None
             statement = (
                 select(WorkflowDefinition.workflow_id)
                 .where(
                     WorkflowDefinition.workspace_id == self.role.workspace_id,
-                    WorkflowDefinition.alias == alias,
+                    WorkflowDefinition.workflow_id == workflow_id,
                 )
                 .order_by(WorkflowDefinition.version.desc())
                 .limit(1)

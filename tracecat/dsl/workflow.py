@@ -1081,6 +1081,7 @@ class DSLWorkflow:
             parent_run_context=ctx_run.get(),
             trigger_inputs=args.trigger_inputs,
             runtime_config=runtime_config,
+            execution_type=self.execution_type,
         )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
@@ -1289,6 +1290,7 @@ class DSLWorkflow:
                 trigger_type=trigger_type,
             ),
             runtime_config=runtime_config,
+            execution_type=self.execution_type,
         )
 
     async def _run_error_handler_workflow(

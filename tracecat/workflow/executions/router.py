@@ -2,6 +2,7 @@ from typing import Any
 
 import temporalio.service
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -273,6 +274,15 @@ async def create_draft_workflow_execution(
                     "type": "TracecatValidationError",
                     "message": str(e),
                     "detail": e.detail,
+                },
+            ) from e
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "type": "ValidationError",
+                    "message": str(e),
+                    "detail": e.errors(),
                 },
             ) from e
 
