@@ -76,7 +76,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
-  useCreateManualWorkflowExecution,
+  useCreateDraftWorkflowExecution,
   useOrgAppSettings,
   useWorkflowManager,
 } from "@/lib/hooks"
@@ -117,7 +117,8 @@ export function BuilderNav() {
     return null
   }
 
-  const manualTriggerDisabled = workflow.version === null
+  // Always allow running - use draft endpoint when no committed version
+  const manualTriggerDisabled = false
 
   return (
     <div className="flex w-full items-center">
@@ -250,8 +251,9 @@ function WorkflowManualTrigger({
 }) {
   const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
     useWorkflowBuilder()
-  const { createExecution, createExecutionIsPending } =
-    useCreateManualWorkflowExecution(workflowId)
+  // Always use draft execution endpoint - runs the current live workflow graph
+  const { createDraftExecution, createDraftExecutionIsPending } =
+    useCreateDraftWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
     null
@@ -271,12 +273,12 @@ function WorkflowManualTrigger({
   })
 
   const runWorkflow = async ({ payload }: Partial<TWorkflowControlsForm>) => {
-    if (disabled || createExecutionIsPending) return
+    if (disabled || createDraftExecutionIsPending) return
     setIsTriggering(true)
     setTimeout(() => setIsTriggering(false), 1000)
     setManualTriggerErrors(null)
     try {
-      const result = await createExecution({
+      const result = await createDraftExecution({
         workflow_id: workflowId,
         inputs: payload ? JSON.parse(payload) : undefined,
       })
@@ -307,7 +309,7 @@ function WorkflowManualTrigger({
     }
   }
 
-  const executionPending = createExecutionIsPending || isTriggering
+  const executionPending = createDraftExecutionIsPending || isTriggering
   return (
     <Form {...form}>
       <div
@@ -412,11 +414,11 @@ function WorkflowManualTrigger({
                 </div>
               </div>
             ) : disabled ? (
-              "Please save changes to enable manual trigger."
+              "Cannot run workflow."
             ) : executionPending ? (
               "Starting workflow execution..."
             ) : (
-              "Run the workflow with trigger inputs."
+              "Run the current draft workflow with trigger inputs."
             )}
           </TooltipContent>
         </Tooltip>
@@ -463,13 +465,13 @@ function WorkflowSaveActions({
   return (
     <div className="flex items-center space-x-2">
       <div className="flex h-7 gap-px rounded-lg border border-input">
-        {/* Main Save Button */}
+        {/* Main Publish Button */}
         <ValidationErrorView
           side="bottom"
           validationErrors={validationErrors || []}
           noErrorTooltip={
             <span>
-              Save workflow v{(workflow.version || 0) + 1} with your changes.
+              Publish workflow v{(workflow.version || 0) + 1} with your changes.
             </span>
           }
         >
@@ -488,7 +490,7 @@ function WorkflowSaveActions({
             ) : (
               <SaveIcon className="mr-2 size-4" />
             )}
-            Save
+            Publish
           </Button>
         </ValidationErrorView>
 

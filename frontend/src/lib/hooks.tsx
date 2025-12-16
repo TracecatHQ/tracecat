@@ -267,6 +267,7 @@ import {
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
   type WorkspaceUpdate,
+  workflowExecutionsCreateDraftWorkflowExecution,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
@@ -999,6 +1000,66 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
     createExecution,
     createExecutionIsPending,
     createExecutionError,
+  }
+}
+
+export function useCreateDraftWorkflowExecution(workflowId: string) {
+  const queryClient = useQueryClient()
+  const workspaceId = useWorkspaceId()
+
+  const {
+    mutateAsync: createDraftExecution,
+    isPending: createDraftExecutionIsPending,
+    error: createDraftExecutionError,
+  } = useMutation({
+    mutationFn: async (params: WorkflowExecutionCreate) => {
+      return await workflowExecutionsCreateDraftWorkflowExecution({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: async ({ wf_exec_id, message }) => {
+      toast({
+        title: `Draft workflow run started`,
+        description: `${wf_exec_id} ${message}`,
+      })
+
+      // Still invalidate queries for compatibility with other components
+      await queryClient.refetchQueries({
+        queryKey: ["last-manual-execution"],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["last-manual-execution", workflowId],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution"],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution", wf_exec_id],
+      })
+    },
+    onError: (error: TracecatApiError<Record<string, string>>) => {
+      switch (error.status) {
+        case 400:
+          console.error("Invalid workflow trigger inputs", error)
+          return toast({
+            title: "Invalid workflow trigger inputs",
+            description: "Please hover over the run button for details.",
+          })
+        default:
+          console.error("Unexpected error starting draft workflow", error)
+          return toast({
+            title: "Unexpected error starting draft workflow",
+            description: "Please check the run logs for more information",
+          })
+      }
+    },
+  })
+
+  return {
+    createDraftExecution,
+    createDraftExecutionIsPending,
+    createDraftExecutionError,
   }
 }
 
