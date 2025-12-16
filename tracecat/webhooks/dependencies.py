@@ -4,7 +4,7 @@ import secrets
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
-from typing import Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -23,6 +23,9 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
+
+if TYPE_CHECKING:
+    from tracecat.dsl.common import DSLInput
 
 API_KEY_HEADER = "x-tracecat-api-key"
 
@@ -308,3 +311,25 @@ ValidWorkflowDefinitionDep = Annotated[
     WorkflowDefinition, Depends(validate_workflow_definition)
 ]
 """Returns WorkflowDefinition that is not loaded with the `workflow` relationship"""
+
+
+async def validate_live_workflow(
+    workflow_id: AnyWorkflowIDPath,
+) -> DSLInput:
+    """Build DSL from the live workflow (for draft executions)."""
+    from tracecat.workflow.management.management import WorkflowsManagementService
+
+    role = ctx_role.get()
+    async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
+        workflow = await mgmt_service.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found",
+            )
+        dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
+        return dsl
+
+
+LiveWorkflowDSLDep = Annotated["DSLInput", Depends(validate_live_workflow)]
+"""Returns DSLInput built from the live workflow (not the committed definition)"""

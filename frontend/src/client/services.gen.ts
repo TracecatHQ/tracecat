@@ -245,6 +245,8 @@ import type {
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
   PublicCheckReadyResponse,
+  PublicIncomingWebhookDraftData,
+  PublicIncomingWebhookDraftResponse,
   PublicIncomingWebhookGetData,
   PublicIncomingWebhookGetResponse,
   PublicIncomingWebhookPostData,
@@ -578,6 +580,38 @@ export const publicIncomingWebhookWait = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/webhooks/{workflow_id}/{secret}/wait",
+    path: {
+      secret: data.secret,
+      workflow_id: data.workflowId,
+    },
+    headers: {
+      "content-type": data.contentType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Incoming Webhook Draft
+ * Draft webhook endpoint to trigger a workflow execution using the live workflow graph.
+ *
+ * This endpoint runs the current (uncommitted) workflow graph rather than the committed definition.
+ * Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+ * @param data The data for the request.
+ * @param data.secret
+ * @param data.workflowId
+ * @param data.contentType
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicIncomingWebhookDraft = (
+  data: PublicIncomingWebhookDraftData
+): CancelablePromise<PublicIncomingWebhookDraftResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/webhooks/{workflow_id}/{secret}/draft",
     path: {
       secret: data.secret,
       workflow_id: data.workflowId,

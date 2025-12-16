@@ -5584,6 +5584,14 @@ export type PublicIncomingWebhookWaitData = {
 
 export type PublicIncomingWebhookWaitResponse = unknown
 
+export type PublicIncomingWebhookDraftData = {
+  contentType?: string | null
+  secret: string
+  workflowId: string
+}
+
+export type PublicIncomingWebhookDraftResponse = unknown
+
 export type PublicReceiveInteractionData = {
   category: InteractionCategory
   contentType?: string | null
@@ -7496,6 +7504,21 @@ export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}/wait": {
     post: {
       req: PublicIncomingWebhookWaitData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/webhooks/{workflow_id}/{secret}/draft": {
+    post: {
+      req: PublicIncomingWebhookDraftData
       res: {
         /**
          * Successful Response
