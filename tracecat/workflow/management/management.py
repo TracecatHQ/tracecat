@@ -339,7 +339,64 @@ class WorkflowsManagementService(BaseService):
             )
         )
         result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
+        workflow = result.scalar_one_or_none()
+        if workflow:
+            await self._reconcile_graph_object_with_actions(workflow)
+        return workflow
+
+    async def _reconcile_graph_object_with_actions(self, workflow: Workflow) -> bool:
+        """Remove stale upstream edge references from actions.
+
+        The graph layout is stored in action.upstream_edges and workflow trigger
+        coordinates. When actions are deleted out-of-band (e.g. manual DB edits),
+        their IDs may remain in upstream_edges of other actions. This method
+        normalizes the edge lists by removing references to non-existent actions
+        and invalid trigger IDs.
+
+        Returns:
+            bool: True if any changes were persisted, False otherwise.
+        """
+
+        await self.session.refresh(workflow, ["actions"])
+
+        if not workflow.actions:
+            return False
+
+        valid_action_ids = {str(action.id) for action in workflow.actions}
+        trigger_id = f"trigger-{workflow.id}"
+        changed = False
+
+        for action in workflow.actions:
+            edges = action.upstream_edges or []
+            filtered_edges: list[dict[str, Any]] = []
+
+            for edge in edges:
+                source_id = str(edge.get("source_id", ""))
+                source_type = edge.get("source_type", "udf")
+
+                if source_type == "trigger":
+                    if source_id != trigger_id:
+                        changed = True
+                        continue
+                elif source_type == "udf":
+                    if source_id not in valid_action_ids:
+                        changed = True
+                        continue
+                else:
+                    changed = True
+                    continue
+
+                filtered_edges.append(edge)
+
+            if filtered_edges != edges:
+                action.upstream_edges = filtered_edges
+                self.session.add(action)
+
+        if changed:
+            await self.session.commit()
+            await self.session.refresh(workflow, ["actions"])
+
+        return changed
 
     async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
         statement = select(Workflow.id).where(
