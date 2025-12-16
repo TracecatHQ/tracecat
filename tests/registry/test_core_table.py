@@ -91,7 +91,8 @@ async def test_insert_rows_batches_and_returns_rows_inserted(
             "rows": [
                 {"a": 1},
                 {"a": 2},
-            ]
+            ],
+            "upsert": False,
         }
         return {"rows_inserted": 2}
 
@@ -159,7 +160,7 @@ async def test_insert_row_resolves_table_id_then_posts_row(
     async def fake_post(self: TracecatClient, path: str, *, params=None, json=None):  # type: ignore[no-untyped-def]
         calls.append(("POST", path, json))
         assert path == "/tables/table-1/rows"
-        assert json == {"data": {"a": 1}}
+        assert json == {"data": {"a": 1}, "upsert": False}
         return {"id": "row-1", "a": 1}
 
     monkeypatch.setattr(TracecatClient, "get", fake_get, raising=True)
