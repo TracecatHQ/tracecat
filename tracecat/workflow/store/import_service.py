@@ -292,7 +292,7 @@ class WorkflowImportService(BaseWorkspaceService):
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         wf_id = WorkflowUUID.new(existing_workflow.id)
         defn = await defn_service.create_workflow_definition(
-            wf_id, remote_workflow.definition, commit=False
+            wf_id, remote_workflow.definition, alias=remote_workflow.alias, commit=False
         )
 
         # 2. Update workflow metadata
@@ -351,7 +351,9 @@ class WorkflowImportService(BaseWorkspaceService):
 
         # Create WorkflowDefinition (versioned)
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
-        defn = await defn_service.create_workflow_definition(wf_id, dsl, commit=False)
+        defn = await defn_service.create_workflow_definition(
+            wf_id, dsl, alias=remote_defn.alias, commit=False
+        )
 
         # Update workflow version to match definition
         workflow.version = defn.version
