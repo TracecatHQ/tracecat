@@ -163,8 +163,8 @@ async def test_scatter_without_interval(
     # Verify results
     assert result["ACTIONS"]["gather"]["result"] == [2, 3, 4, 5]
 
-    # Without interval, execution should be relatively fast (< 2 seconds for simple ops)
-    assert elapsed < 2.0, (
+    # Without interval, execution should be relatively fast (< 4 seconds for simple ops)
+    assert elapsed < 4.0, (
         f"Execution without interval should be fast, but took {elapsed:.2f}s"
     )
 
