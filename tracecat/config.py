@@ -38,6 +38,18 @@ client timeout and Ray task await timeout remain aligned.
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
 
+TRACECAT__EXECUTOR_MODE = os.environ.get("TRACECAT__EXECUTOR_MODE", "ray")
+"""Executor mode: 'ray' (default) or 'subprocess'.
+
+- ray: Use Ray cluster for action execution (current default)
+- subprocess: Use subprocess-based execution with venv caching (Lambda-portable)
+"""
+
+TRACECAT__EXECUTOR_WHEEL_CACHE_DIR = os.environ.get(
+    "TRACECAT__EXECUTOR_WHEEL_CACHE_DIR", "/tmp/tracecat/wheel-cache"
+)
+"""Directory for caching extracted tarball venvs in subprocess mode. Uses /tmp for ephemeral storage."""
+
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",
@@ -322,6 +334,39 @@ When False, uses nsjail sandbox for full OS-level isolation. Requires:
 - Docker privileged mode or CAP_SYS_ADMIN capability
 - nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
 - Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
+"""
+
+# === Action Executor Sandbox === #
+TRACECAT__EXECUTOR_SANDBOX_ENABLED = os.environ.get(
+    "TRACECAT__EXECUTOR_SANDBOX_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable nsjail sandbox for action execution in subprocess mode.
+
+When True, actions run in an nsjail sandbox with:
+- Filesystem isolation (tmpdir VFS)
+- Resource limits (CPU, memory, file size, processes)
+- Network access (for DB, S3, external APIs)
+
+When False (default), actions run in direct subprocesses without sandboxing.
+
+Requires:
+- TRACECAT__EXECUTOR_MODE=subprocess
+- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
+- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
+"""
+
+TRACECAT__EXECUTOR_TRACECAT_APP_DIR = os.environ.get(
+    "TRACECAT__EXECUTOR_TRACECAT_APP_DIR", ""
+)
+"""Path to the tracecat package directory for sandbox mounting.
+If not set, will be auto-detected from the installed tracecat package location.
+"""
+
+TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
+    "TRACECAT__EXECUTOR_SITE_PACKAGES_DIR", ""
+)
+"""Path to the Python site-packages directory containing tracecat dependencies.
+If not set, will be auto-detected from a known dependency's location.
 """
 
 # === Rate Limiting === #

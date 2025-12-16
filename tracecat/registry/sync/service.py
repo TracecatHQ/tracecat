@@ -3,13 +3,9 @@
 This module orchestrates the full sync flow:
 1. Fetch actions from subprocess (existing)
 2. Build manifest from actions
-3. Build wheel from package and upload to S3/MinIO
-4. Create RegistryVersion record with wheel URI
+3. Build tarball venv and upload to S3/MinIO
+4. Create RegistryVersion record with tarball URI
 5. Populate RegistryIndex entries
-
-Note: Wheel building is mandatory. If the wheel build fails, no version is
-created. The code must be packagable into a valid wheel to be considered
-a valid registry version.
 """
 
 from __future__ import annotations
@@ -20,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiofiles
-import tracecat_registry
 
 from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
@@ -30,18 +25,14 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
 )
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-from tracecat.registry.sync.wheel import (
-    WheelBuildError,
-    WheelBuildResult,
-    WheelhouseBuildResult,
-    build_builtin_registry_wheel,
-    build_wheel_from_git,
-    build_wheel_from_path,
-    build_wheelhouse_from_path,
-    get_wheel_s3_key,
-    get_wheelhouse_s3_prefix,
-    upload_wheel,
-    upload_wheelhouse,
+from tracecat.registry.sync.tarball import (
+    TarballBuildError,
+    TarballVenvBuildResult,
+    build_builtin_registry_tarball_venv,
+    build_tarball_venv_from_git,
+    build_tarball_venv_from_path,
+    get_tarball_venv_s3_key,
+    upload_tarball_venv,
 )
 from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
@@ -61,10 +52,9 @@ class RegistrySyncError(Exception):
 
 @dataclass
 class ArtifactsBuildResult:
-    """Result of building and uploading wheel and wheelhouse artifacts."""
+    """Result of building and uploading tarball artifacts."""
 
-    wheel_uri: str
-    wheelhouse_uri: str | None = None
+    tarball_uri: str
 
 
 @dataclass
@@ -73,8 +63,7 @@ class SyncResult:
 
     version: RegistryVersion
     actions: list[RegistryActionCreate]
-    wheel_uri: str
-    wheelhouse_uri: str | None = None
+    tarball_uri: str
     commit_sha: str | None = None
 
     @property
@@ -92,7 +81,7 @@ class RegistrySyncService(BaseService):
     This service handles the full v2 sync flow:
     - Fetching actions and building manifests
     - Creating immutable RegistryVersion records
-    - Building and uploading wheels to S3
+    - Building and uploading tarball venvs to S3
     - Populating RegistryIndex for fast lookups
     """
 
@@ -109,9 +98,8 @@ class RegistrySyncService(BaseService):
     ) -> SyncResult:
         """Sync a repository and create a versioned snapshot.
 
-        This creates an immutable RegistryVersion with a wheel artifact.
-        If the wheel build fails, no version is created - the code must be
-        packagable to be considered a valid version.
+        This creates an immutable RegistryVersion with a tarball artifact.
+        If the tarball build fails, no version is created.
 
         Args:
             db_repo: The repository to sync
@@ -125,7 +113,7 @@ class RegistrySyncService(BaseService):
 
         Raises:
             RegistrySyncError: If sync fails
-            WheelBuildError: If wheel building fails
+            TarballBuildError: If tarball building fails
         """
         self.logger.info(
             "Starting v2 registry sync",
@@ -167,12 +155,10 @@ class RegistrySyncService(BaseService):
             version=target_version,
         )
         if existing_version:
-            # Existing versions must have a wheel_uri - if not, it's legacy
-            # data from before wheel building was mandatory
-            if existing_version.wheel_uri is None:
+            if existing_version.tarball_uri is None:
                 raise RegistrySyncError(
-                    f"Version {target_version} exists but has no wheel. "
-                    "Delete the version and re-sync to create a valid version with a wheel."
+                    f"Version {target_version} exists but has no tarball artifact. "
+                    "Delete the version and re-sync to create a valid version."
                 )
             self.logger.info(
                 "Version already exists, returning existing",
@@ -182,12 +168,11 @@ class RegistrySyncService(BaseService):
             return SyncResult(
                 version=existing_version,
                 actions=actions,
-                wheel_uri=existing_version.wheel_uri,
+                tarball_uri=existing_version.tarball_uri,
                 commit_sha=commit_sha,
             )
 
-        # Step 5: Build wheel and wheelhouse - if this fails, we don't create a version
-        # The code must be packagable to be considered a valid version
+        # Step 5: Build tarball - if this fails, we don't create a version
         artifacts = await self._build_and_upload_artifacts(
             db_repo=db_repo,
             version_string=target_version,
@@ -195,14 +180,13 @@ class RegistrySyncService(BaseService):
             ssh_env=ssh_env,
         )
 
-        # Step 6: Create RegistryVersion record with wheel and wheelhouse URIs
+        # Step 6: Create RegistryVersion record with tarball URI
         version_create = RegistryVersionCreate(
             repository_id=db_repo.id,
             version=target_version,
             commit_sha=commit_sha,
             manifest=manifest,
-            wheel_uri=artifacts.wheel_uri,
-            wheelhouse_uri=artifacts.wheelhouse_uri,
+            tarball_uri=artifacts.tarball_uri,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -210,8 +194,7 @@ class RegistrySyncService(BaseService):
             "Created registry version",
             version_id=str(version.id),
             version=target_version,
-            wheel_uri=artifacts.wheel_uri,
-            wheelhouse_uri=artifacts.wheelhouse_uri,
+            tarball_uri=artifacts.tarball_uri,
         )
 
         # Step 7: Populate RegistryIndex entries
@@ -230,15 +213,13 @@ class RegistrySyncService(BaseService):
             version_id=str(version.id),
             version=target_version,
             num_actions=len(actions),
-            wheel_uri=artifacts.wheel_uri,
-            wheelhouse_uri=artifacts.wheelhouse_uri,
+            tarball_uri=artifacts.tarball_uri,
         )
 
         return SyncResult(
             version=version,
             actions=actions,
-            wheel_uri=artifacts.wheel_uri,
-            wheelhouse_uri=artifacts.wheelhouse_uri,
+            tarball_uri=artifacts.tarball_uri,
             commit_sha=commit_sha,
         )
 
@@ -249,7 +230,7 @@ class RegistrySyncService(BaseService):
         commit_sha: str | None,
         ssh_env: SshEnv | None = None,
     ) -> ArtifactsBuildResult:
-        """Build wheel and wheelhouse, then upload to S3.
+        """Build tarball venv and upload to S3.
 
         Args:
             db_repo: The repository to build from
@@ -258,130 +239,74 @@ class RegistrySyncService(BaseService):
             ssh_env: SSH environment for git operations
 
         Returns:
-            ArtifactsBuildResult with wheel_uri and optional wheelhouse_uri.
+            ArtifactsBuildResult with tarball_uri.
 
         Raises:
-            WheelBuildError: If wheel building or upload fails
+            TarballBuildError: If tarball building or upload fails
         """
         async with aiofiles.tempfile.TemporaryDirectory(
-            prefix="tracecat_wheel_"
+            prefix="tracecat_tarball_"
         ) as temp_dir:
             output_dir = Path(temp_dir)
-
-            # Determine package path based on origin type
-            package_path: Path
-            wheel_result: WheelBuildResult
-            wheelhouse_result: WheelhouseBuildResult | None = None
+            tarball_result: TarballVenvBuildResult
 
             if db_repo.origin == DEFAULT_REGISTRY_ORIGIN:
-                # Builtin registry - get package path for wheelhouse
-                package_path = Path(tracecat_registry.__file__).parent.parent
-                pyproject = package_path / "pyproject.toml"
-                if not pyproject.exists():
-                    package_path = package_path.parent
-
-                wheel_result = await build_builtin_registry_wheel(output_dir)
-
-                # Build wheelhouse from the same path
-                try:
-                    wheelhouse_result = await build_wheelhouse_from_path(
-                        package_path, output_dir
-                    )
-                except WheelBuildError as e:
-                    self.logger.warning(
-                        "Failed to build wheelhouse, continuing without it",
-                        error=str(e),
-                    )
+                # Builtin registry
+                tarball_result = await build_builtin_registry_tarball_venv(output_dir)
 
             elif db_repo.origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
+                # Local registry
                 local_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
-                package_path = local_path
-                wheel_result = await build_wheel_from_path(local_path, output_dir)
-
-                # Build wheelhouse from local path
-                try:
-                    wheelhouse_result = await build_wheelhouse_from_path(
-                        package_path, output_dir
-                    )
-                except WheelBuildError as e:
-                    self.logger.warning(
-                        "Failed to build wheelhouse, continuing without it",
-                        error=str(e),
-                    )
+                tarball_result = await build_tarball_venv_from_path(
+                    local_path, output_dir
+                )
 
             elif db_repo.origin.startswith("git+ssh://"):
+                # Git repository
                 if commit_sha is None:
-                    raise WheelBuildError("commit_sha is required for git repositories")
+                    raise TarballBuildError(
+                        "commit_sha is required for git repositories"
+                    )
 
-                # For git repos, we need to clone first to get the package path
-                # The wheel building already handles this, but we need to build
-                # wheelhouse from the same cloned repo
-                wheel_result = await build_wheel_from_git(
+                self.logger.info(
+                    "Building tarball venv for git repository",
+                    origin=db_repo.origin,
+                )
+                tarball_result = await build_tarball_venv_from_git(
                     git_url=db_repo.origin,
                     commit_sha=commit_sha,
                     env=ssh_env,
                     output_dir=output_dir,
                 )
-                # Note: For git repos, wheelhouse building would require cloning again
-                # or refactoring build_wheel_from_git to expose the clone path.
-                # For now, we skip wheelhouse for git repos (can be added later).
-                self.logger.info(
-                    "Skipping wheelhouse build for git repository",
-                    origin=db_repo.origin,
-                )
 
             else:
-                raise WheelBuildError(
-                    f"Unsupported origin for wheel building: {db_repo.origin}"
+                raise TarballBuildError(
+                    f"Unsupported origin for artifact building: {db_repo.origin}"
                 )
-
-            self.logger.info(
-                "Wheel built successfully",
-                wheel_name=wheel_result.wheel_name,
-                package=wheel_result.package_name,
-                version=wheel_result.version,
-            )
 
             # Ensure bucket exists
             bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
             await blob.ensure_bucket_exists(bucket)
 
-            # Generate S3 key and upload wheel
-            s3_key = get_wheel_s3_key(
+            # Upload tarball venv
+            tarball_s3_key = get_tarball_venv_s3_key(
                 organization_id=str(config.TRACECAT__DEFAULT_ORG_ID),
                 repository_origin=db_repo.origin,
                 version=version_string,
-                wheel_name=wheel_result.wheel_name,
             )
-            wheel_uri = await upload_wheel(
-                wheel_path=wheel_result.wheel_path,
-                key=s3_key,
+            tarball_uri = await upload_tarball_venv(
+                tarball_path=tarball_result.tarball_path,
+                key=tarball_s3_key,
                 bucket=bucket,
             )
-
-            # Upload wheelhouse if available
-            wheelhouse_uri: str | None = None
-            if wheelhouse_result and wheelhouse_result.num_wheels > 0:
-                wheelhouse_prefix = get_wheelhouse_s3_prefix(
-                    organization_id=str(config.TRACECAT__DEFAULT_ORG_ID),
-                    repository_origin=db_repo.origin,
-                    version=version_string,
-                )
-                wheelhouse_uri = await upload_wheelhouse(
-                    wheelhouse_result=wheelhouse_result,
-                    prefix=wheelhouse_prefix,
-                    bucket=bucket,
-                )
-                self.logger.info(
-                    "Wheelhouse uploaded",
-                    wheelhouse_uri=wheelhouse_uri,
-                    num_wheels=wheelhouse_result.num_wheels,
-                )
-
-            return ArtifactsBuildResult(
-                wheel_uri=wheel_uri,
-                wheelhouse_uri=wheelhouse_uri,
+            self.logger.info(
+                "Tarball venv uploaded",
+                tarball_uri=tarball_uri,
+                compressed_size_bytes=tarball_result.compressed_size_bytes,
+                uncompressed_size_bytes=tarball_result.uncompressed_size_bytes,
             )
+
+            return ArtifactsBuildResult(tarball_uri=tarball_uri)
 
     def _generate_version_string(
         self,

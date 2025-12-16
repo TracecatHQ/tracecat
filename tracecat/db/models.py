@@ -1060,15 +1060,10 @@ class RegistryVersion(OrganizationModel):
         nullable=False,
         doc="Frozen action definitions",
     )
-    wheel_uri: Mapped[str] = mapped_column(
+    tarball_uri: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        doc="S3 URI to the wheel file",
-    )
-    wheelhouse_uri: Mapped[str | None] = mapped_column(
-        String,
-        nullable=True,
-        doc="S3 URI prefix to the dependency wheelhouse directory",
+        doc="S3 URI to the compressed tarball venv for action execution",
     )
 
     repository: Mapped[RegistryRepository] = relationship(back_populates="versions")
