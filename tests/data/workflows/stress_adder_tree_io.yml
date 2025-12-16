@@ -1,0 +1,108 @@
+title: IO-bound stress test workflow
+#    A
+#    /\
+#   B  c
+#  /|  |\
+# D E  F G
+description: |
+  Use this for stress testing the workflow engine with IO-bound work.
+  Each action makes an HTTP call to a test server that simulates IO latency.
+
+  Requires stress_server_url to be set in trigger inputs (e.g., http://host.docker.internal:8989)
+config:
+  scheduler: dynamic
+entrypoint:
+  ref: a
+  expects:
+    stress_server_url:
+      type: str
+      description: URL of the stress test server (e.g., http://host.docker.internal:8989)
+    delay_ms:
+      type: int
+      default: 100
+      description: Base delay in milliseconds for each IO operation
+    jitter_ms:
+      type: int
+      default: 50
+      description: Random jitter added to delay
+
+triggers:
+  - type: webhook
+    ref: my_webhook
+    entrypoint: a
+
+actions:
+  - ref: a
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+
+  - ref: b
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+    depends_on:
+      - a
+
+  - ref: c
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+    depends_on:
+      - a
+
+  - ref: d
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+    depends_on:
+      - b
+
+  - ref: e
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+    depends_on:
+      - b
+
+  - ref: f
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+    depends_on:
+      - c
+
+  - ref: g
+    action: core.http_request
+    args:
+      url: ${{ TRIGGER.stress_server_url }}/io-work
+      method: GET
+      params:
+        delay_ms: ${{ TRIGGER.delay_ms }}
+        jitter_ms: ${{ TRIGGER.jitter_ms }}
+    depends_on:
+      - c
