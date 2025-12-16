@@ -220,7 +220,7 @@ export const WorkflowCanvas = React.forwardRef<
           source: edgeData.source,
           target: edgeData.target,
           sourceHandle: edgeData.sourceHandle ?? undefined,
-          label: edgeData.label ?? undefined,
+          label: edgeData.label === "Trigger" ? undefined : edgeData.label,
         }
       })
 
