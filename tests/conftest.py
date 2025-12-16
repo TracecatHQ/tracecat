@@ -154,8 +154,16 @@ def redis_server():
 
 
 @pytest.fixture(autouse=True, scope="function")
-def clean_redis_db(redis_server):
+def clean_redis_db(request: pytest.FixtureRequest):
     """Flush Redis before every test function to guarantee isolation."""
+
+    # Registry tests mock SDK calls and should not require Docker/Redis.
+    if "tests/registry/" in str(request.node.fspath):
+        yield
+        return
+
+    # Only start Redis when needed by non-registry tests.
+    request.getfixturevalue("redis_server")
 
     import redis as redis_sync
 
@@ -180,8 +188,12 @@ def monkeysession(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True, scope="function")
-async def test_db_engine():
+async def test_db_engine(request: pytest.FixtureRequest):
     """Create a new engine for each integration test."""
+    if "tests/registry/" in str(request.node.fspath):
+        yield None
+        return
+
     engine = get_async_engine()
     try:
         yield engine

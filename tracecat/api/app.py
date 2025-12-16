@@ -14,6 +14,8 @@ from tracecat_ee.agent.router import router as ee_agent_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.executor.router import router as executor_agent_router
+from tracecat.agent.preset.executor.router import router as executor_agent_preset_router
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
@@ -25,6 +27,7 @@ from tracecat.api.common import (
 )
 from tracecat.auth.dependencies import require_auth_type_enabled
 from tracecat.auth.enums import AuthType
+from tracecat.auth.executor.router import router as executor_users_router
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -35,13 +38,21 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.cases.attachments.executor.router import (
+    router as executor_case_attachments_router,
+)
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.durations.router import router as case_durations_router
+from tracecat.cases.executor.router import router as executor_cases_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.tag_definitions.executor.router import (
+    router as executor_case_tag_definitions_router,
+)
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
 )
+from tracecat.cases.tags.executor.router import router as executor_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.chat.router import router as chat_router
 from tracecat.contexts import ctx_role
@@ -66,13 +77,16 @@ from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
+from tracecat.secrets.executor.router import router as executor_secrets_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import ensure_bucket_exists
+from tracecat.tables.executor.router import router as executor_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.variables.executor.router import router as executor_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
@@ -236,14 +250,22 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_tags_router)
     app.include_router(workflow_store_router)
     app.include_router(secrets_router)
+    app.include_router(executor_secrets_router)
     app.include_router(variables_router)
+    app.include_router(executor_variables_router)
     app.include_router(schedules_router)
     app.include_router(tags_router)
     app.include_router(users_router)
+    app.include_router(executor_users_router)
     app.include_router(org_router)
     app.include_router(agent_router)
+    app.include_router(executor_agent_router)
     app.include_router(
         agent_preset_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
+    )
+    app.include_router(
+        executor_agent_preset_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
     )
     app.include_router(ee_agent_router)
@@ -253,11 +275,16 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
     app.include_router(tables_router)
+    app.include_router(executor_tables_router)
     app.include_router(cases_router)
+    app.include_router(executor_cases_router)
     app.include_router(case_fields_router)
     app.include_router(case_tags_router)
+    app.include_router(executor_case_tags_router)
     app.include_router(case_tag_definitions_router)
+    app.include_router(executor_case_tag_definitions_router)
     app.include_router(case_attachments_router)
+    app.include_router(executor_case_attachments_router)
     app.include_router(
         case_durations_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],

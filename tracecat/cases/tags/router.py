@@ -19,7 +19,6 @@ WorkspaceUser = Annotated[
         require_workspace="yes",
     ),
 ]
-
 router = APIRouter(prefix="/cases", tags=["cases"])
 
 

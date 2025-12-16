@@ -44,6 +44,7 @@ dependencies = [
     "minio==7.2.18",
     "authlib==1.6.5",
     "orjson==3.10.3",
+    "pyjwt>=2.10.0,<3.0.0",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
     "polyfile>=0.5.5,<0.6.0",

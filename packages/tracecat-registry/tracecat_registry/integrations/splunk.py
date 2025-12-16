@@ -10,7 +10,7 @@ import httpx
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
-from tracecat.variables.service import VariablesService
+from tracecat_registry.sdk.client import TracecatClient
 
 splunk_secret = RegistrySecret(
     name="splunk",
@@ -206,9 +206,13 @@ async def upload_csv_to_kv_collection(
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
 
-    splunk_base_url = base_url or await VariablesService.get_current_value(
-        name="splunk", key="base_url"
-    )
+    splunk_base_url = base_url
+    if not splunk_base_url:
+        # Try to get base_url from workspace variables via SDK
+        client = TracecatClient()
+        splunk_base_url = await client.variables.get_variable_value(
+            name="splunk", key="base_url"
+        )
     if not splunk_base_url:
         raise SplunkKVStoreError(
             "Splunk base_url is required. Pass it directly or set splunk.base_url in the workspace variables."

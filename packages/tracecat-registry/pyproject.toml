@@ -30,6 +30,8 @@ dependencies = [
     "docker==7.1.0",
     "grpcio==1.75.1",
     "hatchling==1.27.0",
+    "httpx>=0.28.0,<0.29.0",
+    "jsonpath-ng>=1.7.0,<2.0.0",
     "ldap3==2.9.1",
     "marshmallow==3.26.1",
     "nh3==0.2.18",
@@ -42,18 +44,12 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 cli = ["typer>=0.15.1", "rich>=13.7.0"]
-dev = [
-    "types-aioboto3[sts,s3]>=15.0.0",
-    "types-boto3[sts,s3]>=1.39.0,<2.0.0",
-]
+dev = ["types-aioboto3[sts,s3]>=15.0.0", "types-boto3[sts,s3]>=1.39.0,<2.0.0"]
 
 [project.urls]
 Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com"
 Repository = "https://github.com/TracecatHQ/tracecat"
-
-[project.scripts]
-tc = "tracecat_registry.__main__:main"
 
 [tool.hatch.version]
 path = "tracecat_registry/__init__.py"

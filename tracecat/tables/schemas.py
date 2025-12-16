@@ -133,6 +133,48 @@ class TableRowInsert(BaseModel):
     upsert: bool = False
 
 
+class TableRowUpdate(BaseModel):
+    """Update model for a table row."""
+
+    data: dict[str, Any]
+
+
+class TableRowsSearchParams(BaseModel):
+    """Search parameters for table rows."""
+
+    search_term: str | None = Field(
+        default=None,
+        description="Text to search for across all text and JSONB columns",
+    )
+    start_time: datetime | None = Field(
+        default=None,
+        description="Filter rows created after this time",
+    )
+    end_time: datetime | None = Field(
+        default=None,
+        description="Filter rows created before this time",
+    )
+    updated_before: datetime | None = Field(
+        default=None,
+        description="Filter rows updated before this time",
+    )
+    updated_after: datetime | None = Field(
+        default=None,
+        description="Filter rows updated after this time",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Number of rows to skip",
+    )
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum number of rows to return",
+    )
+
+
 class TableRowInsertBatch(BaseModel):
     """Request body for batch inserting rows."""
 

@@ -1,18 +1,19 @@
+import logging
 import re
 from typing import Annotated, Any
 
-from tracecat.contexts import ctx_role
-from tracecat.logger import logger
-from tracecat.registry.fields import Code
-from tracecat.sandbox import (
-    PackageInstallError,
+from typing_extensions import Doc
+
+from tracecat_registry import registry
+from tracecat_registry.context import get_context
+from tracecat_registry.fields import Code
+from tracecat_registry.sdk.sandbox import (
     SandboxExecutionError,
-    SandboxService,
     SandboxTimeoutError,
     SandboxValidationError,
 )
-from tracecat_registry import registry
-from typing_extensions import Doc
+
+logger = logging.getLogger(__name__)
 
 
 class PythonScriptError(Exception):
@@ -56,7 +57,7 @@ def _validate_script(script: str) -> tuple[bool, str | None]:
 
 @registry.register(
     default_title="Run Python script",
-    description="Execute a Python script in a secure nsjail sandbox with pip package support.",
+    description="Execute a Python script in Tracecat's secure sandbox with pip package support.",
     display_group="Run script",
     namespace="core.script",
 )
@@ -105,12 +106,12 @@ async def run_python(
     ] = None,
 ) -> Any:
     """
-    Executes a Python script in a secure nsjail sandbox.
+    Executes a Python script in Tracecat's secure sandbox.
 
-    The code is executed in an isolated Linux namespace with:
+    The code is executed in an isolated sandbox runtime with:
     - Configurable network access (disabled by default)
     - Resource limits (memory, CPU, file size)
-    - Read-only rootfs with minimal Python 3.12 + uv environment
+    - Read-only rootfs with minimal Python 3.12 + uv environment (when nsjail is enabled)
     - Full subprocess.run support for running external commands
 
     The script must contain at least one function. If multiple functions are defined,
@@ -144,25 +145,18 @@ async def run_python(
         raise PythonScriptValidationError(error_message)
 
     try:
-        service = SandboxService()
-        # Get workspace_id from execution context for multi-tenant cache isolation
-        role = ctx_role.get()
-        workspace_id = str(role.workspace_id) if role and role.workspace_id else None
-
-        return await service.run_python(
+        ctx = get_context()
+        return await ctx.sandbox.run_python(
             script=script,
             inputs=inputs,
             dependencies=dependencies,
             timeout_seconds=timeout_seconds,
             allow_network=allow_network,
             env_vars=env_vars,
-            workspace_id=workspace_id,
         )
     except SandboxTimeoutError as e:
         raise PythonScriptTimeoutError(str(e)) from e
     except SandboxValidationError as e:
-        # Validation errors (e.g., invalid env var keys) should be reported
-        # as validation errors, not execution errors
         raise PythonScriptValidationError(str(e)) from e
-    except (SandboxExecutionError, PackageInstallError) as e:
+    except SandboxExecutionError as e:
         raise PythonScriptExecutionError(str(e)) from e

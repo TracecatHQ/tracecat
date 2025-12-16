@@ -17,7 +17,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.auth.types import Role
 
 
@@ -189,3 +189,16 @@ class ModelRequestResult(BaseModel):
 class ToolFilters(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
+
+
+class ExecutorAIActionRequest(BaseModel):
+    user_prompt: str
+    model_name: str
+    model_provider: str
+    instructions: str | None = None
+    output_type: OutputType | None = None
+    model_settings: dict[str, Any] | None = None
+    max_requests: int = 20
+    retries: int = 6
+    base_url: str | None = None
+    secrets: dict[str, str] | None = None

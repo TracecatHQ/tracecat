@@ -18,9 +18,9 @@ else:
     ListObjectsV2OutputTypeDef = dict[str, Any]
     DeleteObjectOutputTypeDef = dict[str, Any]
 
-from tracecat_registry import RegistrySecret, registry
 import tracecat_registry.integrations.aws_boto3 as aws_boto3
-from tracecat.config import (
+from tracecat_registry import RegistrySecret, registry
+from tracecat_registry.config import (
     TRACECAT__MAX_FILE_SIZE_BYTES,
     TRACECAT__S3_CONCURRENCY_LIMIT,
 )

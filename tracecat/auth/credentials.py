@@ -141,6 +141,7 @@ async def _role_dependency(
     api_key: str | None = None,
     allow_user: bool,
     allow_service: bool,
+    allow_executor: bool,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None = None,
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
@@ -275,6 +276,15 @@ async def _role_dependency(
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
+    elif allow_executor:
+        # Pass-through for executor requests
+        # TODO(auth): Implement proper executor token validation
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            workspace_id=workspace_id,
+            access_level=AccessLevel.ADMIN,
+        )
     else:
         logger.debug("Invalid authentication or authorization", user=user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
@@ -309,6 +319,7 @@ async def _role_dependency(
 def RoleACL(
     *,
     allow_user: bool = True,
+    allow_executor: bool = False,
     allow_service: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
     min_access_level: AccessLevel | None = None,
@@ -347,9 +358,10 @@ def RoleACL(
         HTTPException: If authentication fails or the caller lacks required permissions.
 
     """
-    if not any((allow_user, allow_service, require_workspace)):
-        raise ValueError("Must allow either user, service, or require workspace")
-
+    if not any((allow_user, allow_service, require_workspace, allow_executor)):
+        raise ValueError(
+            "Must allow either user, service, executor, or require workspace"
+        )
     if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
 
@@ -369,6 +381,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
@@ -397,6 +410,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
@@ -420,6 +434,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,

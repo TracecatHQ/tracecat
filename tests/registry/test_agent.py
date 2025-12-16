@@ -3,12 +3,8 @@ from typing import Any
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
+from tracecat_registry.context import RegistryContext, get_context
 from tracecat_registry.core.agent import action, agent
-
-from tracecat.auth.types import Role
-
-requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
-
 
 PRIMITIVE_OUTPUT_TYPES = [
     pytest.param(None, id="default-str"),
@@ -43,9 +39,8 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
 
 
 @pytest.mark.anyio
-@requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
-async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
+async def test_agent_primitives(output_type: Any) -> None:
     # Import here to avoid any accidental test-time patching/import shenanigans
 
     user_prompt = _prompt_for_output_type(
@@ -76,9 +71,8 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
 
 
 @pytest.mark.anyio
-@requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
-async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
+async def test_agent_json_schema(output_type: Any) -> None:
     # Import here to avoid any accidental test-time patching/import shenanigans
 
     user_prompt = _prompt_for_output_type(
@@ -111,22 +105,45 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
 
 
 @pytest.mark.anyio
-@requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
-async def test_action_primitives(output_type: Any, test_role: Role) -> None:
+async def test_action_primitives(
+    output_type: Any,
+    registry_context: RegistryContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat_registry import secrets as secrets_manager
+    from tracecat_registry.sdk.client import TracecatClient
+
+    ctx = get_context()
+    assert ctx.workspace_id == registry_context.workspace_id
+
     user_prompt = _prompt_for_output_type(
         output_type,
         "Draft a brief, empathetic customer update about a resolved incident.",
     )
 
-    result = await action(
-        user_prompt=user_prompt,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        instructions="Be empathetic and concise.",
-        output_type=output_type,
-        max_requests=3,
-    )
+    async def fake_post(self: TracecatClient, path: str, *, params=None, json=None):  # type: ignore[no-untyped-def]
+        assert json is not None
+        assert path == "/agent/action"
+        assert json["model_provider"] == "openai"
+        if json.get("output_type") == "list[str]":
+            output: Any = ["ok"]
+        elif isinstance(json.get("output_type"), dict):
+            output = {"summary": "ok", "confidence": 0.5}
+        else:
+            output = "ok"
+        return {"output": output, "message_history": [], "usage": {}, "duration": 0.0}
+
+    monkeypatch.setattr(TracecatClient, "post", fake_post, raising=True)
+    with secrets_manager.env_sandbox({"OPENAI_API_KEY": "test-openai-key"}):
+        result = await action(
+            user_prompt=user_prompt,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="Be empathetic and concise.",
+            output_type=output_type,
+            max_requests=3,
+        )
 
     assert isinstance(result, dict)
     assert "output" in result
@@ -144,22 +161,44 @@ async def test_action_primitives(output_type: Any, test_role: Role) -> None:
 
 
 @pytest.mark.anyio
-@requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
-async def test_action_json_schema(output_type: Any, test_role: Role) -> None:
+async def test_action_json_schema(
+    output_type: Any,
+    registry_context: RegistryContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat_registry import secrets as secrets_manager
+    from tracecat_registry.sdk.client import TracecatClient
+
+    ctx = get_context()
+    assert ctx.workspace_id == registry_context.workspace_id
+
     user_prompt = _prompt_for_output_type(
         output_type,
         "Draft a brief, empathetic customer update about a resolved incident.",
     )
 
-    result = await action(
-        user_prompt=user_prompt,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        instructions="Be empathetic and concise.",
-        output_type=output_type,
-        max_requests=3,
-    )
+    async def fake_post(self: TracecatClient, path: str, *, params=None, json=None):  # type: ignore[no-untyped-def]
+        assert json is not None
+        assert path == "/agent/action"
+        assert json["model_provider"] == "openai"
+        return {
+            "output": {"summary": "ok", "confidence": 0.5},
+            "message_history": [],
+            "usage": {},
+            "duration": 0.0,
+        }
+
+    monkeypatch.setattr(TracecatClient, "post", fake_post, raising=True)
+    with secrets_manager.env_sandbox({"OPENAI_API_KEY": "test-openai-key"}):
+        result = await action(
+            user_prompt=user_prompt,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="Be empathetic and concise.",
+            output_type=output_type,
+            max_requests=3,
+        )
 
     assert isinstance(result, dict)
     assert "output" in result
@@ -169,3 +208,14 @@ async def test_action_json_schema(output_type: Any, test_role: Role) -> None:
     output = result["output"]
     assert isinstance(output, dict)
     assert "summary" in output and isinstance(output["summary"], str)
+
+
+@pytest.mark.anyio
+async def test_preset_agent_is_interface() -> None:
+    from tracecat_registry.core.agent import preset_agent
+
+    with pytest.raises(ActionIsInterfaceError):
+        await preset_agent(  # type: ignore[misc]
+            preset="security-analyst",
+            user_prompt="hi",
+        )

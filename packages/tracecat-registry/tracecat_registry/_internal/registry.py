@@ -18,6 +18,7 @@ def register(
     namespace: str = DEFAULT_NAMESPACE,
     description: str,
     secrets: list[RegistrySecretType] | None = None,
+    scopes: list[str] | None = None,
     # Options
     include_in_schema: bool = True,
     requires_approval: bool = False,
@@ -103,6 +104,7 @@ def register(
                 "namespace": namespace,
                 "description": description,
                 "secrets": [s.model_dump() for s in secrets] if secrets else None,
+                "scopes": scopes,
                 "requires_approval": requires_approval,
             },
         )

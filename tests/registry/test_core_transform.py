@@ -12,8 +12,7 @@ from tracecat_registry.core.transform import (
     map,
     not_in,
 )
-
-from tracecat.exceptions import TracecatExpressionError
+from tracecat_registry.utils.exceptions import ExpressionError
 
 
 @pytest.mark.parametrize(
@@ -562,19 +561,19 @@ async def test_deduplicate_ttl_expiry() -> None:
         (
             [{"id": 1}, {"name": "test"}],
             ["id"],
-            TracecatExpressionError,
+            ExpressionError,
         ),
         # Invalid jsonpath
         (
             [{"id": 1}],
             ["id..invalid"],
-            TracecatExpressionError,
+            ExpressionError,
         ),
         # Non-dict items in list
         (
             ["not a dict"],
             ["id"],
-            TracecatExpressionError,
+            ExpressionError,
         ),
     ],
 )
@@ -586,7 +585,7 @@ async def test_deduplicate_error_cases(
 ) -> None:
     """Test that deduplicate handles error cases appropriately."""
     with pytest.raises(error_type):
-        await deduplicate(items, keys)
+        await deduplicate(items, keys, persist=False)
 
 
 @pytest.mark.anyio
@@ -1004,5 +1003,5 @@ def test_eval_jsonpaths_invalid_expressions(
     input_json: dict[str, Any], jsonpaths: list[str]
 ) -> None:
     """Test eval_jsonpaths with invalid JSONPath expressions."""
-    with pytest.raises(TracecatExpressionError):
+    with pytest.raises(ExpressionError):
         eval_jsonpaths(input_json, jsonpaths)

@@ -3,6 +3,33 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from tracecat.contexts import ctx_client_ip
 
+_REDACT_KEYS = {
+    "authorization",
+    "api_key",
+    "password",
+    "secret",
+    "secrets",
+    "token",
+    "env_vars",
+    "script",
+}
+
+
+def _sanitize_body(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, nested in value.items():
+            if isinstance(key, str) and key.lower() in _REDACT_KEYS:
+                sanitized[key] = "<redacted>"
+            else:
+                sanitized[key] = _sanitize_body(nested)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_body(item) for item in value]
+    if isinstance(value, str) and len(value) > 500:
+        return value[:500] + "...<truncated>"
+    return value
+
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -26,6 +53,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             request_body = (
                 await request.json()
                 if request.headers.get("Content-Type") == "application/json"
+                and request.method in ("POST", "PUT", "PATCH")
                 else {}
             )
 
@@ -37,7 +65,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 hostname=request.url.hostname,
                 path=request.url.path,
                 params=request_params,
-                body=request_body,
+                body=_sanitize_body(request_body),
                 client_ip=client_ip,
             )
 

@@ -982,6 +982,7 @@ httpx==0.28.1 \
     #   respx
     #   tavily-python
     #   tracecat
+    #   tracecat-registry
 httpx-oauth==0.16.1 \
     --hash=sha256:2fcad82f80f28d0473a0fc4b4eda223dc952050af7e3a8c8781342d850f09fb5 \
     --hash=sha256:7402f061f860abc092ea4f5c90acfc576a40bbb79633c1d2920f1ca282c296ee
@@ -1100,7 +1101,9 @@ jmespath==1.0.1 \
 jsonpath-ng==1.7.0 \
     --hash=sha256:f3d7f9e848cba1b6da28c55b1c26ff915dc9e0b1ba7e752a53d6da8d5cbd00b6 \
     --hash=sha256:f6f5f7fd4e5ff79c785f1573b394043b39849fb2bb47bcead935d12b00beab3c
-    # via tracecat
+    # via
+    #   tracecat
+    #   tracecat-registry
 jsonschema==4.25.1 \
     --hash=sha256:3fba0169e345c7175110351d456342c364814cfcf3b964ba4587f22915230a63 \
     --hash=sha256:e4a9655ce0da0c0b67a085847e00a3a51449e1157f4f75e9fb5aa545e122eb85
@@ -1948,6 +1951,7 @@ pyjwt==2.10.1 \
     #   fastapi-users
     #   mcp
     #   pygithub
+    #   tracecat
 pymongo==4.8.0 \
     --hash=sha256:236bbd7d0aef62e64caf4b24ca200f8c8670d1a6f5ea828c39eccdae423bc2b2 \
     --hash=sha256:31e4d21201bdf15064cf47ce7b74722d3e1aea2597c6785882244a3bb58c7eab \

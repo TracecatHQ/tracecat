@@ -20,6 +20,22 @@ WorkspaceUserRole = Annotated[
 Sets the `ctx_role` context variable.
 """
 
+
+ExecutorWorkspaceRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=False,
+        allow_service=False,
+        allow_executor=True,
+        require_workspace="yes",
+    ),
+]
+
+"""Dependency for an executor role for a workspace.
+
+Sets the `ctx_role` context variable.
+"""
+
 ServiceRole = Annotated[
     Role, RoleACL(allow_user=False, allow_service=True, require_workspace="no")
 ]

@@ -1,17 +1,31 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
+from tracecat_registry.context import get_context
 from typing_extensions import Doc
 
-from tracecat.agent.factory import build_agent
-from tracecat.agent.runtime import run_agent_sync
-from tracecat.agent.types import AgentConfig, OutputType
-from tracecat.registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry import secrets
+from tracecat_registry.fields import ActionType, AgentPreset, TextArea
 from tracecat_registry import (
     ActionIsInterfaceError,
+    RegistryOAuthSecret,
     RegistrySecret,
     RegistrySecretType,
     registry,
+)
+
+OutputType = (
+    Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
 )
 
 anthropic_secret = RegistrySecret(
@@ -246,16 +260,30 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
-    agent = await build_agent(
-        AgentConfig(
-            model_name=model_name,
-            model_provider=model_provider,
-            instructions=instructions,
-            output_type=output_type,
-            model_settings=model_settings,
-            retries=retries,
-            base_url=base_url,
-        )
+    secret_keys: set[str] = set()
+    for secret_type in PYDANTIC_AI_REGISTRY_SECRETS:
+        if isinstance(secret_type, RegistrySecret):
+            secret_keys.update(secret_type.keys or [])
+            secret_keys.update(secret_type.optional_keys or [])
+        elif isinstance(secret_type, RegistryOAuthSecret):
+            secret_keys.add(secret_type.token_name)
+        else:
+            continue
+
+    secret_payload: dict[str, str] = {}
+    for key in secret_keys:
+        if value := secrets.get_or_default(key):
+            secret_payload[key] = value
+
+    ctx = get_context()
+    return await ctx.agent.run_action(
+        user_prompt=user_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        instructions=instructions,
+        output_type=output_type,
+        model_settings=model_settings,
+        max_requests=max_requests,
+        retries=retries,
+        base_url=base_url,
     )
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
-    return result.model_dump()

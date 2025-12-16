@@ -3,12 +3,14 @@
 import base64
 import io
 from typing import Annotated, Any
-from typing_extensions import Doc
-from tracecat_registry import RegistrySecret, registry, secrets
+
 from minio import Minio
 from minio.commonconfig import CopySource
-from tracecat.utils import to_jsonable_python
-from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
+from typing_extensions import Doc
+
+from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry.config import TRACECAT__MAX_FILE_SIZE_BYTES
+from tracecat_registry.utils.formatters import to_jsonable_python
 
 minio_secret = RegistrySecret(
     name="minio",

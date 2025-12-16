@@ -10,10 +10,10 @@ from typing import Any
 import ldap3
 import pytest
 from ldap3.core.exceptions import LDAPException
+from tracecat_registry import secrets
 from tracecat_registry.integrations.ldap3 import search_entries
 
 from tests import conftest as test_conftest
-from tracecat.secrets import secrets_manager
 
 LDAP_IMAGE = "osixia/openldap:1.5.0"
 LDAP_DOMAIN = "example.com"
@@ -28,12 +28,22 @@ LDAP_PORT = 1389 + test_conftest.WORKER_OFFSET
 def _run_docker(
     args: list[str], check: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", *args],
-        check=check,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        return subprocess.run(
+            ["docker", *args],
+            check=check,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        pytest.skip("Docker is not installed; skipping LDAP integration tests.")
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").lower()
+        if "permission denied" in stderr or "operation not permitted" in stderr:
+            pytest.skip(
+                "Docker daemon is not accessible; skipping LDAP integration tests."
+            )
+        raise
 
 
 @pytest.fixture(scope="session")
@@ -141,7 +151,7 @@ def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
 
 @pytest.fixture
 def configure_ldap_secrets(live_ldap_server: dict[str, Any]):
-    with secrets_manager.env_sandbox(
+    with secrets.env_sandbox(
         {
             "LDAP_HOST": live_ldap_server["host"],
             "LDAP_PORT": str(live_ldap_server["port"]),

@@ -14,6 +14,9 @@ import uvloop
 from pydantic_core import to_jsonable_python
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
+from tracecat_registry import secrets as registry_secrets
+from tracecat_registry.context import clear_context as clear_registry_context
+from tracecat_registry.context import init_context_from_env
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -189,11 +192,19 @@ async def run_single_action(
         result = await run_template_action(action=action, args=args, context=context)
     else:
         logger.trace("Running UDF async", action=action.name)
-        # Get secrets from context
+        # Initialize the registry SDK context before calling the registry action.
+        # This is required because registry actions use `get_context()` for workspace/run
+        # metadata and for SDK clients, and user-defined code is not allowed to read
+        # `os.environ` directly.
+        # Get secrets from context and set in registry's secrets context
         secrets = context.get(ExprContext.SECRETS, {})
-        flat_secrets = secrets_manager.flatten_secrets(secrets)
-        with secrets_manager.env_sandbox(flat_secrets):
-            result = await _run_action_direct(action=action, args=args)
+        flat_secrets = registry_secrets.flatten_secrets(secrets)
+        try:
+            init_context_from_env()
+            with registry_secrets.env_sandbox(flat_secrets):
+                result = await _run_action_direct(action=action, args=args)
+        finally:
+            clear_registry_context()
 
     return result
 
@@ -331,8 +342,8 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = workspace_variables
 
-    flattened_secrets = secrets_manager.flatten_secrets(secrets)
-    with secrets_manager.env_sandbox(flattened_secrets):
+    flattened_secrets = registry_secrets.flatten_secrets(secrets)
+    with registry_secrets.env_sandbox(flattened_secrets):
         args = evaluate_templated_args(task, context)
         result = await run_single_action(action=action, args=args, context=context)
 
@@ -363,6 +374,13 @@ async def run_action_on_ray_cluster(
     # The global UV_SYSTEM_PYTHON=1 in Dockerfile forces system Python usage,
     # but Ray creates its own virtual environment and expects uv to use it
     env_vars["UV_SYSTEM_PYTHON"] = "false"
+
+    # Add registry context variables for SDK client initialization
+    env_vars["TRACECAT__WORKSPACE_ID"] = str(ctx.role.workspace_id)
+    env_vars["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
+    env_vars["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
+    env_vars["TRACECAT__ENVIRONMENT"] = input.run_context.environment
+
     additional_vars: dict[str, Any] = {}
 
     # Add git URL to pip dependencies if SHA is present

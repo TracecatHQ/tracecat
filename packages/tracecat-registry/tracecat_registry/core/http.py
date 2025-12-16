@@ -2,15 +2,17 @@
 # WARNING: Do not import __future__ annotations from typing
 # Causes class types to resolve as strings, breaking TypedDict runtime behavior
 
-from collections.abc import Callable
 import base64
 import binascii
-from pathlib import Path
+import logging
 import tempfile
+from collections.abc import Callable
 from json import JSONDecodeError
+from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, Required, TypedDict
 
 import httpx
+import yaml
 from pydantic import BaseModel, ConfigDict, HttpUrl
 from tenacity import (
     retry,
@@ -20,20 +22,19 @@ from tenacity import (
     wait_exponential,
     wait_fixed,
 )
-import yaml
-from tracecat.expressions.common import eval_jsonpath
-from tracecat.sandbox.safe_lambda import build_safe_lambda
-from tracecat.logger import logger
 from typing_extensions import Doc
 
-from tracecat.config import (
-    TRACECAT__MAX_FILE_SIZE_BYTES,
+from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry.config import (
     TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES,
+    TRACECAT__MAX_FILE_SIZE_BYTES,
     TRACECAT__MAX_UPLOAD_FILES_COUNT,
 )
+from tracecat_registry.utils.exceptions import TracecatException
+from tracecat_registry.utils.jsonpath import eval_jsonpath
+from tracecat_registry.utils.safe_lambda import build_safe_lambda
 
-from tracecat.exceptions import TracecatException
-from tracecat_registry import RegistrySecret, registry, secrets
+logger = logging.getLogger(__name__)
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
@@ -621,8 +622,6 @@ async def http_request(
             error_message = _http_status_error_to_message(e)
             logger.error(
                 "HTTP request failed",
-                status_code=e.response.status_code,
-                error_message=error_message,
             )
             raise TracecatException(error_message) from e
         except httpx.ReadTimeout as e:

@@ -2,6 +2,7 @@ from typing import Any
 
 import orjson
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from tracecat import config
@@ -20,6 +21,13 @@ from tracecat.exceptions import (
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger
+from tracecat.sandbox import (
+    PackageInstallError,
+    SandboxExecutionError,
+    SandboxService,
+    SandboxTimeoutError,
+    SandboxValidationError,
+)
 
 router = APIRouter()
 
@@ -90,6 +98,66 @@ async def run_action(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,
+        ) from e
+
+
+class PythonSandboxExecuteRequest(BaseModel):
+    script: str
+    inputs: dict[str, Any] | None = None
+    dependencies: list[str] | None = None
+    timeout_seconds: int = 300
+    allow_network: bool = False
+    env_vars: dict[str, str] | None = None
+
+
+@router.post("/sandbox/python/execute", tags=["sandbox"])
+async def execute_python_sandbox(
+    *,
+    role: Role = RoleACL(
+        allow_user=False,
+        allow_service=False,
+        allow_executor=True,
+        require_workspace="no",
+    ),
+    request: PythonSandboxExecuteRequest,
+) -> Any:
+    """Execute a Python script in the executor sandbox.
+
+    This endpoint is intended to be called by sandboxed registry actions via
+    an executor JWT (Bearer token). The workspace is derived from the token.
+    """
+    try:
+        service = SandboxService()
+        workspace_id = str(role.workspace_id) if role.workspace_id is not None else None
+        return await service.run_python(
+            script=request.script,
+            inputs=request.inputs,
+            dependencies=request.dependencies,
+            timeout_seconds=request.timeout_seconds,
+            allow_network=request.allow_network,
+            env_vars=request.env_vars,
+            workspace_id=workspace_id,
+        )
+    except SandboxTimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={"message": str(e)},
+        ) from e
+    except SandboxValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(e)},
+        ) from e
+    except (SandboxExecutionError, PackageInstallError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": str(e)},
+        ) from e
+    except Exception as e:
+        logger.warning("Unexpected sandbox error", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Unexpected error executing sandbox script"},
         ) from e
 
 

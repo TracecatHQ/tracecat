@@ -1,16 +1,16 @@
 from builtins import filter as filter_
 from builtins import map as map_
-from typing import Annotated, Any, Literal
-
-from tracecat.expressions.common import eval_jsonpath
-from tracecat.sandbox.safe_lambda import build_safe_lambda
-from typing_extensions import Doc
 import hashlib
 import json
-import os
-import redis.asyncio as redis
+from typing import Annotated, Any, Literal
+
 import orjson
-from tracecat_registry import ActionIsInterfaceError, registry
+import redis.asyncio as redis
+from typing_extensions import Doc
+
+from tracecat_registry import ActionIsInterfaceError, registry, secrets
+from tracecat_registry.utils.jsonpath import eval_jsonpath
+from tracecat_registry.utils.safe_lambda import build_safe_lambda
 
 
 @registry.register(
@@ -118,8 +118,8 @@ async def _deduplicate_redis(
     # Create Redis client directly to avoid event loop issues with Ray
 
     try:
-        # Get Redis URL from environment
-        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+        # Prefer secrets injection over direct environment access
+        redis_url = secrets.get_or_default("REDIS_URL") or "redis://localhost:6379"
         # Create a new Redis client in the current event loop
         redis_client = redis.from_url(
             redis_url,

@@ -13,11 +13,13 @@ from tracecat_registry.core.http import (
     http_request,
     httpx_to_response,
 )
-
-from tracecat.exceptions import TracecatException
-from tracecat.expressions.functions import str_to_b64
+from tracecat_registry.utils.exceptions import TracecatException
 
 PNG_URL = "https://urlscan.io/screenshots/019aa89e-05c5-714d-80ea-83fbeb06a500.png"
+PNG_BYTES = base64.b64decode(
+    # 1x1 transparent PNG
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ai9g0kAAAAASUVORK5CYII="
+)
 
 
 # Test fixtures
@@ -48,15 +50,6 @@ def mock_no_content_response() -> httpx.Response:
         status_code=204,
         headers={},
     )
-
-
-@pytest.fixture
-async def urlscan_png_bytes() -> bytes:
-    """Fetch the live PNG used for corruption regression tests."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(PNG_URL)
-        response.raise_for_status()
-        return response.content
 
 
 # Test helper functions
@@ -275,11 +268,16 @@ async def test_http_request_bad_request() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.integration
-async def test_http_request_png_corruption_integration(
-    urlscan_png_bytes: bytes,
-) -> None:
+@respx.mock
+async def test_http_request_png_corruption_integration() -> None:
     """Reproduce corruption when PNG bytes are coerced into text then base64 encoded."""
+    respx.get(PNG_URL).mock(
+        return_value=httpx.Response(
+            status_code=200,
+            headers={"Content-Type": "image/png"},
+            content=PNG_BYTES,
+        )
+    )
     response = await http_request(
         url=PNG_URL,
         method="GET",
@@ -288,20 +286,25 @@ async def test_http_request_png_corruption_integration(
     assert response["status_code"] == 200
     assert isinstance(response["data"], str)
 
-    corrupted_b64 = str_to_b64(response["data"])
-    expected_b64 = base64.b64encode(urlscan_png_bytes).decode()
+    corrupted_b64 = base64.b64encode(response["data"].encode()).decode()
+    expected_b64 = base64.b64encode(PNG_BYTES).decode()
 
     # Text decoding the PNG changes the payload, so the downstream base64 differs
     assert corrupted_b64 != expected_b64
-    assert base64.b64decode(corrupted_b64) != urlscan_png_bytes
+    assert base64.b64decode(corrupted_b64) != PNG_BYTES
 
 
 @pytest.mark.anyio
-@pytest.mark.integration
-async def test_http_request_png_base64_encode_data_integration(
-    urlscan_png_bytes: bytes,
-) -> None:
+@respx.mock
+async def test_http_request_png_base64_encode_data_integration() -> None:
     """Ensure base64_encode_data returns a lossless base64 string for binary downloads."""
+    respx.get(PNG_URL).mock(
+        return_value=httpx.Response(
+            status_code=200,
+            headers={"Content-Type": "image/png"},
+            content=PNG_BYTES,
+        )
+    )
     response = await http_request(
         url=PNG_URL,
         method="GET",
@@ -310,7 +313,7 @@ async def test_http_request_png_base64_encode_data_integration(
 
     assert response["status_code"] == 200
     assert isinstance(response["data"], str)
-    assert base64.b64decode(response["data"]) == urlscan_png_bytes
+    assert base64.b64decode(response["data"]) == PNG_BYTES
 
 
 # Test HTTP polling function
