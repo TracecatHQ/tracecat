@@ -5192,6 +5192,10 @@ export type WorkflowExecutionRead = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
+   * Execution type (draft or published). Draft uses live workflow graph.
+   */
+  execution_type?: ExecutionType
+  /**
    * The events in the workflow execution
    */
   events: Array<WorkflowExecutionEvent>
@@ -5248,6 +5252,10 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
+   * Execution type (draft or published). Draft uses live workflow graph.
+   */
+  execution_type?: ExecutionType
+  /**
    * Compact events in the workflow execution
    */
   events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
@@ -5294,6 +5302,10 @@ export type WorkflowExecutionReadMinimal = {
   history_length: number
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
+  /**
+   * Execution type (draft or published). Draft uses live workflow graph.
+   */
+  execution_type?: ExecutionType
 }
 
 /**
@@ -5858,6 +5870,14 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
   WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+
+export type WorkflowExecutionsCreateDraftWorkflowExecutionData = {
+  requestBody: WorkflowExecutionCreate
+  workspaceId: string
+}
+
+export type WorkflowExecutionsCreateDraftWorkflowExecutionResponse =
+  WorkflowExecutionCreateResponse
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -8001,6 +8021,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/draft": {
+    post: {
+      req: WorkflowExecutionsCreateDraftWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionCreateResponse
         /**
          * Validation Error
          */

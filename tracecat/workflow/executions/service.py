@@ -53,6 +53,7 @@ from tracecat.workflow.executions.common import (
 )
 from tracecat.workflow.executions.constants import WF_FAILURE_REF
 from tracecat.workflow.executions.enums import (
+    ExecutionType,
     TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
@@ -695,6 +696,35 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
         )
 
+    def create_draft_workflow_execution_nowait(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+    ) -> WorkflowExecutionCreateResponse:
+        """Create a new draft workflow execution.
+
+        Draft executions use the live workflow graph and resolve aliases from live workflows.
+        This method schedules the workflow execution and returns immediately.
+        """
+        wf_exec_id = generate_exec_id(wf_id)
+        coro = self._dispatch_workflow(
+            dsl=dsl,
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+            trigger_inputs=payload,
+            trigger_type=trigger_type,
+            execution_type=ExecutionType.DRAFT,
+        )
+        _ = asyncio.ensure_future(coro)
+        return WorkflowExecutionCreateResponse(
+            message="Draft workflow execution started",
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+        )
+
     @audit_log(resource_type="workflow_execution", action="create")
     async def create_workflow_execution(
         self,
@@ -727,6 +757,7 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID,
         trigger_inputs: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
+        execution_type: ExecutionType = ExecutionType.PUBLISHED,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -748,6 +779,7 @@ class WorkflowExecutionsService:
             run_config=dsl.config,
             kwargs=kwargs,
             trigger_type=trigger_type,
+            execution_type=execution_type,
         )
 
         pairs = [trigger_type.to_temporal_search_attr_pair()]
@@ -761,12 +793,18 @@ class WorkflowExecutionsService:
             pairs.append(
                 TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
             )
+        # Add execution type search attribute
+        pairs.append(execution_type.to_temporal_search_attr_pair())
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
                 DSLRunArgs(
-                    dsl=dsl, role=self.role, wf_id=wf_id, trigger_inputs=trigger_inputs
+                    dsl=dsl,
+                    role=self.role,
+                    wf_id=wf_id,
+                    trigger_inputs=trigger_inputs,
+                    execution_type=execution_type,
                 ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,

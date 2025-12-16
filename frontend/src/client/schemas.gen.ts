@@ -16503,6 +16503,12 @@ export const $WorkflowExecutionRead = {
     trigger_type: {
       $ref: "#/components/schemas/TriggerType",
     },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses live workflow graph.",
+      default: "published",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEvent",
@@ -16621,6 +16627,12 @@ export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
       trigger_type: {
         $ref: "#/components/schemas/TriggerType",
       },
+      execution_type: {
+        $ref: "#/components/schemas/ExecutionType",
+        description:
+          "Execution type (draft or published). Draft uses live workflow graph.",
+        default: "published",
+      },
       events: {
         items: {
           $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_",
@@ -16737,6 +16749,12 @@ export const $WorkflowExecutionReadMinimal = {
     },
     trigger_type: {
       $ref: "#/components/schemas/TriggerType",
+    },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses live workflow graph.",
+      default: "published",
     },
   },
   type: "object",

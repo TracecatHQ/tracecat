@@ -50,6 +50,8 @@ from tracecat.workflow.executions.common import (
     is_utility_activity,
 )
 from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
@@ -94,11 +96,29 @@ class WorkflowExecutionBase(BaseModel):
     history_length: int = Field(..., description="Number of events in the history")
     parent_wf_exec_id: WorkflowExecutionID | None = None
     trigger_type: TriggerType
+    execution_type: ExecutionType = Field(
+        default=ExecutionType.PUBLISHED,
+        description="Execution type (draft or published). Draft uses live workflow graph.",
+    )
 
 
 class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
     @staticmethod
     def from_dataclass(execution: WorkflowExecution) -> WorkflowExecutionReadMinimal:
+        # Extract execution_type from search attributes
+        execution_type = ExecutionType.PUBLISHED
+        try:
+            typed_attrs = execution.typed_search_attributes
+            if typed_attrs:
+                execution_type_attr = typed_attrs.get(
+                    TemporalSearchAttr.EXECUTION_TYPE.key
+                )
+                if execution_type_attr is not None:
+                    execution_type = ExecutionType(execution_type_attr)
+        except Exception:
+            # Fall back to PUBLISHED if attribute not found or invalid
+            pass
+
         return WorkflowExecutionReadMinimal(
             id=execution.id,
             run_id=execution.run_id,
@@ -113,6 +133,7 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             trigger_type=get_trigger_type_from_search_attr(
                 execution.typed_search_attributes, execution.id
             ),
+            execution_type=execution_type,
         )
 
 

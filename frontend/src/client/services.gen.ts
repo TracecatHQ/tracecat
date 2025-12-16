@@ -406,6 +406,8 @@ import type {
   VcsSaveGithubAppCredentialsResponse,
   WorkflowExecutionsCancelWorkflowExecutionData,
   WorkflowExecutionsCancelWorkflowExecutionResponse,
+  WorkflowExecutionsCreateDraftWorkflowExecutionData,
+  WorkflowExecutionsCreateDraftWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
   WorkflowExecutionsCreateWorkflowExecutionResponse,
   WorkflowExecutionsGetWorkflowExecutionCompactData,
@@ -1610,6 +1612,35 @@ export const workflowExecutionsGetWorkflowExecutionCompact = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Draft Workflow Execution
+ * Create and schedule a draft workflow execution.
+ *
+ * Draft executions run the current live workflow graph (not the committed definition).
+ * Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsCreateDraftWorkflowExecution = (
+  data: WorkflowExecutionsCreateDraftWorkflowExecutionData
+): CancelablePromise<WorkflowExecutionsCreateDraftWorkflowExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/draft",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

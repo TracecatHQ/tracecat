@@ -13,7 +13,11 @@ from tracecat.auth.enums import SpecialUserID
 from tracecat.chat.schemas import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowDefinition
-from tracecat.dsl.common import DSLInput, get_trigger_type_from_search_attr
+from tracecat.dsl.common import (
+    DSLInput,
+    get_execution_type_from_search_attr,
+    get_trigger_type_from_search_attr,
+)
 from tracecat.ee.interactions.schemas import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
@@ -129,6 +133,9 @@ async def get_workflow_execution(
         trigger_type=get_trigger_type_from_search_attr(
             execution.typed_search_attributes, execution.id
         ),
+        execution_type=get_execution_type_from_search_attr(
+            execution.typed_search_attributes
+        ),
     )
 
 
@@ -186,6 +193,9 @@ async def get_workflow_execution_compact(
         trigger_type=get_trigger_type_from_search_attr(
             execution.typed_search_attributes, execution.id
         ),
+        execution_type=get_execution_type_from_search_attr(
+            execution.typed_search_attributes
+        ),
     )
 
 
@@ -217,6 +227,57 @@ async def create_workflow_execution(
     dsl_input = DSLInput(**defn.content)
     try:
         response = service.create_workflow_execution_nowait(
+            dsl=dsl_input, wf_id=wf_id, payload=params.inputs
+        )
+        return response
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "TracecatValidationError",
+                "message": str(e),
+                "detail": e.detail,
+            },
+        ) from e
+
+
+@router.post("/draft")
+async def create_draft_workflow_execution(
+    role: WorkspaceUserRole,
+    params: WorkflowExecutionCreate,
+    session: AsyncDBSession,
+) -> WorkflowExecutionCreateResponse:
+    """Create and schedule a draft workflow execution.
+
+    Draft executions run the current live workflow graph (not the committed definition).
+    Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+    """
+    from tracecat.workflow.management.management import WorkflowsManagementService
+
+    service = await WorkflowExecutionsService.connect(role=role)
+    wf_id = WorkflowUUID.new(params.workflow_id)
+
+    # Build DSL from the live workflow, not from committed definition
+    async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
+        workflow = await mgmt_service.get_workflow(wf_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+            )
+        try:
+            dsl_input = await mgmt_service.build_dsl_from_workflow(workflow)
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "type": "TracecatValidationError",
+                    "message": str(e),
+                    "detail": e.detail,
+                },
+            ) from e
+
+    try:
+        response = service.create_draft_workflow_execution_nowait(
             dsl=dsl_input, wf_id=wf_id, payload=params.inputs
         )
         return response
