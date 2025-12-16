@@ -6,7 +6,7 @@ from collections import deque
 from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Any, Self, cast
+from typing import Any, Literal, NotRequired, Self, TypedDict, cast
 
 import orjson
 import temporalio.api.common.v1
@@ -15,6 +15,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    TypeAdapter,
     ValidationError,
     field_validator,
     model_validator,
@@ -65,7 +66,6 @@ from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ActionID
-from tracecat.identifiers.action import ActionUUID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
@@ -74,6 +74,27 @@ from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 
 _memo_payload_converter = PydanticPayloadConverter()
+
+
+class UpstreamEdgeData(TypedDict):
+    """Type definition for upstream edge data stored in Action.upstream_edges.
+
+    This represents a single edge connecting a source node to a target action.
+    The source_id is required, while source_type and source_handle are optional.
+    """
+
+    source_id: str
+    """The ID of the source node (action UUID or trigger ID)."""
+
+    source_type: NotRequired[Literal["trigger", "udf"]]
+    """The type of the source node."""
+
+    source_handle: NotRequired[Literal["success", "error"]]
+    """The edge type, defaults to 'success' if not specified."""
+
+
+UpstreamEdgeDataValidator = TypeAdapter(UpstreamEdgeData)
+"""TypeAdapter for validating upstream edge data at runtime."""
 
 
 class DSLEntrypoint(BaseModel):
@@ -611,96 +632,6 @@ def context_locator(
     return f"{ctx}.{stmt.ref} -> {loc}"
 
 
-def _normalize_action_id(raw_id: str | ActionID) -> ActionUUID:
-    """Normalize a raw action ID to an ActionUUID.
-
-    Handles all supported action ID formats:
-    - UUID string: "550e8400-e29b-41d4-a716-446655440000"
-    - Short ID: "act_xxx"
-    - Legacy prefixed: "act-550e8400e29b41d4a716446655440000"
-    - UUID object (ActionID)
-
-    Args:
-        raw_id: The raw action ID from the graph (string or UUID).
-
-    Returns:
-        ActionUUID: The normalized ActionUUID instance.
-
-    Raises:
-        TracecatValidationError: If the ID format is invalid.
-    """
-    try:
-        return ActionUUID.new(raw_id)
-    except ValueError as e:
-        raise TracecatValidationError(
-            f"Invalid action ID in workflow graph: {raw_id!r}"
-        ) from e
-
-
-def build_action_statements(
-    graph: RFGraph, actions: list[Action]
-) -> list[ActionStatement]:
-    """Convert DB Actions into ActionStatements using the graph.
-
-    DEPRECATED: Use build_action_statements_from_actions() instead.
-    This function is kept for backward compatibility during the transition.
-
-    This function handles backward compatibility with different action ID formats
-    that may exist in the workflow graph (UUID strings, short IDs, legacy prefixed IDs).
-    """
-    # Build lookup keyed by canonical ActionUUID for consistent normalization
-    id2action: dict[ActionUUID, Action] = {
-        ActionUUID.from_uuid(action.id): action for action in actions
-    }
-
-    statements = []
-    for node in graph.action_nodes():
-        # Normalize the node ID for DB lookup
-        node_uuid = _normalize_action_id(node.id)
-
-        dependencies: list[str] = []
-        for dep_act_id in graph.dep_list[node.id]:
-            # Normalize the dependency ID for DB lookup
-            dep_uuid = _normalize_action_id(dep_act_id)
-            base_ref = id2action[dep_uuid].ref
-            # Edge comparison uses raw string IDs (graph structure, not DB lookup)
-            for edge in graph.edges:
-                if edge.source != dep_act_id or edge.target != node.id:
-                    continue
-                if edge.source_handle == EdgeType.ERROR:
-                    ref = dep_from_edge_components(base_ref, edge.source_handle)
-                else:
-                    ref = base_ref
-                dependencies.append(ref)
-        dependencies = sorted(dependencies)
-
-        action = id2action[node_uuid]
-        control_flow = ActionControlFlow.model_validate(action.control_flow)
-        args = yaml.safe_load(action.inputs) or {}
-        interaction = (
-            ActionInteractionValidator.validate_python(action.interaction)
-            if action.is_interactive and action.interaction
-            else None
-        )
-        action_stmt = ActionStatement(
-            id=action.id,
-            ref=action.ref,
-            action=action.type,
-            args=args,
-            depends_on=dependencies,
-            run_if=control_flow.run_if,
-            for_each=control_flow.for_each,
-            retry_policy=control_flow.retry_policy,
-            start_delay=control_flow.start_delay,
-            wait_until=control_flow.wait_until,
-            join_strategy=control_flow.join_strategy,
-            interaction=interaction,
-            environment=control_flow.environment,
-        )
-        statements.append(action_stmt)
-    return statements
-
-
 def build_action_statements_from_actions(
     actions: list[Action],
 ) -> list[ActionStatement]:
@@ -717,8 +648,10 @@ def build_action_statements_from_actions(
 
         # Build dependencies from upstream_edges
         for edge_data in action.upstream_edges:
-            source_id_str = edge_data.get("source_id")
-            source_handle = edge_data.get("source_handle", "success")
+            # Validate edge data at runtime using TypeAdapter
+            edge = UpstreamEdgeDataValidator.validate_python(edge_data)
+            source_id_str = edge.get("source_id")
+            source_handle = edge.get("source_handle", "success")
 
             # Convert string source_id to ActionID (UUID) for lookup
             if source_id_str:
