@@ -285,10 +285,7 @@ export function WorkflowPanel({
                   <div className="flex items-center gap-2">
                     <FormLabel className="flex items-center text-xs">
                       <HoverCard openDelay={100} closeDelay={100}>
-                        <HoverCardTrigger
-                          asChild
-                          className="hover:border-none"
-                        >
+                        <HoverCardTrigger asChild className="hover:border-none">
                           <Info className="mr-1 size-3 stroke-muted-foreground" />
                         </HoverCardTrigger>
                         <HoverCardContent
@@ -345,10 +342,7 @@ export function WorkflowPanel({
                   <div className="flex items-center gap-2">
                     <FormLabel className="flex items-center text-xs">
                       <HoverCard openDelay={100} closeDelay={100}>
-                        <HoverCardTrigger
-                          asChild
-                          className="hover:border-none"
-                        >
+                        <HoverCardTrigger asChild className="hover:border-none">
                           <Info className="mr-1 size-3 stroke-muted-foreground" />
                         </HoverCardTrigger>
                         <HoverCardContent
