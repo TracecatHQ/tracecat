@@ -1,6 +1,5 @@
 import asyncio
 import traceback
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,6 @@ from tracecat.executor.service import (
 )
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -36,20 +34,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
-
-
-@pytest.fixture
-def mock_run_context():
-    wf_id = "wf-" + "0" * 32
-    exec_id = "exec-" + "0" * 32
-    wf_exec_id = f"{wf_id}:{exec_id}"
-    run_id = uuid.uuid4()
-    return RunContext(
-        wf_id=WorkflowUUID.from_legacy(wf_id),
-        wf_exec_id=wf_exec_id,
-        wf_run_id=run_id,
-        environment="default",
-    )
 
 
 @pytest.fixture(scope="function")
@@ -85,7 +69,12 @@ def mock_package(tmp_path):
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_udf_with_secrets(
-    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
+    mock_package,
+    test_role,
+    db_session_with_repo,
+    mock_run_context,
+    monkeysession,
+    registry_context_env,
 ):
     """Test that the executor can run a UDF with secrets through Ray."""
     session, db_repo_id = db_session_with_repo
@@ -149,7 +138,11 @@ async def test_executor_can_run_udf_with_secrets(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_template_action_with_secret(
-    mock_package, test_role, db_session_with_repo, mock_run_context
+    mock_package,
+    test_role,
+    db_session_with_repo,
+    mock_run_context,
+    registry_context_env,
 ):
     """Test that checks that Template Action steps correctly pull in their dependent secrets."""
 
@@ -253,7 +246,7 @@ async def test_executor_can_run_template_action_with_secret(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_template_action_with_oauth(
-    test_role, db_session_with_repo, mock_run_context
+    test_role, db_session_with_repo, mock_run_context, registry_context_env
 ):
     """Test that Template Action steps correctly pull in OAuth secrets.
 
@@ -363,7 +356,12 @@ async def test_executor_can_run_template_action_with_oauth(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_udf_with_oauth(
-    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
+    mock_package,
+    test_role,
+    db_session_with_repo,
+    mock_run_context,
+    monkeysession,
+    registry_context_env,
 ):
     """Test that the executor can run a UDF with OAuth secrets through Ray.
 
@@ -434,7 +432,12 @@ async def test_executor_can_run_udf_with_oauth(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_udf_with_oauth_in_secret_expression(
-    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
+    mock_package,
+    test_role,
+    db_session_with_repo,
+    mock_run_context,
+    monkeysession,
+    registry_context_env,
 ):
     """Test that the executor can run a UDF with OAuth secrets in a secret expression."""
 
@@ -555,6 +558,7 @@ async def test_dispatcher(
     mock_run_context,
     db_session_with_repo,
     monkeypatch: pytest.MonkeyPatch,
+    registry_context_env,
 ):
     """Try to replicate `Error in loop`ty error, where usually we fail validation inside the executor loop.
 

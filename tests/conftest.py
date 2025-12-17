@@ -28,8 +28,10 @@ from tracecat.db.engine import get_async_engine, get_async_session_context_manag
 from tracecat.db.models import Base, Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
+from tracecat.dsl.schemas import RunContext
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -853,3 +855,45 @@ def mock_slack_secrets():
 
         mock_get.side_effect = side_effect
         yield mock_get
+
+
+# ---------------------------------------------------------------------------
+# Registry SDK Context fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_run_context():
+    """Create a mock RunContext for testing."""
+    wf_id = "wf-" + "0" * 32
+    exec_id = "exec-" + "0" * 32
+    wf_exec_id = f"{wf_id}:{exec_id}"
+    run_id = uuid.uuid4()
+    return RunContext(
+        wf_id=WorkflowUUID.from_legacy(wf_id),
+        wf_exec_id=wf_exec_id,
+        wf_run_id=run_id,
+        environment="default",
+    )
+
+
+@pytest.fixture
+def registry_context_env(test_role, mock_run_context):
+    """Set up environment variables required by the registry SDK context.
+
+    The standalone registry SDK requires these environment variables to be set
+    before calling `init_context_from_env()`.
+    """
+    env_vars = {
+        "TRACECAT__WORKSPACE_ID": str(test_role.workspace_id),
+        "TRACECAT__WORKFLOW_ID": str(mock_run_context.wf_id),
+        "TRACECAT__RUN_ID": str(mock_run_context.wf_run_id),
+        "TRACECAT__ENVIRONMENT": mock_run_context.environment,
+    }
+    # Set env vars
+    for key, value in env_vars.items():
+        os.environ[key] = value
+    yield
+    # Clean up
+    for key in env_vars:
+        os.environ.pop(key, None)

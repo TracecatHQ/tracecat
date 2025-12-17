@@ -346,10 +346,6 @@ class TablesClient:
             params={"limit": limit},
         )
 
-    # === Lookup Operations === #
-    # NOTE: These endpoints need to be added to the API first.
-    # They are used by core.table.lookup and core.table.is_in actions.
-
     async def lookup(
         self,
         *,

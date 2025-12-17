@@ -88,6 +88,7 @@ async def test_template_action_fetches_nested_secrets(
     monkeypatch,
     db_session_with_repo,
     mock_package,
+    registry_context_env,
 ):
     """Test template action with secrets.
 
@@ -471,7 +472,9 @@ def test_template_action_parses_from_dict():
     ],
     ids=["valid", "with_defaults", "missing_required"],
 )
-async def test_template_action_runs(test_args, expected, should_raise):
+async def test_template_action_runs(
+    test_args, expected, should_raise, registry_context_env
+):
     action = TemplateAction(
         **{
             "type": "action",
@@ -586,7 +589,9 @@ async def test_template_action_runs(test_args, expected, should_raise):
     ],
     ids=["valid_status", "default_status", "invalid_status"],
 )
-async def test_template_action_with_enums(test_args, expected, should_raise):
+async def test_template_action_with_enums(
+    test_args, expected, should_raise, registry_context_env
+):
     """Test template action with enums.
     This test verifies that:
     1. The action can be constructed with an enum status
@@ -661,6 +666,7 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
 async def test_template_action_with_vars_expressions(
     test_role,
     db_session_with_repo,
+    registry_context_env,
 ):
     """Test template action with VARS expressions.
 
@@ -841,6 +847,7 @@ async def test_template_action_with_vars_expressions(
 async def test_template_action_with_multi_level_fallback_chain(
     test_role,
     db_session_with_repo,
+    registry_context_env,
 ):
     """Test template action with multi-level fallback chain using || operator.
 

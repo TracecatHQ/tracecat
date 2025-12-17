@@ -50,6 +50,77 @@ async def list_tables(
     ]
 
 
+@router.get("/lookup")
+async def lookup_rows(
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table: str = Query(..., description="Table name"),
+    column: str = Query(..., description="Column to search"),
+    value: Any = Query(..., description="Value to match"),
+    limit: int = Query(default=1, ge=1, le=1000, description="Maximum rows to return"),
+) -> list[dict[str, Any]]:
+    service = TablesService(session, role=role)
+    try:
+        return await service.lookup_rows(
+            table,
+            columns=[column],
+            values=[value],
+            limit=limit,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.get("/exists", response_model=ExistsRowsResponse)
+async def exists_rows(
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table: str = Query(..., description="Table name"),
+    column: str = Query(..., description="Column to search"),
+    value: str = Query(..., description="Value to check"),
+) -> ExistsRowsResponse:
+    service = TablesService(session, role=role)
+    try:
+        exists = await service.exists_rows(table, columns=[column], values=[value])
+        return ExistsRowsResponse(exists=exists)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.get("/lookup-many")
+async def lookup_many_rows(
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table: str = Query(..., description="Table name"),
+    column: str = Query(..., description="Column to search"),
+    values: list[str] = Query(..., description="Values to match (OR logic)"),
+    limit: int | None = Query(
+        default=None, ge=1, le=1000, description="Maximum rows to return"
+    ),
+) -> list[dict[str, Any]]:
+    service = TablesService(session, role=role)
+    all_rows: list[dict[str, Any]] = []
+    for value in values:
+        rows = await service.lookup_rows(
+            table,
+            columns=[column],
+            values=[value],
+            limit=limit,
+        )
+        all_rows.extend(rows)
+        if limit is not None and len(all_rows) >= limit:
+            return all_rows[:limit]
+    return all_rows
+
+
 @router.get("/by-name/{name}", response_model=TableRead)
 async def get_table_by_name(
     role: ExecutorWorkspaceRole,
@@ -341,74 +412,3 @@ async def download_table(
     service = TablesService(session, role=role)
     table = await service.get_table(table_id)
     return await service.list_rows(table=table, limit=limit)
-
-
-@router.get("/lookup")
-async def lookup_rows(
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    table: str = Query(..., description="Table name"),
-    column: str = Query(..., description="Column to search"),
-    value: str = Query(..., description="Value to match"),
-    limit: int = Query(default=1, ge=1, le=1000, description="Maximum rows to return"),
-) -> list[dict[str, Any]]:
-    service = TablesService(session, role=role)
-    try:
-        return await service.lookup_rows(
-            table,
-            columns=[column],
-            values=[value],
-            limit=limit,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
-
-
-@router.get("/exists", response_model=ExistsRowsResponse)
-async def exists_rows(
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    table: str = Query(..., description="Table name"),
-    column: str = Query(..., description="Column to search"),
-    value: str = Query(..., description="Value to check"),
-) -> ExistsRowsResponse:
-    service = TablesService(session, role=role)
-    try:
-        exists = await service.exists_rows(table, columns=[column], values=[value])
-        return ExistsRowsResponse(exists=exists)
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
-
-
-@router.get("/lookup-many")
-async def lookup_many_rows(
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    table: str = Query(..., description="Table name"),
-    column: str = Query(..., description="Column to search"),
-    values: list[str] = Query(..., description="Values to match (OR logic)"),
-    limit: int | None = Query(
-        default=None, ge=1, le=1000, description="Maximum rows to return"
-    ),
-) -> list[dict[str, Any]]:
-    service = TablesService(session, role=role)
-    all_rows: list[dict[str, Any]] = []
-    for value in values:
-        rows = await service.lookup_rows(
-            table,
-            columns=[column],
-            values=[value],
-            limit=limit,
-        )
-        all_rows.extend(rows)
-        if limit is not None and len(all_rows) >= limit:
-            return all_rows[:limit]
-    return all_rows
