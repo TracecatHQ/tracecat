@@ -137,26 +137,32 @@ export function ControlledYamlField({
   description,
   type,
   info,
+  hideType,
 }: {
   fieldName: string
   label?: string
   description?: string
   type?: string
   info?: string
+  hideType?: boolean
 }) {
   const methods = useFormContext()
   const forEach = methods.watch("for_each")
+  // Only show FormLabelComponent if we have content to display
+  const showLabel = label || description || (!hideType && type)
   return (
     <Controller
       name={fieldName}
       control={methods.control}
       render={() => (
         <FormItem>
-          <FormLabelComponent
-            label={label}
-            description={description}
-            type={type}
-          />
+          {showLabel && (
+            <FormLabelComponent
+              label={label}
+              description={description}
+              type={hideType ? undefined : type}
+            />
+          )}
           <FormMessage className="whitespace-pre-line" />
           {info && (
             <div className="flex max-w-fit items-center gap-1 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-500">
