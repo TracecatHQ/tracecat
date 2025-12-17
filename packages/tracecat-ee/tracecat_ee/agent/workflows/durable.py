@@ -18,7 +18,7 @@ from pydantic_ai.tools import (
     DeferredToolResults,
 )
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.agent.parsers import parse_output_type, try_parse_json
@@ -297,6 +297,9 @@ class DurableAgentWorkflow:
                     ),
                     start_to_close_timeout=timedelta(seconds=60),
                 )
+            except CancelledError:
+                # Re-raise cancellation to allow workflow to terminate properly
+                raise
             except Exception as e:
                 # Streaming is non-critical - log the error but continue processing
                 # This ensures agent execution completes even if streaming fails
