@@ -433,23 +433,6 @@ export function WorkflowPanel({
                               </FormItem>
                             )}
                           />
-                          <div className="space-y-2">
-                            <FormLabel className="flex items-center gap-2 text-xs">
-                              <span>Workflow ID</span>
-                              <CopyButton
-                                value={workflow.id}
-                                toastMessage="Copied workflow ID to clipboard"
-                              />
-                            </FormLabel>
-                            <div className="rounded-md border shadow-sm">
-                              <Input
-                                defaultValue={workflow.id}
-                                className="rounded-md border-none text-xs shadow-none"
-                                readOnly
-                                disabled
-                              />
-                            </div>
-                          </div>
                         </div>
                       </AccordionContent>
                     </AccordionItem>

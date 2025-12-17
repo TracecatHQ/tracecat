@@ -4,16 +4,18 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
+  CopyIcon,
   DownloadIcon,
   GitBranchIcon,
   MoreHorizontal,
   PlayIcon,
   SaveIcon,
   SquarePlay,
+  Trash2Icon,
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import React from "react"
 import { useForm } from "react-hook-form"
 import YAML from "yaml"
@@ -23,6 +25,17 @@ import { ApiError } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -32,11 +45,10 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import { Dialog } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
+  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -66,8 +78,9 @@ import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateManualWorkflowExecution,
   useOrgAppSettings,
+  useWorkflowManager,
 } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { cn, copyToClipboard } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -556,10 +569,18 @@ function BuilderNavOptions({
   workspaceId: string
   workflowId: string
 }) {
+  const router = useRouter()
   const { appSettings } = useOrgAppSettings()
+  const { deleteWorkflow } = useWorkflowManager()
   const enabledExport = appSettings?.app_workflow_export_enabled
+
+  const handleDelete = async () => {
+    await deleteWorkflow(workflowId)
+    router.push(`/workspaces/${workspaceId}/workflows`)
+  }
+
   return (
-    <Dialog>
+    <AlertDialog>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon">
@@ -568,47 +589,59 @@ function BuilderNavOptions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuLabel>Export draft</DropdownMenuLabel>
           <ExportMenuItem
             enabledExport={enabledExport}
             format="yaml"
             workspaceId={workspaceId}
             workflowId={workflowId}
             draft={true}
-            label="YAML"
-            icon={<DownloadIcon className="mr-2 size-4" />}
+            label="Export draft"
+            icon={<DownloadIcon className="mr-2 size-3.5" />}
           />
           <ExportMenuItem
             enabledExport={enabledExport}
-            format="json"
+            format="yaml"
             workspaceId={workspaceId}
             workflowId={workflowId}
-            draft={true}
-            label="JSON"
-            icon={<DownloadIcon className="mr-2 size-4" />}
+            draft={false}
+            label="Export saved"
+            icon={<DownloadIcon className="mr-2 size-3.5" />}
           />
+          <DropdownMenuItem
+            onClick={() =>
+              copyToClipboard({
+                value: workflowId,
+                message: "Copied workflow ID to clipboard",
+              })
+            }
+          >
+            <CopyIcon className="mr-2 size-3.5" />
+            Copy workflow ID
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuLabel>Export saved</DropdownMenuLabel>
-          <ExportMenuItem
-            enabledExport={enabledExport}
-            format="yaml"
-            workspaceId={workspaceId}
-            workflowId={workflowId}
-            draft={false}
-            label="YAML"
-            icon={<DownloadIcon className="mr-2 size-4" />}
-          />
-          <ExportMenuItem
-            enabledExport={enabledExport}
-            format="json"
-            workspaceId={workspaceId}
-            workflowId={workflowId}
-            draft={false}
-            label="JSON"
-            icon={<DownloadIcon className="mr-2 size-4" />}
-          />
+          <AlertDialogTrigger asChild>
+            <DropdownMenuItem className="text-destructive focus:text-destructive">
+              <Trash2Icon className="mr-2 size-3.5" />
+              Delete workflow
+            </DropdownMenuItem>
+          </AlertDialogTrigger>
         </DropdownMenuContent>
       </DropdownMenu>
-    </Dialog>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete workflow</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete this workflow? This action cannot be
+            undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={handleDelete}>
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
