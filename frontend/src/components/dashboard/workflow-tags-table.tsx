@@ -35,7 +35,7 @@ import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowsTagsDashboardTable() {
+export function WorkflowsTagsTable() {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()

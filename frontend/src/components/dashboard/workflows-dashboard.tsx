@@ -2,10 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect } from "react"
-import { WorkflowsTagsDashboardTable } from "@/components/dashboard/dashboard-table"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowFoldersTable } from "@/components/dashboard/workflow-folders-table"
 import { WorkflowTagsSidebar } from "@/components/dashboard/workflow-tags-sidebar"
+import { WorkflowsTagsTable } from "@/components/dashboard/workflow-tags-table"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkflowTags } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -48,7 +48,7 @@ function WorkflowTagsDashboard({ workspaceId }: { workspaceId: string }) {
           <WorkflowTagsSidebar workspaceId={workspaceId} />
         </div>
         <div className="col-span-5 flex flex-col space-y-8">
-          <WorkflowsTagsDashboardTable />
+          <WorkflowsTagsTable />
         </div>
       </div>
     </div>
