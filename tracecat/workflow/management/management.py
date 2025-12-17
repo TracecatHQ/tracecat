@@ -52,6 +52,7 @@ from tracecat.validation.schemas import (
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     GetErrorHandlerWorkflowIDActivityInputs,
@@ -410,21 +411,12 @@ class WorkflowsManagementService(BaseService):
                            If False, resolve from live Workflow aliases (for draft executions).
         """
         if use_committed:
-            # For published executions: resolve using the workflow that currently owns
-            # the alias, then fetch the latest committed definition for that workflow.
-            workflow_stmt = select(Workflow.id).where(
-                Workflow.workspace_id == self.role.workspace_id,
-                Workflow.alias == alias,
-            )
-            workflow_result = await self.session.execute(workflow_stmt)
-            workflow_id = workflow_result.scalar_one_or_none()
-            if workflow_id is None:
-                return None
+            # For published executions: resolve from the latest committed definition with this alias
             statement = (
                 select(WorkflowDefinition.workflow_id)
                 .where(
                     WorkflowDefinition.workspace_id == self.role.workspace_id,
-                    WorkflowDefinition.workflow_id == workflow_id,
+                    WorkflowDefinition.alias == alias,
                 )
                 .order_by(WorkflowDefinition.version.desc())
                 .limit(1)
@@ -722,10 +714,6 @@ class WorkflowsManagementService(BaseService):
     async def get_error_handler_workflow_id(
         input: GetErrorHandlerWorkflowIDActivityInputs,
     ) -> WorkflowID | None:
-        from tracecat.workflow.management.definitions import (
-            WorkflowDefinitionsService,
-        )
-
         args = input.args
         id_or_alias = None
         async with WorkflowsManagementService.with_session(role=args.role) as service:
