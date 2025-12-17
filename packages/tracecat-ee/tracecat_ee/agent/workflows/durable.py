@@ -285,14 +285,24 @@ class DurableAgentWorkflow:
         )
         serialized_run_context = self.run_ctx_type.serialize_run_context(ctx)
         async for event in events:
-            await workflow.execute_activity_method(
-                AgentActivities.event_stream_handler,
-                args=(
-                    EventStreamHandlerArgs(
-                        event=event,
-                        serialized_run_context=serialized_run_context,
+            try:
+                await workflow.execute_activity_method(
+                    AgentActivities.event_stream_handler,
+                    args=(
+                        EventStreamHandlerArgs(
+                            event=event,
+                            serialized_run_context=serialized_run_context,
+                        ),
+                        ctx.deps,
                     ),
-                    ctx.deps,
-                ),
-                start_to_close_timeout=timedelta(seconds=60),
-            )
+                    start_to_close_timeout=timedelta(seconds=60),
+                )
+            except Exception as e:
+                # Streaming is non-critical - log the error but continue processing
+                # This ensures agent execution completes even if streaming fails
+                logger.warning(
+                    "Failed to stream event, continuing agent execution",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    event_type=type(event).__name__,
+                )
