@@ -18,6 +18,7 @@ from tracecat_registry.core.cases import (
     search_cases,
     update_case,
     update_comment,
+    update_payload,
     upload_attachment_from_url,
 )
 
@@ -122,6 +123,33 @@ class TestCoreCreate:
 
         # Verify the result
         assert result == mock_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_with_list_payload(self, mock_with_session, mock_case):
+        """Test case creation with a list payload."""
+        mock_service = AsyncMock()
+        mock_case.payload = [{"alert": "first"}, {"alert": "second"}]
+        mock_case.model_dump.return_value["payload"] = mock_case.payload
+        mock_service.create_case.return_value = mock_case
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_case(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            payload=[{"alert": "first"}, {"alert": "second"}],
+        )
+
+        mock_service.create_case.assert_called_once()
+        call_args = mock_service.create_case.call_args[0][0]
+        assert isinstance(call_args, CaseCreate)
+        assert call_args.payload == [{"alert": "first"}, {"alert": "second"}]
+        assert result["payload"] == [{"alert": "first"}, {"alert": "second"}]
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_create_case_no_fields(self, mock_with_session, mock_case):
@@ -231,6 +259,36 @@ class TestCoreUpdate:
         assert update_arg.fields == {"field1": "new_value", "field3": "value3"}
 
         # Verify the result
+        assert result == updated_case.to_dict.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_with_list_payload(self, mock_with_session, mock_case):
+        """Test updating a case with a list payload."""
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.to_dict.return_value = {
+            "id": str(mock_case.id),
+            "summary": mock_case.summary,
+            "payload": [{"event": 1}, {"event": 2}],
+        }
+        mock_service.update_case.return_value = updated_case
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await update_case(
+            case_id=str(mock_case.id),
+            payload=[{"event": 1}, {"event": 2}],
+        )
+
+        mock_service.update_case.assert_called_once()
+        case_arg, update_arg = mock_service.update_case.call_args[0]
+        assert case_arg is mock_case
+        assert isinstance(update_arg, CaseUpdate)
+        assert update_arg.payload == [{"event": 1}, {"event": 2}]
         assert result == updated_case.to_dict.return_value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
@@ -2085,3 +2143,104 @@ class TestCoreUploadAttachmentFromURL:
         )
 
         assert result == {"id": "attachment-id"}
+
+
+@pytest.mark.anyio
+class TestCoreUpdatePayload:
+    """Test cases for the update_payload UDF."""
+
+    @staticmethod
+    def _setup_with_session(mock_with_session, service):
+        """Helper to wire the mocked with_session context manager."""
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = service
+        mock_with_session.return_value = mock_ctx
+
+    @pytest.mark.parametrize(
+        "existing_payload,new_payload,append,expected",
+        [
+            # Replace cases
+            (
+                {"orig": "value"},
+                {"new_key": "new_value"},
+                False,
+                {"new_key": "new_value"},
+            ),
+            (
+                [{"item": 0}],
+                [{"item": 1}, {"item": 2}],
+                False,
+                [{"item": 1}, {"item": 2}],
+            ),
+            # Append behaviors
+            (
+                {"existing_key": "existing_value"},
+                {"new_key": "new_value"},
+                True,
+                {"existing_key": "existing_value", "new_key": "new_value"},
+            ),
+            (
+                [{"item": 1}],
+                [{"item": 2}, {"item": 3}],
+                True,
+                [{"item": 1}, {"item": 2}, {"item": 3}],
+            ),
+            (
+                [{"item": 1}],
+                {"new_item": "value"},
+                True,
+                [{"item": 1}, {"new_item": "value"}],
+            ),
+            (
+                {"existing_key": "existing_value"},
+                [{"item": 1}, {"item": 2}],
+                True,
+                [{"existing_key": "existing_value"}, {"item": 1}, {"item": 2}],
+            ),
+            (None, {"new_key": "new_value"}, True, {"new_key": "new_value"}),
+        ],
+    )
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_payload_happy_paths(
+        self,
+        mock_with_session,
+        mock_case,
+        existing_payload,
+        new_payload,
+        append,
+        expected,
+    ):
+        mock_case.payload = existing_payload
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.to_dict.return_value = {
+            "id": str(mock_case.id),
+            "payload": expected,
+        }
+        mock_service.update_case.return_value = updated_case
+
+        self._setup_with_session(mock_with_session, mock_service)
+
+        result = await update_payload(
+            case_id=str(mock_case.id),
+            payload=new_payload,
+            append=append,
+        )
+
+        mock_service.update_case.assert_called_once()
+        _, update_arg = mock_service.update_case.call_args[0]
+        assert update_arg.payload == expected
+        assert result == updated_case.to_dict.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_payload_case_not_found(self, mock_with_session):
+        """Test update_payload when case is not found."""
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = None
+        self._setup_with_session(mock_with_session, mock_service)
+
+        case_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+            await update_payload(case_id=case_id, payload={"key": "value"})

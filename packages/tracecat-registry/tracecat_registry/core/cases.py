@@ -125,8 +125,8 @@ async def create_case(
         Doc("Custom fields for the case."),
     ] = None,
     payload: Annotated[
-        dict[str, Any] | None,
-        Doc("Payload for the case."),
+        dict[str, Any] | list[Any] | None,
+        Doc("Payload for the case. Can be a dictionary or a list."),
     ] = None,
     tags: Annotated[
         list[str] | None,
@@ -193,8 +193,8 @@ async def update_case(
         Doc("Updated custom fields for the case."),
     ] = None,
     payload: Annotated[
-        dict[str, Any] | None,
-        Doc("Updated payload for the case."),
+        dict[str, Any] | list[Any] | None,
+        Doc("Updated payload for the case. Can be a dictionary or a list."),
     ] = None,
     tags: Annotated[
         list[str] | None,
@@ -252,6 +252,68 @@ async def update_case(
 
             # Refresh case to include updated tags
             await service.session.refresh(updated_case)
+
+    return updated_case.to_dict()
+
+
+@registry.register(
+    default_title="Update case payload",
+    display_group="Cases",
+    description="Update the payload of an existing case with append support.",
+    namespace="core.cases",
+)
+async def update_payload(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to update."),
+    ],
+    payload: Annotated[
+        dict[str, Any] | list[Any],
+        Doc("The payload data to set or append. Can be a dictionary or a list."),
+    ],
+    append: Annotated[
+        bool,
+        Doc(
+            "If true, append the payload to the existing payload. "
+            "For dict payloads: if existing is a dict, merges keys; if existing is a list or None, converts to list and appends. "
+            "For list payloads: if existing is a list, extends it; if existing is a dict, converts to list and appends; if None, sets directly."
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        if append:
+            existing_payload = case.payload
+            if existing_payload is None:
+                # No existing payload - set directly
+                new_payload = payload
+            elif isinstance(existing_payload, list):
+                # Existing is a list
+                if isinstance(payload, list):
+                    # Extend list with list
+                    new_payload = existing_payload + payload
+                else:
+                    # Append dict to list
+                    new_payload = existing_payload + [payload]
+            elif isinstance(existing_payload, dict):
+                # Existing is a dict
+                if isinstance(payload, dict):
+                    # Merge dicts
+                    new_payload = {**existing_payload, **payload}
+                else:
+                    # Convert dict to list and extend with payload list
+                    new_payload = [existing_payload] + payload
+            else:
+                # Fallback: treat as list append
+                new_payload = [existing_payload, payload]
+        else:
+            # Not appending - replace entirely
+            new_payload = payload
+
+        updated_case = await service.update_case(case, CaseUpdate(payload=new_payload))
 
     return updated_case.to_dict()
 

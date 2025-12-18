@@ -825,9 +825,12 @@ export type CaseCreate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
-  payload?: {
-    [key: string]: unknown
-  } | null
+  payload?:
+    | {
+        [key: string]: unknown
+      }
+    | Array<unknown>
+    | null
 }
 
 /**
@@ -1153,9 +1156,12 @@ export type CaseRead = {
   description: string
   fields: Array<CaseFieldRead>
   assignee?: UserRead | null
-  payload: {
-    [key: string]: unknown
-  } | null
+  payload:
+    | {
+        [key: string]: unknown
+      }
+    | Array<unknown>
+    | null
   tags?: Array<CaseTagRead>
 }
 
@@ -1281,9 +1287,12 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
-  payload?: {
-    [key: string]: unknown
-  } | null
+  payload?:
+    | {
+        [key: string]: unknown
+      }
+    | Array<unknown>
+    | null
 }
 
 /**

@@ -57,7 +57,7 @@ class CaseRead(Schema):
     description: str
     fields: list[CaseFieldRead]
     assignee: UserRead | None = None
-    payload: dict[str, Any] | None
+    payload: dict[str, Any] | list[Any] | None
     tags: list[CaseTagRead] = Field(default_factory=list)
 
 
@@ -69,7 +69,7 @@ class CaseCreate(Schema):
     severity: CaseSeverity
     fields: dict[str, Any] | None = None
     assignee_id: uuid.UUID | None = None
-    payload: dict[str, Any] | None = None
+    payload: dict[str, Any] | list[Any] | None = None
 
 
 class CaseUpdate(Schema):
@@ -80,7 +80,7 @@ class CaseUpdate(Schema):
     severity: CaseSeverity | None = None
     fields: dict[str, Any] | None = None
     assignee_id: uuid.UUID | None = None
-    payload: dict[str, Any] | None = None
+    payload: dict[str, Any] | list[Any] | None = None
 
 
 # Case Fields

@@ -1497,7 +1497,7 @@ class Case(WorkspaceModel):
         default=CaseStatus.NEW,
         nullable=False,
     )
-    payload: Mapped[dict[str, Any] | None] = mapped_column(
+    payload: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
         JSONB,
         nullable=True,
         doc="Additional data payload for the case",

@@ -2,12 +2,27 @@ import { Braces } from "lucide-react"
 import type { CaseRead } from "@/client"
 import { JsonViewWithControls } from "@/components/json-viewer"
 
+// Payload can be a dict or list (type will be updated after regenerating client types)
+type PayloadType = Record<string, unknown> | unknown[] | null
+
+function hasPayloadContent(payload: PayloadType): boolean {
+  if (payload === null || payload === undefined) {
+    return false
+  }
+  if (Array.isArray(payload)) {
+    return payload.length > 0
+  }
+  return Object.keys(payload).length > 0
+}
+
 export function CasePayloadSection({ caseData }: { caseData: CaseRead }) {
+  // Cast to PayloadType to handle both dict and list (forward-compatible with updated types)
+  const payload = caseData.payload as PayloadType
   return (
     <div className="space-y-4">
-      {caseData.payload && Object.keys(caseData.payload).length > 0 ? (
+      {hasPayloadContent(payload) ? (
         <JsonViewWithControls
-          src={caseData.payload}
+          src={payload}
           defaultTab="nested"
           defaultExpanded={true}
           showControls={true}

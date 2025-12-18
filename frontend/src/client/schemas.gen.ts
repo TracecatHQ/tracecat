@@ -3121,6 +3121,10 @@ export const $CaseCreate = {
           type: "object",
         },
         {
+          items: {},
+          type: "array",
+        },
+        {
           type: "null",
         },
       ],
@@ -4034,6 +4038,10 @@ export const $CaseRead = {
           type: "object",
         },
         {
+          items: {},
+          type: "array",
+        },
+        {
           type: "null",
         },
       ],
@@ -4586,6 +4594,10 @@ export const $CaseUpdate = {
         {
           additionalProperties: true,
           type: "object",
+        },
+        {
+          items: {},
+          type: "array",
         },
         {
           type: "null",
