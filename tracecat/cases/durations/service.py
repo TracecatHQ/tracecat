@@ -434,6 +434,7 @@ class CaseDurationService(BaseWorkspaceService):
                         case_priority=case.priority.value,
                         case_severity=case.severity.value,
                         case_status=case.status.value,
+                        case_tags=[tag.ref for tag in case.tags],
                         # Case identifiers (high cardinality, for drill-down)
                         case_id=str(case.id),
                         case_short_id=case.short_id,

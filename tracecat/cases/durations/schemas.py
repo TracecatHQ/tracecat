@@ -187,6 +187,10 @@ class CaseDurationMetric(BaseModel):
     case_priority: str = Field(..., description="Case priority value")
     case_severity: str = Field(..., description="Case severity value")
     case_status: str = Field(..., description="Case status value")
+    case_tags: list[str] = Field(
+        default_factory=list,
+        description="List of tag refs associated with the case",
+    )
 
     # Case identifiers (high cardinality - for drill-down/lookups)
     case_id: str = Field(..., description="Case UUID for lookups")

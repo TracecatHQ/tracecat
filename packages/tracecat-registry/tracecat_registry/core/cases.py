@@ -35,6 +35,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.auth.users import lookup_user_by_email
+from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.tags.schemas import TagRead, TagCreate
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat_registry import registry
@@ -363,6 +364,10 @@ async def get_case(
             )
         )
 
+    # Get tags for the case
+    tags = await service.tags.list_tags_for_case(case.id)
+    tag_reads = [CaseTagRead.model_validate(tag, from_attributes=True) for tag in tags]
+
     # Convert any UUID to string before serializing
     case_read = CaseRead(
         id=case.id,  # Use UUID directly
@@ -376,6 +381,7 @@ async def get_case(
         description=case.description,
         fields=final_fields,
         payload=case.payload,
+        tags=tag_reads,
     )
 
     # Use model_dump(mode="json") to ensure UUIDs are converted to strings
