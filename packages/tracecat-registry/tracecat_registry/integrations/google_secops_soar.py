@@ -42,9 +42,17 @@ def _get_base_url() -> str:
 
     The base URL should be configured in secrets as GOOGLE_SECOPS_BASE_URL.
     Format: https://YOUR_INSTANCE.siemplify-soar.com/api/external/v1
+
+    Raises:
+        ValueError: If GOOGLE_SECOPS_BASE_URL is not configured.
     """
     url = secrets.get("GOOGLE_SECOPS_BASE_URL")
-    return url.rstrip("/") if url else ""
+    if not url:
+        raise ValueError(
+            "GOOGLE_SECOPS_BASE_URL is required. Configure it in the google_secops_soar secret "
+            "(e.g., https://your-instance.siemplify-soar.com/api/external/v1)."
+        )
+    return url.rstrip("/")
 
 
 @registry.register(
