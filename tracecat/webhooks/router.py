@@ -23,7 +23,7 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import (
-    LiveWorkflowDSLDep,
+    DraftWorkflowDSLDep,
     PayloadDep,
     ValidWorkflowDefinitionDep,
     parse_content_type,
@@ -233,13 +233,13 @@ async def incoming_webhook_wait(
 @router.post("/draft", response_model=None)
 async def incoming_webhook_draft(
     workflow_id: AnyWorkflowIDPath,
-    dsl_input: LiveWorkflowDSLDep,
+    dsl_input: DraftWorkflowDSLDep,
     payload: PayloadDep,
 ) -> WorkflowExecutionCreateResponse:
-    """Draft webhook endpoint to trigger a workflow execution using the live workflow graph.
+    """Draft webhook endpoint to trigger a workflow execution using the draft workflow graph.
 
     This endpoint runs the current (uncommitted) workflow graph rather than the committed definition.
-    Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+    Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
     logger.info("Draft webhook hit", path=workflow_id, role=ctx_role.get())
     logger.trace("Draft webhook payload", payload=payload)

@@ -408,7 +408,7 @@ class WorkflowsManagementService(BaseService):
         Args:
             alias: The workflow alias to resolve.
             use_committed: If True, resolve from committed WorkflowDefinition aliases.
-                           If False, resolve from live Workflow aliases (for draft executions).
+                           If False, resolve from draft Workflow aliases (for draft executions).
         """
         if use_committed:
             # For published executions: resolve from the latest committed definition with this alias
@@ -422,7 +422,7 @@ class WorkflowsManagementService(BaseService):
                 .limit(1)
             )
         else:
-            # For draft executions: resolve from live Workflow table
+            # For draft executions: resolve from draft Workflow table
             statement = select(Workflow.id).where(
                 Workflow.workspace_id == self.role.workspace_id,
                 Workflow.alias == alias,

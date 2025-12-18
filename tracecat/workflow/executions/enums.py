@@ -110,7 +110,7 @@ class ExecutionType(StrEnum):
     """
 
     DRAFT = "draft"
-    """Draft execution uses the live workflow graph and resolves aliases from live workflows."""
+    """Draft execution uses the draft workflow graph and resolves aliases from draft workflows."""
 
     PUBLISHED = "published"
     """Published execution uses the committed workflow definition and resolves aliases from committed workflows."""

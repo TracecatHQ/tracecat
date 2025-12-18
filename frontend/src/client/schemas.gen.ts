@@ -5728,7 +5728,7 @@ export const $DSLRunArgs = {
     execution_type: {
       $ref: "#/components/schemas/ExecutionType",
       description:
-        "Execution type (draft or published). Draft executions use live aliases for child workflows.",
+        "Execution type (draft or published). Draft executions use draft aliases for child workflows.",
       default: "published",
     },
   },
@@ -16506,7 +16506,7 @@ export const $WorkflowExecutionRead = {
     execution_type: {
       $ref: "#/components/schemas/ExecutionType",
       description:
-        "Execution type (draft or published). Draft uses live workflow graph.",
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
       default: "published",
     },
     events: {
@@ -16630,7 +16630,7 @@ export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
       execution_type: {
         $ref: "#/components/schemas/ExecutionType",
         description:
-          "Execution type (draft or published). Draft uses live workflow graph.",
+          "Execution type (draft or published). Draft uses the draft workflow graph.",
         default: "published",
       },
       events: {
@@ -16753,7 +16753,7 @@ export const $WorkflowExecutionReadMinimal = {
     execution_type: {
       $ref: "#/components/schemas/ExecutionType",
       description:
-        "Execution type (draft or published). Draft uses live workflow graph.",
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
       default: "published",
     },
   },

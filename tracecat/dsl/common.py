@@ -490,7 +490,7 @@ class DSLRunArgs(BaseModel):
     )
     execution_type: ExecutionType = Field(
         default=ExecutionType.PUBLISHED,
-        description="Execution type (draft or published). Draft executions use live aliases for child workflows.",
+        description="Execution type (draft or published). Draft executions use draft aliases for child workflows.",
     )
 
     @field_validator("wf_id", mode="before")

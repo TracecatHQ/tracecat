@@ -170,7 +170,7 @@ class DSLWorkflow:
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
         self.execution_type = args.execution_type
-        """Execution type (draft or published). Draft executions use live aliases for child workflows."""
+        """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
         self.wf_exec_id = wf_info.workflow_id
@@ -942,7 +942,7 @@ class DSLWorkflow:
                 f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
             )
 
-        # For draft executions, use live aliases; for published executions, use committed aliases
+        # For draft executions, use draft aliases; for published executions, use committed aliases
         activity_inputs = ResolveWorkflowAliasActivityInputs(
             workflow_alias=evaluated_alias,
             role=self.role,

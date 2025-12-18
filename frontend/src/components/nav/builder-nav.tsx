@@ -249,7 +249,7 @@ function WorkflowManualTrigger({
 }) {
   const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
     useWorkflowBuilder()
-  // Always use draft execution endpoint - runs the current live workflow graph
+  // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
     useCreateDraftWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)

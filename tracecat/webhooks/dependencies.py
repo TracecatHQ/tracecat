@@ -316,10 +316,10 @@ ValidWorkflowDefinitionDep = Annotated[
 """Returns WorkflowDefinition that is not loaded with the `workflow` relationship"""
 
 
-async def validate_live_workflow(
+async def validate_draft_workflow(
     workflow_id: AnyWorkflowIDPath,
 ) -> DSLInput:
-    """Build DSL from the live workflow (for draft executions)."""
+    """Build DSL from the draft workflow (i.e. definition in the workflow table)."""
 
     role = ctx_role.get()
     async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
@@ -352,5 +352,5 @@ async def validate_live_workflow(
             ) from e
 
 
-LiveWorkflowDSLDep = Annotated["DSLInput", Depends(validate_live_workflow)]
-"""Returns DSLInput built from the live workflow (not the committed definition)"""
+DraftWorkflowDSLDep = Annotated["DSLInput", Depends(validate_draft_workflow)]
+"""Returns DSLInput built from the draft workflow"""

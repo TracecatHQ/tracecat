@@ -595,10 +595,10 @@ export const publicIncomingWebhookWait = (
 
 /**
  * Incoming Webhook Draft
- * Draft webhook endpoint to trigger a workflow execution using the live workflow graph.
+ * Draft webhook endpoint to trigger a workflow execution using the draft workflow graph.
  *
  * This endpoint runs the current (uncommitted) workflow graph rather than the committed definition.
- * Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+ * Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
  * @param data The data for the request.
  * @param data.secret
  * @param data.workflowId
@@ -1656,8 +1656,8 @@ export const workflowExecutionsGetWorkflowExecutionCompact = (
  * Create Draft Workflow Execution
  * Create and schedule a draft workflow execution.
  *
- * Draft executions run the current live workflow graph (not the committed definition).
- * Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+ * Draft executions run the current draft workflow graph (not the committed definition).
+ * Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

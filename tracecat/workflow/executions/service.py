@@ -706,7 +706,7 @@ class WorkflowExecutionsService:
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
-        Draft executions use the live workflow graph and resolve aliases from live workflows.
+        Draft executions use the draft workflow graph and resolve aliases from draft workflows.
         This method schedules the workflow execution and returns immediately.
         """
         wf_exec_id = generate_exec_id(wf_id)

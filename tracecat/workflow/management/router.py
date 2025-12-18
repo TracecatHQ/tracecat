@@ -447,7 +447,7 @@ async def commit_workflow(
     # We should only instantiate action refs at workflow    runtime
     service = WorkflowDefinitionsService(session, role=role)
     # Creating a workflow definition only uses refs
-    # Copy the alias from the live workflow to the committed definition
+    # Copy the alias from the draft workflow to the committed definition
     defn = await service.create_workflow_definition(
         workflow_id, dsl, alias=workflow.alias, commit=False
     )

@@ -98,7 +98,7 @@ class WorkflowExecutionBase(BaseModel):
     trigger_type: TriggerType
     execution_type: ExecutionType = Field(
         default=ExecutionType.PUBLISHED,
-        description="Execution type (draft or published). Draft uses live workflow graph.",
+        description="Execution type (draft or published). Draft uses the draft workflow graph.",
     )
 
 

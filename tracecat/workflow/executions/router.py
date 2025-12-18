@@ -250,15 +250,15 @@ async def create_draft_workflow_execution(
 ) -> WorkflowExecutionCreateResponse:
     """Create and schedule a draft workflow execution.
 
-    Draft executions run the current live workflow graph (not the committed definition).
-    Child workflows using aliases will resolve to the latest live aliases, not committed aliases.
+    Draft executions run the current draft workflow graph (not the committed definition).
+    Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
     from tracecat.workflow.management.management import WorkflowsManagementService
 
     service = await WorkflowExecutionsService.connect(role=role)
     wf_id = WorkflowUUID.new(params.workflow_id)
 
-    # Build DSL from the live workflow, not from committed definition
+    # Build DSL from the draft workflow, not from committed definition
     async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
         workflow = await mgmt_service.get_workflow(wf_id)
         if not workflow:

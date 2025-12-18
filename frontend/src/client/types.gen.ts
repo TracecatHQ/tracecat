@@ -1778,7 +1778,7 @@ export type DSLRunArgs = {
    */
   schedule_id?: string | null
   /**
-   * Execution type (draft or published). Draft executions use live aliases for child workflows.
+   * Execution type (draft or published). Draft executions use draft aliases for child workflows.
    */
   execution_type?: ExecutionType
 }
@@ -5192,7 +5192,7 @@ export type WorkflowExecutionRead = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
-   * Execution type (draft or published). Draft uses live workflow graph.
+   * Execution type (draft or published). Draft uses the draft workflow graph.
    */
   execution_type?: ExecutionType
   /**
@@ -5252,7 +5252,7 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
-   * Execution type (draft or published). Draft uses live workflow graph.
+   * Execution type (draft or published). Draft uses the draft workflow graph.
    */
   execution_type?: ExecutionType
   /**
@@ -5303,7 +5303,7 @@ export type WorkflowExecutionReadMinimal = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
-   * Execution type (draft or published). Draft uses live workflow graph.
+   * Execution type (draft or published). Draft uses the draft workflow graph.
    */
   execution_type?: ExecutionType
 }
