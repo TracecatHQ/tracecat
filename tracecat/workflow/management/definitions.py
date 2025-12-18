@@ -47,6 +47,7 @@ class WorkflowDefinitionsService(BaseService):
         workflow_id: WorkflowID,
         dsl: DSLInput,
         *,
+        alias: str | None = None,
         commit: bool = True,
     ) -> WorkflowDefinition:
         if self.role.workspace_id is None:
@@ -68,6 +69,7 @@ class WorkflowDefinitionsService(BaseService):
             workflow_id=workflow_id,
             content=dsl.model_dump(exclude_unset=True),
             version=version,
+            alias=alias,
         )
         self.session.add(defn)
         if commit:

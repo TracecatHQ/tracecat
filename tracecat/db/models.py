@@ -507,6 +507,9 @@ class WorkflowDefinition(WorkspaceModel):
         ForeignKey("workflow.id", ondelete="CASCADE"),
     )
     content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True, default=dict)
+    alias: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True, doc="Workflow alias at commit time"
+    )
 
     workflow: Mapped[Workflow] = relationship(back_populates="definitions")
 

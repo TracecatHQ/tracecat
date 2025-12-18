@@ -6,7 +6,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { AlertTriangleIcon } from "lucide-react"
 import type React from "react"
 import {
   createContext,
@@ -105,21 +104,10 @@ export function WorkflowProvider({
           description: "New workflow version saved successfully.",
         })
       } else {
-        const description = (
-          <div className="flex flex-col space-y-2">
-            <div className="flex items-center space-x-2">
-              <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />
-              <p className="font-semibold">
-                {response.message ||
-                  "Could not save workflow due to validation errors."}
-              </p>
-            </div>
-            <p>Please hover over the save button to view errors.</p>
-          </div>
-        )
+        const errorCount = response.errors?.length ?? 1
         toast({
-          title: "Workflow validation failed",
-          description,
+          title: `Workflow validation failed with ${errorCount} ${errorCount === 1 ? "error" : "errors"}`,
+          description: "Please hover over the save button to view errors.",
         })
       }
     },

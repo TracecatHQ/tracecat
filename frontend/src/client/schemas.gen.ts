@@ -5725,6 +5725,12 @@ export const $DSLRunArgs = {
       description:
         "The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.",
     },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft executions use draft aliases for child workflows.",
+      default: "published",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -6395,6 +6401,15 @@ export const $EventGroup_TypeVar_ = {
     "action_input",
   ],
   title: "EventGroup[TypeVar]",
+} as const
+
+export const $ExecutionType = {
+  type: "string",
+  enum: ["draft", "published"],
+  title: "ExecutionType",
+  description: `Execution type for a workflow execution.
+
+Distinguishes between draft (development) and published (production) executions.`,
 } as const
 
 export const $ExpectedField = {
@@ -16488,6 +16503,12 @@ export const $WorkflowExecutionRead = {
     trigger_type: {
       $ref: "#/components/schemas/TriggerType",
     },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEvent",
@@ -16606,6 +16627,12 @@ export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
       trigger_type: {
         $ref: "#/components/schemas/TriggerType",
       },
+      execution_type: {
+        $ref: "#/components/schemas/ExecutionType",
+        description:
+          "Execution type (draft or published). Draft uses the draft workflow graph.",
+        default: "published",
+      },
       events: {
         items: {
           $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_",
@@ -16722,6 +16749,12 @@ export const $WorkflowExecutionReadMinimal = {
     },
     trigger_type: {
       $ref: "#/components/schemas/TriggerType",
+    },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
     },
   },
   type: "object",

@@ -447,7 +447,10 @@ async def commit_workflow(
     # We should only instantiate action refs at workflow    runtime
     service = WorkflowDefinitionsService(session, role=role)
     # Creating a workflow definition only uses refs
-    defn = await service.create_workflow_definition(workflow_id, dsl, commit=False)
+    # Copy the alias from the draft workflow to the committed definition
+    defn = await service.create_workflow_definition(
+        workflow_id, dsl, alias=workflow.alias, commit=False
+    )
 
     # Update Workflow
     # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth

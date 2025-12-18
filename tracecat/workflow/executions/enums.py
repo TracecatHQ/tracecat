@@ -103,6 +103,22 @@ class TriggerType(StrEnum):
         return TemporalSearchAttr.TRIGGER_TYPE.create_pair(self.value)
 
 
+class ExecutionType(StrEnum):
+    """Execution type for a workflow execution.
+
+    Distinguishes between draft (development) and published (production) executions.
+    """
+
+    DRAFT = "draft"
+    """Draft execution uses the draft workflow graph and resolves aliases from draft workflows."""
+
+    PUBLISHED = "published"
+    """Published execution uses the committed workflow definition and resolves aliases from committed workflows."""
+
+    def to_temporal_search_attr_pair(self) -> SearchAttributePair[str]:
+        return TemporalSearchAttr.EXECUTION_TYPE.create_pair(self.value)
+
+
 class TemporalSearchAttr(StrEnum):
     """Temporal search attribute keys."""
 
@@ -117,6 +133,9 @@ class TemporalSearchAttr(StrEnum):
 
     ALIAS = "TracecatAlias"
     """The `Keyword` Search Attribute for a human-friendly workflow alias (e.g., workflow or agent slugs)."""
+
+    EXECUTION_TYPE = "TracecatExecutionType"
+    """The `Keyword` Search Attribute for the execution type (draft or published)."""
 
     @cached_property
     def key(self) -> SearchAttributeKey[str]:
