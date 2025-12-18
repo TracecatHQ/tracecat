@@ -716,43 +716,45 @@ class WorkflowsManagementService(BaseService):
     ) -> WorkflowID | None:
         args = input.args
         id_or_alias = None
-        async with WorkflowsManagementService.with_session(role=args.role) as service:
-            if args.dsl:
-                # 1. If a DSL was provided, we must use its error handler
-                if not args.dsl.error_handler:
-                    activity.logger.info("DSL has no error handler")
-                    return None
-                id_or_alias = args.dsl.error_handler
-            else:
-                # 2. Otherwise, get error handler from the committed definition
-                # This ensures schedules use the committed error handler
-                async with WorkflowDefinitionsService.with_session(
-                    role=args.role
-                ) as defn_service:
-                    defn = await defn_service.get_definition_by_workflow_id(args.wf_id)
-                if not defn:
-                    activity.logger.info("No committed definition found")
-                    return None
-                dsl = defn.content
-                if not dsl or not dsl.get("error_handler"):
-                    activity.logger.info("Committed definition has no error handler")
-                    return None
-                id_or_alias = dsl["error_handler"]
+        if args.dsl:
+            # 1. If a DSL was provided, we must use its error handler
+            if not args.dsl.error_handler:
+                activity.logger.info("DSL has no error handler")
+                return None
+            id_or_alias = args.dsl.error_handler
+        else:
+            # 2. Otherwise, get error handler from the committed definition
+            # This ensures schedules use the committed error handler
+            async with WorkflowDefinitionsService.with_session(
+                role=args.role
+            ) as defn_service:
+                defn = await defn_service.get_definition_by_workflow_id(args.wf_id)
+            if not defn:
+                activity.logger.info("No committed definition found")
+                return None
+            dsl = defn.content
+            if not dsl or not dsl.get("error_handler"):
+                activity.logger.info("Committed definition has no error handler")
+                return None
+            id_or_alias = dsl["error_handler"]
 
-            # 3. Convert the error handler to an ID
-            if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
-                # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
-                handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
-            elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
-                # Short workflow ID
-                handler_wf_id = WorkflowUUID.new(id_or_alias)
-            else:
-                use_committed = args.execution_type == ExecutionType.PUBLISHED
+        # 3. Convert the error handler to an ID
+        if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
+            # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
+            handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
+        elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
+            # Short workflow ID
+            handler_wf_id = WorkflowUUID.new(id_or_alias)
+        else:
+            use_committed = args.execution_type == ExecutionType.PUBLISHED
+            async with WorkflowsManagementService.with_session(
+                role=args.role
+            ) as service:
                 handler_wf_id = await service.resolve_workflow_alias(
                     id_or_alias, use_committed=use_committed
                 )
-                if not handler_wf_id:
-                    raise RuntimeError(
-                        f"Couldn't find matching workflow for alias {id_or_alias!r}"
-                    )
-            return handler_wf_id
+            if not handler_wf_id:
+                raise RuntimeError(
+                    f"Couldn't find matching workflow for alias {id_or_alias!r}"
+                )
+        return handler_wf_id
