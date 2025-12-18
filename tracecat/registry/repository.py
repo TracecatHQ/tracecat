@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
-from typing import Annotated, Any, Literal, cast, get_args, get_origin
+from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
 
 from pydantic import (
     BaseModel,
@@ -842,13 +842,28 @@ def generate_model_from_function(
 ) -> tuple[type[BaseModel], Any, TypeAdapter]:
     # Get the signature of the function
     sig = inspect.signature(func)
+    # Get the function's module globals for resolving forward references
+    func_module = sys.modules.get(func.__module__)
+    func_globals = getattr(func_module, "__dict__", {}) if func_module else {}
+    # Resolve all type hints upfront to handle ForwardRefs from `from __future__ import annotations`
+    # include_extras=True preserves Annotated metadata like Doc()
+    try:
+        resolved_hints = get_type_hints(
+            func, globalns=func_globals, localns=func_globals, include_extras=True
+        )
+    except Exception:
+        resolved_hints = {}
     # Create a dictionary to hold field definitions
     fields = {}
     for name, param in sig.parameters.items():
-        # Use the annotation and default value of the parameter to define the model field
-        field_annotation = param.annotation
-        # Handle both Annotated types and raw types
-        raw_field_type: type = getattr(field_annotation, "__origin__", field_annotation)
+        # Use resolved type hint if available, otherwise fall back to raw annotation
+        field_annotation = resolved_hints.get(name, param.annotation)
+        # Extract base type from Annotated[T, ...] -> T, preserve other types as-is
+        origin = get_origin(field_annotation)
+        if origin is Annotated:
+            raw_field_type: type = get_args(field_annotation)[0]
+        else:
+            raw_field_type = field_annotation
         field_info_kwargs = {}
         # Get the default UI for the field
         non_null_field_type = type_drop_null(raw_field_type)
@@ -875,9 +890,6 @@ def generate_model_from_function(
         field_info = Field(default=default, **field_info_kwargs)
         fields[name] = (field_annotation, field_info)
     # Dynamically create and return the Pydantic model class
-    # Pass the function's module so Pydantic can resolve type aliases (e.g., OutputTypeLiteral)
-    func_module = sys.modules.get(func.__module__)
-    func_globals = getattr(func_module, "__dict__", {}) if func_module else {}
     input_model = create_model(
         _udf_slug_camelcase(func, udf_kwargs.namespace),
         __config__=ConfigDict(extra="forbid"),
@@ -887,8 +899,10 @@ def generate_model_from_function(
     )
     # Rebuild the model with the function's global namespace to resolve forward references
     input_model.model_rebuild(_types_namespace=func_globals)
-    # Capture the return type of the function
-    rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
+    # Get return type from resolved hints, fallback to signature annotation
+    rtype = resolved_hints.get("return", Any)
+    if rtype is Any and sig.return_annotation is not sig.empty:
+        rtype = sig.return_annotation
     rtype_adapter = TypeAdapter(rtype)
 
     return input_model, rtype, rtype_adapter
