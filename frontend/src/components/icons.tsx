@@ -410,6 +410,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_secops_detection": createIconRenderer(
       GoogleSecOpsDetectionIcon
     ),
+    "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
     // AI / LLM namespace
     "llm.openai": createIconRenderer(OpenAIIcon),
     "llm.ollama": createIconRenderer(OllamaIcon),
@@ -1735,6 +1736,27 @@ export function GoogleSecOpsDetectionIcon({ className, ...rest }: IconProps) {
         d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
       />
       <circle fill="#EA4335" cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+export function GoogleSecOpsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className={className}
+      {...rest}
+    >
+      <path
+        fill="#4285F4"
+        d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 2v9.82l6.9-3.82L12 4.18V2z"
+        opacity="0.6"
+      />
     </svg>
   )
 }
