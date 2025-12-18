@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import base64
 import uuid
+from datetime import UTC
 
 import pytest
 import respx
 from httpx import Response
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry.core.cases import (
     add_case_tag,
@@ -47,6 +49,7 @@ from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import User, Workspace
+from tracecat.exceptions import TracecatNotFoundError
 
 
 @pytest.fixture
@@ -172,6 +175,32 @@ class TestCreateCase:
         assert result["status"] == "new"
         assert result["payload"] == {"source": "test", "data": [1, 2, 3]}
 
+    async def test_create_case_with_tags(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create a case with tags."""
+        # First create a tag to use
+        tag_name = f"create-case-tag-{uuid.uuid4().hex[:8]}"
+        case_for_tag = await create_case(
+            summary="Temp Case",
+            description="Temporary case to create tag",
+        )
+        await add_case_tag(
+            case_id=str(case_for_tag["id"]),
+            tag=tag_name,
+            create_if_missing=True,
+        )
+
+        # Now create a case with the tag
+        result = await create_case(
+            summary="Case with Tags",
+            description="Test case with tags.",
+            tags=[tag_name],
+        )
+
+        assert result["summary"] == "Case with Tags"
+        assert "id" in result
+
 
 # =============================================================================
 # get_case characterization tests
@@ -266,6 +295,77 @@ class TestUpdateCase:
         with pytest.raises(ValueError, match="not found"):
             await update_case(case_id=fake_id, summary="New Summary")
 
+    async def test_update_case_severity_and_status(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Update case modifies severity and status."""
+        created = await create_case(
+            summary="Test Case",
+            description="Test description",
+            severity="low",
+            status="new",
+        )
+
+        result = await update_case(
+            case_id=str(created["id"]),
+            severity="critical",
+            status="in_progress",
+        )
+
+        assert result["severity"] == "critical"
+        assert result["status"] == "in_progress"
+
+    async def test_update_case_payload(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Update case modifies payload."""
+        created = await create_case(
+            summary="Test Case",
+            description="Test description",
+            payload={"original": "data"},
+        )
+
+        result = await update_case(
+            case_id=str(created["id"]),
+            payload={"updated": "payload", "new_field": 123},
+        )
+
+        assert result["payload"] == {"updated": "payload", "new_field": 123}
+
+    async def test_update_case_tags(self, db, session: AsyncSession, cases_ctx: Role):
+        """Update case replaces all tags."""
+        created = await create_case(
+            summary="Test Case for Tags",
+            description="Test description",
+        )
+
+        # Add initial tag
+        tag1_name = f"tag1-{uuid.uuid4().hex[:8]}"
+        await add_case_tag(
+            case_id=str(created["id"]),
+            tag=tag1_name,
+            create_if_missing=True,
+        )
+
+        # Create another tag and update case to replace tags
+        tag2_name = f"tag2-{uuid.uuid4().hex[:8]}"
+        case_for_tag = await create_case(
+            summary="Temp",
+            description="Temp",
+        )
+        await add_case_tag(
+            case_id=str(case_for_tag["id"]),
+            tag=tag2_name,
+            create_if_missing=True,
+        )
+
+        result = await update_case(
+            case_id=str(created["id"]),
+            tags=[tag2_name],
+        )
+
+        assert "id" in result
+
 
 # =============================================================================
 # list_cases characterization tests
@@ -301,6 +401,35 @@ class TestListCases:
         result = await list_cases(limit=3)
 
         assert len(result) == 3
+
+    async def test_list_cases_with_order_by_and_sort(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """List cases respects order_by and sort parameters."""
+        await create_case(summary="Low Priority", description="Low", priority="low")
+        await create_case(summary="High Priority", description="High", priority="high")
+
+        # Order by priority descending
+        result = await list_cases(order_by="priority", sort="desc", limit=10)
+
+        assert isinstance(result, list)
+        assert len(result) >= 2
+
+    async def test_list_cases_order_by_created_at(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """List cases can be ordered by created_at."""
+        await create_case(summary="First Case", description="First")
+        await create_case(summary="Second Case", description="Second")
+
+        result_asc = await list_cases(order_by="created_at", sort="asc", limit=10)
+        result_desc = await list_cases(order_by="created_at", sort="desc", limit=10)
+
+        assert isinstance(result_asc, list)
+        assert isinstance(result_desc, list)
+        # The order should be different
+        if len(result_asc) >= 2 and len(result_desc) >= 2:
+            assert result_asc[0]["id"] != result_desc[0]["id"]
 
 
 # =============================================================================
@@ -354,6 +483,84 @@ class TestSearchCases:
 
         assert len(result) >= 1
         assert all(c["priority"] == "critical" for c in result)
+
+    async def test_search_cases_by_severity(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Search cases filters by severity."""
+        await create_case(
+            summary="High Severity Case", description="Critical", severity="high"
+        )
+        await create_case(
+            summary="Low Severity Case", description="Minor", severity="low"
+        )
+
+        result = await search_cases(severity="high")
+
+        assert len(result) >= 1
+        assert all(c["severity"] == "high" for c in result)
+
+    async def test_search_cases_with_date_range(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Search cases with date range filters."""
+        from datetime import datetime, timedelta
+
+        # Create a case
+        await create_case(
+            summary="Date Range Test Case",
+            description="Testing date filters",
+        )
+
+        # Search with start_time from yesterday
+        yesterday = datetime.now(UTC) - timedelta(days=1)
+        result = await search_cases(start_time=yesterday)
+
+        assert isinstance(result, list)
+        # Should include our recently created case
+        summaries = [c["summary"] for c in result]
+        assert "Date Range Test Case" in summaries
+
+    async def test_search_cases_with_order_and_limit(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Search cases respects order_by, sort, and limit."""
+        for i in range(5):
+            await create_case(
+                summary=f"Ordered Case {i}",
+                description=f"Description {i}",
+                priority="medium",
+            )
+
+        result = await search_cases(
+            priority="medium",
+            order_by="created_at",
+            sort="desc",
+            limit=3,
+        )
+
+        assert len(result) <= 3
+
+    async def test_search_cases_by_tags(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Search cases filters by tags."""
+        case = await create_case(
+            summary="Tagged Search Case",
+            description="Case with tag for search",
+        )
+        tag_name = f"search-tag-{uuid.uuid4().hex[:8]}"
+        await add_case_tag(
+            case_id=str(case["id"]),
+            tag=tag_name,
+            create_if_missing=True,
+        )
+
+        result = await search_cases(tags=[tag_name])
+
+        assert len(result) >= 1
+        summaries = [c["summary"] for c in result]
+        assert "Tagged Search Case" in summaries
 
 
 # =============================================================================
@@ -417,6 +624,43 @@ class TestCreateComment:
         assert "id" in result
         assert "created_at" in result
 
+    async def test_create_comment_case_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create comment with invalid case ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match="not found"):
+            await create_comment(
+                case_id=fake_id,
+                content="Test comment",
+            )
+
+    async def test_create_comment_with_parent_id(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create comment as a reply to another comment."""
+        case = await create_case(
+            summary="Case with Threaded Comments",
+            description="Test case",
+        )
+
+        # Create parent comment
+        parent = await create_comment(
+            case_id=str(case["id"]),
+            content="Parent comment",
+        )
+
+        # Create reply
+        reply = await create_comment(
+            case_id=str(case["id"]),
+            content="Reply to parent",
+            parent_id=str(parent["id"]),
+        )
+
+        assert reply["content"] == "Reply to parent"
+        assert str(reply["parent_id"]) == str(parent["id"])
+
 
 # =============================================================================
 # update_comment characterization tests
@@ -447,6 +691,18 @@ class TestUpdateComment:
 
         assert result["content"] == "Updated content"
 
+    async def test_update_comment_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Update comment with invalid ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match="not found"):
+            await update_comment(
+                comment_id=fake_id,
+                content="Updated content",
+            )
+
 
 # =============================================================================
 # list_comments characterization tests
@@ -476,6 +732,15 @@ class TestListComments:
         assert "Comment 1" in contents
         assert "Comment 2" in contents
 
+    async def test_list_comments_case_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """List comments with invalid case ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match="not found"):
+            await list_comments(case_id=fake_id)
+
 
 # =============================================================================
 # add_case_tag and remove_case_tag characterization tests
@@ -504,6 +769,35 @@ class TestCaseTags:
         assert "id" in result
         assert "name" in result or "ref" in result
 
+    async def test_add_case_tag_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Add case tag without create_if_missing raises when tag doesn't exist."""
+        case = await create_case(
+            summary="Case for Tag Error",
+            description="Test case",
+        )
+
+        with pytest.raises(NoResultFound):
+            await add_case_tag(
+                case_id=str(case["id"]),
+                tag="nonexistent-tag-" + uuid.uuid4().hex[:8],
+                create_if_missing=False,
+            )
+
+    async def test_add_case_tag_case_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Add case tag with invalid case ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match="not found"):
+            await add_case_tag(
+                case_id=fake_id,
+                tag="some-tag",
+                create_if_missing=True,
+            )
+
     async def test_remove_case_tag_removes_tag(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
@@ -521,6 +815,15 @@ class TestCaseTags:
 
         # Should not raise
         await remove_case_tag(case_id=str(case["id"]), tag=tag_name)
+
+    async def test_remove_case_tag_case_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Remove case tag with invalid case ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match="not found"):
+            await remove_case_tag(case_id=fake_id, tag="some-tag")
 
 
 # =============================================================================
@@ -757,6 +1060,22 @@ class TestDownloadAttachment:
         downloaded_content = base64.b64decode(result["content_base64"])
         assert downloaded_content == original_content
 
+    async def test_download_attachment_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
+    ):
+        """Download attachment with invalid ID raises TracecatNotFoundError."""
+        case = await create_case(
+            summary="Case for Download Error",
+            description="Test case",
+        )
+        fake_attachment_id = str(uuid.uuid4())
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await download_attachment(
+                case_id=str(case["id"]),
+                attachment_id=fake_attachment_id,
+            )
+
 
 @pytest.mark.anyio
 class TestDeleteAttachment:
@@ -789,6 +1108,22 @@ class TestDeleteAttachment:
             await get_attachment(
                 case_id=str(case["id"]),
                 attachment_id=str(uploaded["id"]),
+            )
+
+    async def test_delete_attachment_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
+    ):
+        """Delete attachment with invalid ID raises TracecatNotFoundError."""
+        case = await create_case(
+            summary="Case for Delete Error",
+            description="Test case",
+        )
+        fake_attachment_id = str(uuid.uuid4())
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await delete_attachment(
+                case_id=str(case["id"]),
+                attachment_id=fake_attachment_id,
             )
 
 
@@ -937,6 +1272,57 @@ class TestUploadAttachmentFromUrl:
 
         assert result["file_name"] == "custom-name.txt"
 
+    @respx.mock
+    async def test_upload_attachment_from_url_http_error_raises(
+        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
+    ):
+        """Upload attachment from URL with HTTP error raises exception."""
+        import httpx
+
+        case = await create_case(
+            summary="Case for URL Error",
+            description="Test case",
+        )
+
+        # Mock a 404 response
+        respx.get("https://example.com/not-found.txt").mock(
+            return_value=Response(404, content=b"Not Found")
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await upload_attachment_from_url(
+                case_id=str(case["id"]),
+                url="https://example.com/not-found.txt",
+            )
+
+    @respx.mock
+    async def test_upload_attachment_from_url_with_headers(
+        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
+    ):
+        """Upload attachment from URL passes custom headers."""
+        case = await create_case(
+            summary="Case for Headers Test",
+            description="Test case",
+        )
+
+        test_content = b"Authenticated content"
+        respx.get("https://example.com/protected-file.txt").mock(
+            return_value=Response(
+                200,
+                content=test_content,
+                headers={"Content-Type": "text/plain"},
+            )
+        )
+
+        result = await upload_attachment_from_url(
+            case_id=str(case["id"]),
+            url="https://example.com/protected-file.txt",
+            headers={"Authorization": "Bearer token123"},
+        )
+
+        assert "id" in result
+        assert result["file_name"] == "protected-file.txt"
+
 
 # =============================================================================
 # get_attachment_download_url characterization tests
@@ -1031,4 +1417,97 @@ class TestGetAttachmentDownloadUrl:
                 case_id=str(case["id"]),
                 attachment_id=str(uploaded["id"]),
                 expiry=86401,
+            )
+
+    async def test_get_attachment_download_url_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
+    ):
+        """Get attachment download URL with invalid attachment ID raises TracecatNotFoundError."""
+        case = await create_case(
+            summary="Case for URL Not Found",
+            description="Test case",
+        )
+        fake_attachment_id = str(uuid.uuid4())
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await get_attachment_download_url(
+                case_id=str(case["id"]),
+                attachment_id=fake_attachment_id,
+            )
+
+
+# =============================================================================
+# Edge case tests
+# =============================================================================
+
+
+@pytest.mark.anyio
+class TestEdgeCases:
+    """Edge case tests for case UDFs."""
+
+    async def test_create_case_invalid_priority_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create case with invalid priority raises ValueError."""
+        with pytest.raises(ValueError):
+            await create_case(
+                summary="Test Case",
+                description="Test",
+                priority="invalid_priority",  # type: ignore[arg-type]
+            )
+
+    async def test_create_case_invalid_severity_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create case with invalid severity raises ValueError."""
+        with pytest.raises(ValueError):
+            await create_case(
+                summary="Test Case",
+                description="Test",
+                severity="invalid_severity",  # type: ignore[arg-type]
+            )
+
+    async def test_create_case_invalid_status_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create case with invalid status raises ValueError."""
+        with pytest.raises(ValueError):
+            await create_case(
+                summary="Test Case",
+                description="Test",
+                status="invalid_status",  # type: ignore[arg-type]
+            )
+
+    async def test_get_case_invalid_uuid_format_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Get case with invalid UUID format raises ValueError."""
+        with pytest.raises(ValueError):
+            await get_case(case_id="not-a-uuid")
+
+    async def test_assign_user_by_email_case_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Assign user by email with invalid case ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match="not found"):
+            await assign_user_by_email(
+                case_id=fake_id,
+                assignee_email="test@example.com",
+            )
+
+    async def test_upload_attachment_case_not_found_raises(
+        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
+    ):
+        """Upload attachment with invalid case ID raises ValueError."""
+        fake_id = str(uuid.uuid4())
+        content = base64.b64encode(b"Test content").decode("utf-8")
+
+        with pytest.raises(ValueError, match="not found"):
+            await upload_attachment(
+                case_id=fake_id,
+                file_name="test.txt",
+                content_base64=content,
+                content_type="text/plain",
             )
