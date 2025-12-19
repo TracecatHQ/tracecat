@@ -209,12 +209,33 @@ class CaseTagsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def add_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> CaseTag:
-        """Add a tag to a case by ID or ref."""
+    async def add_case_tag(
+        self,
+        case_id: uuid.UUID,
+        tag_identifier: str,
+        *,
+        create_if_missing: bool = False,
+    ) -> CaseTag:
+        """Add a tag to a case by ID or ref.
+
+        Args:
+            case_id: The case UUID.
+            tag_identifier: The tag ID (UUID), ref, or name.
+            create_if_missing: If True, create the tag if it doesn't exist.
+
+        Returns:
+            The tag that was added.
+        """
         case = await self._get_case(case_id)
 
         # Resolve tag identifier to ID
-        tag = await self.get_tag_by_ref_or_id(tag_identifier)
+        try:
+            tag = await self.get_tag_by_ref_or_id(tag_identifier)
+        except NoResultFound:
+            if not create_if_missing:
+                raise
+            # Create the tag
+            tag = await self.create_tag(TagCreate(name=tag_identifier))
 
         # Check if already exists
         stmt = select(CaseTagLink).where(
