@@ -18,6 +18,7 @@ from datetime import UTC
 
 import pytest
 import respx
+import sqlalchemy as sa
 from httpx import Response
 from pydantic import TypeAdapter
 from sqlalchemy.exc import NoResultFound
@@ -49,9 +50,15 @@ from tracecat_registry.core.cases import (
 
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.models import User, Workspace
 from tracecat.exceptions import TracecatNotFoundError
+
+# Advisory lock ID for serializing case_fields schema creation in tests.
+# This prevents deadlocks when concurrent tests create workspace-scoped tables
+# with FK constraints to the same parent table.
+_CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
 
 
 @pytest.fixture
@@ -67,8 +74,24 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
 
 
 @pytest.fixture
-async def cases_ctx(cases_test_role: Role):
-    """Set up the ctx_role context for case UDF tests."""
+async def cases_ctx(cases_test_role: Role, session: AsyncSession):
+    """Set up the ctx_role context for case UDF tests.
+
+    Also pre-initializes the case_fields workspace schema with an advisory lock
+    to prevent deadlocks when multiple tests run concurrently. The deadlock occurs
+    because CREATE TABLE with FK constraints acquires ShareRowExclusiveLock on
+    the referenced table, and concurrent schema creations can deadlock.
+    """
+    # Acquire advisory lock to serialize schema creation across concurrent tests
+    await session.execute(
+        sa.text(f"SELECT pg_advisory_xact_lock({_CASE_FIELDS_SCHEMA_LOCK_ID})")
+    )
+
+    # Pre-initialize the case_fields schema while holding the lock
+    fields_service = CaseFieldsService(session=session, role=cases_test_role)
+    await fields_service.initialize_workspace_schema()
+    await session.commit()
+
     token = ctx_role.set(cases_test_role)
     try:
         yield cases_test_role
