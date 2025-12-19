@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 import orjson
@@ -19,7 +19,7 @@ from tracecat.tables.schemas import (
     TableRowInsert,
 )
 from tracecat.tables.service import TablesService
-from tracecat_registry import registry
+from tracecat_registry import registry, types
 from tracecat.expressions.functions import tabulate
 
 
@@ -201,7 +201,7 @@ async def insert_row(
         bool,
         Doc("If true, update the row if it already exists (based on primary key)."),
     ] = False,
-) -> Any:
+) -> dict[str, Any]:
     params = TableRowInsert(data=row_data, upsert=upsert)
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
@@ -256,7 +256,7 @@ async def update_row(
         dict[str, Any],
         Doc("The new data for the row."),
     ],
-) -> Any:
+) -> dict[str, Any]:
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
         row = await service.update_row(
@@ -307,7 +307,7 @@ async def create_table(
         bool,
         Doc("If true, raise an error if the table already exists."),
     ] = True,
-) -> dict[str, Any]:
+) -> types.Table:
     column_objects = []
     if columns:
         for col in columns:
@@ -338,7 +338,7 @@ async def create_table(
                     table = await service.get_table_by_name(name)
             else:
                 raise
-    return table.to_dict()
+    return cast(types.Table, table.to_dict())
 
 
 @registry.register(
@@ -347,10 +347,10 @@ async def create_table(
     display_group="Tables",
     namespace="core.table",
 )
-async def list_tables() -> list[dict[str, Any]]:
+async def list_tables() -> list[types.Table]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
-    return [table.to_dict() for table in tables]
+    return cast(list[types.Table], [table.to_dict() for table in tables])
 
 
 @registry.register(
@@ -361,7 +361,7 @@ async def list_tables() -> list[dict[str, Any]]:
 )
 async def get_table_metadata(
     name: Annotated[str, Doc("The name of the table to get.")],
-) -> dict[str, Any]:
+) -> types.TableRead:
     async with TablesService.with_session() as service:
         table = await service.get_table_by_name(name)
 
@@ -384,7 +384,7 @@ async def get_table_metadata(
                 for column in table.columns
             ],
         )
-    return res.model_dump(mode="json")
+    return cast(types.TableRead, res.model_dump(mode="json"))
 
 
 @registry.register(

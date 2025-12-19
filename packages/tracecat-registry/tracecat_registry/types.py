@@ -457,3 +457,44 @@ class CaseAttachmentDownloadData(TypedDict):
     file_name: str
     content_type: str
     content_base64: str
+
+
+# ============================================================================
+# Tables Types
+# ============================================================================
+
+
+class TableColumnRead(TypedDict):
+    """Table column definition."""
+
+    id: UUID
+    name: str
+    type: str
+    nullable: bool
+    default: Any
+    is_index: bool
+    options: list[str] | None
+
+
+class Table(TypedDict):
+    """Table metadata returned by create_table and list_tables.
+
+    Uses to_dict() which returns database column values.
+    """
+
+    id: UUID
+    name: str
+    workspace_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class TableRead(TypedDict):
+    """Table metadata with columns returned by get_table_metadata.
+
+    Uses TableRead schema for structured column information.
+    """
+
+    id: UUID
+    name: str
+    columns: list[TableColumnRead]
