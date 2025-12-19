@@ -691,7 +691,7 @@ class DSLScheduler:
             collection = await workflow.execute_local_activity(
                 DSLActivities.evaluate_templated_object_activity,
                 args=(args.collection, context),
-                start_to_close_timeout=timedelta(seconds=10),
+                start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         except ActivityError as e:
@@ -1214,7 +1214,7 @@ class DSLScheduler:
             return await workflow.execute_local_activity(
                 DSLActivities.evaluate_single_expression_activity,
                 args=(expression, context),
-                start_to_close_timeout=timedelta(seconds=10),
+                start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         except ActivityError as e:
