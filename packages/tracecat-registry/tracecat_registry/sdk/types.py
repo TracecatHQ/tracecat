@@ -229,7 +229,7 @@ class ReopenedEvent(TypedDict, total=False):
 class CaseViewedEvent(TypedDict, total=False):
     """Event for when a case is viewed."""
 
-    user_id: str | None
+    user_id: UUID | None
     created_at: str
     wf_exec_id: str | None
     type: str  # "case_viewed"
@@ -260,7 +260,7 @@ class FieldsChangedEvent(TypedDict, total=False):
 class AssigneeChangedEvent(TypedDict, total=False):
     """Event for when a case assignee is changed."""
 
-    user_id: str | None
+    user_id: UUID | None
     created_at: str
     wf_exec_id: str | None
     type: str  # "assignee_changed"
@@ -304,7 +304,7 @@ class AttachmentDeletedEvent(TypedDict, total=False):
 class TagAddedEvent(TypedDict, total=False):
     """Event for when a tag is added."""
 
-    user_id: str | None
+    user_id: UUID | None
     created_at: str
     wf_exec_id: str | None
     type: str  # "tag_added"
@@ -328,7 +328,7 @@ class TagRemovedEvent(TypedDict, total=False):
 class TaskCreatedEvent(TypedDict, total=False):
     """Event for when a task is created."""
 
-    user_id: str | None
+    user_id: UUID | None
     created_at: str
     wf_exec_id: str | None
     type: str  # "task_created"

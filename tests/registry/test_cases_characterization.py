@@ -396,8 +396,7 @@ class TestListCases:
 
         result = await list_cases()
 
-        # Note: list_cases returns CaseReadMinimal, not Case
-        # The SDK type annotation is aspirational
+        TypeAdapter(list[sdk.types.CaseReadMinimal]).validate_python(result)
         assert isinstance(result, list)
         assert len(result) >= 2
         summaries = [c["summary"] for c in result]

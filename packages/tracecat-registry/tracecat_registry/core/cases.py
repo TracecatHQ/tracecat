@@ -402,7 +402,7 @@ async def list_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-) -> list[sdk.types.Case]:
+) -> list[sdk.types.CaseReadMinimal]:
     if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
@@ -411,7 +411,7 @@ async def list_cases(
     async with CasesService.with_session() as service:
         cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
     return cast(
-        list[sdk.types.Case],
+        list[sdk.types.CaseReadMinimal],
         [
             CaseReadMinimal(
                 id=case.id,
