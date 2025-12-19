@@ -6595,6 +6595,8 @@ export const $FeatureFlag = {
     "agent-presets",
     "case-durations",
     "case-tasks",
+    "executor-auth",
+    "registry-client",
     "registry-sync-v2",
   ],
   title: "FeatureFlag",
