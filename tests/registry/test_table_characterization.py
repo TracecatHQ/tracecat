@@ -15,7 +15,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_registry import types
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
@@ -79,6 +81,9 @@ class TestCreateTable:
         """Create a table with no columns returns table metadata."""
         result = await create_table(name=test_table_name)
 
+        # Validate against SDK type
+        TypeAdapter(types.Table).validate_python(result)
+
         assert result["name"] == test_table_name
         assert "id" in result
         assert "created_at" in result
@@ -97,6 +102,9 @@ class TestCreateTable:
         ]
 
         result = await create_table(name=test_table_name, columns=columns)
+
+        # Validate against SDK type
+        TypeAdapter(types.Table).validate_python(result)
 
         assert result["name"] == test_table_name
         assert "id" in result
@@ -134,6 +142,9 @@ class TestListTables:
         """List tables returns empty list when no tables exist."""
         result = await list_tables()
 
+        # Validate against SDK type
+        TypeAdapter(list[types.Table]).validate_python(result)
+
         # Result should be a list (may contain tables from other tests)
         assert isinstance(result, list)
 
@@ -169,6 +180,9 @@ class TestGetTableMetadata:
         await create_table(name=test_table_name, columns=columns)
 
         result = await get_table_metadata(name=test_table_name)
+
+        # Validate against SDK type
+        TypeAdapter(types.TableRead).validate_python(result)
 
         assert result["name"] == test_table_name
         assert "columns" in result
