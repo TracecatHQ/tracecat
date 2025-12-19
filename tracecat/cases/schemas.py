@@ -517,3 +517,43 @@ class Change[OldType: Any, NewType: Any](Schema):
 class CaseEventsWithUsers(Schema):
     events: list[CaseEventRead] = Field(..., description="The events for the case.")
     users: list[UserRead] = Field(..., description="The users for the case.")
+
+
+# Internal
+
+
+class InternalCaseData(Schema):
+    """Case data matching the Case SQLAlchemy model's to_dict() output.
+
+    This is the raw database representation used by UDFs for create/update operations.
+    """
+
+    id: uuid.UUID
+    case_number: int
+    summary: str
+    description: str
+    priority: CasePriority
+    severity: CaseSeverity
+    status: CaseStatus
+    payload: dict[str, Any] | None
+    assignee_id: uuid.UUID | None
+    workspace_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class InternalCaseCommentData(Schema):
+    """Comment data matching the CaseComment SQLAlchemy model's to_dict() output.
+
+    This is the raw database representation used by UDFs for create/update operations.
+    """
+
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    content: str
+    parent_id: uuid.UUID | None = None
+    case_id: uuid.UUID
+    workspace_id: uuid.UUID
+    user_id: uuid.UUID | None = None
+    last_edited_at: datetime | None = None
