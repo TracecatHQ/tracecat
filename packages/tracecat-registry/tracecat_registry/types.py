@@ -441,14 +441,14 @@ class CaseAttachmentRead(TypedDict):
     """Case attachment metadata."""
 
     id: UUID
-    case_id: str
-    file_id: str
+    case_id: UUID
+    file_id: UUID
     file_name: str
     content_type: str
     size: int
     sha256: str
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class CaseAttachmentDownloadData(TypedDict):
