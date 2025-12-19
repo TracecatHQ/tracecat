@@ -642,6 +642,12 @@ class CasesService(BaseWorkspaceService):
     async def create_case(self, params: CaseCreate) -> Case:
         logger.info("Creating case", session=self.session, role=self.role)
         try:
+            # Ensure the workspace-scoped `case_fields` schema/table exists before we
+            # take locks on the `case` table (e.g. via INSERT/UPDATE). This avoids
+            # deadlocks under concurrency when schema initialization requires a
+            # ShareRowExclusiveLock on the referenced `case` table.
+            await self.fields._ensure_schema_ready()
+
             now = datetime.now(UTC)
             # Create the base case first
             case = Case(

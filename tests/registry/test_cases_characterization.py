@@ -18,9 +18,12 @@ from datetime import UTC
 
 import pytest
 import respx
+import sqlalchemy as sa
 from httpx import Response
+from pydantic import TypeAdapter
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_registry import types
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -47,9 +50,15 @@ from tracecat_registry.core.cases import (
 
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.models import User, Workspace
 from tracecat.exceptions import TracecatNotFoundError
+
+# Advisory lock ID for serializing case_fields schema creation in tests.
+# This prevents deadlocks when concurrent tests create workspace-scoped tables
+# with FK constraints to the same parent table.
+_CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
 
 
 @pytest.fixture
@@ -65,8 +74,24 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
 
 
 @pytest.fixture
-async def cases_ctx(cases_test_role: Role):
-    """Set up the ctx_role context for case UDF tests."""
+async def cases_ctx(cases_test_role: Role, session: AsyncSession):
+    """Set up the ctx_role context for case UDF tests.
+
+    Also pre-initializes the case_fields workspace schema with an advisory lock
+    to prevent deadlocks when multiple tests run concurrently. The deadlock occurs
+    because CREATE TABLE with FK constraints acquires ShareRowExclusiveLock on
+    the referenced table, and concurrent schema creations can deadlock.
+    """
+    # Acquire advisory lock to serialize schema creation across concurrent tests
+    await session.execute(
+        sa.text(f"SELECT pg_advisory_xact_lock({_CASE_FIELDS_SCHEMA_LOCK_ID})")
+    )
+
+    # Pre-initialize the case_fields schema while holding the lock
+    fields_service = CaseFieldsService(session=session, role=cases_test_role)
+    await fields_service.initialize_workspace_schema()
+    await session.commit()
+
     token = ctx_role.set(cases_test_role)
     try:
         yield cases_test_role
@@ -143,6 +168,9 @@ class TestCreateCase:
             summary="Test Security Alert",
             description="A test security alert for characterization testing.",
         )
+
+        # Validate against SDK type
+        TypeAdapter(types.Case).validate_python(result)
 
         assert result["summary"] == "Test Security Alert"
         assert (
@@ -223,7 +251,10 @@ class TestGetCase:
 
         result = await get_case(case_id=str(created["id"]))
 
-        assert result["id"] == str(created["id"])
+        # Validate against SDK type
+        TypeAdapter(types.CaseRead).validate_python(result)
+
+        assert str(result["id"]) == str(created["id"])
         assert result["summary"] == "Test Case"
         assert result["description"] == "Test description"
         assert result["priority"] == "medium"
@@ -263,6 +294,9 @@ class TestUpdateCase:
             summary="Updated Summary",
             priority="high",
         )
+
+        # Validate against SDK type
+        TypeAdapter(types.Case).validate_python(result)
 
         assert result["summary"] == "Updated Summary"
         assert result["priority"] == "high"
@@ -385,6 +419,7 @@ class TestListCases:
 
         result = await list_cases()
 
+        TypeAdapter(list[types.CaseReadMinimal]).validate_python(result)
         assert isinstance(result, list)
         assert len(result) >= 2
         summaries = [c["summary"] for c in result]
@@ -450,6 +485,9 @@ class TestSearchCases:
         await create_case(summary="Security Patch", description="Critical fix")
 
         result = await search_cases(search_term="Security")
+
+        # Note: search_cases returns Case (from to_dict), different shape than list_cases
+        TypeAdapter(list[types.CaseReadMinimal]).validate_python(result)
 
         assert len(result) >= 2
         summaries = [c["summary"] for c in result]
@@ -620,6 +658,9 @@ class TestCreateComment:
             content="This is a test comment.",
         )
 
+        # Validate against SDK type
+        TypeAdapter(types.CaseComment).validate_python(result)
+
         assert result["content"] == "This is a test comment."
         assert "id" in result
         assert "created_at" in result
@@ -725,6 +766,9 @@ class TestListComments:
         await create_comment(case_id=str(case["id"]), content="Comment 2")
 
         result = await list_comments(case_id=str(case["id"]))
+
+        # Validate against SDK type
+        TypeAdapter(list[types.CaseCommentRead]).validate_python(result)
 
         assert isinstance(result, list)
         assert len(result) == 2
@@ -846,6 +890,9 @@ class TestListCaseEvents:
 
         result = await list_case_events(case_id=str(case["id"]))
 
+        # Validate against SDK type
+        TypeAdapter(types.CaseEventsWithUsers).validate_python(result)
+
         # Should return a dict with events and users lists
         assert isinstance(result, dict)
         assert "events" in result
@@ -899,6 +946,9 @@ class TestUploadAttachment:
             content_base64=content_base64,
             content_type="text/plain",
         )
+
+        # Validate against SDK type
+        TypeAdapter(types.CaseAttachmentRead).validate_python(result)
 
         assert "id" in result
         assert result["file_name"] == "test-file.txt"
@@ -1004,7 +1054,7 @@ class TestGetAttachment:
             attachment_id=str(uploaded["id"]),
         )
 
-        assert result["id"] == str(uploaded["id"])
+        assert str(result["id"]) == str(uploaded["id"])
         assert result["file_name"] == "get-test.txt"
         assert result["content_type"] == "text/plain"
 
