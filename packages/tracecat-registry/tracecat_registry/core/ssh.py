@@ -84,7 +84,7 @@ def execute_command(
     pkey = _load_private_key(private_key)
 
     with paramiko.SSHClient() as client:
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         client.connect(
             hostname=host,
