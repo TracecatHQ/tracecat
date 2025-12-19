@@ -143,6 +143,10 @@ async def create_secret(
     service = SecretsService(session, role=role)
     try:
         await service.create_secret(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except IntegrityError as e:
         logger.error("Secret integrity error", e=str(e))
         raise HTTPException(
@@ -164,6 +168,10 @@ async def update_secret_by_id(
     try:
         secret = await service.get_secret(secret_id)
         await service.update_secret(secret, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except TracecatNotFoundError as e:
         logger.error("Secret not found", secret_id=secret_id)
         raise HTTPException(
@@ -251,6 +259,10 @@ async def create_org_secret(
     service = SecretsService(session, role=role)
     try:
         await service.create_org_secret(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except IntegrityError as e:
         logger.error("Organization secret integrity error", e=str(e))
         raise HTTPException(
@@ -275,6 +287,10 @@ async def update_org_secret_by_id(
     try:
         secret = await service.get_org_secret(secret_id)
         await service.update_org_secret(secret, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except TracecatNotFoundError as e:
         logger.error("Organization secret not found", secret_id=secret_id)
         raise HTTPException(

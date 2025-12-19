@@ -29,6 +29,12 @@ import {
 import { useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+const secretTypeLabels: Record<SecretReadMinimal["type"], string> = {
+  custom: "Custom",
+  "ssh-key": "SSH key",
+  "github-app": "GitHub app",
+}
+
 export function WorkspaceSecretsTable() {
   const workspaceId = useWorkspaceId()
   const { secrets, secretsIsLoading, secretsError } =
@@ -73,6 +79,27 @@ export function WorkspaceSecretsTable() {
                   {row.getValue<SecretReadMinimal["name"]>("name")}
                 </div>
               ),
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              accessorKey: "type",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Secret Type"
+                />
+              ),
+              cell: ({ row }) => {
+                const type = row.getValue<SecretReadMinimal["type"]>("type")
+                const label = secretTypeLabels[type] ?? type
+                return (
+                  <Badge variant="secondary" className="text-xs">
+                    {label}
+                  </Badge>
+                )
+              },
               enableSorting: true,
               enableHiding: false,
             },
@@ -125,6 +152,9 @@ export function WorkspaceSecretsTable() {
               ),
               cell: ({ row }) => {
                 const keys = row.getValue<SecretReadMinimal["keys"]>("keys")
+                if (!keys?.length) {
+                  return <div className="text-xs">-</div>
+                }
                 return (
                   <div className="flex-auto space-x-4 text-xs">
                     {keys.map((key, idx) => (
