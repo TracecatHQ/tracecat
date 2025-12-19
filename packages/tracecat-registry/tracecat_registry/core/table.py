@@ -201,7 +201,7 @@ async def insert_row(
         bool,
         Doc("If true, update the row if it already exists (based on primary key)."),
     ] = False,
-) -> Any:
+) -> dict[str, Any]:
     params = TableRowInsert(data=row_data, upsert=upsert)
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
@@ -256,7 +256,7 @@ async def update_row(
         dict[str, Any],
         Doc("The new data for the row."),
     ],
-) -> Any:
+) -> dict[str, Any]:
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
         row = await service.update_row(
