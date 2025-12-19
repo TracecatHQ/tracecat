@@ -58,6 +58,7 @@ export function UpdateOrgSecretDialog({
   ...props
 }: UpdateOrgSecretDialogProps) {
   const { updateSecretById } = useOrgSecrets()
+  const isSshKey = selectedSecret?.type === "ssh-key"
 
   const methods = useForm<SecretUpdate>({
     resolver: zodResolver(updateOrgSecretSchema),
@@ -72,14 +73,18 @@ export function UpdateOrgSecretDialog({
 
   React.useEffect(() => {
     if (selectedSecret) {
+      const secretKeys =
+        selectedSecret.type === "ssh-key"
+          ? []
+          : selectedSecret.keys.map((keyName) => ({
+              key: keyName,
+              value: "",
+            }))
       reset({
         name: "",
         description: "",
         environment: "",
-        keys: selectedSecret.keys.map((keyName) => ({
-          key: keyName,
-          value: "",
-        })),
+        keys: secretKeys,
       })
     }
   }, [selectedSecret, reset])
@@ -96,7 +101,7 @@ export function UpdateOrgSecretDialog({
         name: values.name || undefined,
         description: values.description || undefined,
         environment: values.environment || undefined,
-        keys: values.keys || undefined,
+        keys: isSshKey ? undefined : values.keys,
       }
       console.log("Submitting edit secret", params)
       try {
@@ -133,10 +138,17 @@ export function UpdateOrgSecretDialog({
         <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
           <DialogDescription className="flex flex-col">
-            <span>
-              Leave a field blank to keep its existing value. You must update
-              all keys at once.
-            </span>
+            {isSshKey ? (
+              <span>
+                SSH keys are write-once. Delete and recreate the secret to
+                rotate the key.
+              </span>
+            ) : (
+              <span>
+                Leave a field blank to keep its existing value. You must update
+                all keys at once.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
@@ -212,78 +224,82 @@ export function UpdateOrgSecretDialog({
                   </FormItem>
                 )}
               />
-              <FormItem>
-                <FormLabel className="text-sm">Keys</FormLabel>
+              {!isSshKey && (
+                <>
+                  <FormItem>
+                    <FormLabel className="text-sm">Keys</FormLabel>
 
-                {fields.length > 0 &&
-                  fields.map((keysItem, index) => (
-                    <div
-                      key={keysItem.id}
-                      className="flex items-center justify-between"
-                    >
-                      <FormField
-                        key={`keys.${index}.key`}
-                        control={control}
-                        name={`keys.${index}.key`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormControl>
-                              <Input
-                                id={`key-${index}`}
-                                className="text-sm"
-                                placeholder={"Key"}
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                    {fields.length > 0 &&
+                      fields.map((keysItem, index) => (
+                        <div
+                          key={keysItem.id}
+                          className="flex items-center justify-between"
+                        >
+                          <FormField
+                            key={`keys.${index}.key`}
+                            control={control}
+                            name={`keys.${index}.key`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormControl>
+                                  <Input
+                                    id={`key-${index}`}
+                                    className="text-sm"
+                                    placeholder={"Key"}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
-                      <FormField
-                        key={`keys.${index}.value`}
-                        control={control}
-                        name={`keys.${index}.value`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <div className="flex flex-col space-y-2">
-                              <FormControl>
-                                <Input
-                                  id={`value-${index}`}
-                                  className="text-sm"
-                                  placeholder="••••••••••••••••"
-                                  type="password"
-                                  {...field}
-                                />
-                              </FormControl>
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2Icon className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-              </FormItem>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => append({ key: "", value: "" })}
-                className="w-full space-x-2 text-xs text-foreground/80"
-              >
-                <PlusCircle className="mr-2 size-4" />
-                Add Item
-              </Button>
-              {fields.length === 0 && (
-                <span className="text-xs text-foreground/50">
-                  Secrets will be left unchanged.
-                </span>
+                          <FormField
+                            key={`keys.${index}.value`}
+                            control={control}
+                            name={`keys.${index}.value`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <div className="flex flex-col space-y-2">
+                                  <FormControl>
+                                    <Input
+                                      id={`value-${index}`}
+                                      className="text-sm"
+                                      placeholder="••••••••••••••••"
+                                      type="password"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                </div>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => remove(index)}
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                  </FormItem>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => append({ key: "", value: "" })}
+                    className="w-full space-x-2 text-xs text-foreground/80"
+                  >
+                    <PlusCircle className="mr-2 size-4" />
+                    Add Item
+                  </Button>
+                  {fields.length === 0 && (
+                    <span className="text-xs text-foreground/50">
+                      Secrets will be left unchanged.
+                    </span>
+                  )}
+                </>
               )}
               <DialogFooter>
                 <DialogClose asChild>
