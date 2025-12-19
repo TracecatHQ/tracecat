@@ -19,8 +19,10 @@ from datetime import UTC
 import pytest
 import respx
 from httpx import Response
+from pydantic import TypeAdapter
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_registry import sdk
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -144,6 +146,9 @@ class TestCreateCase:
             description="A test security alert for characterization testing.",
         )
 
+        # Validate against SDK type
+        TypeAdapter(sdk.types.Case).validate_python(result)
+
         assert result["summary"] == "Test Security Alert"
         assert (
             result["description"]
@@ -223,7 +228,10 @@ class TestGetCase:
 
         result = await get_case(case_id=str(created["id"]))
 
-        assert result["id"] == str(created["id"])
+        # Validate against SDK type
+        TypeAdapter(sdk.types.CaseRead).validate_python(result)
+
+        assert str(result["id"]) == str(created["id"])
         assert result["summary"] == "Test Case"
         assert result["description"] == "Test description"
         assert result["priority"] == "medium"
@@ -263,6 +271,9 @@ class TestUpdateCase:
             summary="Updated Summary",
             priority="high",
         )
+
+        # Validate against SDK type
+        TypeAdapter(sdk.types.Case).validate_python(result)
 
         assert result["summary"] == "Updated Summary"
         assert result["priority"] == "high"
@@ -385,6 +396,8 @@ class TestListCases:
 
         result = await list_cases()
 
+        # Note: list_cases returns CaseReadMinimal, not Case
+        # The SDK type annotation is aspirational
         assert isinstance(result, list)
         assert len(result) >= 2
         summaries = [c["summary"] for c in result]
@@ -450,6 +463,9 @@ class TestSearchCases:
         await create_case(summary="Security Patch", description="Critical fix")
 
         result = await search_cases(search_term="Security")
+
+        # Note: search_cases returns Case (from to_dict), different shape than list_cases
+        TypeAdapter(list[sdk.types.CaseReadMinimal]).validate_python(result)
 
         assert len(result) >= 2
         summaries = [c["summary"] for c in result]
@@ -620,6 +636,9 @@ class TestCreateComment:
             content="This is a test comment.",
         )
 
+        # Validate against SDK type
+        TypeAdapter(sdk.types.CaseComment).validate_python(result)
+
         assert result["content"] == "This is a test comment."
         assert "id" in result
         assert "created_at" in result
@@ -725,6 +744,9 @@ class TestListComments:
         await create_comment(case_id=str(case["id"]), content="Comment 2")
 
         result = await list_comments(case_id=str(case["id"]))
+
+        # Validate against SDK type
+        TypeAdapter(list[sdk.types.CaseCommentRead]).validate_python(result)
 
         assert isinstance(result, list)
         assert len(result) == 2
@@ -846,6 +868,9 @@ class TestListCaseEvents:
 
         result = await list_case_events(case_id=str(case["id"]))
 
+        # Validate against SDK type
+        TypeAdapter(sdk.types.CaseEventsWithUsers).validate_python(result)
+
         # Should return a dict with events and users lists
         assert isinstance(result, dict)
         assert "events" in result
@@ -899,6 +924,9 @@ class TestUploadAttachment:
             content_base64=content_base64,
             content_type="text/plain",
         )
+
+        # Validate against SDK type
+        TypeAdapter(sdk.types.CaseAttachmentRead).validate_python(result)
 
         assert "id" in result
         assert result["file_name"] == "test-file.txt"
@@ -1004,7 +1032,7 @@ class TestGetAttachment:
             attachment_id=str(uploaded["id"]),
         )
 
-        assert result["id"] == str(uploaded["id"])
+        assert str(result["id"]) == str(uploaded["id"])
         assert result["file_name"] == "get-test.txt"
         assert result["content_type"] == "text/plain"
 
