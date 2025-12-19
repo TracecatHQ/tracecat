@@ -21,9 +21,9 @@ import respx
 import sqlalchemy as sa
 from httpx import Response
 from pydantic import TypeAdapter
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import types
+from tracecat_registry.context import RegistryContext, clear_context, set_context
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -47,13 +47,18 @@ from tracecat_registry.core.cases import (
     upload_attachment,
     upload_attachment_from_url,
 )
+from tracecat_registry.sdk.exceptions import (
+    TracecatNotFoundError as SDKNotFoundError,
+)
+from tracecat_registry.sdk.exceptions import (
+    TracecatValidationError as SDKValidationError,
+)
 
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.models import User, Workspace
-from tracecat.exceptions import TracecatNotFoundError
 
 # Advisory lock ID for serializing case_fields schema creation in tests.
 # This prevents deadlocks when concurrent tests create workspace-scoped tables
@@ -75,7 +80,7 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
 
 @pytest.fixture
 async def cases_ctx(cases_test_role: Role, session: AsyncSession):
-    """Set up the ctx_role context for case UDF tests.
+    """Set up the ctx_role and registry context for case UDF tests.
 
     Also pre-initializes the case_fields workspace schema with an advisory lock
     to prevent deadlocks when multiple tests run concurrently. The deadlock occurs
@@ -92,11 +97,22 @@ async def cases_ctx(cases_test_role: Role, session: AsyncSession):
     await fields_service.initialize_workspace_schema()
     await session.commit()
 
+    # Set up registry context for SDK access within UDFs
+    registry_ctx = RegistryContext(
+        workspace_id=str(cases_test_role.workspace_id),
+        workflow_id="test-workflow-id",
+        run_id="test-run-id",
+        environment="default",
+        api_url=config.TRACECAT__API_URL,
+    )
+    set_context(registry_ctx)
+
     token = ctx_role.set(cases_test_role)
     try:
         yield cases_test_role
     finally:
         ctx_role.reset(token)
+        clear_context()
 
 
 @pytest.fixture
@@ -263,10 +279,10 @@ class TestGetCase:
     async def test_get_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Get case with invalid ID raises ValueError."""
+        """Get case with invalid ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await get_case(case_id=fake_id)
 
 
@@ -326,7 +342,7 @@ class TestUpdateCase:
         """Update case with invalid ID raises ValueError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await update_case(case_id=fake_id, summary="New Summary")
 
     async def test_update_case_severity_and_status(
@@ -622,16 +638,16 @@ class TestDeleteCase:
         await delete_case(case_id=str(created["id"]))
 
         # Verify case is gone
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await get_case(case_id=str(created["id"]))
 
     async def test_delete_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Delete case with invalid ID raises ValueError."""
+        """Delete case with invalid ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await delete_case(case_id=fake_id)
 
 
@@ -668,10 +684,10 @@ class TestCreateComment:
     async def test_create_comment_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Create comment with invalid case ID raises ValueError."""
+        """Create comment with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await create_comment(
                 case_id=fake_id,
                 content="Test comment",
@@ -735,10 +751,10 @@ class TestUpdateComment:
     async def test_update_comment_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Update comment with invalid ID raises ValueError."""
+        """Update comment with invalid ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await update_comment(
                 comment_id=fake_id,
                 content="Updated content",
@@ -779,10 +795,10 @@ class TestListComments:
     async def test_list_comments_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """List comments with invalid case ID raises ValueError."""
+        """List comments with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await list_comments(case_id=fake_id)
 
 
@@ -822,7 +838,7 @@ class TestCaseTags:
             description="Test case",
         )
 
-        with pytest.raises(NoResultFound):
+        with pytest.raises(SDKNotFoundError):
             await add_case_tag(
                 case_id=str(case["id"]),
                 tag="nonexistent-tag-" + uuid.uuid4().hex[:8],
@@ -832,10 +848,10 @@ class TestCaseTags:
     async def test_add_case_tag_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Add case tag with invalid case ID raises ValueError."""
+        """Add case tag with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await add_case_tag(
                 case_id=fake_id,
                 tag="some-tag",
@@ -863,10 +879,10 @@ class TestCaseTags:
     async def test_remove_case_tag_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Remove case tag with invalid case ID raises ValueError."""
+        """Remove case tag with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await remove_case_tag(case_id=fake_id, tag="some-tag")
 
 
@@ -904,17 +920,17 @@ class TestListCaseEvents:
     async def test_list_case_events_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """List case events with invalid case ID raises ValueError."""
+        """List case events with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await list_case_events(case_id=fake_id)
 
     async def test_list_case_events_invalid_uuid_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """List case events with invalid UUID format raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid case ID format"):
+        """List case events with invalid UUID format raises SDKValidationError."""
+        with pytest.raises(SDKValidationError):
             await list_case_events(case_id="not-a-uuid")
 
 
@@ -1061,14 +1077,14 @@ class TestGetAttachment:
     async def test_get_attachment_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
-        """Get attachment with invalid ID raises ValueError."""
+        """Get attachment with invalid ID raises SDKNotFoundError."""
         case = await create_case(
             summary="Case for Get Attachment Error",
             description="Test case",
         )
         fake_attachment_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await get_attachment(
                 case_id=str(case["id"]),
                 attachment_id=fake_attachment_id,
@@ -1113,14 +1129,14 @@ class TestDownloadAttachment:
     async def test_download_attachment_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
-        """Download attachment with invalid ID raises TracecatNotFoundError."""
+        """Download attachment with invalid ID raises SDKNotFoundError."""
         case = await create_case(
             summary="Case for Download Error",
             description="Test case",
         )
         fake_attachment_id = str(uuid.uuid4())
 
-        with pytest.raises(TracecatNotFoundError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await download_attachment(
                 case_id=str(case["id"]),
                 attachment_id=fake_attachment_id,
@@ -1154,7 +1170,7 @@ class TestDeleteAttachment:
         )
 
         # Verify attachment is gone
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await get_attachment(
                 case_id=str(case["id"]),
                 attachment_id=str(uploaded["id"]),
@@ -1163,14 +1179,14 @@ class TestDeleteAttachment:
     async def test_delete_attachment_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
-        """Delete attachment with invalid ID raises TracecatNotFoundError."""
+        """Delete attachment with invalid ID raises SDKNotFoundError."""
         case = await create_case(
             summary="Case for Delete Error",
             description="Test case",
         )
         fake_attachment_id = str(uuid.uuid4())
 
-        with pytest.raises(TracecatNotFoundError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await delete_attachment(
                 case_id=str(case["id"]),
                 attachment_id=fake_attachment_id,
@@ -1205,10 +1221,10 @@ class TestAssignUser:
     async def test_assign_user_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role, test_user: User
     ):
-        """Assign user with invalid case ID raises ValueError."""
+        """Assign user with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await assign_user(
                 case_id=fake_id,
                 assignee_id=str(test_user.id),
@@ -1243,13 +1259,13 @@ class TestAssignUserByEmail:
     async def test_assign_user_by_email_user_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Assign user by email with invalid email raises ValueError."""
+        """Assign user by email with invalid email raises SDKNotFoundError."""
         case = await create_case(
             summary="Case for Invalid Email",
             description="Test case",
         )
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await assign_user_by_email(
                 case_id=str(case["id"]),
                 assignee_email="nonexistent@example.com",
@@ -1265,7 +1281,6 @@ class TestAssignUserByEmail:
 class TestUploadAttachmentFromUrl:
     """Characterization tests for upload_attachment_from_url UDF."""
 
-    @respx.mock
     async def test_upload_attachment_from_url_uploads_content(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1275,27 +1290,28 @@ class TestUploadAttachmentFromUrl:
             description="Test case",
         )
 
-        # Mock the external URL
+        # Mock only the external URL, not the internal API calls
         test_content = b"Content downloaded from URL"
-        respx.get("https://example.com/test-file.txt").mock(
-            return_value=Response(
-                200,
-                content=test_content,
-                headers={"Content-Type": "text/plain"},
+        with respx.mock(assert_all_mocked=False) as respx_mock:
+            respx_mock.route(host="localhost").pass_through()
+            respx_mock.get("https://example.com/test-file.txt").mock(
+                return_value=Response(
+                    200,
+                    content=test_content,
+                    headers={"Content-Type": "text/plain"},
+                )
             )
-        )
 
-        result = await upload_attachment_from_url(
-            case_id=str(case["id"]),
-            url="https://example.com/test-file.txt",
-        )
+            result = await upload_attachment_from_url(
+                case_id=str(case["id"]),
+                url="https://example.com/test-file.txt",
+            )
 
         assert "id" in result
         assert result["file_name"] == "test-file.txt"
         assert result["content_type"] == "text/plain"
         assert result["size"] == len(test_content)
 
-    @respx.mock
     async def test_upload_attachment_from_url_with_custom_filename(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1306,23 +1322,24 @@ class TestUploadAttachmentFromUrl:
         )
 
         test_content = b"Custom filename content"
-        respx.get("https://example.com/some/path").mock(
-            return_value=Response(
-                200,
-                content=test_content,
-                headers={"Content-Type": "text/plain"},
+        with respx.mock(assert_all_mocked=False) as respx_mock:
+            respx_mock.route(host="localhost").pass_through()
+            respx_mock.get("https://example.com/some/path").mock(
+                return_value=Response(
+                    200,
+                    content=test_content,
+                    headers={"Content-Type": "text/plain"},
+                )
             )
-        )
 
-        result = await upload_attachment_from_url(
-            case_id=str(case["id"]),
-            url="https://example.com/some/path",
-            file_name="custom-name.txt",
-        )
+            result = await upload_attachment_from_url(
+                case_id=str(case["id"]),
+                url="https://example.com/some/path",
+                file_name="custom-name.txt",
+            )
 
         assert result["file_name"] == "custom-name.txt"
 
-    @respx.mock
     async def test_upload_attachment_from_url_http_error_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1335,17 +1352,18 @@ class TestUploadAttachmentFromUrl:
         )
 
         # Mock a 404 response
-        respx.get("https://example.com/not-found.txt").mock(
-            return_value=Response(404, content=b"Not Found")
-        )
-
-        with pytest.raises(httpx.HTTPStatusError):
-            await upload_attachment_from_url(
-                case_id=str(case["id"]),
-                url="https://example.com/not-found.txt",
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
+            respx_mock.route(host="localhost").pass_through()
+            respx_mock.get("https://example.com/not-found.txt").mock(
+                return_value=Response(404, content=b"Not Found")
             )
 
-    @respx.mock
+            with pytest.raises(httpx.HTTPStatusError):
+                await upload_attachment_from_url(
+                    case_id=str(case["id"]),
+                    url="https://example.com/not-found.txt",
+                )
+
     async def test_upload_attachment_from_url_with_headers(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1356,19 +1374,21 @@ class TestUploadAttachmentFromUrl:
         )
 
         test_content = b"Authenticated content"
-        respx.get("https://example.com/protected-file.txt").mock(
-            return_value=Response(
-                200,
-                content=test_content,
-                headers={"Content-Type": "text/plain"},
+        with respx.mock(assert_all_mocked=False) as respx_mock:
+            respx_mock.route(host="localhost").pass_through()
+            respx_mock.get("https://example.com/protected-file.txt").mock(
+                return_value=Response(
+                    200,
+                    content=test_content,
+                    headers={"Content-Type": "text/plain"},
+                )
             )
-        )
 
-        result = await upload_attachment_from_url(
-            case_id=str(case["id"]),
-            url="https://example.com/protected-file.txt",
-            headers={"Authorization": "Bearer token123"},
-        )
+            result = await upload_attachment_from_url(
+                case_id=str(case["id"]),
+                url="https://example.com/protected-file.txt",
+                headers={"Authorization": "Bearer token123"},
+            )
 
         assert "id" in result
         assert result["file_name"] == "protected-file.txt"
@@ -1472,14 +1492,14 @@ class TestGetAttachmentDownloadUrl:
     async def test_get_attachment_download_url_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
-        """Get attachment download URL with invalid attachment ID raises TracecatNotFoundError."""
+        """Get attachment download URL with invalid attachment ID raises SDKNotFoundError."""
         case = await create_case(
             summary="Case for URL Not Found",
             description="Test case",
         )
         fake_attachment_id = str(uuid.uuid4())
 
-        with pytest.raises(TracecatNotFoundError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await get_attachment_download_url(
                 case_id=str(case["id"]),
                 attachment_id=fake_attachment_id,
@@ -1498,8 +1518,8 @@ class TestEdgeCases:
     async def test_create_case_invalid_priority_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Create case with invalid priority raises ValueError."""
-        with pytest.raises(ValueError):
+        """Create case with invalid priority raises SDKValidationError."""
+        with pytest.raises(SDKValidationError):
             await create_case(
                 summary="Test Case",
                 description="Test",
@@ -1509,8 +1529,8 @@ class TestEdgeCases:
     async def test_create_case_invalid_severity_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Create case with invalid severity raises ValueError."""
-        with pytest.raises(ValueError):
+        """Create case with invalid severity raises SDKValidationError."""
+        with pytest.raises(SDKValidationError):
             await create_case(
                 summary="Test Case",
                 description="Test",
@@ -1520,8 +1540,8 @@ class TestEdgeCases:
     async def test_create_case_invalid_status_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Create case with invalid status raises ValueError."""
-        with pytest.raises(ValueError):
+        """Create case with invalid status raises SDKValidationError."""
+        with pytest.raises(SDKValidationError):
             await create_case(
                 summary="Test Case",
                 description="Test",
@@ -1531,17 +1551,17 @@ class TestEdgeCases:
     async def test_get_case_invalid_uuid_format_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Get case with invalid UUID format raises ValueError."""
-        with pytest.raises(ValueError):
+        """Get case with invalid UUID format raises SDKValidationError."""
+        with pytest.raises(SDKValidationError):
             await get_case(case_id="not-a-uuid")
 
     async def test_assign_user_by_email_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Assign user by email with invalid case ID raises ValueError."""
+        """Assign user by email with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await assign_user_by_email(
                 case_id=fake_id,
                 assignee_email="test@example.com",
@@ -1550,11 +1570,11 @@ class TestEdgeCases:
     async def test_upload_attachment_case_not_found_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
-        """Upload attachment with invalid case ID raises ValueError."""
+        """Upload attachment with invalid case ID raises SDKNotFoundError."""
         fake_id = str(uuid.uuid4())
         content = base64.b64encode(b"Test content").decode("utf-8")
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SDKNotFoundError):
             await upload_attachment(
                 case_id=fake_id,
                 file_name="test.txt",
