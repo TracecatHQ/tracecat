@@ -69,17 +69,13 @@ def _build_known_hosts(host: str, port: int, public_host_key: str) -> str:
     secrets=[ssh_secret],
 )
 def execute_command(
-    host: Annotated[
-        str,
-        Doc("SSH host to connect to."),
-    ],
-    username: Annotated[
-        str,
-        Doc("SSH username."),
-    ],
     command: Annotated[
         str,
         Doc("Command to execute on the remote host."),
+    ],
+    host: Annotated[
+        str,
+        Doc("SSH host to connect to."),
     ],
     host_public_key: Annotated[
         str,
@@ -88,14 +84,18 @@ def execute_command(
             "For non-22 ports, the entry is stored as [host]:port."
         ),
     ],
-    port: Annotated[
-        int,
-        Doc("SSH port. Defaults to 22."),
-    ] = 22,
+    username: Annotated[
+        str,
+        Doc("SSH username."),
+    ],
     password: Annotated[
         str | None,
         Doc("Password for the SSH user."),
     ] = None,
+    port: Annotated[
+        int,
+        Doc("SSH port. Defaults to 22."),
+    ] = 22,
     timeout_seconds: Annotated[
         float,
         Doc("Timeout in seconds for connection and command execution."),
