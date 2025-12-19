@@ -33,6 +33,7 @@ from tracecat.secrets.schemas import (
     SecretSearch,
     SecretUpdate,
     SSHKeyTarget,
+    validate_ssh_key_values,
 )
 from tracecat.service import BaseService
 
@@ -61,6 +62,20 @@ class SecretsService(BaseService):
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
         """Update a base secret."""
+        existing_type = SecretType(secret.type)
+        if existing_type == SecretType.SSH_KEY:
+            if params.type is not None and SecretType(params.type) != existing_type:
+                raise ValueError(
+                    "SSH key secrets cannot change type. Delete and recreate the secret."
+                )
+            if params.keys is not None:
+                raise ValueError(
+                    "SSH key secrets are write-once. Delete and recreate to rotate the key."
+                )
+        elif params.type == SecretType.SSH_KEY:
+            raise ValueError(
+                "SSH key secrets must be created with their key value. Delete and recreate the secret instead."
+            )
         set_fields = params.model_dump(exclude_unset=True)
         # Handle keys separately
         if keys := set_fields.pop("keys", None):
@@ -185,6 +200,8 @@ class SecretsService(BaseService):
             raise TracecatAuthorizationError(
                 "Workspace ID is required to create a secret in a workspace"
             )
+        if params.type == SecretType.SSH_KEY:
+            validate_ssh_key_values(params.keys)
         secret = Secret(
             workspace_id=workspace_id,
             name=params.name,
@@ -287,6 +304,8 @@ class SecretsService(BaseService):
     @audit_log(resource_type="organization_secret", action="create")
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
+        if params.type == SecretType.SSH_KEY:
+            validate_ssh_key_values(params.keys)
         secret = OrganizationSecret(
             organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             name=params.name,

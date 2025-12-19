@@ -4,6 +4,11 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives.serialization import (
+    load_pem_private_key,
+    load_ssh_private_key,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -11,6 +16,7 @@ from pydantic import (
     SecretStr,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from tracecat.db.models import OrganizationSecret, Secret
@@ -25,6 +31,7 @@ SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 """Validator for a secret key. e.g. 'access_key_id'"""
 
 SSHKeyTarget = Literal["registry", "store"]
+SSH_PRIVATE_KEY_NAME = "PRIVATE_KEY"
 
 
 class SecretKeyValue(BaseModel):
@@ -35,6 +42,42 @@ class SecretKeyValue(BaseModel):
     def from_str(kv: str) -> SecretKeyValue:
         key, value = kv.split("=", 1)
         return SecretKeyValue(key=key, value=SecretStr(value))
+
+
+def _normalize_private_key_value(value: str) -> str:
+    normalized = value.strip().replace("\r\n", "\n").replace("\r", "\n")
+    if normalized and not normalized.endswith("\n"):
+        normalized += "\n"
+    return normalized
+
+
+def validate_ssh_private_key(value: str) -> str:
+    normalized = _normalize_private_key_value(value)
+    if not normalized:
+        raise ValueError("SSH private key is required.")
+
+    key_bytes = normalized.encode("utf-8")
+    for loader in (load_ssh_private_key, load_pem_private_key):
+        try:
+            loader(key_bytes, password=None)
+            return normalized
+        except (ValueError, TypeError, UnsupportedAlgorithm):
+            continue
+
+    raise ValueError(
+        "Invalid SSH private key format. Expected an unencrypted OpenSSH or PEM key."
+    )
+
+
+def validate_ssh_key_values(keys: list[SecretKeyValue]) -> None:
+    if len(keys) != 1:
+        raise ValueError("SSH key secrets must contain exactly one key value.")
+    if keys[0].key != SSH_PRIVATE_KEY_NAME:
+        raise ValueError(
+            f"SSH key secrets must use the {SSH_PRIVATE_KEY_NAME!r} key name."
+        )
+    normalized = validate_ssh_private_key(keys[0].value.get_secret_value())
+    keys[0].value = SecretStr(normalized)
 
 
 class SecretBase(BaseModel):
@@ -99,6 +142,12 @@ class SecretCreate(BaseModel):
             raise ValueError("Keys must be unique")
         return v
 
+    @model_validator(mode="after")
+    def validate_ssh_key_secret(self) -> SecretCreate:
+        if self.type == SecretType.SSH_KEY:
+            validate_ssh_key_values(self.keys)
+        return self
+
 
 class SecretUpdate(BaseModel):
     """Update a secret.
@@ -117,6 +166,12 @@ class SecretUpdate(BaseModel):
     )
     tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_ssh_key_secret(self) -> SecretUpdate:
+        if self.type == SecretType.SSH_KEY and self.keys is not None:
+            validate_ssh_key_values(self.keys)
+        return self
 
 
 class SecretSearch(BaseModel):

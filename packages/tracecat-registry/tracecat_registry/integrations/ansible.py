@@ -1,8 +1,6 @@
 """Generic interface to Ansible Python API."""
 
 from typing import Annotated, Any
-
-import orjson
 from ansible_runner import Runner, run
 from pydantic import Field
 
@@ -11,26 +9,13 @@ from tracecat_registry import RegistrySecret, registry, secrets
 ansible_secret = RegistrySecret(
     name="ansible",
     keys=[
-        "ANSIBLE_SSH_KEY",
-    ],
-    optional_keys=[
-        "ANSIBLE_PASSWORDS",
+        "PRIVATE_KEY",
     ],
 )
-"""Ansible Runner secret.
-
+"""Ansible SSH key.
 - name: `ansible`
 - keys:
-    - `ANSIBLE_SSH_KEY`
-- optional_keys:
-    - `ANSIBLE_PASSWORDS`
-
-`ANSIBLE_SSH_KEY` should be the private key string, not the path to the file.
-`ANSIBLE_PASSWORDS` should be a JSON object mapping password prompts to their responses:
-{
-    "SSH password:": "sshpass",
-    "BECOME password": "sudopass",
-}
+    - `PRIVATE_KEY`
 """
 
 
@@ -70,6 +55,15 @@ def run_playbook(
         dict[str, Any] | None,
         Field(description="Additional keyword arguments to pass to the runner"),
     ] = None,
+    passwords: Annotated[
+        dict[str, str] | None,
+        Field(
+            description=(
+                "Optional mapping from password prompt to value. "
+                'Example: {"SSH password:": "${{ SECRETS.your_secret_name.some_password }}"}.'
+            )
+        ),
+    ] = None,
     timeout: Annotated[
         int,
         Field(description="Timeout for the playbook execution in seconds"),
@@ -81,20 +75,7 @@ def run_playbook(
         ),
     ] = None,
 ) -> list[dict[str, Any]] | list[str]:
-    ssh_key = secrets.get("ANSIBLE_SSH_KEY")
-    passwords = secrets.get_or_default("ANSIBLE_PASSWORDS")
-
     ignore_events = ignore_events or []
-
-    # NOTE: Tracecat secrets does NOT preserve newlines, so we need to manually add them
-    # Need to do this jankness until we support different secret types in Tracecat
-    ssh_key_body = (
-        ssh_key.replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
-        .replace("-----END OPENSSH PRIVATE KEY-----", "")
-        .strip()
-        .replace(" ", "\n")
-    )
-    ssh_key_data = f"-----BEGIN OPENSSH PRIVATE KEY-----\n{ssh_key_body}\n-----END OPENSSH PRIVATE KEY-----\n"  # gitleaks:allow
 
     extravars = extravars or {}
     runner_kwargs = runner_kwargs or {}
@@ -122,10 +103,11 @@ def run_playbook(
         }
     }
 
+    ssh_key = secrets.get("PRIVATE_KEY")
     if ssh_key:
-        runner_kwargs["ssh_key"] = ssh_key_data
+        runner_kwargs["ssh_key"] = ssh_key
     if passwords:
-        runner_kwargs["passwords"] = orjson.loads(passwords)
+        runner_kwargs["passwords"] = passwords
 
     result = run(
         playbook=playbook,
