@@ -5,7 +5,7 @@ from urllib.parse import unquote, urlsplit
 import httpx
 from typing import Annotated, Any, Literal, cast
 
-from tracecat_registry import sdk
+from tracecat_registry import types
 from uuid import UUID
 
 from sqlalchemy.exc import NoResultFound, ProgrammingError
@@ -134,7 +134,7 @@ async def create_case(
         list[str] | None,
         Doc("List of tag identifiers (IDs or refs) to add to the case."),
     ] = None,
-) -> sdk.types.Case:
+) -> types.Case:
     async with CasesService.with_session() as service:
         case = await service.create_case(
             CaseCreate(
@@ -155,7 +155,7 @@ async def create_case(
 
             # Refresh case to include tags
             await service.session.refresh(case)
-    return cast(sdk.types.Case, case.to_dict())
+    return cast(types.Case, case.to_dict())
 
 
 @registry.register(
@@ -209,7 +209,7 @@ async def update_case(
             "If true, append the provided description to the existing description when it is not empty."
         ),
     ] = False,
-) -> sdk.types.Case:
+) -> types.Case:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
@@ -254,7 +254,7 @@ async def update_case(
             # Refresh case to include updated tags
             await service.session.refresh(updated_case)
 
-    return cast(sdk.types.Case, updated_case.to_dict())
+    return cast(types.Case, updated_case.to_dict())
 
 
 @registry.register(
@@ -276,7 +276,7 @@ async def create_comment(
         str | None,
         Doc("The ID of the parent comment if this is a reply."),
     ] = None,
-) -> sdk.types.CaseComment:
+) -> types.CaseComment:
     async with CasesService.with_session() as case_service:
         case = await case_service.get_case(UUID(case_id))
         if not case:
@@ -290,7 +290,7 @@ async def create_comment(
                     parent_id=UUID(parent_id) if parent_id else None,
                 ),
             )
-    return cast(sdk.types.CaseComment, comment.to_dict())
+    return cast(types.CaseComment, comment.to_dict())
 
 
 @registry.register(
@@ -312,7 +312,7 @@ async def update_comment(
         str | None,
         Doc("The updated parent comment ID."),
     ] = None,
-) -> sdk.types.CaseComment:
+) -> types.CaseComment:
     async with CaseCommentsService.with_session() as service:
         comment = await service.get_comment(UUID(comment_id))
         if not comment:
@@ -326,7 +326,7 @@ async def update_comment(
         updated_comment = await service.update_comment(
             comment, CaseCommentUpdate(**params)
         )
-    return cast(sdk.types.CaseComment, updated_comment.to_dict())
+    return cast(types.CaseComment, updated_comment.to_dict())
 
 
 @registry.register(
@@ -340,7 +340,7 @@ async def get_case(
         str,
         Doc("The ID of the case to retrieve."),
     ],
-) -> sdk.types.CaseRead:
+) -> types.CaseRead:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
@@ -380,7 +380,7 @@ async def get_case(
     )
 
     # Use model_dump(mode="json") to ensure UUIDs are converted to strings
-    return cast(sdk.types.CaseRead, case_read.model_dump(mode="json"))
+    return cast(types.CaseRead, case_read.model_dump(mode="json"))
 
 
 @registry.register(
@@ -402,7 +402,7 @@ async def list_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-) -> list[sdk.types.CaseReadMinimal]:
+) -> list[types.CaseReadMinimal]:
     if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
@@ -411,7 +411,7 @@ async def list_cases(
     async with CasesService.with_session() as service:
         cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
     return cast(
-        list[sdk.types.CaseReadMinimal],
+        list[types.CaseReadMinimal],
         [
             CaseReadMinimal(
                 id=case.id,
@@ -483,7 +483,7 @@ async def search_cases(
         int,
         Doc("Maximum number of cases to return."),
     ] = 100,
-) -> list[sdk.types.CaseReadMinimal]:
+) -> list[types.CaseReadMinimal]:
     if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
@@ -519,7 +519,7 @@ async def search_cases(
                 "Invalid filter parameters supplied for case search"
             ) from exc
     return cast(
-        list[sdk.types.CaseReadMinimal],
+        list[types.CaseReadMinimal],
         [
             CaseReadMinimal(
                 id=case.id,
@@ -566,7 +566,7 @@ async def list_case_events(
         str,
         Doc("The ID of the case to get events for."),
     ],
-) -> sdk.types.CaseEventsWithUsers:
+) -> types.CaseEventsWithUsers:
     # Validate case_id format
     try:
         case_uuid = UUID(case_id)
@@ -598,7 +598,7 @@ async def list_case_events(
             ]
 
     return cast(
-        sdk.types.CaseEventsWithUsers,
+        types.CaseEventsWithUsers,
         CaseEventsWithUsers(
             events=[
                 CaseEventRead.model_validate(event, from_attributes=True)
@@ -620,7 +620,7 @@ async def list_comments(
         str,
         Doc("The ID of the case to get comments for."),
     ],
-) -> list[sdk.types.CaseCommentRead]:
+) -> list[types.CaseCommentRead]:
     async with get_async_session_context_manager() as session:
         case_service = CasesService(session)
         case = await case_service.get_case(UUID(case_id))
@@ -631,7 +631,7 @@ async def list_comments(
         comment_user_pairs = await comments_service.list_comments(case)
 
     return cast(
-        list[sdk.types.CaseCommentRead],
+        list[types.CaseCommentRead],
         [
             CaseCommentRead(
                 id=comment.id,
@@ -664,7 +664,7 @@ async def assign_user(
         str,
         Doc("The ID of the user to assign to the case."),
     ],
-) -> sdk.types.Case:
+) -> types.Case:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
@@ -673,7 +673,7 @@ async def assign_user(
         updated_case = await service.update_case(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
-    return cast(sdk.types.Case, updated_case.to_dict())
+    return cast(types.Case, updated_case.to_dict())
 
 
 @registry.register(
@@ -691,7 +691,7 @@ async def assign_user_by_email(
         str,
         Doc("The email of the user to assign to the case."),
     ],
-) -> sdk.types.Case:
+) -> types.Case:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
@@ -704,7 +704,7 @@ async def assign_user_by_email(
 
         # Update the case with the user's ID
         updated_case = await service.update_case(case, CaseUpdate(assignee_id=user.id))
-    return cast(sdk.types.Case, updated_case.to_dict())
+    return cast(types.Case, updated_case.to_dict())
 
 
 @registry.register(
@@ -726,7 +726,7 @@ async def add_case_tag(
         bool,
         Doc("If true, create the tag if it does not exist."),
     ] = False,
-) -> sdk.types.TagRead:
+) -> types.TagRead:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
@@ -741,7 +741,7 @@ async def add_case_tag(
             tag_obj = await service.tags.add_case_tag(case.id, created_tag.ref)
 
     return cast(
-        sdk.types.TagRead,
+        types.TagRead,
         TagRead.model_validate(tag_obj, from_attributes=True).model_dump(mode="json"),
     )
 
@@ -775,7 +775,7 @@ async def _upload_attachment(
     file_name: str,
     content: bytes,
     content_type: str,
-) -> sdk.types.CaseAttachmentRead:
+) -> types.CaseAttachmentRead:
     """Upload an attachment to a case."""
     try:
         case_uuid = UUID(case_id)
@@ -798,7 +798,7 @@ async def _upload_attachment(
         )
 
     return cast(
-        sdk.types.CaseAttachmentRead,
+        types.CaseAttachmentRead,
         CaseAttachmentRead(
             id=attachment.id,
             case_id=attachment.case_id,
@@ -836,7 +836,7 @@ async def upload_attachment(
         str,
         Doc("The MIME type of the file (e.g., 'application/pdf')."),
     ],
-) -> sdk.types.CaseAttachmentRead:
+) -> types.CaseAttachmentRead:
     """Upload a file attachment to a case."""
     # Decode base64 content
     try:
@@ -885,7 +885,7 @@ async def upload_attachment_from_url(
             "Filename of the file to upload. If not provided, the filename will be inferred from the URL."
         ),
     ] = None,
-) -> sdk.types.CaseAttachmentRead:
+) -> types.CaseAttachmentRead:
     """Upload a file attachment to a case from a URL."""
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
@@ -915,7 +915,7 @@ async def list_attachments(
         str,
         Doc("The ID of the case to list attachments for."),
     ],
-) -> list[sdk.types.CaseAttachmentRead]:
+) -> list[types.CaseAttachmentRead]:
     """List all attachments for a case."""
     # Validate case_id format
     try:
@@ -930,7 +930,7 @@ async def list_attachments(
         attachments = await service.attachments.list_attachments(case)
 
     return cast(
-        list[sdk.types.CaseAttachmentRead],
+        list[types.CaseAttachmentRead],
         [
             CaseAttachmentRead(
                 id=attachment.id,
@@ -963,7 +963,7 @@ async def download_attachment(
         str,
         Doc("The ID of the attachment to download."),
     ],
-) -> sdk.types.CaseAttachmentDownloadData:
+) -> types.CaseAttachmentDownloadData:
     """Download an attachment's content.
 
     Returns the file content as base64 encoded string along with metadata.
@@ -990,7 +990,7 @@ async def download_attachment(
         )
     content_base64 = base64.b64encode(content).decode("utf-8")
     return cast(
-        sdk.types.CaseAttachmentDownloadData,
+        types.CaseAttachmentDownloadData,
         CaseAttachmentDownloadData(
             content_base64=content_base64,
             file_name=file_name,
@@ -1014,7 +1014,7 @@ async def get_attachment(
         str,
         Doc("The ID of the attachment to get."),
     ],
-) -> sdk.types.CaseAttachmentRead:
+) -> types.CaseAttachmentRead:
     """Get attachment metadata without downloading the content."""
     # Validate UUID formats
     try:
@@ -1033,7 +1033,7 @@ async def get_attachment(
             raise ValueError(f"Attachment {attachment_id} not found")
 
     return cast(
-        sdk.types.CaseAttachmentRead,
+        types.CaseAttachmentRead,
         CaseAttachmentRead(
             id=attachment.id,
             case_id=attachment.case_id,
