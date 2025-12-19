@@ -81,7 +81,7 @@ def execute_command(
         str,
         Doc("Command to execute on the remote host."),
     ],
-    host_key: Annotated[
+    host_public_key: Annotated[
         str,
         Doc(
             "Expected public host key for the target host in '<key_type> <base64>' format. "
@@ -103,7 +103,7 @@ def execute_command(
 ) -> SSHCommandResult:
     """Execute a command over SSH and return stdout, stderr, and exit status.
 
-    Unknown host keys are rejected; provide `host_key` to trust a host.
+    Unknown host keys are rejected; provide `host_public_key` to trust a host.
     """
     private_key = secrets.get("PRIVATE_KEY")
     pkey = _load_private_key(private_key)
@@ -111,7 +111,7 @@ def execute_command(
     with paramiko.SSHClient() as client:
         known_hosts_path: str | None = None
         try:
-            known_hosts_data = _build_known_hosts(host, port, host_key)
+            known_hosts_data = _build_known_hosts(host, port, host_public_key)
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 delete=False,
