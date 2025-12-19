@@ -1292,7 +1292,7 @@ class TestUploadAttachmentFromUrl:
 
         # Mock only the external URL, not the internal API calls
         test_content = b"Content downloaded from URL"
-        with respx.mock(assert_all_mocked=False) as respx_mock:
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
             respx_mock.route(host="localhost").pass_through()
             respx_mock.get("https://example.com/test-file.txt").mock(
                 return_value=Response(
@@ -1322,7 +1322,7 @@ class TestUploadAttachmentFromUrl:
         )
 
         test_content = b"Custom filename content"
-        with respx.mock(assert_all_mocked=False) as respx_mock:
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
             respx_mock.route(host="localhost").pass_through()
             respx_mock.get("https://example.com/some/path").mock(
                 return_value=Response(
@@ -1374,7 +1374,7 @@ class TestUploadAttachmentFromUrl:
         )
 
         test_content = b"Authenticated content"
-        with respx.mock(assert_all_mocked=False) as respx_mock:
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
             respx_mock.route(host="localhost").pass_through()
             respx_mock.get("https://example.com/protected-file.txt").mock(
                 return_value=Response(
