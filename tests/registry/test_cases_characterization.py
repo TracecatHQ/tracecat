@@ -122,7 +122,7 @@ async def cases_ctx(
     respx_mock = None
     # Patch the module-level constant in core.cases
     with patch(
-        "tracecat_registry.core.cases._USE_REGISTRY_CLIENT", registry_client_enabled
+        "tracecat_registry.config.flags.registry_client", registry_client_enabled
     ):
         if registry_client_enabled:
             from typing import get_args

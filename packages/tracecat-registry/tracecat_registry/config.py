@@ -2,7 +2,25 @@
 
 import os
 
+
 # Maximum number of rows that can be returned from client-facing queries
 MAX_ROWS_CLIENT_POSTGRES = int(
     os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
 )
+
+
+class _FeatureFlags:
+    """Feature flags checked directly from env to avoid heavy tracecat imports.
+
+    Attributes are set in __init__ to allow patching in tests.
+    """
+
+    def __init__(self) -> None:
+        _flags = os.environ.get("TRACECAT__FEATURE_FLAGS", "")
+        self.registry_client: bool = "registry-client" in _flags
+        """Use SDK/API client instead of direct DB access in sandbox mode."""
+        self.case_tasks: bool = "case-tasks" in _flags
+        """Enable case tasks (enterprise feature)."""
+
+
+flags = _FeatureFlags()

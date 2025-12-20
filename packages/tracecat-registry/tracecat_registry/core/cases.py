@@ -15,10 +15,6 @@ from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
 
-# Must be imported directly to preserve the udf metadata
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
-from tracecat.logger import logger
-
 if TYPE_CHECKING:
     from sqlalchemy import select
     from sqlalchemy.exc import NoResultFound, ProgrammingError
@@ -51,7 +47,9 @@ if TYPE_CHECKING:
     from tracecat.tables.common import coerce_optional_to_utc_datetime
     from tracecat.tags.schemas import TagCreate, TagRead
 
-if is_feature_enabled(FeatureFlag.CASE_TASKS):
+if config.flags.case_tasks:
+    from tracecat.logger import logger
+
     logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")
     from tracecat_ee.cases.tasks import (
         create_task,
@@ -66,14 +64,8 @@ else:
     list_tasks = None
     update_task = None
     delete_task = None
-    logger.info(
-        "Case tasks feature flag is not enabled. Skipping case tasks integration."
-    )
 
-
-_USE_REGISTRY_CLIENT = is_feature_enabled(FeatureFlag.REGISTRY_CLIENT)
-
-if not _USE_REGISTRY_CLIENT:
+if not config.flags.registry_client:
     from sqlalchemy import select
     from sqlalchemy.exc import NoResultFound, ProgrammingError
     from sqlalchemy.orm import Mapped
@@ -177,7 +169,7 @@ async def create_case(
         Doc("List of tag identifiers (IDs or refs) to add to the case."),
     ] = None,
 ) -> types.Case:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {}
         if summary is not None:
             params["summary"] = summary
@@ -275,7 +267,7 @@ async def update_case(
         ),
     ] = False,
 ) -> types.Case:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         client_params: dict[str, Any] = {}
         if summary is not None:
             client_params["summary"] = summary
@@ -370,7 +362,7 @@ async def create_comment(
         Doc("The ID of the parent comment if this is a reply."),
     ] = None,
 ) -> types.CaseComment:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {"content": content}
         if parent_id is not None:
             params["parent_id"] = parent_id
@@ -412,7 +404,7 @@ async def update_comment(
         Doc("The updated parent comment ID."),
     ] = None,
 ) -> types.CaseComment:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         client_params: dict[str, Any] = {}
         if content is not None:
             client_params["content"] = content
@@ -450,7 +442,7 @@ async def get_case(
         Doc("The ID of the case to retrieve."),
     ],
 ) -> types.CaseRead:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.get_case(case_id)
 
     async with CasesService.with_session() as service:
@@ -527,7 +519,7 @@ async def list_cases(
             detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {"limit": limit}
         if order_by is not None:
             params["order_by"] = order_by
@@ -617,7 +609,7 @@ async def search_cases(
             detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {}
         if search_term is not None:
             params["search_term"] = search_term
@@ -704,7 +696,7 @@ async def delete_case(
         Doc("The ID of the case to delete."),
     ],
 ) -> None:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         await get_context().cases.delete_case(case_id)
         return
 
@@ -727,7 +719,7 @@ async def list_case_events(
         Doc("The ID of the case to get events for."),
     ],
 ) -> types.CaseEventsWithUsers:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.list_events(case_id)
 
     # Validate case_id format
@@ -786,7 +778,7 @@ async def list_comments(
         Doc("The ID of the case to get comments for."),
     ],
 ) -> list[types.CaseCommentRead]:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.list_comments(case_id)
 
     async with get_async_session_context_manager() as session:
@@ -833,7 +825,7 @@ async def assign_user(
         Doc("The ID of the user to assign to the case."),
     ],
 ) -> types.Case:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.assign_user_simple(
             case_id,
             assignee_id=assignee_id,
@@ -866,7 +858,7 @@ async def assign_user_by_email(
         Doc("The email of the user to assign to the case."),
     ],
 ) -> types.Case:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.assign_user_by_email(
             case_id,
             email=assignee_email,
@@ -907,7 +899,7 @@ async def add_case_tag(
         Doc("If true, create the tag if it does not exist."),
     ] = False,
 ) -> types.TagRead:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.add_tag(
             case_id,
             tag_id=tag,
@@ -949,7 +941,7 @@ async def remove_case_tag(
         Doc("The tag identifier (ID or ref) to remove from the case."),
     ],
 ) -> None:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         await get_context().cases.remove_tag(case_id, tag_id=tag)
         return
 
@@ -975,7 +967,7 @@ async def _upload_attachment(
             detail=f"Invalid case ID format: {case_id}"
         ) from e
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         content_base64 = base64.b64encode(content).decode("utf-8")
         return await get_context().cases.create_attachment(
             str(case_uuid),
@@ -1133,7 +1125,7 @@ async def list_attachments(
             detail=f"Invalid case ID format: {case_id}"
         ) from e
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.list_attachments(str(case_uuid))
 
     async with CasesService.with_session() as service:
@@ -1189,7 +1181,7 @@ async def download_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.download_attachment(
             case_uuid,
             attachment_uuid,
@@ -1247,7 +1239,7 @@ async def get_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.get_attachment_metadata(
             case_uuid,
             attachment_uuid,
@@ -1305,7 +1297,7 @@ async def delete_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         await get_context().cases.delete_attachment(
             case_uuid,
             attachment_uuid,
@@ -1365,7 +1357,7 @@ async def get_attachment_download_url(
                 detail="Expiry cannot exceed 24 hours (86400 seconds)"
             )
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().cases.get_attachment_presigned_url(
             case_uuid,
             attachment_uuid,

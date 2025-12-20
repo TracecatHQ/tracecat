@@ -19,13 +19,10 @@ from tracecat.tables.schemas import (
     TableRowInsert,
 )
 from tracecat.tables.service import TablesService
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat_registry import registry, types
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.exceptions import TracecatConflictError
 from tracecat.expressions.functions import tabulate
-
-_USE_REGISTRY_CLIENT = is_feature_enabled(FeatureFlag.REGISTRY_CLIENT)
 
 
 @registry.register(
@@ -48,7 +45,7 @@ async def lookup(
         Doc("The value to lookup."),
     ],
 ) -> dict[str, Any] | None:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.lookup(
             table=table, column=column, value=value
         )
@@ -83,7 +80,7 @@ async def is_in(
         Doc("The value to check for."),
     ],
 ) -> bool:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.exists(
             table=table, column=column, value=value
         )
@@ -124,7 +121,7 @@ async def lookup_many(
             f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {
             "table": table,
             "column": column,
@@ -189,7 +186,7 @@ async def search_rows(
             f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {"table": table}
         if search_term is not None:
             params["search_term"] = search_term
@@ -243,7 +240,7 @@ async def insert_row(
         Doc("If true, update the row if it already exists (based on primary key)."),
     ] = False,
 ) -> dict[str, Any]:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.insert_row(
             table=table,
             row_data=row_data,
@@ -276,7 +273,7 @@ async def insert_rows(
         Doc("If true, update the rows if they already exist (based on primary key)."),
     ] = False,
 ) -> int:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.insert_rows(
             table=table,
             rows_data=rows_data,
@@ -310,7 +307,7 @@ async def update_row(
         Doc("The new data for the row."),
     ],
 ) -> dict[str, Any]:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.update_row(
             table=table,
             row_id=row_id,
@@ -340,7 +337,7 @@ async def delete_row(
         Doc("The ID of the row to delete."),
     ],
 ) -> None:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         await get_context().tables.delete_row(table=table, row_id=row_id)
         return
     async with TablesService.with_session() as service:
@@ -370,7 +367,7 @@ async def create_table(
         Doc("If true, raise an error if the table already exists."),
     ] = True,
 ) -> types.Table:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         client_params: dict[str, Any] = {
             "name": name,
             "raise_on_duplicate": raise_on_duplicate,
@@ -422,7 +419,7 @@ async def create_table(
     namespace="core.table",
 )
 async def list_tables() -> list[types.Table]:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.list_tables()
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
@@ -438,7 +435,7 @@ async def list_tables() -> list[types.Table]:
 async def get_table_metadata(
     name: Annotated[str, Doc("The name of the table to get.")],
 ) -> types.TableRead:
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         return await get_context().tables.get_table_metadata(name)
     async with TablesService.with_session() as service:
         table = await service.get_table_by_name(name)
@@ -482,7 +479,7 @@ async def download(
     if limit > 1000:
         raise ValueError("Cannot return more than 1000 rows")
 
-    if _USE_REGISTRY_CLIENT:
+    if config.flags.registry_client:
         params: dict[str, Any] = {"table": name}
         if format is not None:
             params["format"] = format
