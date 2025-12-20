@@ -56,6 +56,7 @@ from tracecat_registry.sdk.exceptions import (
 )
 
 from tracecat import config
+from tracecat.api.app import app
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
@@ -118,6 +119,7 @@ async def cases_ctx(
     )
     set_context(registry_ctx)
 
+    respx_mock = None
     # Patch the module-level constant in core.cases
     with patch(
         "tracecat_registry.core.cases._USE_REGISTRY_CLIENT", registry_client_enabled
@@ -127,7 +129,6 @@ async def cases_ctx(
 
             from httpx import ASGITransport
 
-            from tracecat.api.app import app
             from tracecat.auth.dependencies import (
                 ExecutorWorkspaceRole,
                 OrgAdminUser,
@@ -174,8 +175,9 @@ async def cases_ctx(
         finally:
             ctx_role.reset(token)
             clear_context()
-            if registry_client_enabled:
+            if respx_mock is not None:
                 respx_mock.stop()
+            if registry_client_enabled:
                 app.dependency_overrides.clear()
 
 
