@@ -89,6 +89,47 @@ def test_verify_executor_token_invalid_subject(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.anyio
+async def test_role_dependency_rejects_user_role_in_token(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Verify that tokens containing user roles are rejected.
+
+    This ensures that user-triggered workflows must convert the user role
+    to an executor service role before minting the token.
+    """
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})
+
+    workspace_id = uuid.uuid4()
+    # Create a user role (not an executor role)
+    user_role = Role(
+        type="user",
+        service_id="tracecat-api",
+        access_level=AccessLevel.BASIC,
+        workspace_id=workspace_id,
+        user_id=uuid.uuid4(),
+    )
+    token = mint_executor_token(role=user_role, ttl_seconds=60)
+    request = _make_request(token)
+
+    # Should fail because user roles don't pass the executor role check
+    with pytest.raises(HTTPException) as exc:
+        await _role_dependency(
+            request=request,
+            session=AsyncMock(),
+            workspace_id=workspace_id,
+            user=None,
+            api_key=None,
+            allow_user=False,
+            allow_service=False,
+            allow_executor=True,
+            require_workspace="yes",
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.anyio
 async def test_role_dependency_executor_token(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})

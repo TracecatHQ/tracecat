@@ -17,7 +17,7 @@ from ray.runtime_env import RuntimeEnv
 
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
-from tracecat.auth.types import Role
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
@@ -296,8 +296,19 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     ):
         executor_token = ""
         if is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
+            # Create a dedicated executor role preserving workspace context
+            # The caller's role may be a user role, but executor tokens require
+            # type="service" and service_id="tracecat-executor" for verification
+            executor_role = Role(
+                type="service",
+                service_id="tracecat-executor",
+                access_level=AccessLevel.ADMIN,
+                workspace_id=role.workspace_id,
+                organization_id=role.organization_id,
+                user_id=role.user_id,
+            )
             executor_token = mint_executor_token(
-                role=role,
+                role=executor_role,
                 run_id=str(input.run_context.wf_run_id),
                 workflow_id=str(input.run_context.wf_id),
             )
