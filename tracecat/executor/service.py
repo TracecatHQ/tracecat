@@ -16,6 +16,7 @@ from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
 
 from tracecat import config
+from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
@@ -47,6 +48,8 @@ from tracecat.expressions.eval import (
     eval_templated_object,
     get_iterables_from_expression,
 )
+from tracecat.feature_flags import is_feature_enabled
+from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import safe_prepare_git_url
 from tracecat.logger import logger
@@ -286,13 +289,25 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         ctx_interaction.set(input.interaction_context)
 
     # Set up the registry context for SDK access within UDFs
-    if RegistryContext is not None and set_context is not None:
+    if (
+        RegistryContext is not None
+        and set_context is not None
+        and is_feature_enabled(FeatureFlag.REGISTRY_CLIENT)
+    ):
+        executor_token = ""
+        if is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
+            executor_token = mint_executor_token(
+                role=role,
+                run_id=str(input.run_context.wf_run_id),
+                workflow_id=str(input.run_context.wf_id),
+            )
         registry_ctx = RegistryContext(
             workspace_id=str(role.workspace_id) if role.workspace_id else "",
             workflow_id=str(input.run_context.wf_id),
             run_id=str(input.run_context.wf_run_id),
             environment=input.run_context.environment,
             api_url=config.TRACECAT__API_URL,
+            token=executor_token,
         )
         set_context(registry_ctx)
 
