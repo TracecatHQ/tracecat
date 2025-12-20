@@ -1200,7 +1200,7 @@ export function useWorkspaceSecrets(workspaceId: string) {
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key"],
+        type: ["custom", "ssh-key", "mtls", "ca-cert"],
       }),
     enabled: !!workspaceId,
   })

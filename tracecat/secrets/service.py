@@ -33,6 +33,8 @@ from tracecat.secrets.schemas import (
     SecretSearch,
     SecretUpdate,
     SSHKeyTarget,
+    validate_ca_cert_values,
+    validate_mtls_key_values,
     validate_ssh_key_values,
 )
 from tracecat.service import BaseService
@@ -72,9 +74,31 @@ class SecretsService(BaseService):
                 raise ValueError(
                     "SSH key secrets are write-once. Delete and recreate to rotate the key."
                 )
+        elif existing_type == SecretType.MTLS:
+            if params.type is not None and SecretType(params.type) != existing_type:
+                raise ValueError(
+                    "mTLS secrets cannot change type. Delete and recreate the secret."
+                )
+            if params.keys is not None:
+                validate_mtls_key_values(params.keys)
+        elif existing_type == SecretType.CA_CERT:
+            if params.type is not None and SecretType(params.type) != existing_type:
+                raise ValueError(
+                    "CA certificate secrets cannot change type. Delete and recreate the secret."
+                )
+            if params.keys is not None:
+                validate_ca_cert_values(params.keys)
         elif params.type == SecretType.SSH_KEY:
             raise ValueError(
                 "SSH key secrets must be created with their key value. Delete and recreate the secret instead."
+            )
+        elif params.type == SecretType.MTLS:
+            raise ValueError(
+                "mTLS secrets must be created with their key values. Delete and recreate the secret instead."
+            )
+        elif params.type == SecretType.CA_CERT:
+            raise ValueError(
+                "CA certificate secrets must be created with their key values. Delete and recreate the secret instead."
             )
         set_fields = params.model_dump(exclude_unset=True)
         # Handle keys separately
@@ -202,6 +226,10 @@ class SecretsService(BaseService):
             )
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
+        elif params.type == SecretType.MTLS:
+            validate_mtls_key_values(params.keys)
+        elif params.type == SecretType.CA_CERT:
+            validate_ca_cert_values(params.keys)
         secret = Secret(
             workspace_id=workspace_id,
             name=params.name,
@@ -306,6 +334,10 @@ class SecretsService(BaseService):
         """Create a new organization secret."""
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
+        elif params.type == SecretType.MTLS:
+            validate_mtls_key_values(params.keys)
+        elif params.type == SecretType.CA_CERT:
+            validate_ca_cert_values(params.keys)
         secret = OrganizationSecret(
             organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             name=params.name,
