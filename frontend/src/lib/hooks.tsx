@@ -1200,7 +1200,7 @@ export function useWorkspaceSecrets(workspaceId: string) {
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom"],
+        type: ["custom", "ssh-key"],
       }),
     enabled: !!workspaceId,
   })
@@ -1238,7 +1238,8 @@ export function useWorkspaceSecrets(workspaceId: string) {
           console.error("Failed to create secret", error)
           return toast({
             title: "Failed to add new secret",
-            description: "Please contact support for help.",
+            description:
+              "Check that your secret is correctly formatted and try again.",
           })
       }
     },
