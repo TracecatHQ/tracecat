@@ -20,3 +20,17 @@ class CaseTagRead(BaseModel):
     name: str
     ref: str
     color: str | None
+
+
+class InternalCaseTagCreate(BaseModel):
+    """Internal schema for adding tags to cases with create_if_missing support."""
+
+    tag_id: TagIdentifier = Field(
+        description="Tag ID (UUID), ref, or name if create_if_missing is True",
+        min_length=1,
+        max_length=100,
+    )
+    create_if_missing: bool = Field(
+        default=False,
+        description="If true, create the tag if it does not exist",
+    )

@@ -1,16 +1,14 @@
 "use client"
 
 import {
-  CalendarClockIcon,
   Copy,
+  DownloadIcon,
   ExternalLink,
-  FileJson2,
   FolderKanban,
   FolderUp,
   Pencil,
   TagsIcon,
   Trash2,
-  WebhookIcon,
 } from "lucide-react"
 import Link from "next/link"
 import type {
@@ -27,12 +25,12 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuPortal,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
 import {
   useOrgAppSettings,
   useWorkflowManager,
@@ -54,10 +52,6 @@ export function WorkflowActions({
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
   const { tags } = useWorkflowTags(workspaceId)
-  const { user } = useAuth()
-  const isAdmin = user?.isOrgAdmin() ?? false
-  const webhookLabel = isAdmin ? "Manage webhook" : "View webhook"
-  const scheduleLabel = isAdmin ? "Manage schedules" : "View schedules"
 
   const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()
   const enabledExport = appSettings?.app_workflow_export_enabled ?? false
@@ -78,57 +72,14 @@ export function WorkflowActions({
           Open in new tab
         </Link>
       </DropdownMenuItem>
-      <DropdownMenuItem
-        className="text-xs"
-        onClick={(e) => e.stopPropagation()}
-        asChild
-      >
-        <Link
-          href={`/workspaces/${workspaceId}/workflows/${item.id}#trigger-webhooks`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <WebhookIcon className="mr-2 size-3.5" />
-          {webhookLabel}
-        </Link>
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="text-xs"
-        onClick={(e) => e.stopPropagation()}
-        asChild
-      >
-        <Link
-          href={`/workspaces/${workspaceId}/workflows/${item.id}#trigger-schedules`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <CalendarClockIcon className="mr-2 size-3.5" />
-          {scheduleLabel}
-        </Link>
-      </DropdownMenuItem>
       {item.alias && (
         <DropdownMenuItem
           className="text-xs"
           onClick={(e) => {
             e.stopPropagation() // Prevent row click
-            if (!item.alias) {
-              return toast({
-                title: "No alias",
-                description: "This workflow has no alias",
-              })
+            if (item.alias) {
+              navigator.clipboard.writeText(item.alias)
             }
-            navigator.clipboard.writeText(item.alias)
-            toast({
-              title: "Workflow alias copied",
-              description: (
-                <div className="flex flex-col space-y-2">
-                  <span>
-                    Workflow alias copied for{" "}
-                    <b className="inline-block">{item.title}</b>
-                  </span>
-                </div>
-              ),
-            })
           }}
         >
           <Copy className="mr-2 size-3.5" />
@@ -230,41 +181,33 @@ export function WorkflowActions({
       )}
       <ExportMenuItem
         enabledExport={enabledExport}
-        format="json"
+        format="yaml"
         workspaceId={workspaceId}
         workflowId={item.id}
-        icon={<FileJson2 className="mr-2 size-3.5" />}
+        draft={true}
+        label="Export draft"
+        icon={<DownloadIcon className="mr-2 size-3.5" />}
       />
       <ExportMenuItem
         enabledExport={enabledExport}
         format="yaml"
         workspaceId={workspaceId}
         workflowId={item.id}
-        icon={<FileJson2 className="mr-2 size-3.5" />}
+        draft={false}
+        label="Export saved"
+        icon={<DownloadIcon className="mr-2 size-3.5" />}
       />
-      {/* Danger zone */}
       <DropdownMenuItem
         className="text-xs"
         onClick={(e) => {
           e.stopPropagation() // Prevent row click
           navigator.clipboard.writeText(item.id)
-          toast({
-            title: "Workflow ID copied",
-            description: (
-              <div className="flex flex-col space-y-2">
-                <span>
-                  Workflow ID copied for{" "}
-                  <b className="inline-block">{item.title}</b>
-                </span>
-                <span className="text-muted-foreground">ID: {item.id}</span>
-              </div>
-            ),
-          })
         }}
       >
         <Copy className="mr-2 size-3.5" />
         Copy workflow ID
       </DropdownMenuItem>
+      <DropdownMenuSeparator />
       <DeleteWorkflowAlertDialogTrigger asChild>
         <DropdownMenuItem
           className="text-xs text-rose-500 focus:text-rose-600"
@@ -299,18 +242,6 @@ export function FolderActions({
         onSelect={(e) => {
           e.stopPropagation() // Prevent row click
           navigator.clipboard.writeText(item.id)
-          toast({
-            title: "Folder ID copied",
-            description: (
-              <div className="flex flex-col space-y-2">
-                <span>
-                  Folder ID copied for{" "}
-                  <b className="inline-block">{item.name}</b>
-                </span>
-                <span className="text-muted-foreground">ID: {item.id}</span>
-              </div>
-            ),
-          })
         }}
       >
         <Copy className="mr-2 size-3.5" />
@@ -340,8 +271,7 @@ export function FolderActions({
         <FolderKanban className="mr-2 size-3.5" />
         Move folder
       </DropdownMenuItem>
-
-      {/* Danger zone */}
+      <DropdownMenuSeparator />
       <DropdownMenuItem
         className="text-xs text-rose-500 focus:text-rose-600"
         onClick={(e) => e.stopPropagation()}

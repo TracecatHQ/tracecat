@@ -459,9 +459,14 @@ async def commit_workflow(
             workflow.registry_lock = registry_lock
 
     # Creating a workflow definition only uses refs
+    # Copy the alias from the draft workflow to the committed definition
     # Pass the registry_lock to freeze it with this definition
     defn = await service.create_workflow_definition(
-        workflow_id, dsl, registry_lock=registry_lock, commit=False
+        workflow_id,
+        dsl,
+        alias=workflow.alias,
+        registry_lock=registry_lock,
+        commit=False,
     )
 
     # Update Workflow

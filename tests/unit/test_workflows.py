@@ -486,7 +486,7 @@ async def _create_and_commit_workflow(
         # Commit the child workflow
         defn_service = WorkflowDefinitionsService(session, role=role)
         await defn_service.create_workflow_definition(
-            workflow_id=workflow_id, dsl=constructed_dsl
+            workflow_id=workflow_id, dsl=constructed_dsl, alias=alias
         )
         return workflow
 
@@ -2438,7 +2438,7 @@ async def error_handler_wf_and_dsl(
         # Commit the child workflow
         defn_service = WorkflowDefinitionsService(session, role=test_role)
         await defn_service.create_workflow_definition(
-            workflow_id=workflow_id, dsl=constructed_dsl
+            workflow_id=workflow_id, dsl=constructed_dsl, alias=alias
         )
         try:
             yield ErrorHandlerWfAndDslT(dsl, workflow)

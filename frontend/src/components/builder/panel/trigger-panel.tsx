@@ -13,7 +13,6 @@ import {
   MoreHorizontalIcon,
   PlusCircleIcon,
   RotateCcwIcon,
-  SaveIcon,
   Trash2Icon,
   WebhookIcon,
 } from "lucide-react"
@@ -366,14 +365,8 @@ export function WebhookControls({
     },
   })
 
-  const allowlistFieldState = form.getFieldState(
-    "allowlisted_cidrs",
-    form.formState
-  )
-  const allowlistDirty = allowlistFieldState.isDirty
-
   const handleAllowlistedCidrsChange = useCallback(
-    (newTags: Tag[] | undefined) => {
+    async (newTags: Tag[] | undefined) => {
       if (!Array.isArray(newTags)) {
         form.setValue("allowlisted_cidrs", [], {
           shouldDirty: true,
@@ -413,54 +406,40 @@ export function WebhookControls({
           description: firstError,
           variant: "destructive",
         })
-      } else {
-        form.clearErrors("allowlisted_cidrs")
+        return
       }
 
-      form.setValue("allowlisted_cidrs", Array.from(normalized.values()), {
+      form.clearErrors("allowlisted_cidrs")
+      const normalizedValues = Array.from(normalized.values())
+      form.setValue("allowlisted_cidrs", normalizedValues, {
         shouldDirty: true,
-        shouldValidate: !firstError,
+        shouldValidate: true,
         shouldTouch: true,
       })
+
+      // Auto-save the allowlist
+      const payload = normalizedValues.map((tag) => tag.text)
+      try {
+        await mutateAsync({ allowlisted_cidrs: payload })
+        form.reset({ ...form.getValues(), allowlisted_cidrs: normalizedValues })
+        toast({
+          title: "Allowlist updated",
+          description: "Webhook allowlist saved successfully.",
+        })
+      } catch (error) {
+        const description = extractApiErrorMessage(
+          error,
+          "Failed to update the IP allowlist."
+        )
+        toast({
+          title: "Failed to save allowlist",
+          description,
+          variant: "destructive",
+        })
+      }
     },
-    [form]
+    [form, mutateAsync]
   )
-
-  const handleSaveAllowlistedCidrs = useCallback(async () => {
-    const isValid = await form.trigger("allowlisted_cidrs")
-    if (!isValid) {
-      toast({
-        title: "Cannot save allowlist",
-        description: "Please fix the highlighted errors before saving.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const tags = form.getValues("allowlisted_cidrs")
-    const payload = tags.map((tag) => tag.text)
-
-    try {
-      await mutateAsync({ allowlisted_cidrs: payload })
-      const currentValues = form.getValues()
-      form.reset(currentValues)
-      form.clearErrors("allowlisted_cidrs")
-      toast({
-        title: "Allowlist updated",
-        description: "Webhook allowlist saved successfully.",
-      })
-    } catch (error) {
-      const description = extractApiErrorMessage(
-        error,
-        "Failed to update the IP allowlist."
-      )
-      toast({
-        title: "Failed to save allowlist",
-        description,
-        variant: "destructive",
-      })
-    }
-  }, [form, mutateAsync])
 
   const formatTimestamp = (value: string | null) =>
     value ? new Date(value).toLocaleString() : "—"
@@ -668,32 +647,9 @@ export function WebhookControls({
           name="allowlisted_cidrs"
           render={({ field }) => (
             <FormItem>
-              <div className="flex items-end justify-between gap-2 min-h-[20px]">
-                <FormLabel className="text-xs font-medium">
-                  <span>IP Allowlist</span>
-                </FormLabel>
-                {allowlistDirty && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-auto px-2 text-xs py-0 flex items-center gap-1"
-                    onClick={handleSaveAllowlistedCidrs}
-                    disabled={isUpdatingWebhook}
-                  >
-                    {isUpdatingWebhook ? (
-                      <>
-                        <SaveIcon className="size-3 animate-pulse" />
-                        <span>Saving...</span>
-                      </>
-                    ) : (
-                      <>
-                        <SaveIcon className="size-3" />
-                        <span>Save allowlist</span>
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
+              <FormLabel className="text-xs font-medium">
+                <span>IP Allowlist</span>
+              </FormLabel>
               <FormControl>
                 <CustomTagInput
                   {...field}
@@ -712,11 +668,7 @@ export function WebhookControls({
                 <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
                   Enter ↵
                 </kbd>{" "}
-                to add a new entry and the{" "}
-                <kbd className="px-1 py-0.5 text-[10px] font-semibold bg-muted border rounded tracking-tighter">
-                  Save allowlist
-                </kbd>{" "}
-                button at the corner of this input field to save your changes.
+                to add a new entry.
               </FormDescription>
             </FormItem>
           )}
@@ -1006,19 +958,16 @@ export function WebhookControls({
           </AlertDialogContent>
         </AlertDialog>
         <p className="text-xs text-muted-foreground">
-          {hasRevokedApiKey
-            ? "The most recent API key is revoked. Generate a replacement or delete it to clear the record. Webhook senders must use the x-tracecat-api-key header once a new key is issued."
-            : "API keys are shown only once after creation. Store them securely. Webhook senders must pass the key in the x-tracecat-api-key header."}
+          Webhook senders must pass the key in the x-tracecat-api-key header.
         </p>
       </div>
 
       <Dialog open={apiKeyDialogOpen} onOpenChange={handleDialogChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Webhook API key generated</DialogTitle>
+            <DialogTitle>Webhook API key</DialogTitle>
             <DialogDescription>
-              Copy the key now. You will not be able to view it again once this
-              dialog is closed.
+              Copy the key now. It will not be shown again.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-xs">

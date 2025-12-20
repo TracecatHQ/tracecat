@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -60,6 +61,9 @@ export function EditCredentialsDialog({
 }: EditCredentialsDialogProps) {
   const workspaceId = useWorkspaceId()
   const { updateSecretById } = useWorkspaceSecrets(workspaceId)
+  const isSshKey = selectedSecret?.type === "ssh-key"
+  const hasFixedKeys =
+    selectedSecret?.type === "mtls" || selectedSecret?.type === "ca-cert"
 
   const methods = useForm<SecretUpdate>({
     resolver: zodResolver(updateSecretSchema),
@@ -74,14 +78,18 @@ export function EditCredentialsDialog({
 
   React.useEffect(() => {
     if (selectedSecret) {
+      const secretKeys =
+        selectedSecret.type === "ssh-key"
+          ? []
+          : selectedSecret.keys.map((keyName) => ({
+              key: keyName,
+              value: "",
+            }))
       reset({
         name: "",
         description: "",
         environment: "",
-        keys: selectedSecret.keys.map((keyName) => ({
-          key: keyName,
-          value: "",
-        })),
+        keys: secretKeys,
       })
     }
   }, [selectedSecret, reset])
@@ -98,7 +106,7 @@ export function EditCredentialsDialog({
         name: values.name || undefined,
         description: values.description || undefined,
         environment: values.environment || undefined,
-        keys: values.keys || undefined,
+        keys: isSshKey ? undefined : values.keys,
       }
       console.log("Submitting edit secret", params)
       try {
@@ -135,10 +143,22 @@ export function EditCredentialsDialog({
         <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
           <DialogDescription className="flex flex-col">
-            <span>
-              Leave a field blank to keep its existing value. You must update
-              all keys at once.
-            </span>
+            {isSshKey ? (
+              <span>
+                SSH keys are write-once. Delete and recreate the secret to
+                rotate the key.
+              </span>
+            ) : hasFixedKeys ? (
+              <span>
+                Key names are fixed for this secret type. Leave a field blank to
+                keep its existing value.
+              </span>
+            ) : (
+              <span>
+                Leave a field blank to keep its existing value. You must update
+                all keys at once.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
@@ -214,78 +234,99 @@ export function EditCredentialsDialog({
                   </FormItem>
                 )}
               />
-              <FormItem>
-                <FormLabel className="text-sm">Keys</FormLabel>
+              {!isSshKey && (
+                <>
+                  <FormItem>
+                    <FormLabel className="text-sm">Keys</FormLabel>
 
-                {fields.length > 0 &&
-                  fields.map((keysItem, index) => (
-                    <div
-                      key={keysItem.id}
-                      className="flex items-center justify-between"
+                    {fields.length > 0 &&
+                      fields.map((keysItem, index) => (
+                        <div
+                          key={keysItem.id}
+                          className="flex items-center justify-between"
+                        >
+                          <FormField
+                            key={`keys.${index}.key`}
+                            control={control}
+                            name={`keys.${index}.key`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormControl>
+                                  <Input
+                                    id={`key-${index}`}
+                                    className="text-sm"
+                                    placeholder={"Key"}
+                                    readOnly={hasFixedKeys}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            key={`keys.${index}.value`}
+                            control={control}
+                            name={`keys.${index}.value`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <div className="flex flex-col space-y-2">
+                                  <FormControl>
+                                    {hasFixedKeys ? (
+                                      <Textarea
+                                        id={`value-${index}`}
+                                        className="h-32 text-sm"
+                                        placeholder={
+                                          keysItem.key?.includes("PRIVATE_KEY")
+                                            ? "-----BEGIN PRIVATE KEY-----"
+                                            : "-----BEGIN CERTIFICATE-----"
+                                        }
+                                        {...field}
+                                      />
+                                    ) : (
+                                      <Input
+                                        id={`value-${index}`}
+                                        className="text-sm"
+                                        placeholder="••••••••••••••••"
+                                        type="password"
+                                        {...field}
+                                      />
+                                    )}
+                                  </FormControl>
+                                </div>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => remove(index)}
+                            disabled={hasFixedKeys}
+                          >
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                  </FormItem>
+                  {!hasFixedKeys && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => append({ key: "", value: "" })}
+                      className="w-full space-x-2 text-xs text-foreground/80"
                     >
-                      <FormField
-                        key={`keys.${index}.key`}
-                        control={control}
-                        name={`keys.${index}.key`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormControl>
-                              <Input
-                                id={`key-${index}`}
-                                className="text-sm"
-                                placeholder={"Key"}
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        key={`keys.${index}.value`}
-                        control={control}
-                        name={`keys.${index}.value`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <div className="flex flex-col space-y-2">
-                              <FormControl>
-                                <Input
-                                  id={`value-${index}`}
-                                  className="text-sm"
-                                  placeholder="••••••••••••••••"
-                                  type="password"
-                                  {...field}
-                                />
-                              </FormControl>
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2Icon className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-              </FormItem>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => append({ key: "", value: "" })}
-                className="w-full space-x-2 text-xs text-foreground/80"
-              >
-                <PlusCircle className="mr-2 size-4" />
-                Add Item
-              </Button>
-              {fields.length === 0 && (
-                <span className="text-xs text-foreground/50">
-                  Secrets will be left unchanged.
-                </span>
+                      <PlusCircle className="mr-2 size-4" />
+                      Add Item
+                    </Button>
+                  )}
+                  {fields.length === 0 && !hasFixedKeys && (
+                    <span className="text-xs text-foreground/50">
+                      Secrets will be left unchanged.
+                    </span>
+                  )}
+                </>
               )}
               <DialogFooter>
                 <DialogClose asChild>

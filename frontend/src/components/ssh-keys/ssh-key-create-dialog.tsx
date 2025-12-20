@@ -7,6 +7,8 @@ import React from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { SecretCreate } from "@/client"
+import { sshKeyRegex } from "@/components/ssh-keys/ssh-key-utils"
+import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -27,7 +29,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 
 interface FieldConfig {
@@ -46,9 +47,6 @@ interface CreateSSHKeyDialogProps
     environment?: FieldConfig
   }
 }
-const sshKeyRegex =
-  /^-----BEGIN[A-Z\s]+PRIVATE KEY-----\n[A-Za-z0-9+/=\s]+\n-----END[A-Z\s]+PRIVATE KEY-----\n?$/
-
 const createSSHKeySchema = z.object({
   name: z.string().default(""),
   description: z.string().max(255).default(""),
@@ -186,27 +184,10 @@ export function CreateSSHKeyDialog({
                   </FormItem>
                 )}
               />
-              <FormField
-                key="private_key"
+              <SshPrivateKeyField
                 control={control}
+                register={register}
                 name="private_key"
-                render={() => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Key</FormLabel>
-                    <FormDescription className="text-sm">
-                      The SSH private key in PEM format. This is encrypted and
-                      stored in Tracecat&apos;s secrets manager.
-                    </FormDescription>
-                    <FormControl>
-                      <Textarea
-                        className="h-36 text-sm"
-                        placeholder="Starts with '-----BEGIN OPENSSH PRIVATE KEY-----"
-                        {...register("private_key")}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
               />
               <DialogFooter>
                 <DialogClose asChild>

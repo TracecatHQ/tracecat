@@ -23,11 +23,16 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         try:
             # Extract request parameters
             request_params = dict(request.query_params)
-            request_body = (
-                await request.json()
-                if request.headers.get("Content-Type") == "application/json"
-                else {}
-            )
+            # Only try to parse JSON body for methods that typically have a body
+            request_body = {}
+            if (
+                request.method in ("POST", "PUT", "PATCH")
+                and request.headers.get("Content-Type") == "application/json"
+            ):
+                try:
+                    request_body = await request.json()
+                except Exception:
+                    pass  # Ignore parse errors for logging purposes
 
             # Log the incoming request with parameters
             request.app.logger.debug(

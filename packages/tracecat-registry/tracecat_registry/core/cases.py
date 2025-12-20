@@ -4,8 +4,15 @@ import posixpath
 from urllib.parse import unquote, urlsplit
 import httpx
 from typing import Annotated, Any, Literal, cast
+
+from tracecat_registry import types
 from uuid import UUID
 
+from tracecat_registry.context import get_context
+from tracecat_registry.sdk.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from sqlalchemy.exc import NoResultFound, ProgrammingError
 from sqlalchemy import select
 from sqlalchemy.orm import Mapped
@@ -34,6 +41,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import TracecatNotFoundError as InternalNotFoundError
 from tracecat.auth.users import lookup_user_by_email
 from tracecat.tags.schemas import TagRead, TagCreate
 from tracecat.tables.common import coerce_optional_to_utc_datetime
@@ -61,6 +69,10 @@ else:
     logger.info(
         "Case tasks feature flag is not enabled. Skipping case tasks integration."
     )
+
+
+_USE_REGISTRY_CLIENT = is_feature_enabled(FeatureFlag.REGISTRY_CLIENT)
+
 
 PriorityType = Literal[
     "unknown",
@@ -132,19 +144,42 @@ async def create_case(
         list[str] | None,
         Doc("List of tag identifiers (IDs or refs) to add to the case."),
     ] = None,
-) -> dict[str, Any]:
+) -> types.Case:
+    if _USE_REGISTRY_CLIENT:
+        params: dict[str, Any] = {}
+        if summary is not None:
+            params["summary"] = summary
+        if description is not None:
+            params["description"] = description
+        if priority is not None:
+            params["priority"] = priority
+        if severity is not None:
+            params["severity"] = severity
+        if status is not None:
+            params["status"] = status
+        if fields is not None:
+            params["fields"] = fields
+        if payload is not None:
+            params["payload"] = payload
+        if tags is not None:
+            params["tags"] = tags
+        return await get_context().cases.create_case_simple(**params)
+
     async with CasesService.with_session() as service:
-        case = await service.create_case(
-            CaseCreate(
-                summary=summary,
-                description=description,
-                priority=CasePriority(priority),
-                severity=CaseSeverity(severity),
-                status=CaseStatus(status),
-                fields=fields,
-                payload=payload,
+        try:
+            case = await service.create_case(
+                CaseCreate(
+                    summary=summary,
+                    description=description,
+                    priority=CasePriority(priority),
+                    severity=CaseSeverity(severity),
+                    status=CaseStatus(status),
+                    fields=fields,
+                    payload=payload,
+                )
             )
-        )
+        except ValueError as e:
+            raise TracecatValidationError(detail=str(e)) from e
 
         # Add tags if provided
         if tags:
@@ -153,8 +188,7 @@ async def create_case(
 
             # Refresh case to include tags
             await service.session.refresh(case)
-
-    return case.to_dict()
+    return cast(types.Case, case.to_dict())
 
 
 @registry.register(
@@ -208,34 +242,62 @@ async def update_case(
             "If true, append the provided description to the existing description when it is not empty."
         ),
     ] = False,
-) -> dict[str, Any]:
-    async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
-        if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
-
-        params: dict[str, Any] = {}
+) -> types.Case:
+    if _USE_REGISTRY_CLIENT:
+        client_params: dict[str, Any] = {}
         if summary is not None:
-            params["summary"] = summary
+            client_params["summary"] = summary
         if description is not None:
-            if append and case.description:
-                params["description"] = f"{case.description}\n{description}"
-            else:
-                params["description"] = description
+            client_params["description"] = description
         if priority is not None:
-            params["priority"] = CasePriority(priority)
+            client_params["priority"] = priority
         if severity is not None:
-            params["severity"] = CaseSeverity(severity)
+            client_params["severity"] = severity
         if status is not None:
-            params["status"] = CaseStatus(status)
+            client_params["status"] = status
         if fields is not None:
             # Empty dict or None means fields are not updated
             # You must explicitly set fields to None to remove their values
             # If we don't pass fields, the service will not try to update the fields
-            params["fields"] = fields
+            client_params["fields"] = fields
         if payload is not None:
-            params["payload"] = payload
-        updated_case = await service.update_case(case, CaseUpdate(**params))
+            client_params["payload"] = payload
+        if tags is not None:
+            client_params["tags"] = tags
+        if append and description is not None:
+            client_params["append_description"] = True
+        return await get_context().cases.update_case_simple(case_id, **client_params)
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
+
+        update_params: dict[str, Any] = {}
+        if summary is not None:
+            update_params["summary"] = summary
+        if description is not None:
+            if append and case.description:
+                update_params["description"] = f"{case.description}\n{description}"
+            else:
+                update_params["description"] = description
+        try:
+            if priority is not None:
+                update_params["priority"] = CasePriority(priority)
+            if severity is not None:
+                update_params["severity"] = CaseSeverity(severity)
+            if status is not None:
+                update_params["status"] = CaseStatus(status)
+        except ValueError as e:
+            raise TracecatValidationError(detail=str(e)) from e
+        if fields is not None:
+            # Empty dict or None means fields are not updated
+            # You must explicitly set fields to None to remove their values
+            # If we don't pass fields, the service will not try to update the fields
+            update_params["fields"] = fields
+        if payload is not None:
+            update_params["payload"] = payload
+        updated_case = await service.update_case(case, CaseUpdate(**update_params))
 
         # Update tags if provided (replace all existing tags)
         if tags is not None:
@@ -253,7 +315,7 @@ async def update_case(
             # Refresh case to include updated tags
             await service.session.refresh(updated_case)
 
-    return updated_case.to_dict()
+    return cast(types.Case, updated_case.to_dict())
 
 
 @registry.register(
@@ -275,11 +337,17 @@ async def create_comment(
         str | None,
         Doc("The ID of the parent comment if this is a reply."),
     ] = None,
-) -> dict[str, Any]:
+) -> types.CaseComment:
+    if _USE_REGISTRY_CLIENT:
+        params: dict[str, Any] = {"content": content}
+        if parent_id is not None:
+            params["parent_id"] = parent_id
+        return await get_context().cases.create_comment_simple(case_id, **params)
+
     async with CasesService.with_session() as case_service:
         case = await case_service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         async with CaseCommentsService.with_session() as comment_service:
             comment = await comment_service.create_comment(
@@ -289,7 +357,7 @@ async def create_comment(
                     parent_id=UUID(parent_id) if parent_id else None,
                 ),
             )
-    return comment.to_dict()
+    return cast(types.CaseComment, comment.to_dict())
 
 
 @registry.register(
@@ -311,21 +379,31 @@ async def update_comment(
         str | None,
         Doc("The updated parent comment ID."),
     ] = None,
-) -> dict[str, Any]:
+) -> types.CaseComment:
+    if _USE_REGISTRY_CLIENT:
+        client_params: dict[str, Any] = {}
+        if content is not None:
+            client_params["content"] = content
+        if parent_id is not None:
+            client_params["parent_id"] = parent_id
+        return await get_context().cases.update_comment_simple(
+            comment_id, **client_params
+        )
+
     async with CaseCommentsService.with_session() as service:
         comment = await service.get_comment(UUID(comment_id))
         if not comment:
-            raise ValueError(f"Comment with ID {comment_id} not found")
+            raise TracecatNotFoundError(resource="Comment", identifier=comment_id)
 
-        params: dict[str, Any] = {}
+        update_params: dict[str, Any] = {}
         if content is not None:
-            params["content"] = content
+            update_params["content"] = content
         if parent_id is not None:
-            params["parent_id"] = UUID(parent_id)
+            update_params["parent_id"] = UUID(parent_id)
         updated_comment = await service.update_comment(
-            comment, CaseCommentUpdate(**params)
+            comment, CaseCommentUpdate(**update_params)
         )
-    return updated_comment.to_dict()
+    return cast(types.CaseComment, updated_comment.to_dict())
 
 
 @registry.register(
@@ -339,11 +417,21 @@ async def get_case(
         str,
         Doc("The ID of the case to retrieve."),
     ],
-) -> dict[str, Any]:
+) -> types.CaseRead:
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.get_case(case_id)
+
     async with CasesService.with_session() as service:
-        case = await service.get_case(UUID(case_id))
+        try:
+            case_uuid = UUID(case_id)
+        except ValueError as e:
+            raise TracecatValidationError(
+                detail=f"Invalid case ID format: {case_id}"
+            ) from e
+
+        case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         fields = await service.fields.get_fields(case) or {}
         field_definitions = await service.fields.list_fields()
@@ -379,7 +467,7 @@ async def get_case(
     )
 
     # Use model_dump(mode="json") to ensure UUIDs are converted to strings
-    return case_read.model_dump(mode="json")
+    return cast(types.CaseRead, case_read.model_dump(mode="json"))
 
 
 @registry.register(
@@ -401,27 +489,39 @@ async def list_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-) -> list[dict[str, Any]]:
+) -> list[types.CaseReadMinimal]:
     if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
-        raise ValueError(
-            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        raise TracecatValidationError(
+            detail=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
+
+    if _USE_REGISTRY_CLIENT:
+        params: dict[str, Any] = {"limit": limit}
+        if order_by is not None:
+            params["order_by"] = order_by
+        if sort is not None:
+            params["sort"] = sort
+        response = await get_context().cases.list_cases(**params)
+        return response["items"]
 
     async with CasesService.with_session() as service:
         cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
-    return [
-        CaseReadMinimal(
-            id=case.id,
-            created_at=case.created_at,
-            updated_at=case.updated_at,
-            short_id=case.short_id,
-            summary=case.summary,
-            status=case.status,
-            priority=case.priority,
-            severity=case.severity,
-        ).model_dump(mode="json")
-        for case in cases
-    ]
+    return cast(
+        list[types.CaseReadMinimal],
+        [
+            CaseReadMinimal(
+                id=case.id,
+                created_at=case.created_at,
+                updated_at=case.updated_at,
+                short_id=case.short_id,
+                summary=case.summary,
+                status=case.status,
+                priority=case.priority,
+                severity=case.severity,
+            ).model_dump(mode="json")
+            for case in cases
+        ],
+    )
 
 
 @registry.register(
@@ -479,11 +579,39 @@ async def search_cases(
         int,
         Doc("Maximum number of cases to return."),
     ] = 100,
-) -> list[dict[str, Any]]:
+) -> list[types.CaseReadMinimal]:
     if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
-        raise ValueError(
-            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        raise TracecatValidationError(
+            detail=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
+
+    if _USE_REGISTRY_CLIENT:
+        params: dict[str, Any] = {}
+        if search_term is not None:
+            params["search_term"] = search_term
+        if status is not None:
+            params["status"] = status
+        if priority is not None:
+            params["priority"] = priority
+        if severity is not None:
+            params["severity"] = severity
+        if tags is not None:
+            params["tags"] = tags
+        if limit is not None:
+            params["limit"] = limit
+        if order_by is not None:
+            params["order_by"] = order_by
+        if sort is not None:
+            params["sort"] = sort
+        if start_time is not None:
+            params["start_time"] = start_time
+        if end_time is not None:
+            params["end_time"] = end_time
+        if updated_before is not None:
+            params["updated_before"] = updated_before
+        if updated_after is not None:
+            params["updated_after"] = updated_after
+        return await get_context().cases.search_cases(**params)
 
     async with CasesService.with_session() as service:
         tag_ids: list[UUID] = []
@@ -510,23 +638,26 @@ async def search_cases(
                 updated_before=coerce_optional_to_utc_datetime(updated_before),
                 updated_after=coerce_optional_to_utc_datetime(updated_after),
             )
-        except ProgrammingError as exc:
-            raise ValueError(
-                "Invalid filter parameters supplied for case search"
+        except (ProgrammingError, ValueError) as exc:
+            raise TracecatValidationError(
+                detail="Invalid filter parameters supplied for case search"
             ) from exc
-    return [
-        CaseReadMinimal(
-            id=case.id,
-            created_at=case.created_at,
-            updated_at=case.updated_at,
-            short_id=case.short_id,
-            summary=case.summary,
-            status=case.status,
-            priority=case.priority,
-            severity=case.severity,
-        ).model_dump(mode="json")
-        for case in cases
-    ]
+    return cast(
+        list[types.CaseReadMinimal],
+        [
+            CaseReadMinimal(
+                id=case.id,
+                created_at=case.created_at,
+                updated_at=case.updated_at,
+                short_id=case.short_id,
+                summary=case.summary,
+                status=case.status,
+                priority=case.priority,
+                severity=case.severity,
+            ).model_dump(mode="json")
+            for case in cases
+        ],
+    )
 
 
 @registry.register(
@@ -541,10 +672,14 @@ async def delete_case(
         Doc("The ID of the case to delete."),
     ],
 ) -> None:
+    if _USE_REGISTRY_CLIENT:
+        await get_context().cases.delete_case(case_id)
+        return
+
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
         await service.delete_case(case)
 
 
@@ -559,17 +694,22 @@ async def list_case_events(
         str,
         Doc("The ID of the case to get events for."),
     ],
-) -> dict[str, Any]:
+) -> types.CaseEventsWithUsers:
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.list_events(case_id)
+
     # Validate case_id format
     try:
         case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
+    except ValueError as e:
+        raise TracecatValidationError(
+            detail=f"Invalid case ID format: {case_id}"
+        ) from e
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         events = await service.events.list_events(case)
 
@@ -590,13 +730,16 @@ async def list_case_events(
                 for user in result.scalars().all()
             ]
 
-    return CaseEventsWithUsers(
-        events=[
-            CaseEventRead.model_validate(event, from_attributes=True)
-            for event in events
-        ],
-        users=users,
-    ).model_dump(mode="json")
+    return cast(
+        types.CaseEventsWithUsers,
+        CaseEventsWithUsers(
+            events=[
+                CaseEventRead.model_validate(event, from_attributes=True)
+                for event in events
+            ],
+            users=users,
+        ).model_dump(mode="json"),
+    )
 
 
 @registry.register(
@@ -610,28 +753,36 @@ async def list_comments(
         str,
         Doc("The ID of the case to get comments for."),
     ],
-) -> list[dict[str, Any]]:
+) -> list[types.CaseCommentRead]:
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.list_comments(case_id)
+
     async with get_async_session_context_manager() as session:
         case_service = CasesService(session)
         case = await case_service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         comments_service = CaseCommentsService(session)
         comment_user_pairs = await comments_service.list_comments(case)
 
-    return [
-        CaseCommentRead(
-            id=comment.id,
-            created_at=comment.created_at,
-            updated_at=comment.updated_at,
-            content=comment.content,
-            parent_id=comment.parent_id,
-            user=UserRead.model_validate(user, from_attributes=True) if user else None,
-            last_edited_at=comment.last_edited_at,
-        ).model_dump(mode="json")
-        for comment, user in comment_user_pairs
-    ]
+    return cast(
+        list[types.CaseCommentRead],
+        [
+            CaseCommentRead(
+                id=comment.id,
+                created_at=comment.created_at,
+                updated_at=comment.updated_at,
+                content=comment.content,
+                parent_id=comment.parent_id,
+                user=UserRead.model_validate(user, from_attributes=True)
+                if user
+                else None,
+                last_edited_at=comment.last_edited_at,
+            ).model_dump(mode="json")
+            for comment, user in comment_user_pairs
+        ],
+    )
 
 
 @registry.register(
@@ -649,16 +800,22 @@ async def assign_user(
         str,
         Doc("The ID of the user to assign to the case."),
     ],
-) -> dict[str, Any]:
+) -> types.Case:
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.assign_user_simple(
+            case_id,
+            assignee_id=assignee_id,
+        )
+
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         updated_case = await service.update_case(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
-    return updated_case.to_dict()
+    return cast(types.Case, updated_case.to_dict())
 
 
 @registry.register(
@@ -676,20 +833,26 @@ async def assign_user_by_email(
         str,
         Doc("The email of the user to assign to the case."),
     ],
-) -> dict[str, Any]:
+) -> types.Case:
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.assign_user_by_email(
+            case_id,
+            email=assignee_email,
+        )
+
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         # Look up user by email
         user = await lookup_user_by_email(session=service.session, email=assignee_email)
         if not user:
-            raise ValueError(f"User with email {assignee_email} not found")
+            raise TracecatNotFoundError(resource="User", identifier=assignee_email)
 
         # Update the case with the user's ID
         updated_case = await service.update_case(case, CaseUpdate(assignee_id=user.id))
-    return updated_case.to_dict()
+    return cast(types.Case, updated_case.to_dict())
 
 
 @registry.register(
@@ -711,21 +874,31 @@ async def add_case_tag(
         bool,
         Doc("If true, create the tag if it does not exist."),
     ] = False,
-) -> dict[str, Any]:
+) -> types.TagRead:
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.add_tag(
+            case_id,
+            tag_id=tag,
+            create_if_missing=create_if_missing,
+        )
+
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         try:
             tag_obj = await service.tags.add_case_tag(case.id, tag)
-        except NoResultFound:
+        except (NoResultFound, InternalNotFoundError) as e:
             if not create_if_missing:
-                raise
+                raise TracecatNotFoundError(resource="Tag", identifier=tag) from e
             created_tag = await service.tags.create_tag(TagCreate(name=tag))
             tag_obj = await service.tags.add_case_tag(case.id, created_tag.ref)
 
-    return TagRead.model_validate(tag_obj, from_attributes=True).model_dump(mode="json")
+    return cast(
+        types.TagRead,
+        TagRead.model_validate(tag_obj, from_attributes=True).model_dump(mode="json"),
+    )
 
 
 @registry.register(
@@ -744,10 +917,14 @@ async def remove_case_tag(
         Doc("The tag identifier (ID or ref) to remove from the case."),
     ],
 ) -> None:
+    if _USE_REGISTRY_CLIENT:
+        await get_context().cases.remove_tag(case_id, tag_id=tag)
+        return
+
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         await service.tags.remove_case_tag(case.id, tag)
 
@@ -757,17 +934,28 @@ async def _upload_attachment(
     file_name: str,
     content: bytes,
     content_type: str,
-) -> dict[str, Any]:
+) -> types.CaseAttachmentRead:
     """Upload an attachment to a case."""
     try:
         case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
+    except ValueError as e:
+        raise TracecatValidationError(
+            detail=f"Invalid case ID format: {case_id}"
+        ) from e
+
+    if _USE_REGISTRY_CLIENT:
+        content_base64 = base64.b64encode(content).decode("utf-8")
+        return await get_context().cases.create_attachment(
+            str(case_uuid),
+            filename=file_name,
+            content_base64=content_base64,
+            content_type=content_type,
+        )
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         attachment = await service.attachments.create_attachment(
             case=case,
@@ -779,17 +967,20 @@ async def _upload_attachment(
             ),
         )
 
-    return CaseAttachmentRead(
-        id=attachment.id,
-        case_id=attachment.case_id,
-        file_id=attachment.file_id,
-        file_name=attachment.file.name,
-        content_type=attachment.file.content_type,
-        size=attachment.file.size,
-        sha256=attachment.file.sha256,
-        created_at=attachment.created_at,
-        updated_at=attachment.updated_at,
-    ).model_dump(mode="json")
+    return cast(
+        types.CaseAttachmentRead,
+        CaseAttachmentRead(
+            id=attachment.id,
+            case_id=attachment.case_id,
+            file_id=attachment.file_id,
+            file_name=attachment.file.name,
+            content_type=attachment.file.content_type,
+            size=attachment.file.size,
+            sha256=attachment.file.sha256,
+            created_at=attachment.created_at,
+            updated_at=attachment.updated_at,
+        ).model_dump(mode="json"),
+    )
 
 
 @registry.register(
@@ -815,13 +1006,15 @@ async def upload_attachment(
         str,
         Doc("The MIME type of the file (e.g., 'application/pdf')."),
     ],
-) -> dict[str, Any]:
+) -> types.CaseAttachmentRead:
     """Upload a file attachment to a case."""
     # Decode base64 content
     try:
         content = base64.b64decode(content_base64, validate=True)
     except Exception as e:
-        raise ValueError(f"Invalid base64 encoding: {str(e)}")
+        raise TracecatValidationError(
+            detail=f"Invalid base64 encoding: {str(e)}"
+        ) from e
 
     return await _upload_attachment(case_id, file_name, content, content_type)
 
@@ -836,7 +1029,7 @@ def _infer_filename_from_url(url: str) -> str:
         if filename:
             return filename
 
-    raise ValueError(f"Unable to infer filename from URL: {url}")
+    raise TracecatValidationError(detail=f"Unable to infer filename from URL: {url}")
 
 
 @registry.register(
@@ -864,7 +1057,7 @@ async def upload_attachment_from_url(
             "Filename of the file to upload. If not provided, the filename will be inferred from the URL."
         ),
     ] = None,
-) -> dict[str, Any]:
+) -> types.CaseAttachmentRead:
     """Upload a file attachment to a case from a URL."""
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
@@ -873,10 +1066,14 @@ async def upload_attachment_from_url(
         content_type = response.headers.get("Content-Type")
 
     if not content:
-        raise ValueError(f"No content found in response from URL: {url}")
+        raise TracecatValidationError(
+            detail=f"No content found in response from URL: {url}"
+        )
 
     if not content_type:
-        raise ValueError(f"No content type found in response from URL: {url}")
+        raise TracecatValidationError(
+            detail=f"No content type found in response from URL: {url}"
+        )
 
     file_name = file_name or _infer_filename_from_url(url)
 
@@ -894,34 +1091,42 @@ async def list_attachments(
         str,
         Doc("The ID of the case to list attachments for."),
     ],
-) -> list[dict[str, Any]]:
+) -> list[types.CaseAttachmentRead]:
     """List all attachments for a case."""
     # Validate case_id format
     try:
         case_uuid = UUID(case_id)
-    except ValueError:
-        raise ValueError(f"Invalid case ID format: {case_id}")
+    except ValueError as e:
+        raise TracecatValidationError(
+            detail=f"Invalid case ID format: {case_id}"
+        ) from e
+
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.list_attachments(str(case_uuid))
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
         attachments = await service.attachments.list_attachments(case)
 
-    return [
-        CaseAttachmentRead(
-            id=attachment.id,
-            case_id=attachment.case_id,
-            file_id=attachment.file_id,
-            file_name=attachment.file.name,
-            content_type=attachment.file.content_type,
-            size=attachment.file.size,
-            sha256=attachment.file.sha256,
-            created_at=attachment.created_at,
-            updated_at=attachment.updated_at,
-        ).model_dump(mode="json")
-        for attachment in attachments
-    ]
+    return cast(
+        list[types.CaseAttachmentRead],
+        [
+            CaseAttachmentRead(
+                id=attachment.id,
+                case_id=attachment.case_id,
+                file_id=attachment.file_id,
+                file_name=attachment.file.name,
+                content_type=attachment.file.content_type,
+                size=attachment.file.size,
+                sha256=attachment.file.sha256,
+                created_at=attachment.created_at,
+                updated_at=attachment.updated_at,
+            ).model_dump(mode="json")
+            for attachment in attachments
+        ],
+    )
 
 
 @registry.register(
@@ -939,7 +1144,7 @@ async def download_attachment(
         str,
         Doc("The ID of the attachment to download."),
     ],
-) -> dict[str, Any]:
+) -> types.CaseAttachmentDownloadData:
     """Download an attachment's content.
 
     Returns the file content as base64 encoded string along with metadata.
@@ -950,26 +1155,40 @@ async def download_attachment(
         case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.download_attachment(
+            case_uuid,
+            attachment_uuid,
+        )
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
-        (
-            content,
-            file_name,
-            content_type,
-        ) = await service.attachments.download_attachment(
-            case=case,
-            attachment_id=attachment_uuid,
-        )
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
+        try:
+            (
+                content,
+                file_name,
+                content_type,
+            ) = await service.attachments.download_attachment(
+                case=case,
+                attachment_id=attachment_uuid,
+            )
+        except InternalNotFoundError as e:
+            raise TracecatNotFoundError(
+                resource="Attachment", identifier=str(attachment_uuid)
+            ) from e
     content_base64 = base64.b64encode(content).decode("utf-8")
-    return CaseAttachmentDownloadData(
-        content_base64=content_base64,
-        file_name=file_name,
-        content_type=content_type,
-    ).model_dump(mode="json")
+    return cast(
+        types.CaseAttachmentDownloadData,
+        CaseAttachmentDownloadData(
+            content_base64=content_base64,
+            file_name=file_name,
+            content_type=content_type,
+        ).model_dump(mode="json"),
+    )
 
 
 @registry.register(
@@ -987,35 +1206,44 @@ async def get_attachment(
         str,
         Doc("The ID of the attachment to get."),
     ],
-) -> dict[str, Any]:
+) -> types.CaseAttachmentRead:
     """Get attachment metadata without downloading the content."""
     # Validate UUID formats
     try:
         case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.get_attachment_metadata(
+            case_uuid,
+            attachment_uuid,
+        )
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
         attachment = await service.attachments.get_attachment(case, attachment_uuid)
         if not attachment:
-            raise ValueError(f"Attachment {attachment_id} not found")
+            raise TracecatNotFoundError(resource="Attachment", identifier=attachment_id)
 
-    return CaseAttachmentRead(
-        id=attachment.id,
-        case_id=attachment.case_id,
-        file_id=attachment.file_id,
-        file_name=attachment.file.name,
-        content_type=attachment.file.content_type,
-        size=attachment.file.size,
-        sha256=attachment.file.sha256,
-        created_at=attachment.created_at,
-        updated_at=attachment.updated_at,
-    ).model_dump(mode="json")
+    return cast(
+        types.CaseAttachmentRead,
+        CaseAttachmentRead(
+            id=attachment.id,
+            case_id=attachment.case_id,
+            file_id=attachment.file_id,
+            file_name=attachment.file.name,
+            content_type=attachment.file.content_type,
+            size=attachment.file.size,
+            sha256=attachment.file.sha256,
+            created_at=attachment.created_at,
+            updated_at=attachment.updated_at,
+        ).model_dump(mode="json"),
+    )
 
 
 @registry.register(
@@ -1043,13 +1271,25 @@ async def delete_attachment(
         case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+
+    if _USE_REGISTRY_CLIENT:
+        await get_context().cases.delete_attachment(
+            case_uuid,
+            attachment_uuid,
+        )
+        return
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
-        await service.attachments.delete_attachment(case, attachment_uuid)
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
+        try:
+            await service.attachments.delete_attachment(case, attachment_uuid)
+        except InternalNotFoundError as e:
+            raise TracecatNotFoundError(
+                resource="Attachment", identifier=str(attachment_uuid)
+            ) from e
 
 
 @registry.register(
@@ -1080,23 +1320,39 @@ async def get_attachment_download_url(
         case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise ValueError(f"Invalid ID format: {str(e)}")
+        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
     # Validate expiry if provided
     if expiry is not None:
         if expiry <= 0:
-            raise ValueError("Expiry must be a positive number of seconds")
+            raise TracecatValidationError(
+                detail="Expiry must be a positive number of seconds"
+            )
         if expiry > 86400:  # 24 hours
-            raise ValueError("Expiry cannot exceed 24 hours (86400 seconds)")
+            raise TracecatValidationError(
+                detail="Expiry cannot exceed 24 hours (86400 seconds)"
+            )
+
+    if _USE_REGISTRY_CLIENT:
+        return await get_context().cases.get_attachment_presigned_url(
+            case_uuid,
+            attachment_uuid,
+            expiry=expiry,
+        )
 
     async with CasesService.with_session() as service:
         case = await service.get_case(case_uuid)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(resource="Case", identifier=case_id)
 
-        download_url, _, _ = await service.attachments.get_attachment_download_url(
-            case=case,
-            attachment_id=attachment_uuid,
-            expiry=expiry,
-        )
+        try:
+            download_url, _, _ = await service.attachments.get_attachment_download_url(
+                case=case,
+                attachment_id=attachment_uuid,
+                expiry=expiry,
+            )
+        except InternalNotFoundError as e:
+            raise TracecatNotFoundError(
+                resource="Attachment", identifier=str(attachment_uuid)
+            ) from e
     return download_url

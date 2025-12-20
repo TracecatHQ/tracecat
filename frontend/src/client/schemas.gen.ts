@@ -5725,6 +5725,12 @@ export const $DSLRunArgs = {
       description:
         "The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.",
     },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft executions use draft aliases for child workflows.",
+      default: "published",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -6397,6 +6403,15 @@ export const $EventGroup_TypeVar_ = {
   title: "EventGroup[TypeVar]",
 } as const
 
+export const $ExecutionType = {
+  type: "string",
+  enum: ["draft", "published"],
+  title: "ExecutionType",
+  description: `Execution type for a workflow execution.
+
+Distinguishes between draft (development) and published (production) executions.`,
+} as const
+
 export const $ExpectedField = {
   properties: {
     type: {
@@ -6580,6 +6595,8 @@ export const $FeatureFlag = {
     "agent-presets",
     "case-durations",
     "case-tasks",
+    "executor-auth",
+    "registry-client",
     "registry-sync-v2",
   ],
   title: "FeatureFlag",
@@ -11723,7 +11740,9 @@ Secret types
 ------------
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`,
+- \`oauth2\`: OAuth2 Client Credentials (TBC)
+- \`mtls\`: TLS client certificate and key
+- \`ca-cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretKeyValue = {
@@ -11867,7 +11886,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key", "github-app"],
+  enum: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -11964,7 +11983,9 @@ Secret types
 ------------
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`,
+- \`oauth2\`: OAuth2 Client Credentials (TBC)
+- \`mtls\`: TLS client certificate and key
+- \`ca-cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretValidationDetail = {
@@ -16502,6 +16523,12 @@ export const $WorkflowExecutionRead = {
     trigger_type: {
       $ref: "#/components/schemas/TriggerType",
     },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEvent",
@@ -16620,6 +16647,12 @@ export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
       trigger_type: {
         $ref: "#/components/schemas/TriggerType",
       },
+      execution_type: {
+        $ref: "#/components/schemas/ExecutionType",
+        description:
+          "Execution type (draft or published). Draft uses the draft workflow graph.",
+        default: "published",
+      },
       events: {
         items: {
           $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_",
@@ -16736,6 +16769,12 @@ export const $WorkflowExecutionReadMinimal = {
     },
     trigger_type: {
       $ref: "#/components/schemas/TriggerType",
+    },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
     },
   },
   type: "object",

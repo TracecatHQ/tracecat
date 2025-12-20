@@ -1777,6 +1777,10 @@ export type DSLRunArgs = {
    * The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.
    */
   schedule_id?: string | null
+  /**
+   * Execution type (draft or published). Draft executions use draft aliases for child workflows.
+   */
+  execution_type?: ExecutionType
 }
 
 /**
@@ -1964,6 +1968,13 @@ export type EventGroup_TypeVar_ = {
   related_wf_exec_id?: string | null
 }
 
+/**
+ * Execution type for a workflow execution.
+ *
+ * Distinguishes between draft (development) and published (production) executions.
+ */
+export type ExecutionType = "draft" | "published"
+
 export type ExpectedField = {
   type: string
   description?: string | null
@@ -2033,6 +2044,8 @@ export type FeatureFlag =
   | "agent-presets"
   | "case-durations"
   | "case-tasks"
+  | "executor-auth"
+  | "registry-client"
   | "registry-sync-v2"
 
 /**
@@ -3755,6 +3768,8 @@ export type ScheduleUpdate = {
  * - `custom`: Arbitrary user-defined types
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
+ * - `mtls`: TLS client certificate and key
+ * - `ca-cert`: Certificate authority bundle
  */
 export type SecretCreate = {
   type?: SecretType
@@ -3802,7 +3817,12 @@ export type SecretReadMinimal = {
 /**
  * The type of a secret.
  */
-export type SecretType = "custom" | "ssh-key" | "github-app"
+export type SecretType =
+  | "custom"
+  | "ssh-key"
+  | "mtls"
+  | "ca-cert"
+  | "github-app"
 
 /**
  * Update a secret.
@@ -3812,6 +3832,8 @@ export type SecretType = "custom" | "ssh-key" | "github-app"
  * - `custom`: Arbitrary user-defined types
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
+ * - `mtls`: TLS client certificate and key
+ * - `ca-cert`: Certificate authority bundle
  */
 export type SecretUpdate = {
   type?: SecretType | null
@@ -5184,6 +5206,10 @@ export type WorkflowExecutionRead = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
+   * Execution type (draft or published). Draft uses the draft workflow graph.
+   */
+  execution_type?: ExecutionType
+  /**
    * The events in the workflow execution
    */
   events: Array<WorkflowExecutionEvent>
@@ -5240,6 +5266,10 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
   /**
+   * Execution type (draft or published). Draft uses the draft workflow graph.
+   */
+  execution_type?: ExecutionType
+  /**
    * Compact events in the workflow execution
    */
   events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
@@ -5286,6 +5316,10 @@ export type WorkflowExecutionReadMinimal = {
   history_length: number
   parent_wf_exec_id?: string | null
   trigger_type: TriggerType
+  /**
+   * Execution type (draft or published). Draft uses the draft workflow graph.
+   */
+  execution_type?: ExecutionType
 }
 
 /**
@@ -5563,6 +5597,14 @@ export type PublicIncomingWebhookWaitData = {
 }
 
 export type PublicIncomingWebhookWaitResponse = unknown
+
+export type PublicIncomingWebhookDraftData = {
+  contentType?: string | null
+  secret: string
+  workflowId: string
+}
+
+export type PublicIncomingWebhookDraftResponse = unknown
 
 export type PublicReceiveInteractionData = {
   category: InteractionCategory
@@ -5850,6 +5892,14 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
   WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+
+export type WorkflowExecutionsCreateDraftWorkflowExecutionData = {
+  requestBody: WorkflowExecutionCreate
+  workspaceId: string
+}
+
+export type WorkflowExecutionsCreateDraftWorkflowExecutionResponse =
+  WorkflowExecutionCreateResponse
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -7480,6 +7530,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/webhooks/{workflow_id}/{secret}/draft": {
+    post: {
+      req: PublicIncomingWebhookDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/webhooks/{workflow_id}/{secret}/interactions/{category}": {
     post: {
       req: PublicReceiveInteractionData
@@ -7993,6 +8058,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/draft": {
+    post: {
+      req: WorkflowExecutionsCreateDraftWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionCreateResponse
         /**
          * Validation Error
          */

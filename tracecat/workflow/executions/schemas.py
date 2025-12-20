@@ -24,6 +24,7 @@ from tracecat.dsl.common import (
     AgentActionMemo,
     ChildWorkflowMemo,
     DSLRunArgs,
+    get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
 from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
@@ -50,6 +51,7 @@ from tracecat.workflow.executions.common import (
     is_utility_activity,
 )
 from tracecat.workflow.executions.enums import (
+    ExecutionType,
     TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
@@ -94,6 +96,10 @@ class WorkflowExecutionBase(BaseModel):
     history_length: int = Field(..., description="Number of events in the history")
     parent_wf_exec_id: WorkflowExecutionID | None = None
     trigger_type: TriggerType
+    execution_type: ExecutionType = Field(
+        default=ExecutionType.PUBLISHED,
+        description="Execution type (draft or published). Draft uses the draft workflow graph.",
+    )
 
 
 class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
@@ -112,6 +118,9 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             parent_wf_exec_id=execution.parent_id,
             trigger_type=get_trigger_type_from_search_attr(
                 execution.typed_search_attributes, execution.id
+            ),
+            execution_type=get_execution_type_from_search_attr(
+                execution.typed_search_attributes
             ),
         )
 

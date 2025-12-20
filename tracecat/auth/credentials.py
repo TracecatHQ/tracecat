@@ -22,6 +22,7 @@ from pydantic import UUID4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.auth.users import is_unprivileged, optional_current_active_user
@@ -30,6 +31,7 @@ from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import User
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -76,6 +78,16 @@ def get_role_from_user(
         access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
         workspace_role=workspace_role,
     )
+
+
+def _get_bearer_token(request: Request) -> str | None:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return token
 
 
 async def _authenticate_service(
@@ -141,6 +153,7 @@ async def _role_dependency(
     api_key: str | None = None,
     allow_user: bool,
     allow_service: bool,
+    allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None = None,
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
@@ -275,6 +288,47 @@ async def _role_dependency(
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
+    elif allow_executor:
+        if not is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
+            logger.info(
+                "Executor auth feature flag is disabled; ignoring allow_executor"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        token = _get_bearer_token(request)
+        if not token:
+            logger.info("Missing executor bearer token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+            )
+        try:
+            role = verify_executor_token(token)
+        except ValueError as exc:
+            logger.info("Invalid executor token", error=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+            ) from exc
+        if role.type != "service" or role.service_id != "tracecat-executor":
+            logger.warning("Invalid executor role", role=role)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        if require_workspace == "yes":
+            if role.workspace_id is None:
+                logger.warning("Executor role missing workspace_id", role=role)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+            if workspace_id is not None and str(role.workspace_id) != str(workspace_id):
+                logger.warning(
+                    "Executor role workspace mismatch",
+                    role_workspace_id=role.workspace_id,
+                    request_workspace_id=workspace_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
     else:
         logger.debug("Invalid authentication or authorization", user=user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
@@ -310,6 +364,7 @@ def RoleACL(
     *,
     allow_user: bool = True,
     allow_service: bool = False,
+    allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
     min_access_level: AccessLevel | None = None,
     workspace_id_in_path: bool = False,
@@ -347,8 +402,15 @@ def RoleACL(
         HTTPException: If authentication fails or the caller lacks required permissions.
 
     """
-    if not any((allow_user, allow_service, require_workspace)):
-        raise ValueError("Must allow either user, service, or require workspace")
+    allow_executor_enabled = allow_executor
+    if allow_executor and not is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
+        allow_executor_enabled = False
+        logger.info("Executor auth feature flag is disabled; ignoring allow_executor")
+
+    if not any((allow_user, allow_service, require_workspace, allow_executor_enabled)):
+        raise ValueError(
+            "Must allow either user, service, executor, or require workspace"
+        )
 
     if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
@@ -369,6 +431,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor_enabled,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
@@ -397,6 +460,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor_enabled,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
@@ -420,6 +484,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor_enabled,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,

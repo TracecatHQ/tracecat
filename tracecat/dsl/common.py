@@ -71,7 +71,11 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.workflow.actions.schemas import ActionControlFlow
-from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
+    TriggerType,
+)
 
 _memo_payload_converter = PydanticPayloadConverter()
 
@@ -484,6 +488,10 @@ class DSLRunArgs(BaseModel):
         default=None,
         description="The schedule ID that triggered this workflow, if any. Auto-converts from legacy 'sch-<hex>' format.",
     )
+    execution_type: ExecutionType = Field(
+        default=ExecutionType.PUBLISHED,
+        description="Execution type (draft or published). Draft executions use draft aliases for child workflows.",
+    )
 
     @field_validator("wf_id", mode="before")
     @classmethod
@@ -738,6 +746,17 @@ def get_trigger_type_from_search_attr(
         )
         return TriggerType.MANUAL
     return TriggerType(trigger_type)
+
+
+def get_execution_type_from_search_attr(
+    search_attributes: TypedSearchAttributes,
+) -> ExecutionType:
+    """Extract execution type from search attributes."""
+    execution_type = search_attributes.get(TemporalSearchAttr.EXECUTION_TYPE.key)
+    if execution_type is None:
+        # Default to published for historical executions without the attribute
+        return ExecutionType.PUBLISHED
+    return ExecutionType(execution_type)
 
 
 NON_RETRYABLE_ERROR_TYPES = [

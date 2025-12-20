@@ -112,3 +112,28 @@ def derive_lock_key(workspace_id: WorkspaceID, repo_url: str) -> int:
     raw_int = int.from_bytes(digest[:8], "big")
     # Ensure it fits in signed 64-bit range
     return raw_int % (2**63)
+
+
+def derive_lock_key_from_parts(*parts: str) -> int:
+    """Derive a stable 64-bit lock key from arbitrary string parts.
+
+    This is useful for distributed coordination where you want a stable key
+    without having a workspace_id/repo_url pair.
+    """
+    if not parts:
+        raise ValueError("parts must be non-empty")
+
+    if any(not isinstance(part, str) for part in parts):
+        raise ValueError("parts must all be strings")
+
+    if any(not part for part in parts):
+        raise ValueError("parts must all be non-empty")
+
+    # Guard against accidentally hashing huge strings (e.g. full payloads)
+    if any(len(part) > 500 for part in parts):
+        raise ValueError("part strings too long (max 500 chars each)")
+
+    combined = ":".join(parts)
+    digest = hashlib.sha256(combined.encode("utf-8")).digest()
+    raw_int = int.from_bytes(digest[:8], "big")
+    return raw_int % (2**63)

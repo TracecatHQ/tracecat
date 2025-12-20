@@ -10,6 +10,7 @@ from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_lock
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, sanitize_identifier
@@ -61,10 +62,18 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
     async def initialize_workspace_schema(self) -> None:
         """Create the workspace schema and base table if absent."""
 
-        await self.session.execute(CreateSchema(self.schema_name, if_not_exists=True))
-        await self.session.execute(
-            CreateTable(self._table_definition(), if_not_exists=True)
+        lock_key = derive_lock_key_from_parts(
+            "tracecat.custom_fields.initialize_workspace_schema",
+            self.service_name,
+            self._table,
         )
+        async with pg_advisory_lock(self.session, lock_key):
+            await self.session.execute(
+                CreateSchema(self.schema_name, if_not_exists=True)
+            )
+            await self.session.execute(
+                CreateTable(self._table_definition(), if_not_exists=True)
+            )
         self._schema_initialized = True
 
     async def _ensure_schema_ready(self) -> None:

@@ -121,7 +121,15 @@ class TestWorkflowExecutionSearchAttributes:
 
         # Extract the search attribute pairs
         pairs = captured_search_attrs.search_attributes
-        assert len(pairs) == 3
+        assert len(pairs) == 4
+
+        # Verify execution type
+        execution_type_pair = next(
+            p
+            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
+            if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
+        )
+        assert execution_type_pair.value == "published"
 
         # Verify trigger type
         trigger_pair = next(
@@ -180,8 +188,8 @@ class TestWorkflowExecutionSearchAttributes:
         assert captured_search_attrs is not None
         pairs = captured_search_attrs.search_attributes
 
-        # Should have trigger_type, user_id, and workspace_id
-        assert len(pairs) == 3
+        # Should have execution_type, trigger_type, user_id, and workspace_id
+        assert len(pairs) == 4
 
         # Verify trigger type is SCHEDULED
         trigger_pair = next(
@@ -277,11 +285,24 @@ class TestWorkflowExecutionSearchAttributes:
         assert captured_search_attrs is not None
         pairs = captured_search_attrs.search_attributes
 
-        # Should only have trigger_type (no user_id or workspace_id)
-        assert len(pairs) == 1
+        # Should have execution_type and trigger_type (no user_id or workspace_id)
+        assert len(pairs) == 2
 
-        # Verify only trigger type is set
-        assert pairs[0].key.name == TemporalSearchAttr.TRIGGER_TYPE.value
+        # Verify execution type is set
+        execution_type_pair = next(
+            p
+            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
+            if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
+        )
+        assert execution_type_pair.value == "published"
+
+        # Verify trigger type is set
+        trigger_type_pair = next(
+            p
+            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
+            if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
+        )
+        assert trigger_type_pair.value == TriggerType.MANUAL.value
 
 
 @pytest.mark.anyio

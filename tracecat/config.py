@@ -229,6 +229,10 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
 
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
+TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS", 900)
+)
+"""Executor JWT TTL in seconds (default: 900 seconds)."""
 
 # === Remote registry === #
 TRACECAT__ALLOWED_GIT_DOMAINS = set(

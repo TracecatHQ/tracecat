@@ -14,6 +14,7 @@ import {
   workflowExecutionsTerminateWorkflowExecution,
 } from "@/client"
 import NoContent from "@/components/no-content"
+import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import {
   HoverCard,
@@ -110,6 +111,14 @@ export function WorkflowExecutionNav({
                     status={execution.status}
                     className="size-4"
                   />
+                  {execution.execution_type === "draft" && (
+                    <Badge
+                      variant="outline"
+                      className="ml-2 h-4 px-1 py-0 text-[10px] font-normal text-muted-foreground"
+                    >
+                      Draft
+                    </Badge>
+                  )}
                   <span className="ml-2">
                     {new Date(execution.start_time).toLocaleString()}
                   </span>

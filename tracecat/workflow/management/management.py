@@ -52,6 +52,8 @@ from tracecat.validation.schemas import (
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow
+from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     GetErrorHandlerWorkflowIDActivityInputs,
@@ -399,11 +401,33 @@ class WorkflowsManagementService(BaseService):
 
         return changed
 
-    async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
-        statement = select(Workflow.id).where(
-            Workflow.workspace_id == self.role.workspace_id,
-            Workflow.alias == alias,
-        )
+    async def resolve_workflow_alias(
+        self, alias: str, *, use_committed: bool = True
+    ) -> WorkflowID | None:
+        """Resolve a workflow alias to a workflow ID.
+
+        Args:
+            alias: The workflow alias to resolve.
+            use_committed: If True, resolve from committed WorkflowDefinition aliases.
+                           If False, resolve from draft Workflow aliases (for draft executions).
+        """
+        if use_committed:
+            # For published executions: resolve from the latest committed definition with this alias
+            statement = (
+                select(WorkflowDefinition.workflow_id)
+                .where(
+                    WorkflowDefinition.workspace_id == self.role.workspace_id,
+                    WorkflowDefinition.alias == alias,
+                )
+                .order_by(WorkflowDefinition.version.desc())
+                .limit(1)
+            )
+        else:
+            # For draft executions: resolve from draft Workflow table
+            statement = select(Workflow.id).where(
+                Workflow.workspace_id == self.role.workspace_id,
+                Workflow.alias == alias,
+            )
         result = await self.session.execute(statement)
         res = result.scalar_one_or_none()
         return WorkflowUUID.new(res) if res else None
@@ -704,7 +728,9 @@ class WorkflowsManagementService(BaseService):
         input: ResolveWorkflowAliasActivityInputs,
     ) -> WorkflowID | None:
         async with WorkflowsManagementService.with_session(input.role) as service:
-            return await service.resolve_workflow_alias(input.workflow_alias)
+            return await service.resolve_workflow_alias(
+                input.workflow_alias, use_committed=input.use_committed
+            )
 
     @staticmethod
     @activity.defn
@@ -713,38 +739,45 @@ class WorkflowsManagementService(BaseService):
     ) -> WorkflowID | None:
         args = input.args
         id_or_alias = None
-        async with WorkflowsManagementService.with_session(role=args.role) as service:
-            if args.dsl:
-                # 1. If a DSL was provided, we must use its error handler
-                if not args.dsl.error_handler:
-                    activity.logger.info("DSL has no error handler")
-                    return None
-                id_or_alias = args.dsl.error_handler
-            else:
-                # 2. Otherwise, use the error handler defined in the workflow
-                workflow = await service.get_workflow(args.wf_id)
-                if not workflow or not workflow.error_handler:
-                    activity.logger.info("No workflow or error handler found")
-                    return None
-                id_or_alias = workflow.error_handler
+        if args.dsl:
+            # 1. If a DSL was provided, we must use its error handler
+            if not args.dsl.error_handler:
+                activity.logger.info("DSL has no error handler")
+                return None
+            id_or_alias = args.dsl.error_handler
+        else:
+            # 2. Otherwise, get error handler from the committed definition
+            # This ensures schedules use the committed error handler
+            async with WorkflowDefinitionsService.with_session(
+                role=args.role
+            ) as defn_service:
+                defn = await defn_service.get_definition_by_workflow_id(args.wf_id)
+            if not defn:
+                activity.logger.info("No committed definition found")
+                return None
+            dsl = defn.content
+            if not dsl or not dsl.get("error_handler"):
+                activity.logger.info("Committed definition has no error handler")
+                return None
+            id_or_alias = dsl["error_handler"]
 
-            # 3. Convert the error handler to an ID
-            if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
-                # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
-                handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
-            elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
-                # Short workflow ID
-                handler_wf_id = WorkflowUUID.new(id_or_alias)
-            if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
-                # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
-                handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
-            elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
-                # Short workflow ID
-                handler_wf_id = WorkflowUUID.new(id_or_alias)
-            else:
-                handler_wf_id = await service.resolve_workflow_alias(id_or_alias)
-                if not handler_wf_id:
-                    raise RuntimeError(
-                        f"Couldn't find matching workflow for alias {id_or_alias!r}"
-                    )
-            return handler_wf_id
+        # 3. Convert the error handler to an ID
+        if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
+            # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
+            handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
+        elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
+            # Short workflow ID
+            handler_wf_id = WorkflowUUID.new(id_or_alias)
+        else:
+            use_committed = args.execution_type == ExecutionType.PUBLISHED
+            async with WorkflowsManagementService.with_session(
+                role=args.role
+            ) as service:
+                handler_wf_id = await service.resolve_workflow_alias(
+                    id_or_alias, use_committed=use_committed
+                )
+            if not handler_wf_id:
+                raise RuntimeError(
+                    f"Couldn't find matching workflow for alias {id_or_alias!r}"
+                )
+        return handler_wf_id

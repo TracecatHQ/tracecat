@@ -63,3 +63,15 @@ class CaseAttachmentDownloadData(BaseModel):
     file_name: str
     content_type: str
     content_base64: str
+
+
+# Internal
+
+
+class InternalCaseAttachmentDownloadResponse(BaseModel):
+    """Model for attachment download URL response."""
+
+    id: uuid.UUID = Field(..., description="Attachment ID")
+    download_url: str = Field(..., description="Pre-signed download URL")
+    file_name: str = Field(..., description="Original filename")
+    content_type: str = Field(..., description="MIME type of the file")

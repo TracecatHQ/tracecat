@@ -144,6 +144,8 @@ class WorkflowDefinitionActivityResult(BaseModel):
 class ResolveWorkflowAliasActivityInputs(BaseModel):
     workflow_alias: str
     role: Role
+    use_committed: bool = True
+    """Use committed WorkflowDefinition alias (True) or draft Workflow alias (False)."""
 
 
 class GetErrorHandlerWorkflowIDActivityInputs(BaseModel):

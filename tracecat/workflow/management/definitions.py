@@ -50,6 +50,7 @@ class WorkflowDefinitionsService(BaseService):
         workflow_id: WorkflowID,
         dsl: DSLInput,
         *,
+        alias: str | None = None,
         registry_lock: dict[str, str] | None = None,
         commit: bool = True,
     ) -> WorkflowDefinition:
@@ -84,6 +85,7 @@ class WorkflowDefinitionsService(BaseService):
             workflow_id=workflow_id,
             content=dsl.model_dump(exclude_unset=True),
             version=version,
+            alias=alias,
             registry_lock=registry_lock,
         )
         self.session.add(defn)
