@@ -17,6 +17,7 @@ from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -246,7 +247,9 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
     each test to commit/rollback without affecting other tests.
     """
     async_engine = create_async_engine(
-        TEST_DB_CONFIG.test_url, isolation_level="SERIALIZABLE"
+        TEST_DB_CONFIG.test_url,
+        isolation_level="SERIALIZABLE",
+        poolclass=NullPool,  # Prevent connection accumulation in parallel tests
     )
 
     # Connect and begin the outer transaction
