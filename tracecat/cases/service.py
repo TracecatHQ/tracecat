@@ -80,7 +80,6 @@ from tracecat.expressions.expectations import (
     create_expectation_model,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -640,7 +639,6 @@ class CasesService(BaseWorkspaceService):
 
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
-        logger.info("Creating case", session=self.session, role=self.role)
         try:
             # Ensure the workspace-scoped `case_fields` schema/table exists before we
             # take locks on the `case` table (e.g. via INSERT/UPDATE). This avoids
