@@ -9,13 +9,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 from typing_extensions import Doc
 
-from tracecat import config
-from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat import config as tracecat_config
+from tracecat_registry import RegistrySecret, config, registry, secrets
 
 
 # Maximum number of rows to return from a query
-# This can be overridden via TRACECAT__MAX_ROWS_CLIENT_POSTGRES config
-DEFAULT_MAX_ROWS = config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+# This can be overridden via TRACECAT__MAX_ROWS_CLIENT_POSTGRES env var
+DEFAULT_MAX_ROWS = config.MAX_ROWS_CLIENT_POSTGRES
 
 # Registry secret for SQL connections
 sql_secret = RegistrySecret(
@@ -54,14 +54,14 @@ def _validate_connection_url(connection_url: URL) -> None:
     """
     # Parse internal database URL
     try:
-        internal_url = make_url(config.TRACECAT__DB_URI)
+        internal_url = make_url(tracecat_config.TRACECAT__DB_URI)
     except Exception as exc:  # pragma: no cover - defensive fail-closed path
         raise SQLConnectionValidationError(
             "Internal database configuration error. Cannot validate connection safety."
         ) from exc
 
     # Resolve the internal endpoint from explicit config first, else fallback to the URI
-    internal_host = config.TRACECAT__DB_ENDPOINT or internal_url.host
+    internal_host = tracecat_config.TRACECAT__DB_ENDPOINT or internal_url.host
     if not internal_host:
         raise SQLConnectionValidationError(
             "Internal database endpoint is not configured. Cannot validate connection safety."
@@ -69,8 +69,8 @@ def _validate_connection_url(connection_url: URL) -> None:
 
     try:
         internal_port = (
-            int(config.TRACECAT__DB_PORT)
-            if config.TRACECAT__DB_PORT is not None
+            int(tracecat_config.TRACECAT__DB_PORT)
+            if tracecat_config.TRACECAT__DB_PORT is not None
             else None
         )
     except ValueError as exc:

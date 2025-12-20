@@ -8,7 +8,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import ProgrammingError
 from typing_extensions import Doc
 
-from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+from tracecat_registry import config
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -57,7 +57,7 @@ async def lookup(
             table_name=table,
             columns=[column],
             values=[value],
-            limit=min(1, TRACECAT__MAX_ROWS_CLIENT_POSTGRES),
+            limit=min(1, config.MAX_ROWS_CLIENT_POSTGRES),
         )
     # Since we set limit=1, we know there will be at most one row
     return rows[0] if rows else None
@@ -119,9 +119,9 @@ async def lookup_many(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> list[dict[str, Any]]:
-    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(
-            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
     if _USE_REGISTRY_CLIENT:
@@ -184,9 +184,9 @@ async def search_rows(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> list[dict[str, Any]]:
-    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(
-            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
     if _USE_REGISTRY_CLIENT:

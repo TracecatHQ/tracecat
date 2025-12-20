@@ -1,55 +1,55 @@
 import base64
 from datetime import datetime
 import posixpath
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from urllib.parse import unquote, urlsplit
-import httpx
-from typing import Annotated, Any, Literal, cast
-
-from tracecat_registry import types
 from uuid import UUID
 
+import httpx
+from typing_extensions import Doc
+
+from tracecat_registry import config, registry, types
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from sqlalchemy.exc import NoResultFound, ProgrammingError
-from sqlalchemy import select
-from sqlalchemy.orm import Mapped
-from typing_extensions import Doc
-
-from tracecat.auth.schemas import UserRead
-from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
-from tracecat.cases.attachments import (
-    CaseAttachmentCreate,
-    CaseAttachmentDownloadData,
-    CaseAttachmentRead,
-)
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import (
-    CaseCommentCreate,
-    CaseCommentRead,
-    CaseCommentUpdate,
-    CaseCreate,
-    CaseFieldRead,
-    CaseEventRead,
-    CaseEventsWithUsers,
-    CaseFieldReadMinimal,
-    CaseRead,
-    CaseReadMinimal,
-    CaseUpdate,
-)
-from tracecat.cases.service import CasesService, CaseCommentsService
-from tracecat.db.engine import get_async_session_context_manager
-from tracecat.exceptions import TracecatNotFoundError as InternalNotFoundError
-from tracecat.auth.users import lookup_user_by_email
-from tracecat.tags.schemas import TagRead, TagCreate
-from tracecat.tables.common import coerce_optional_to_utc_datetime
-from tracecat_registry import registry
 
 # Must be imported directly to preserve the udf metadata
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy import select
+    from sqlalchemy.exc import NoResultFound, ProgrammingError
+    from sqlalchemy.orm import Mapped
+
+    from tracecat.auth.schemas import UserRead
+    from tracecat.auth.users import lookup_user_by_email
+    from tracecat.cases.attachments import (
+        CaseAttachmentCreate,
+        CaseAttachmentDownloadData,
+        CaseAttachmentRead,
+    )
+    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+    from tracecat.cases.schemas import (
+        CaseCommentCreate,
+        CaseCommentRead,
+        CaseCommentUpdate,
+        CaseCreate,
+        CaseEventRead,
+        CaseEventsWithUsers,
+        CaseFieldRead,
+        CaseFieldReadMinimal,
+        CaseRead,
+        CaseReadMinimal,
+        CaseUpdate,
+    )
+    from tracecat.cases.service import CaseCommentsService, CasesService
+    from tracecat.db.engine import get_async_session_context_manager
+    from tracecat.exceptions import TracecatNotFoundError as InternalNotFoundError
+    from tracecat.tables.common import coerce_optional_to_utc_datetime
+    from tracecat.tags.schemas import TagCreate, TagRead
 
 if is_feature_enabled(FeatureFlag.CASE_TASKS):
     logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")
@@ -72,6 +72,38 @@ else:
 
 
 _USE_REGISTRY_CLIENT = is_feature_enabled(FeatureFlag.REGISTRY_CLIENT)
+
+if not _USE_REGISTRY_CLIENT:
+    from sqlalchemy import select
+    from sqlalchemy.exc import NoResultFound, ProgrammingError
+    from sqlalchemy.orm import Mapped
+
+    from tracecat.auth.schemas import UserRead
+    from tracecat.auth.users import lookup_user_by_email
+    from tracecat.cases.attachments import (
+        CaseAttachmentCreate,
+        CaseAttachmentDownloadData,
+        CaseAttachmentRead,
+    )
+    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+    from tracecat.cases.schemas import (
+        CaseCommentCreate,
+        CaseCommentRead,
+        CaseCommentUpdate,
+        CaseCreate,
+        CaseEventRead,
+        CaseEventsWithUsers,
+        CaseFieldRead,
+        CaseFieldReadMinimal,
+        CaseRead,
+        CaseReadMinimal,
+        CaseUpdate,
+    )
+    from tracecat.cases.service import CaseCommentsService, CasesService
+    from tracecat.db.engine import get_async_session_context_manager
+    from tracecat.exceptions import TracecatNotFoundError as InternalNotFoundError
+    from tracecat.tables.common import coerce_optional_to_utc_datetime
+    from tracecat.tags.schemas import TagCreate, TagRead
 
 
 PriorityType = Literal[
@@ -490,9 +522,9 @@ async def list_cases(
         Doc("The direction to order the cases by."),
     ] = None,
 ) -> list[types.CaseReadMinimal]:
-    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+            detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
     if _USE_REGISTRY_CLIENT:
@@ -580,9 +612,9 @@ async def search_cases(
         Doc("Maximum number of cases to return."),
     ] = 100,
 ) -> list[types.CaseReadMinimal]:
-    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+            detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
     if _USE_REGISTRY_CLIENT:
