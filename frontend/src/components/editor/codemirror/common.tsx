@@ -1470,7 +1470,7 @@ export async function fetchSecrets(
     // Import the secrets function from the client
     const secrets = await secretsListSecrets({
       workspaceId,
-      type: ["custom", "ssh-key"],
+      type: ["custom", "ssh-key", "mtls", "ca-cert"],
     })
     secretsCache.set(workspaceId, secrets)
     return secrets

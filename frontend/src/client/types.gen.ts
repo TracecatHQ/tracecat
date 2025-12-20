@@ -3637,6 +3637,8 @@ export type ScheduleUpdate = {
  * - `custom`: Arbitrary user-defined types
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
+ * - `mtls`: TLS client certificate and key
+ * - `ca-cert`: Certificate authority bundle
  */
 export type SecretCreate = {
   type?: SecretType
@@ -3684,7 +3686,12 @@ export type SecretReadMinimal = {
 /**
  * The type of a secret.
  */
-export type SecretType = "custom" | "ssh-key" | "github-app"
+export type SecretType =
+  | "custom"
+  | "ssh-key"
+  | "mtls"
+  | "ca-cert"
+  | "github-app"
 
 /**
  * Update a secret.
@@ -3694,6 +3701,8 @@ export type SecretType = "custom" | "ssh-key" | "github-app"
  * - `custom`: Arbitrary user-defined types
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
+ * - `mtls`: TLS client certificate and key
+ * - `ca-cert`: Certificate authority bundle
  */
 export type SecretUpdate = {
   type?: SecretType | null

@@ -11457,7 +11457,9 @@ Secret types
 ------------
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`,
+- \`oauth2\`: OAuth2 Client Credentials (TBC)
+- \`mtls\`: TLS client certificate and key
+- \`ca-cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretKeyValue = {
@@ -11601,7 +11603,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key", "github-app"],
+  enum: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -11698,7 +11700,9 @@ Secret types
 ------------
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
-- \`oauth2\`: OAuth2 Client Credentials (TBC)`,
+- \`oauth2\`: OAuth2 Client Credentials (TBC)
+- \`mtls\`: TLS client certificate and key
+- \`ca-cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretValidationDetail = {

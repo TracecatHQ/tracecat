@@ -131,6 +131,24 @@ Perform an HTTP request to a given URL.
 - `max_redirects` (int, optional, default: 20): Maximum number of redirects.
 - `verify_ssl` (bool, optional, default: True): Verify SSL certificates.
 
+### HTTP TLS and CA setup
+
+You can attach a client certificate (mTLS) and/or a custom CA bundle to
+`core.http_request` and `core.http_poll` by creating workspace secrets with
+specific names and keys.
+
+Create these secrets in the workspace credentials UI:
+
+- `mtls` (type: `mtls`)
+  - `TLS_CERTIFICATE`: PEM-encoded certificate (chain ok)
+  - `TLS_PRIVATE_KEY`: PEM-encoded private key
+- `ca_cert` (type: `ca-cert`, optional)
+  - `CA_CERTIFICATE`: PEM-encoded CA bundle
+
+Once present, the HTTP actions automatically load them. Set `verify_ssl: false`
+to disable verification entirely; otherwise a provided `ca_cert` overrides the
+default CA bundle.
+
 **File Upload Examples (`files` parameter):**
 
 1.  **Simple Base64 Upload (filename defaults to form field name):**

@@ -7,6 +7,7 @@ import {
   FileKey2,
   KeyRoundIcon,
   PlusCircle,
+  ShieldCheck,
   Trash2Icon,
 } from "lucide-react"
 import React, { type PropsWithChildren } from "react"
@@ -48,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -57,6 +59,34 @@ interface NewCredentialsDialogProps
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {}
 
+const pemCertificateRegex =
+  /-----BEGIN CERTIFICATE-----(?:\r?\n)[A-Za-z0-9+/=\s]+(?:\r?\n)-----END CERTIFICATE-----/
+
+const validatePemField = (
+  value: string | undefined,
+  ctx: z.RefinementCtx,
+  path: string[],
+  requiredMessage: string,
+  invalidMessage: string,
+  regex: RegExp
+) => {
+  if (!value?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: requiredMessage,
+    })
+    return
+  }
+  if (!regex.test(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: invalidMessage,
+    })
+  }
+}
+
 const createSecretSchema = z
   .object({
     name: z.string().default(""),
@@ -65,7 +95,7 @@ const createSecretSchema = z
       .string()
       .nullable()
       .transform((val) => val || "default"), // "default" if null or empty
-    type: z.enum(["custom", "ssh-key"]).default("custom"),
+    type: z.enum(["custom", "ssh-key", "mtls", "ca-cert"]).default("custom"),
     keys: z
       .array(
         z.object({
@@ -75,6 +105,9 @@ const createSecretSchema = z
       )
       .default([]),
     private_key: z.string().optional(),
+    tls_certificate: z.string().optional(),
+    tls_private_key: z.string().optional(),
+    ca_certificate: z.string().optional(),
   })
   .superRefine((values, ctx) => {
     if (values.type === "custom") {
@@ -104,20 +137,44 @@ const createSecretSchema = z
     }
 
     if (values.type === "ssh-key") {
-      if (!values.private_key?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["private_key"],
-          message: "SSH private key is required.",
-        })
-      } else if (!sshKeyRegex.test(values.private_key)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["private_key"],
-          message:
-            "Invalid SSH private key format. Must include PEM header and footer.",
-        })
-      }
+      validatePemField(
+        values.private_key,
+        ctx,
+        ["private_key"],
+        "SSH private key is required.",
+        "Invalid SSH private key format. Must include PEM header and footer.",
+        sshKeyRegex
+      )
+    }
+
+    if (values.type === "mtls") {
+      validatePemField(
+        values.tls_certificate,
+        ctx,
+        ["tls_certificate"],
+        "TLS certificate is required.",
+        "Invalid TLS certificate format. Must include PEM header and footer.",
+        pemCertificateRegex
+      )
+      validatePemField(
+        values.tls_private_key,
+        ctx,
+        ["tls_private_key"],
+        "TLS private key is required.",
+        "Invalid TLS private key format. Must include PEM header and footer.",
+        sshKeyRegex
+      )
+    }
+
+    if (values.type === "ca-cert") {
+      validatePemField(
+        values.ca_certificate,
+        ctx,
+        ["ca_certificate"],
+        "CA certificate is required.",
+        "Invalid CA certificate format. Must include PEM header and footer.",
+        pemCertificateRegex
+      )
     }
   })
 
@@ -140,28 +197,72 @@ export function NewCredentialsDialog({
       type: "custom",
       keys: [{ key: "", value: "" }],
       private_key: "",
+      tls_certificate: "",
+      tls_private_key: "",
+      ca_certificate: "",
     },
   })
   const { control, register } = methods
   const secretType = methods.watch("type")
 
+  const renderTextareaField = (
+    name: FieldPath<CreateSecretForm>,
+    label: string,
+    placeholder: string
+  ) => (
+    <FormField
+      key={name}
+      control={control}
+      name={name}
+      render={() => (
+        <FormItem>
+          <FormLabel className="text-sm">{label}</FormLabel>
+          <FormControl>
+            <Textarea
+              className="h-36 text-sm"
+              placeholder={placeholder}
+              {...register(name)}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
+
   const onSubmit = async (values: CreateSecretForm) => {
-    const { private_key, type, keys, ...rest } = values
-    const secret: SecretCreate =
-      type === "ssh-key"
-        ? {
-            ...rest,
-            type,
-            keys: [{ key: "PRIVATE_KEY", value: private_key || "" }],
-          }
-        : {
-            ...rest,
-            type,
-            keys: keys.map(({ key, value }) => ({
-              key: key || "",
-              value: value || "",
-            })),
-          }
+    const {
+      private_key,
+      tls_certificate,
+      tls_private_key,
+      ca_certificate,
+      type,
+      keys,
+      ...rest
+    } = values
+    const secretKeys = (() => {
+      switch (type) {
+        case "ssh-key":
+          return [{ key: "PRIVATE_KEY", value: private_key || "" }]
+        case "mtls":
+          return [
+            { key: "TLS_CERTIFICATE", value: tls_certificate || "" },
+            { key: "TLS_PRIVATE_KEY", value: tls_private_key || "" },
+          ]
+        case "ca-cert":
+          return [{ key: "CA_CERTIFICATE", value: ca_certificate || "" }]
+        default:
+          return keys.map(({ key, value }) => ({
+            key: key || "",
+            value: value || "",
+          }))
+      }
+    })()
+    const secret: SecretCreate = {
+      ...rest,
+      type,
+      keys: secretKeys,
+    }
     try {
       await createSecret(secret)
     } catch (error) {
@@ -283,13 +384,25 @@ export function NewCredentialsDialog({
                             SSH private key
                           </span>
                         </SelectItem>
+                        <SelectItem value="mtls">
+                          <span className="flex items-center gap-2">
+                            <KeyRoundIcon className="size-4" />
+                            mTLS certificate + key
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="ca-cert">
+                          <span className="flex items-center gap-2">
+                            <ShieldCheck className="size-4" />
+                            CA certificate
+                          </span>
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              {secretType === "custom" ? (
+              {secretType === "custom" && (
                 <FormField
                   key={inputKey}
                   control={control}
@@ -357,13 +470,34 @@ export function NewCredentialsDialog({
                     </FormItem>
                   )}
                 />
-              ) : (
+              )}
+              {secretType === "ssh-key" && (
                 <SshPrivateKeyField
                   control={control}
                   register={register}
                   name="private_key"
                 />
               )}
+              {secretType === "mtls" && (
+                <>
+                  {renderTextareaField(
+                    "tls_certificate",
+                    "TLS certificate",
+                    "-----BEGIN CERTIFICATE-----"
+                  )}
+                  {renderTextareaField(
+                    "tls_private_key",
+                    "TLS private key",
+                    "-----BEGIN PRIVATE KEY-----"
+                  )}
+                </>
+              )}
+              {secretType === "ca-cert" &&
+                renderTextareaField(
+                  "ca_certificate",
+                  "CA certificate",
+                  "-----BEGIN CERTIFICATE-----"
+                )}
               <DialogFooter>
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">

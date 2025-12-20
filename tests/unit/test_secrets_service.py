@@ -1,10 +1,15 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
     NoEncryption,
     PrivateFormat,
 )
+from cryptography.x509.oid import NameOID
 from pydantic import SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +58,43 @@ def ssh_private_key_crlf(ssh_private_key: str) -> str:
 def ssh_private_key_with_whitespace(ssh_private_key: str) -> str:
     """Valid SSH private key with leading/trailing whitespace."""
     return f"\n  {ssh_private_key}\n\n"
+
+
+@pytest.fixture(scope="session")
+def tls_keypair() -> tuple[str, str]:
+    """Generate a PEM-encoded TLS private key and certificate without trailing newlines."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "tracecat.test")]
+    )
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    key_pem = key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.PKCS8,
+        encryption_algorithm=NoEncryption(),
+    )
+    cert_pem = cert.public_bytes(Encoding.PEM)
+    return key_pem.decode("utf-8").rstrip("\n"), cert_pem.decode("utf-8").rstrip("\n")
+
+
+@pytest.fixture(scope="session")
+def tls_private_key(tls_keypair: tuple[str, str]) -> str:
+    return tls_keypair[0]
+
+
+@pytest.fixture(scope="session")
+def tls_certificate(tls_keypair: tuple[str, str]) -> str:
+    return tls_keypair[1]
 
 
 @pytest.fixture
@@ -122,6 +164,70 @@ def test_secret_create_strips_ssh_key_whitespace(
     )
     stored_key = secret.keys[0].value.get_secret_value()
     assert stored_key.rstrip("\n") == ssh_private_key
+
+
+def test_secret_create_rejects_invalid_mtls_certificate(
+    tls_private_key: str,
+) -> None:
+    with pytest.raises(ValidationError, match="TLS certificate"):
+        SecretCreate(
+            name="invalid-mtls-cert",
+            type=SecretType.MTLS,
+            keys=[
+                SecretKeyValue(
+                    key="TLS_CERTIFICATE", value=SecretStr("not-a-certificate")
+                ),
+                SecretKeyValue(key="TLS_PRIVATE_KEY", value=SecretStr(tls_private_key)),
+            ],
+            environment="test",
+        )
+
+
+def test_secret_create_rejects_invalid_mtls_private_key(
+    tls_certificate: str,
+) -> None:
+    with pytest.raises(ValidationError, match="TLS private key"):
+        SecretCreate(
+            name="invalid-mtls-key",
+            type=SecretType.MTLS,
+            keys=[
+                SecretKeyValue(key="TLS_CERTIFICATE", value=SecretStr(tls_certificate)),
+                SecretKeyValue(key="TLS_PRIVATE_KEY", value=SecretStr("not-a-key")),
+            ],
+            environment="test",
+        )
+
+
+def test_secret_create_rejects_invalid_ca_certificate() -> None:
+    with pytest.raises(ValidationError, match="CA certificate"):
+        SecretCreate(
+            name="invalid-ca-cert",
+            type=SecretType.CA_CERT,
+            keys=[
+                SecretKeyValue(
+                    key="CA_CERTIFICATE", value=SecretStr("not-a-certificate")
+                )
+            ],
+            environment="test",
+        )
+
+
+def test_secret_create_normalizes_mtls_values(
+    tls_private_key: str, tls_certificate: str
+) -> None:
+    secret = SecretCreate(
+        name="mtls-secret",
+        type=SecretType.MTLS,
+        keys=[
+            SecretKeyValue(key="TLS_CERTIFICATE", value=SecretStr(tls_certificate)),
+            SecretKeyValue(key="TLS_PRIVATE_KEY", value=SecretStr(tls_private_key)),
+        ],
+        environment="test",
+    )
+    cert = next(kv for kv in secret.keys if kv.key == "TLS_CERTIFICATE").value
+    key = next(kv for kv in secret.keys if kv.key == "TLS_PRIVATE_KEY").value
+    assert cert.get_secret_value().endswith("\n")
+    assert key.get_secret_value().endswith("\n")
 
 
 @pytest.mark.anyio
@@ -204,6 +310,71 @@ class TestSecretsService:
         assert decrypted_keys["key2"] == "updated_value2"  # Value updated
         assert "key3" not in decrypted_keys  # Key removed
         assert decrypted_keys["key4"] == "new_value4"  # New key added
+
+    async def test_update_mtls_secret_preserves_empty_values(
+        self,
+        service: SecretsService,
+        tls_private_key: str,
+        tls_certificate: str,
+    ) -> None:
+        create_params = SecretCreate(
+            name="mtls-update-secret",
+            type=SecretType.MTLS,
+            description="Initial description",
+            keys=[
+                SecretKeyValue(key="TLS_CERTIFICATE", value=SecretStr(tls_certificate)),
+                SecretKeyValue(key="TLS_PRIVATE_KEY", value=SecretStr(tls_private_key)),
+            ],
+            environment="test",
+        )
+        await service.create_secret(create_params)
+        secret = await service.get_secret_by_name(create_params.name)
+        update_params = SecretUpdate(
+            description="Updated description",
+            keys=[
+                SecretKeyValue(key="TLS_CERTIFICATE", value=SecretStr("")),
+                SecretKeyValue(key="TLS_PRIVATE_KEY", value=SecretStr("")),
+            ],
+        )
+        await service.update_secret(secret, update_params)
+
+        updated_secret = await service.get_secret_by_name(create_params.name)
+        updated_keys = {
+            k.key: k.value.get_secret_value()
+            for k in service.decrypt_keys(updated_secret.encrypted_keys)
+        }
+        expected_keys = {k.key: k.value.get_secret_value() for k in create_params.keys}
+        assert updated_secret.description == update_params.description
+        assert updated_keys == expected_keys
+
+    async def test_update_ca_cert_preserves_empty_values(
+        self, service: SecretsService, tls_certificate: str
+    ) -> None:
+        create_params = SecretCreate(
+            name="ca-cert-update-secret",
+            type=SecretType.CA_CERT,
+            description="Initial description",
+            keys=[
+                SecretKeyValue(key="CA_CERTIFICATE", value=SecretStr(tls_certificate)),
+            ],
+            environment="test",
+        )
+        await service.create_secret(create_params)
+        secret = await service.get_secret_by_name(create_params.name)
+        update_params = SecretUpdate(
+            description="Updated description",
+            keys=[SecretKeyValue(key="CA_CERTIFICATE", value=SecretStr(""))],
+        )
+        await service.update_secret(secret, update_params)
+
+        updated_secret = await service.get_secret_by_name(create_params.name)
+        updated_keys = {
+            k.key: k.value.get_secret_value()
+            for k in service.decrypt_keys(updated_secret.encrypted_keys)
+        }
+        expected_keys = {k.key: k.value.get_secret_value() for k in create_params.keys}
+        assert updated_secret.description == update_params.description
+        assert updated_keys == expected_keys
 
     async def test_delete_secret(
         self, service: SecretsService, secret_create_params: SecretCreate
