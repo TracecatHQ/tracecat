@@ -17,6 +17,7 @@ from tracecat_registry.sdk.exceptions import (
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.cases import CasesClient
+    from tracecat_registry.sdk.tables import TablesClient
 
 
 class TracecatClient:
@@ -61,6 +62,7 @@ class TracecatClient:
 
         # Lazily initialized sub-clients
         self._cases: CasesClient | None = None
+        self._tables: TablesClient | None = None
 
     @property
     def api_url(self) -> str:
@@ -80,6 +82,15 @@ class TracecatClient:
 
             self._cases = CasesClient(self)
         return self._cases
+
+    @property
+    def tables(self) -> TablesClient:
+        """Tables API client."""
+        if self._tables is None:
+            from tracecat_registry.sdk.tables import TablesClient
+
+            self._tables = TablesClient(self)
+        return self._tables
 
     def _get_headers(self) -> dict[str, str]:
         """Get default headers for requests."""

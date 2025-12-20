@@ -3,10 +3,12 @@
 import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+import tracecat_registry.core.table as table_core
 from asyncpg import DuplicateTableError
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,7 @@ from tracecat_registry.core.table import (
     create_table,
     delete_row,
     download,
+    get_table_metadata,
     insert_row,
     insert_rows,
     is_in,
@@ -29,6 +32,130 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
+
+
+class _FakeTablesClient:
+    async def _call_direct(self, func, *args, **kwargs):
+        with patch("tracecat_registry.core.table._USE_REGISTRY_CLIENT", False):
+            return await func(*args, **kwargs)
+
+    async def lookup(self, *, table: str, column: str, value: object):
+        return await self._call_direct(lookup, table=table, column=column, value=value)
+
+    async def exists(self, *, table: str, column: str, value: object) -> bool:
+        return await self._call_direct(is_in, table=table, column=column, value=value)
+
+    async def lookup_many(
+        self,
+        *,
+        table: str,
+        column: str,
+        value: object,
+        limit: int | None = None,
+    ):
+        return await self._call_direct(
+            lookup_many, table=table, column=column, value=value, limit=limit
+        )
+
+    async def search_rows(
+        self,
+        *,
+        table: str,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ):
+        return await self._call_direct(
+            search_rows,
+            table=table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+            offset=offset,
+            limit=limit,
+        )
+
+    async def insert_row(
+        self, *, table: str, row_data: dict[str, object], upsert: bool = False
+    ):
+        return await self._call_direct(
+            insert_row, table=table, row_data=row_data, upsert=upsert
+        )
+
+    async def insert_rows(
+        self,
+        *,
+        table: str,
+        rows_data: list[dict[str, object]],
+        upsert: bool = False,
+    ) -> int:
+        return await self._call_direct(
+            insert_rows, table=table, rows_data=rows_data, upsert=upsert
+        )
+
+    async def update_row(
+        self,
+        *,
+        table: str,
+        row_id: str,
+        row_data: dict[str, object],
+    ):
+        return await self._call_direct(
+            update_row, table=table, row_id=row_id, row_data=row_data
+        )
+
+    async def delete_row(self, *, table: str, row_id: str) -> None:
+        await self._call_direct(delete_row, table=table, row_id=row_id)
+
+    async def create_table(
+        self,
+        *,
+        name: str,
+        columns: list[dict[str, object]] | None = None,
+        raise_on_duplicate: bool = True,
+    ):
+        return await self._call_direct(
+            create_table,
+            name=name,
+            columns=columns,
+            raise_on_duplicate=raise_on_duplicate,
+        )
+
+    async def list_tables(self):
+        return await self._call_direct(list_tables)
+
+    async def get_table_metadata(self, name: str):
+        return await self._call_direct(get_table_metadata, name=name)
+
+    async def download(
+        self,
+        *,
+        table: str,
+        format: str | None = None,
+        limit: int = 1000,
+    ):
+        return await self._call_direct(download, name=table, format=format, limit=limit)
+
+
+@pytest.fixture(params=[False, True], ids=["registry_client_off", "registry_client_on"])
+def registry_client_enabled(request) -> bool:
+    """Toggle the REGISTRY_CLIENT feature flag."""
+    return request.param
+
+
+@pytest.fixture(autouse=True)
+def registry_client_ctx(monkeypatch: pytest.MonkeyPatch, registry_client_enabled: bool):
+    monkeypatch.setattr(table_core, "_USE_REGISTRY_CLIENT", registry_client_enabled)
+    if registry_client_enabled:
+        fake_ctx = SimpleNamespace(tables=_FakeTablesClient())
+        monkeypatch.setattr(table_core, "get_context", lambda: fake_ctx)
+    yield
 
 
 @pytest.fixture

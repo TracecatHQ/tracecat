@@ -902,7 +902,12 @@ class BaseTablesService(BaseWorkspaceService):
         )
         if limit is not None:
             stmt = stmt.limit(limit)
-        async with self.session.begin() as txn:
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
             conn = await txn.session.connection()
             try:
                 result = await conn.execute(
@@ -914,6 +919,7 @@ class BaseTablesService(BaseWorkspaceService):
                 return [dict(row) for row in result.mappings().all()]
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
+                # Note: Context manager handles rollback (savepoint or full) automatically
                 self.logger.warning(
                     "Retryable DB exception occurred",
                     kind=type(e).__name__,
@@ -921,8 +927,6 @@ class BaseTablesService(BaseWorkspaceService):
                     table=table_name,
                     schema=schema_name,
                 )
-                # Ensure transaction is rolled back
-                await conn.rollback()
                 raise
             except ProgrammingError as e:
                 while (cause := e.__cause__) is not None:
@@ -974,7 +978,12 @@ class BaseTablesService(BaseWorkspaceService):
         exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
         stmt = sa.select(exists_stmt)
 
-        async with self.session.begin() as txn:
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
             conn = await txn.session.connection()
             try:
                 result = await conn.execute(
@@ -986,6 +995,7 @@ class BaseTablesService(BaseWorkspaceService):
                 exists_val = result.scalar()
                 return bool(exists_val)
             except _RETRYABLE_DB_EXCEPTIONS as e:
+                # Note: Context manager handles rollback (savepoint or full) automatically
                 self.logger.warning(
                     "Retryable DB exception occurred during exists_rows",
                     kind=type(e).__name__,
@@ -993,7 +1003,6 @@ class BaseTablesService(BaseWorkspaceService):
                     table=table_name,
                     schema=schema_name,
                 )
-                await conn.rollback()
                 raise
             except ProgrammingError as e:
                 while (cause := e.__cause__) is not None:

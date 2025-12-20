@@ -6,6 +6,7 @@ from within UDF actions running in sandboxed environments.
 
 from tracecat_registry.sdk.cases import CasesClient
 from tracecat_registry.sdk.client import TracecatClient
+from tracecat_registry.sdk.tables import TablesClient
 
 from tracecat_registry.sdk.exceptions import (
     TracecatAPIError,
@@ -20,6 +21,7 @@ from tracecat_registry.sdk.types import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    SqlType,
     Unset,
     is_set,
 )
@@ -29,6 +31,7 @@ __all__ = [
     "TracecatClient",
     # Sub-clients
     "CasesClient",
+    "TablesClient",
     # Exceptions
     "TracecatAPIError",
     "TracecatAuthError",
@@ -44,4 +47,6 @@ __all__ = [
     "CasePriority",
     "CaseSeverity",
     "CaseStatus",
+    # Table types
+    "SqlType",
 ]
