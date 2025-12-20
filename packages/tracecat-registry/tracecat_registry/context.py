@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
     from tracecat_registry.sdk.cases import CasesClient
+    from tracecat_registry.sdk.tables import TablesClient
 
 
 @dataclass
@@ -105,6 +106,11 @@ class RegistryContext:
     def cases(self) -> "CasesClient":
         """Get the Cases API client."""
         return self.client.cases
+
+    @property
+    def tables(self) -> "TablesClient":
+        """Get the Tables API client."""
+        return self.client.tables
 
 
 # Context variable for the current registry context

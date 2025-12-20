@@ -84,6 +84,7 @@ from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import ensure_bucket_exists
+from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.variables.router import router as variables_router
@@ -296,6 +297,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)
     app.include_router(internal_case_tag_definitions_router)
+    app.include_router(internal_tables_router)
 
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
         app.include_router(

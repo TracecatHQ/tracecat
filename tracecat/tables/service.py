@@ -902,7 +902,12 @@ class BaseTablesService(BaseWorkspaceService):
         )
         if limit is not None:
             stmt = stmt.limit(limit)
-        async with self.session.begin() as txn:
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
             conn = await txn.session.connection()
             try:
                 result = await conn.execute(
@@ -974,7 +979,12 @@ class BaseTablesService(BaseWorkspaceService):
         exists_stmt = sa.exists(sa.select(1).select_from(table_clause).where(condition))
         stmt = sa.select(exists_stmt)
 
-        async with self.session.begin() as txn:
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with txn_cm as txn:
             conn = await txn.session.connection()
             try:
                 result = await conn.execute(

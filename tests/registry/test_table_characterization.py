@@ -13,11 +13,16 @@ Test Strategy:
 from __future__ import annotations
 
 import uuid
+from typing import get_args
+from unittest.mock import patch
 
 import pytest
+import respx
+from httpx import ASGITransport
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import types
+from tracecat_registry.context import RegistryContext, clear_context, set_context
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
@@ -33,8 +38,12 @@ from tracecat_registry.core.table import (
     update_row,
 )
 
+from tracecat import config
+from tracecat.api.app import app
+from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
+from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
 
 
@@ -50,14 +59,61 @@ async def table_test_role(svc_workspace: Workspace) -> Role:
     )
 
 
+@pytest.fixture(params=[False, True], ids=["registry_client_off", "registry_client_on"])
+def registry_client_enabled(request) -> bool:
+    """Toggle the REGISTRY_CLIENT feature flag."""
+    return request.param
+
+
 @pytest.fixture
-async def table_ctx(table_test_role: Role):
-    """Set up the ctx_role context for table UDF tests."""
-    token = ctx_role.set(table_test_role)
-    try:
-        yield table_test_role
-    finally:
-        ctx_role.reset(token)
+async def table_ctx(
+    table_test_role: Role,
+    session: AsyncSession,
+    registry_client_enabled: bool,
+):
+    """Set up the ctx_role and registry context for table UDF tests."""
+    registry_ctx = RegistryContext(
+        workspace_id=str(table_test_role.workspace_id),
+        workflow_id="test-workflow-id",
+        run_id="test-run-id",
+        environment="default",
+        api_url=config.TRACECAT__API_URL,
+    )
+    set_context(registry_ctx)
+
+    respx_mock = None
+    with patch(
+        "tracecat_registry.core.table._USE_REGISTRY_CLIENT", registry_client_enabled
+    ):
+        if registry_client_enabled:
+            respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
+            respx_mock.start()
+            respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
+                side_effect=ASGITransport(app).handle_async_request
+            )
+
+            def override_role():
+                return table_test_role
+
+            metadata = get_args(ExecutorWorkspaceRole)
+            if len(metadata) > 1 and hasattr(metadata[1], "dependency"):
+                app.dependency_overrides[metadata[1].dependency] = override_role
+
+            async def override_get_async_session():
+                yield session
+
+            app.dependency_overrides[get_async_session] = override_get_async_session
+
+        token = ctx_role.set(table_test_role)
+        try:
+            yield table_test_role
+        finally:
+            ctx_role.reset(token)
+            clear_context()
+            if respx_mock is not None:
+                respx_mock.stop()
+            if registry_client_enabled:
+                app.dependency_overrides.clear()
 
 
 @pytest.fixture
