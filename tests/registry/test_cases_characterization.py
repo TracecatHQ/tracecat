@@ -202,37 +202,62 @@ def blob_storage_config(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-async def test_user(db, svc_workspace: Workspace) -> User:
+async def test_user(
+    db,
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    cases_ctx: Role,
+    registry_client_enabled: bool,
+) -> User:
     """Create a test user for assign_user tests.
 
-    We use get_async_session_context_manager() directly to ensure the user
-    is visible to CasesService which creates its own session.
-    """
-    from tracecat.db.engine import get_async_session_context_manager
+    This fixture handles both registry_client modes:
+    - registry_client_off: Uses a separate session with commit so the user is visible
+      to CasesService which creates its own session.
+    - registry_client_on: Uses the test session (which is injected into the app via
+      dependency override) so the user is visible to API calls.
 
+    IMPORTANT: This fixture must depend on cases_ctx to ensure the session override
+    is in place before the user is created (for registry_client_on mode).
+    """
     user_id = uuid.uuid4()
     user_email = f"test-user-{uuid.uuid4().hex[:8]}@example.com"
 
-    async with get_async_session_context_manager() as session:
+    if registry_client_enabled:
+        # For SDK client mode, use the test session which is shared with the API
         user = User(
             id=user_id,
             email=user_email,
-            hashed_password="hashed",  # Not used in these tests
+            hashed_password="hashed",
             first_name="Test",
             last_name="User",
         )
         session.add(user)
-        await session.commit()
-        await session.refresh(user)
+        await session.flush()
+        return user
+    else:
+        # For direct service mode, use a separate session with commit
+        from tracecat.db.engine import get_async_session_context_manager
 
-    # Return a fresh reference to avoid detached instance issues
-    return User(
-        id=user_id,
-        email=user_email,
-        hashed_password="hashed",
-        first_name="Test",
-        last_name="User",
-    )
+        async with get_async_session_context_manager() as user_session:
+            user = User(
+                id=user_id,
+                email=user_email,
+                hashed_password="hashed",
+                first_name="Test",
+                last_name="User",
+            )
+            user_session.add(user)
+            await user_session.commit()
+
+        # Return a fresh reference to avoid detached instance issues
+        return User(
+            id=user_id,
+            email=user_email,
+            hashed_password="hashed",
+            first_name="Test",
+            last_name="User",
+        )
 
 
 # =============================================================================
@@ -1345,8 +1370,20 @@ class TestAssignUserByEmail:
 
 @pytest.mark.anyio
 class TestUploadAttachmentFromUrl:
-    """Characterization tests for upload_attachment_from_url UDF."""
+    """Characterization tests for upload_attachment_from_url UDF.
 
+    NOTE: These tests are only run with registry_client_off because:
+    1. The upload_attachment_from_url function fetches content from an external URL
+       using httpx.AsyncClient() which needs respx mocking
+    2. When registry_client_on, there's already a respx mock active from cases_ctx
+       that intercepts localhost requests, and nested respx mocks don't work correctly
+    3. The registry_client_on path is tested by other attachment tests that don't
+       require external URL mocking
+    """
+
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
+    )
     async def test_upload_attachment_from_url_uploads_content(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1356,11 +1393,9 @@ class TestUploadAttachmentFromUrl:
             description="Test case",
         )
 
-        # Mock only the external URL, not the internal API calls
         test_content = b"Content downloaded from URL"
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
-            respx_mock.route(host="localhost").pass_through()
-            respx_mock.get("https://example.com/test-file.txt").mock(
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
+            mock.get("https://example.com/test-file.txt").mock(
                 return_value=Response(
                     200,
                     content=test_content,
@@ -1378,6 +1413,9 @@ class TestUploadAttachmentFromUrl:
         assert result["content_type"] == "text/plain"
         assert result["size"] == len(test_content)
 
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
+    )
     async def test_upload_attachment_from_url_with_custom_filename(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1388,9 +1426,8 @@ class TestUploadAttachmentFromUrl:
         )
 
         test_content = b"Custom filename content"
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
-            respx_mock.route(host="localhost").pass_through()
-            respx_mock.get("https://example.com/some/path").mock(
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
+            mock.get("https://example.com/some/path").mock(
                 return_value=Response(
                     200,
                     content=test_content,
@@ -1406,6 +1443,9 @@ class TestUploadAttachmentFromUrl:
 
         assert result["file_name"] == "custom-name.txt"
 
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
+    )
     async def test_upload_attachment_from_url_http_error_raises(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1418,9 +1458,8 @@ class TestUploadAttachmentFromUrl:
         )
 
         # Mock a 404 response
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
-            respx_mock.route(host="localhost").pass_through()
-            respx_mock.get("https://example.com/not-found.txt").mock(
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
+            mock.get("https://example.com/not-found.txt").mock(
                 return_value=Response(404, content=b"Not Found")
             )
 
@@ -1430,6 +1469,9 @@ class TestUploadAttachmentFromUrl:
                     url="https://example.com/not-found.txt",
                 )
 
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
+    )
     async def test_upload_attachment_from_url_with_headers(
         self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
     ):
@@ -1440,9 +1482,8 @@ class TestUploadAttachmentFromUrl:
         )
 
         test_content = b"Authenticated content"
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as respx_mock:
-            respx_mock.route(host="localhost").pass_through()
-            respx_mock.get("https://example.com/protected-file.txt").mock(
+        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
+            mock.get("https://example.com/protected-file.txt").mock(
                 return_value=Response(
                     200,
                     content=test_content,
