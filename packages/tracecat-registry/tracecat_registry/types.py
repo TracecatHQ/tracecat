@@ -117,6 +117,17 @@ class CaseReadMinimal(TypedDict):
     num_tasks_total: int
 
 
+class CaseListResponse(TypedDict):
+    """Paginated case list response."""
+
+    items: list[CaseReadMinimal]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+    total_estimate: int | None
+
+
 class CaseComment(TypedDict):
     """Case comment information."""
 
@@ -457,6 +468,15 @@ class CaseAttachmentDownloadData(TypedDict):
     file_name: str
     content_type: str
     content_base64: str
+
+
+class CaseAttachmentDownloadResponse(TypedDict):
+    """Attachment download URL response."""
+
+    id: UUID
+    download_url: str
+    file_name: str
+    content_type: str
 
 
 # ============================================================================

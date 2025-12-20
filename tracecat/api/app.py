@@ -35,13 +35,26 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.cases.attachments.internal_router import (
+    router as internal_case_attachments_router,
+)
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.durations.router import router as case_durations_router
+from tracecat.cases.internal_router import (
+    comments_router as internal_comments_router,
+)
+from tracecat.cases.internal_router import (
+    router as internal_cases_router,
+)
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.tag_definitions.internal_router import (
+    router as internal_case_tag_definitions_router,
+)
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
 )
+from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.chat.router import router as chat_router
 from tracecat.contexts import ctx_role
@@ -277,6 +290,12 @@ def create_app(**kwargs) -> FastAPI:
         prefix="/users",
         tags=["users"],
     )
+    # Internal routers
+    app.include_router(internal_case_attachments_router)
+    app.include_router(internal_cases_router)
+    app.include_router(internal_comments_router)
+    app.include_router(internal_case_tags_router)
+    app.include_router(internal_case_tag_definitions_router)
 
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
         app.include_router(

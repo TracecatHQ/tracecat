@@ -20,6 +20,10 @@ from tracecat_registry.core.cases import (
     update_comment,
     upload_attachment_from_url,
 )
+from tracecat_registry.sdk.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
 # Import UserRead and UserRole for realistic user objects
 from tracecat.auth.schemas import UserRead, UserRole
@@ -172,7 +176,7 @@ class TestCoreUpdate:
 
         # Call the update function and expect an error
         case_id = str(uuid.uuid4())
-        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+        with pytest.raises(TracecatNotFoundError, match=f"Case '{case_id}' not found"):
             await update_case(case_id=case_id, summary="New Summary")
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
@@ -732,7 +736,7 @@ class TestCoreGetCase:
 
         # Call the get_case function and expect an error
         case_id = str(uuid.uuid4())
-        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+        with pytest.raises(TracecatNotFoundError, match=f"Case '{case_id}' not found"):
             await get_case(case_id=case_id)
 
 
@@ -1116,7 +1120,8 @@ class TestCoreSearchCases:
         mock_with_session.return_value = mock_ctx
 
         with pytest.raises(
-            ValueError, match="Invalid filter parameters supplied for case search"
+            TracecatValidationError,
+            match="Invalid filter parameters supplied for case search",
         ):
             await search_cases(search_term="bad")
 
@@ -1294,7 +1299,7 @@ class TestCoreSearchCases:
 
         # Call list_cases with limit exceeding maximum
         with pytest.raises(
-            ValueError,
+            TracecatValidationError,
             match=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}",
         ):
             await list_cases(limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1)
@@ -1437,7 +1442,9 @@ class TestCoreListComments:
 
             # Call the list_comments function and expect an error
             case_id = str(uuid.uuid4())
-            with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+            with pytest.raises(
+                TracecatNotFoundError, match=f"Case '{case_id}' not found"
+            ):
                 await list_comments(case_id=case_id)
 
 
@@ -1512,7 +1519,7 @@ class TestCoreSearchCasesWithDateFilters:
 
         # Call search_cases with limit exceeding maximum
         with pytest.raises(
-            ValueError,
+            TracecatValidationError,
             match=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}",
         ):
             await search_cases(limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1)
@@ -1585,7 +1592,7 @@ class TestCoreAssignUser:
         case_id = str(uuid.uuid4())
         assignee_id = str(uuid.uuid4())
 
-        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+        with pytest.raises(TracecatNotFoundError, match=f"Case '{case_id}' not found"):
             await assign_user(case_id=case_id, assignee_id=assignee_id)
 
 
@@ -1661,7 +1668,7 @@ class TestCoreCaseTags:
 
         # Call the add_case_tag function and expect an error
         case_id = str(uuid.uuid4())
-        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+        with pytest.raises(TracecatNotFoundError, match=f"Case '{case_id}' not found"):
             await add_case_tag(case_id=case_id, tag="test-tag")
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
@@ -1711,7 +1718,7 @@ class TestCoreCaseTags:
 
         # Call the remove_case_tag function and expect an error
         case_id = str(uuid.uuid4())
-        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+        with pytest.raises(TracecatNotFoundError, match=f"Case '{case_id}' not found"):
             await remove_case_tag(case_id=case_id, tag="test-tag")
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")

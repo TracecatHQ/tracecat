@@ -30,6 +30,7 @@ from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import User
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -141,6 +142,7 @@ async def _role_dependency(
     api_key: str | None = None,
     allow_user: bool,
     allow_service: bool,
+    allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None = None,
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
@@ -275,6 +277,22 @@ async def _role_dependency(
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
+    elif allow_executor:
+        if not is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
+            logger.info(
+                "Executor auth feature flag is disabled; ignoring allow_executor"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        # Pass-through for executor requests
+        # TODO(auth): Implement proper executor token validation
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            workspace_id=workspace_id,
+            access_level=AccessLevel.ADMIN,
+        )
     else:
         logger.debug("Invalid authentication or authorization", user=user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
@@ -310,6 +328,7 @@ def RoleACL(
     *,
     allow_user: bool = True,
     allow_service: bool = False,
+    allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
     min_access_level: AccessLevel | None = None,
     workspace_id_in_path: bool = False,
@@ -347,8 +366,15 @@ def RoleACL(
         HTTPException: If authentication fails or the caller lacks required permissions.
 
     """
-    if not any((allow_user, allow_service, require_workspace)):
-        raise ValueError("Must allow either user, service, or require workspace")
+    allow_executor_enabled = allow_executor
+    if allow_executor and not is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
+        allow_executor_enabled = False
+        logger.info("Executor auth feature flag is disabled; ignoring allow_executor")
+
+    if not any((allow_user, allow_service, require_workspace, allow_executor_enabled)):
+        raise ValueError(
+            "Must allow either user, service, executor, or require workspace"
+        )
 
     if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
@@ -369,6 +395,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor_enabled,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
@@ -397,6 +424,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor_enabled,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
@@ -420,6 +448,7 @@ def RoleACL(
                 api_key=api_key,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_executor=allow_executor_enabled,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
