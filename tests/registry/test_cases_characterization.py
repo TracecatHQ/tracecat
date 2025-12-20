@@ -982,7 +982,7 @@ class TestUploadAttachment:
             description="Test case",
         )
 
-        with pytest.raises(ValueError, match="Invalid base64"):
+        with pytest.raises(SDKValidationError, match="Invalid base64"):
             await upload_attachment(
                 case_id=str(case["id"]),
                 file_name="test.txt",
@@ -1474,7 +1474,7 @@ class TestGetAttachmentDownloadUrl:
         )
 
         # Negative expiry
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(SDKValidationError, match="positive"):
             await get_attachment_download_url(
                 case_id=str(case["id"]),
                 attachment_id=str(uploaded["id"]),
@@ -1482,7 +1482,7 @@ class TestGetAttachmentDownloadUrl:
             )
 
         # Expiry > 24 hours
-        with pytest.raises(ValueError, match="24 hours"):
+        with pytest.raises(SDKValidationError, match="24 hours"):
             await get_attachment_download_url(
                 case_id=str(case["id"]),
                 attachment_id=str(uploaded["id"]),
