@@ -22,6 +22,7 @@ from pydantic import UUID4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.auth.users import is_unprivileged, optional_current_active_user
@@ -77,6 +78,16 @@ def get_role_from_user(
         access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
         workspace_role=workspace_role,
     )
+
+
+def _get_bearer_token(request: Request) -> str | None:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return token
 
 
 async def _authenticate_service(
@@ -285,14 +296,39 @@ async def _role_dependency(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
-        # Pass-through for executor requests
-        # TODO(auth): Implement proper executor token validation
-        role = Role(
-            type="service",
-            service_id="tracecat-executor",
-            workspace_id=workspace_id,
-            access_level=AccessLevel.ADMIN,
-        )
+        token = _get_bearer_token(request)
+        if not token:
+            logger.info("Missing executor bearer token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+            )
+        try:
+            role = verify_executor_token(token)
+        except ValueError as exc:
+            logger.info("Invalid executor token", error=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+            ) from exc
+        if role.type != "service" or role.service_id != "tracecat-executor":
+            logger.warning("Invalid executor role", role=role)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        if require_workspace == "yes":
+            if role.workspace_id is None:
+                logger.warning("Executor role missing workspace_id", role=role)
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+            if workspace_id is not None and str(role.workspace_id) != str(workspace_id):
+                logger.warning(
+                    "Executor role workspace mismatch",
+                    role_workspace_id=role.workspace_id,
+                    request_workspace_id=workspace_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
     else:
         logger.debug("Invalid authentication or authorization", user=user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
