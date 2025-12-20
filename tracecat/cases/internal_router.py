@@ -143,7 +143,7 @@ async def list_cases(
         logger.warning(f"Invalid request for list cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Invalid request for list cases",
         ) from e
     except HTTPException:
         raise
@@ -400,11 +400,10 @@ async def update_case(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        while (cause := e.__cause__) is not None:
-            e = cause
+        logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Database operation failed",
         ) from e
 
     fields = await service.fields.get_fields(updated_case) or {}
@@ -920,11 +919,10 @@ async def update_case_simple(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        while (cause := e.__cause__) is not None:
-            e = cause
+        logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Database operation failed",
         ) from e
 
     # Update tags if provided (replace all existing tags)
