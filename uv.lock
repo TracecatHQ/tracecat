@@ -4286,10 +4286,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-cli = [
-    { name = "rich" },
-    { name = "typer" },
-]
 dev = [
     { name = "types-aioboto3", extra = ["s3", "sts"] },
     { name = "types-boto3", extra = ["s3", "sts"] },
@@ -4310,15 +4306,13 @@ requires-dist = [
     { name = "marshmallow", specifier = "==3.26.1" },
     { name = "nh3", specifier = "==0.2.18" },
     { name = "pymongo", specifier = "==4.8.0" },
-    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.7.0" },
     { name = "slack-sdk", specifier = "==3.28.0" },
     { name = "tavily-python", specifier = "==0.7.6" },
     { name = "tenacity", specifier = "==8.3.0" },
-    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.15.1" },
     { name = "types-aioboto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=15.0.0" },
     { name = "types-boto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=1.39.0,<2.0.0" },
 ]
-provides-extras = ["cli", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "trove-classifiers"
