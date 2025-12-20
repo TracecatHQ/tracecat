@@ -32,6 +32,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 const secretTypeLabels: Record<SecretReadMinimal["type"], string> = {
   custom: "Custom",
   "ssh-key": "SSH key",
+  mtls: "mTLS",
+  "ca-cert": "CA certificate",
   "github-app": "GitHub app",
 }
 

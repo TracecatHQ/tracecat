@@ -7805,6 +7805,8 @@ components:
       enum:
       - custom
       - ssh-key
+      - mtls
+      - ca-cert
       title: SecretType
       description: The type of a secret.
     SecretUpdate:

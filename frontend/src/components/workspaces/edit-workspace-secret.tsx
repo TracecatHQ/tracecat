@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -61,6 +62,8 @@ export function EditCredentialsDialog({
   const workspaceId = useWorkspaceId()
   const { updateSecretById } = useWorkspaceSecrets(workspaceId)
   const isSshKey = selectedSecret?.type === "ssh-key"
+  const hasFixedKeys =
+    selectedSecret?.type === "mtls" || selectedSecret?.type === "ca-cert"
 
   const methods = useForm<SecretUpdate>({
     resolver: zodResolver(updateSecretSchema),
@@ -144,6 +147,11 @@ export function EditCredentialsDialog({
               <span>
                 SSH keys are write-once. Delete and recreate the secret to
                 rotate the key.
+              </span>
+            ) : hasFixedKeys ? (
+              <span>
+                Key names are fixed for this secret type. Leave a field blank to
+                keep its existing value.
               </span>
             ) : (
               <span>
@@ -248,6 +256,7 @@ export function EditCredentialsDialog({
                                     id={`key-${index}`}
                                     className="text-sm"
                                     placeholder={"Key"}
+                                    readOnly={hasFixedKeys}
                                     {...field}
                                   />
                                 </FormControl>
@@ -264,13 +273,26 @@ export function EditCredentialsDialog({
                               <FormItem>
                                 <div className="flex flex-col space-y-2">
                                   <FormControl>
-                                    <Input
-                                      id={`value-${index}`}
-                                      className="text-sm"
-                                      placeholder="••••••••••••••••"
-                                      type="password"
-                                      {...field}
-                                    />
+                                    {hasFixedKeys ? (
+                                      <Textarea
+                                        id={`value-${index}`}
+                                        className="h-32 text-sm"
+                                        placeholder={
+                                          keysItem.key?.includes("PRIVATE_KEY")
+                                            ? "-----BEGIN PRIVATE KEY-----"
+                                            : "-----BEGIN CERTIFICATE-----"
+                                        }
+                                        {...field}
+                                      />
+                                    ) : (
+                                      <Input
+                                        id={`value-${index}`}
+                                        className="text-sm"
+                                        placeholder="••••••••••••••••"
+                                        type="password"
+                                        {...field}
+                                      />
+                                    )}
                                   </FormControl>
                                 </div>
                                 <FormMessage />
@@ -281,22 +303,25 @@ export function EditCredentialsDialog({
                             type="button"
                             variant="ghost"
                             onClick={() => remove(index)}
+                            disabled={hasFixedKeys}
                           >
                             <Trash2Icon className="size-3.5" />
                           </Button>
                         </div>
                       ))}
                   </FormItem>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => append({ key: "", value: "" })}
-                    className="w-full space-x-2 text-xs text-foreground/80"
-                  >
-                    <PlusCircle className="mr-2 size-4" />
-                    Add Item
-                  </Button>
-                  {fields.length === 0 && (
+                  {!hasFixedKeys && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => append({ key: "", value: "" })}
+                      className="w-full space-x-2 text-xs text-foreground/80"
+                    >
+                      <PlusCircle className="mr-2 size-4" />
+                      Add Item
+                    </Button>
+                  )}
+                  {fields.length === 0 && !hasFixedKeys && (
                     <span className="text-xs text-foreground/50">
                       Secrets will be left unchanged.
                     </span>
