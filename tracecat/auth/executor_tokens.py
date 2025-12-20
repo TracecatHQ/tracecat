@@ -62,6 +62,11 @@ def verify_executor_token(token: str) -> Role:
     except PyJWTError as exc:
         raise ValueError("Invalid executor token") from exc
 
+    # PyJWT doesn't have a built-in subject parameter for validation,
+    # so we must manually verify the sub claim value
+    if payload.get("sub") != EXECUTOR_TOKEN_SUBJECT:
+        raise ValueError("Invalid executor token subject")
+
     role_payload = payload.get("role")
     if role_payload is None:
         raise ValueError("Executor token missing role claim")

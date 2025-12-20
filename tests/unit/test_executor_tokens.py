@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
+import jwt
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
 from tracecat import config
 from tracecat.auth.credentials import _role_dependency
-from tracecat.auth.executor_tokens import mint_executor_token, verify_executor_token
+from tracecat.auth.executor_tokens import (
+    EXECUTOR_TOKEN_AUDIENCE,
+    EXECUTOR_TOKEN_ISSUER,
+    mint_executor_token,
+    verify_executor_token,
+)
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.feature_flags import FeatureFlag
 
@@ -55,6 +62,29 @@ def test_verify_executor_token_expired(monkeypatch: pytest.MonkeyPatch):
     token = mint_executor_token(role=role, ttl_seconds=-1)
 
     with pytest.raises(ValueError):
+        verify_executor_token(token)
+
+
+def test_verify_executor_token_invalid_subject(monkeypatch: pytest.MonkeyPatch):
+    """Verify that tokens with incorrect subject claim are rejected."""
+    service_key = "test-service-key"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+
+    role = _make_executor_role(uuid.uuid4())
+    now = datetime.now(UTC)
+
+    # Create a token with wrong subject
+    payload = {
+        "iss": EXECUTOR_TOKEN_ISSUER,
+        "aud": EXECUTOR_TOKEN_AUDIENCE,
+        "sub": "wrong-subject",  # Invalid subject
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=60)).timestamp()),
+        "role": role.model_dump(mode="json"),
+    }
+    token = jwt.encode(payload, service_key, algorithm="HS256")
+
+    with pytest.raises(ValueError, match="Invalid executor token subject"):
         verify_executor_token(token)
 
 
