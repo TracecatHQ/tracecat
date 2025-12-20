@@ -79,15 +79,11 @@ class SecretsService(BaseService):
                 raise ValueError(
                     "mTLS secrets cannot change type. Delete and recreate the secret."
                 )
-            if params.keys is not None:
-                validate_mtls_key_values(params.keys)
         elif existing_type == SecretType.CA_CERT:
             if params.type is not None and SecretType(params.type) != existing_type:
                 raise ValueError(
                     "CA certificate secrets cannot change type. Delete and recreate the secret."
                 )
-            if params.keys is not None:
-                validate_ca_cert_values(params.keys)
         elif params.type == SecretType.SSH_KEY:
             raise ValueError(
                 "SSH key secrets must be created with their key value. Delete and recreate the secret instead."
@@ -121,6 +117,11 @@ class SecretsService(BaseService):
                     )
                 else:
                     merged_keyvalues.append(SecretKeyValue(**kv))
+
+            if existing_type == SecretType.MTLS:
+                validate_mtls_key_values(merged_keyvalues)
+            elif existing_type == SecretType.CA_CERT:
+                validate_ca_cert_values(merged_keyvalues)
 
             secret.encrypted_keys = encrypt_keyvalues(
                 merged_keyvalues, key=self._encryption_key
