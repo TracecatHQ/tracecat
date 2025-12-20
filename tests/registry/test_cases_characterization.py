@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import UTC
+from unittest.mock import patch
 
 import pytest
 import respx
@@ -78,8 +79,18 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
     )
 
 
+@pytest.fixture(params=[False, True], ids=["registry_client_off", "registry_client_on"])
+def registry_client_enabled(request) -> bool:
+    """Toggle the REGISTRY_CLIENT feature flag."""
+    return request.param
+
+
 @pytest.fixture
-async def cases_ctx(cases_test_role: Role, session: AsyncSession):
+async def cases_ctx(
+    cases_test_role: Role,
+    session: AsyncSession,
+    registry_client_enabled: bool,
+):
     """Set up the ctx_role and registry context for case UDF tests.
 
     Also pre-initializes the case_fields workspace schema with an advisory lock
@@ -107,12 +118,65 @@ async def cases_ctx(cases_test_role: Role, session: AsyncSession):
     )
     set_context(registry_ctx)
 
-    token = ctx_role.set(cases_test_role)
-    try:
-        yield cases_test_role
-    finally:
-        ctx_role.reset(token)
-        clear_context()
+    # Patch the module-level constant in core.cases
+    with patch(
+        "tracecat_registry.core.cases._USE_REGISTRY_CLIENT", registry_client_enabled
+    ):
+        if registry_client_enabled:
+            from typing import get_args
+
+            from httpx import ASGITransport
+
+            from tracecat.api.app import app
+            from tracecat.auth.dependencies import (
+                ExecutorWorkspaceRole,
+                OrgAdminUser,
+                ServiceRole,
+                WorkspaceUserRole,
+            )
+            from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
+            from tracecat.db.dependencies import get_async_session
+
+            # Mock the API URL to point to the app
+            respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
+            respx_mock.start()
+            respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
+                side_effect=ASGITransport(app).handle_async_request
+            )
+
+            # Override role dependencies to use our test role
+            def override_role():
+                return cases_test_role
+
+            role_dependencies = [
+                ExecutorWorkspaceRole,
+                WorkspaceUserRole,
+                WorkspaceUser,
+                WorkspaceAdminUser,
+                ServiceRole,
+                OrgAdminUser,
+            ]
+            for annotated_type in role_dependencies:
+                metadata = get_args(annotated_type)
+                # metadata[0] is Role, metadata[1] is the Depends(...) object
+                if len(metadata) > 1 and hasattr(metadata[1], "dependency"):
+                    app.dependency_overrides[metadata[1].dependency] = override_role
+
+            # Also need to override the DB session to use the test session
+            async def override_get_async_session():
+                yield session
+
+            app.dependency_overrides[get_async_session] = override_get_async_session
+
+        token = ctx_role.set(cases_test_role)
+        try:
+            yield cases_test_role
+        finally:
+            ctx_role.reset(token)
+            clear_context()
+            if registry_client_enabled:
+                respx_mock.stop()
+                app.dependency_overrides.clear()
 
 
 @pytest.fixture
