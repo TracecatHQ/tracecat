@@ -1410,6 +1410,7 @@ class TestCoreListComments:
                 # First comment should have user info
                 assert result[0]["content"] == "Comment 1"
                 assert "user" in result[0]
+                assert result[0]["user"] is not None
                 assert result[0]["user"]["email"] == "user1@example.com"
 
                 # Second comment should have user as None
