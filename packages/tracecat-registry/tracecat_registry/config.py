@@ -1,6 +1,22 @@
 """Configuration for tracecat-registry package."""
 
 import os
+from typing import Any
+
+from pydantic_core import to_jsonable_python as _to_jsonable_python
+
+
+def to_jsonable_python(value: Any) -> Any:
+    """Convert a value to a JSONable Python object.
+
+    Drop nulls and use fallback for unknown values.
+    """
+
+    def fallback(x: Any) -> Any:
+        """Fallback for unknown values."""
+        return None
+
+    return _to_jsonable_python(value, fallback=fallback, exclude_none=True)
 
 
 # Maximum number of rows that can be returned from client-facing queries
@@ -19,6 +35,19 @@ TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
 )
 
+# S3 concurrency limit
+TRACECAT__S3_CONCURRENCY_LIMIT = int(
+    os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 10)
+)
+
+# Database connection validation (used to prevent connecting to internal DB)
+TRACECAT__DB_URI = os.environ.get(
+    "TRACECAT__DB_URI",
+    "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
+)
+TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
+TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
+
 
 class _FeatureFlags:
     """Feature flags checked directly from env to avoid heavy tracecat imports.
@@ -32,6 +61,12 @@ class _FeatureFlags:
         """Use SDK/API client instead of direct DB access in sandbox mode."""
         self.case_tasks: bool = "case-tasks" in _flags
         """Enable case tasks (enterprise feature)."""
+        self.case_durations: bool = "case-durations" in _flags
+        """Enable case durations (enterprise feature)."""
+        self.agent_presets: bool = "agent-presets" in _flags
+        """Enable agent presets UDFs."""
+        self.ai_ranking: bool = "ai-ranking" in _flags
+        """Enable AI ranking UDFs."""
 
 
 flags = _FeatureFlags()

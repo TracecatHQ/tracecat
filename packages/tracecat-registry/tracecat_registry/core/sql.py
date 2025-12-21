@@ -9,7 +9,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 from typing_extensions import Doc
 
-from tracecat import config as tracecat_config
 from tracecat_registry import RegistrySecret, config, registry, secrets
 
 
@@ -46,22 +45,31 @@ def _validate_connection_url(connection_url: URL) -> None:
     We only compare against the configured internal database endpoint/port and never
     surface credentials from the internal URI to the user.
 
+    In registry-client mode (sandboxed execution), this validation is skipped as
+    network isolation is the primary security control. The internal DB config is
+    intentionally not passed to the sandbox.
+
     Args:
         connection_url: SQLAlchemy URL object
 
     Raises:
         SQLConnectionValidationError: If connection attempts to access Tracecat's database
     """
+    # Skip validation in registry-client mode - network isolation is the primary control
+    # and internal DB config should not be exposed to the sandbox
+    if config.flags.registry_client:
+        return
+
     # Parse internal database URL
     try:
-        internal_url = make_url(tracecat_config.TRACECAT__DB_URI)
+        internal_url = make_url(config.TRACECAT__DB_URI)
     except Exception as exc:  # pragma: no cover - defensive fail-closed path
         raise SQLConnectionValidationError(
             "Internal database configuration error. Cannot validate connection safety."
         ) from exc
 
     # Resolve the internal endpoint from explicit config first, else fallback to the URI
-    internal_host = tracecat_config.TRACECAT__DB_ENDPOINT or internal_url.host
+    internal_host = config.TRACECAT__DB_ENDPOINT or internal_url.host
     if not internal_host:
         raise SQLConnectionValidationError(
             "Internal database endpoint is not configured. Cannot validate connection safety."
@@ -69,8 +77,8 @@ def _validate_connection_url(connection_url: URL) -> None:
 
     try:
         internal_port = (
-            int(tracecat_config.TRACECAT__DB_PORT)
-            if tracecat_config.TRACECAT__DB_PORT is not None
+            int(config.TRACECAT__DB_PORT)
+            if config.TRACECAT__DB_PORT is not None
             else None
         )
     except ValueError as exc:
