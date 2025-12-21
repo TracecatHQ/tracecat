@@ -15,7 +15,7 @@ from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
 
-if TYPE_CHECKING:
+if not config.flags.registry_client or TYPE_CHECKING:
     from sqlalchemy import select
     from sqlalchemy.exc import NoResultFound, ProgrammingError
     from sqlalchemy.orm import Mapped
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from tracecat.tags.schemas import TagCreate, TagRead
 
 if config.flags.case_tasks:
-    from tracecat.logger import logger
+    from tracecat_registry._internal.logger import logger
 
     logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")
     from tracecat_ee.cases.tasks import (
@@ -64,39 +64,6 @@ else:
     list_tasks = None
     update_task = None
     delete_task = None
-
-if not config.flags.registry_client:
-    from sqlalchemy import select
-    from sqlalchemy.exc import NoResultFound, ProgrammingError
-    from sqlalchemy.orm import Mapped
-
-    from tracecat.auth.schemas import UserRead
-    from tracecat.auth.users import lookup_user_by_email
-    from tracecat.cases.attachments import (
-        CaseAttachmentCreate,
-        CaseAttachmentDownloadData,
-        CaseAttachmentRead,
-    )
-    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.schemas import (
-        CaseCommentCreate,
-        CaseCommentRead,
-        CaseCommentUpdate,
-        CaseCreate,
-        CaseEventRead,
-        CaseEventsWithUsers,
-        CaseFieldRead,
-        CaseFieldReadMinimal,
-        CaseRead,
-        CaseReadMinimal,
-        CaseUpdate,
-    )
-    from tracecat.cases.service import CaseCommentsService, CasesService
-    from tracecat.db.engine import get_async_session_context_manager
-    from tracecat.exceptions import TracecatNotFoundError as InternalNotFoundError
-    from tracecat.tables.common import coerce_optional_to_utc_datetime
-    from tracecat.tags.schemas import TagCreate, TagRead
-
 
 PriorityType = Literal[
     "unknown",
