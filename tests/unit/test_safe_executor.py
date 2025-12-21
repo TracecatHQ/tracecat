@@ -1,6 +1,7 @@
 """Tests for SafePythonExecutor - the fallback Python executor without nsjail."""
 
 import importlib
+import sys
 
 import pytest
 
@@ -484,6 +485,25 @@ class TestCaching:
         assert "requests" in allowed
         assert "py_ocsf_models" in allowed
 
+    def test_allowed_modules_from_metadata(self, executor, tmp_path):
+        """Test that import names are resolved from venv metadata."""
+        venv_path = tmp_path / "venv"
+        python_dir = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        site_packages = venv_path / "lib" / python_dir / "site-packages"
+        site_packages.mkdir(parents=True)
+
+        dist_info = site_packages / "beautifulsoup4-4.12.2.dist-info"
+        dist_info.mkdir()
+        (dist_info / "METADATA").write_text("Name: beautifulsoup4\nVersion: 4.12.2\n")
+        (dist_info / "top_level.txt").write_text("bs4\n")
+
+        allowed = executor._get_allowed_modules(
+            ["beautifulsoup4"],
+            venv_path=venv_path,
+        )
+
+        assert "bs4" in allowed
+
 
 class TestAllowNetwork:
     """Test allow_network parameter behavior."""
@@ -513,6 +533,18 @@ def main():
 """
         with pytest.raises(SandboxValidationError):
             await executor.execute(script=script, allow_network=False)
+
+    @pytest.mark.anyio
+    async def test_allow_network_true_allows_socket(self, executor):
+        """Test that socket is allowed with allow_network=True."""
+        script = """
+import socket
+def main():
+    return socket.gethostname()
+"""
+        result = await executor.execute(script=script, allow_network=True)
+        assert result.success
+        assert result.output
 
 
 class TestSafeExecutorFallback:
