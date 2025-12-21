@@ -140,7 +140,10 @@ class ProtoLoader:
             proto_module = importlib.import_module(f"{module_base}_pb2")
             grpc_module = importlib.import_module(f"{module_base}_pb2_grpc")
         finally:
-            sys.path.pop(0)
+            try:
+                sys.path.remove(self._temp_dir.name)
+            except ValueError:
+                pass
         self._module_names = [proto_module.__name__, grpc_module.__name__]
         return proto_module, grpc_module
 

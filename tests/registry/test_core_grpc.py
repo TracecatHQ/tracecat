@@ -1,6 +1,7 @@
 """Integration tests for dynamic gRPC client actions."""
 
 import ipaddress
+import sys
 import uuid
 from concurrent import futures
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,7 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from grpc_tools import protoc
+from tracecat_registry.core import grpc as grpc_core
 from tracecat_registry.core.grpc import request as grpc_request
 
 from tracecat.secrets import secrets_manager
@@ -298,6 +300,45 @@ def test_grpc_request_invalid_service(grpc_proto_source: str) -> None:
             proto=grpc_proto_source,
             insecure=True,
         )
+
+
+def test_proto_loader_sys_path_cleanup_is_robust(tmp_path: Path) -> None:
+    """Ensure ProtoLoader cleanup removes the correct sys.path entry.
+
+    Regression test: sys.path.pop(0) could remove the wrong entry if sys.path
+    changed during module import.
+    """
+    loader = grpc_core.ProtoLoader(_proto_source(f"pkg_{uuid.uuid4().hex}"))
+    sentinel = str(tmp_path / "sentinel-path")
+
+    original_import_module = grpc_core.importlib.import_module
+    inserted = False
+
+    def _import_module_with_sys_path_mutation(name: str, package: str | None = None):
+        nonlocal inserted
+        # Mutate sys.path after ProtoLoader has inserted its temp dir at index 0,
+        # but before the finally block runs, simulating concurrent modification.
+        if (
+            not inserted
+            and name.endswith("_pb2")
+            and sys.path
+            and sys.path[0] == loader._temp_dir.name
+        ):
+            sys.path.insert(0, sentinel)
+            inserted = True
+        return original_import_module(name, package=package)
+
+    grpc_core.importlib.import_module = _import_module_with_sys_path_mutation
+    try:
+        loader.load()
+        assert inserted is True
+        assert loader._temp_dir.name not in sys.path
+        assert sys.path[0] == sentinel
+    finally:
+        grpc_core.importlib.import_module = original_import_module
+        while sentinel in sys.path:
+            sys.path.remove(sentinel)
+        loader.cleanup()
 
 
 @pytest.mark.integration
