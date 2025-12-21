@@ -6,6 +6,7 @@ import httpx
 import pytest
 import respx
 from tenacity import RetryError
+from tracecat_registry._internal.exceptions import TracecatException
 from tracecat_registry.core.http import (
     FileUploadData,
     http_paginate,
@@ -14,7 +15,6 @@ from tracecat_registry.core.http import (
     httpx_to_response,
 )
 
-from tracecat.exceptions import TracecatException
 from tracecat.expressions.functions import str_to_b64
 
 PNG_URL = "https://urlscan.io/screenshots/019aa89e-05c5-714d-80ea-83fbeb06a500.png"

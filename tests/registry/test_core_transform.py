@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 import pytest
+from tracecat_registry._internal.exceptions import TracecatExpressionError
 from tracecat_registry.core.transform import (
     apply,
     deduplicate,
@@ -12,8 +13,6 @@ from tracecat_registry.core.transform import (
     map,
     not_in,
 )
-
-from tracecat.exceptions import TracecatExpressionError
 
 
 @pytest.mark.parametrize(
