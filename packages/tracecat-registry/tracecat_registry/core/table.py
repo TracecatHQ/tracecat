@@ -1,28 +1,48 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 
-import orjson
-from asyncpg import DuplicateTableError
-from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import ProgrammingError
 from typing_extensions import Doc
 
-from tracecat_registry import config
-from tracecat.tables.common import coerce_optional_to_utc_datetime
-from tracecat.tables.enums import SqlType
-from tracecat.tables.schemas import (
-    TableColumnCreate,
-    TableColumnRead,
-    TableCreate,
-    TableRead,
-    TableRowInsert,
-)
-from tracecat.tables.service import TablesService
-from tracecat_registry import registry, types
+from tracecat_registry import config, registry, types
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.exceptions import TracecatConflictError
-from tracecat.expressions.functions import tabulate
+
+if TYPE_CHECKING:
+    import orjson
+    from asyncpg import DuplicateTableError
+    from pydantic_core import to_jsonable_python
+    from sqlalchemy.exc import ProgrammingError
+
+    from tracecat.expressions.functions import tabulate
+    from tracecat.tables.common import coerce_optional_to_utc_datetime
+    from tracecat.tables.enums import SqlType
+    from tracecat.tables.schemas import (
+        TableColumnCreate,
+        TableColumnRead,
+        TableCreate,
+        TableRead,
+        TableRowInsert,
+    )
+    from tracecat.tables.service import TablesService
+
+if not config.flags.registry_client:
+    import orjson
+    from asyncpg import DuplicateTableError
+    from pydantic_core import to_jsonable_python
+    from sqlalchemy.exc import ProgrammingError
+
+    from tracecat.expressions.functions import tabulate
+    from tracecat.tables.common import coerce_optional_to_utc_datetime
+    from tracecat.tables.enums import SqlType
+    from tracecat.tables.schemas import (
+        TableColumnCreate,
+        TableColumnRead,
+        TableCreate,
+        TableRead,
+        TableRowInsert,
+    )
+    from tracecat.tables.service import TablesService
 
 
 @registry.register(
