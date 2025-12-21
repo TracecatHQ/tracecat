@@ -28,8 +28,7 @@ Example (server-streaming query with JSON payloads):
         target="localhost:8001",
         service_name="API",
         method_name="Query",
-        request_message_name="VQLCollectorArgs",
-        request_payload={"query": "SELECT * FROM pslist()"},
+        payload={"query": "SELECT * FROM pslist()"},
         timeout_seconds=30.0,
         ca_certificate=secrets.get_or_default("CA_CERTIFICATE"),
         client_cert=secrets.get_or_default("TLS_CERTIFICATE"),
@@ -53,7 +52,9 @@ from types import ModuleType
 from typing import Annotated, Any
 
 import grpc
+from google.protobuf import descriptor as proto_descriptor
 from google.protobuf import json_format
+from google.protobuf import message_factory
 from grpc_tools import protoc
 from typing_extensions import Doc
 
@@ -149,31 +150,54 @@ class ProtoLoader:
         self._temp_dir.cleanup()
 
 
+def _resolve_method_descriptor(
+    proto_module: ModuleType,
+    *,
+    service_name: str,
+    method_name: str,
+) -> proto_descriptor.MethodDescriptor:
+    try:
+        service_descriptor = proto_module.DESCRIPTOR.services_by_name[service_name]
+    except KeyError as exc:
+        available = ", ".join(sorted(proto_module.DESCRIPTOR.services_by_name))
+        raise ValueError(
+            f"Service '{service_name}' not found in proto. "
+            f"Available services: {available or 'none'}."
+        ) from exc
+
+    try:
+        return service_descriptor.methods_by_name[method_name]
+    except KeyError as exc:
+        available = ", ".join(sorted(service_descriptor.methods_by_name))
+        raise ValueError(
+            f"Method '{service_name}.{method_name}' not found in proto. "
+            f"Available methods: {available or 'none'}."
+        ) from exc
+
+
+def _message_class_for_descriptor(
+    message_descriptor: proto_descriptor.Descriptor,
+) -> type[Any]:
+    return message_factory.GetMessageClass(message_descriptor)
+
+
 def build_channel(
     target: str,
     *,
     ca_certificate: str | None,
     client_private_key: str | None,
     client_cert: str | None,
-    channel_options: dict[str, str | int] | None,
-    ssl_target_name_override: str | None,
     insecure: bool,
 ) -> grpc.Channel:
-    options: list[tuple[str, str | int]] = []
-    if channel_options:
-        options.extend(channel_options.items())
-    if ssl_target_name_override:
-        options.append(("grpc.ssl_target_name_override", ssl_target_name_override))
-
     if insecure:
-        return grpc.insecure_channel(target, options=options)
+        return grpc.insecure_channel(target)
 
     credentials = grpc.ssl_channel_credentials(
         root_certificates=ca_certificate.encode("utf-8") if ca_certificate else None,
         private_key=client_private_key.encode("utf-8") if client_private_key else None,
         certificate_chain=client_cert.encode("utf-8") if client_cert else None,
     )
-    return grpc.secure_channel(target, credentials, options=options)
+    return grpc.secure_channel(target, credentials)
 
 
 def grpc_call(
@@ -182,15 +206,12 @@ def grpc_call(
     target: str,
     service_name: str,
     method_name: str,
-    request_message_name: str,
-    request_payload: dict[str, Any] | None,
+    payload: dict[str, Any] | None,
     timeout_seconds: float | None,
     ca_certificate: str | None,
     client_private_key: str | None,
     client_cert: str | None,
     insecure: bool,
-    channel_options: dict[str, str | int] | None = None,
-    ssl_target_name_override: str | None = None,
 ) -> Any | Iterator[Any]:
     """Invoke a gRPC method dynamically and return a response or response iterator."""
     loader = ProtoLoader(
@@ -203,21 +224,25 @@ def grpc_call(
         proto_module, grpc_module = loader.load()
 
         stub_class = getattr(grpc_module, f"{service_name}Stub")
-        request = getattr(proto_module, request_message_name)()
-        if request_payload is not None:
-            json_format.ParseDict(request_payload, request)
 
         channel = build_channel(
             target,
             ca_certificate=ca_certificate,
             client_private_key=client_private_key,
             client_cert=client_cert,
-            channel_options=channel_options,
-            ssl_target_name_override=ssl_target_name_override,
             insecure=insecure,
         )
         stub = stub_class(channel)
         method = getattr(stub, method_name)
+        method_descriptor = _resolve_method_descriptor(
+            proto_module,
+            service_name=service_name,
+            method_name=method_name,
+        )
+        request_class = _message_class_for_descriptor(method_descriptor.input_type)
+        request = request_class()
+        if payload is not None:
+            json_format.ParseDict(payload, request)
 
         if isinstance(method, grpc.UnaryUnaryMultiCallable):
             return method(request, timeout=timeout_seconds)
@@ -252,25 +277,22 @@ def grpc_call(
 
 
 @registry.register(
-    namespace="core",
+    namespace="core.grpc",
     description="Call a gRPC method using a runtime-compiled proto definition.",
     default_title="gRPC request",
     display_group="gRPC",
     secrets=[mtls_secret, ca_cert_secret],
 )
-def grpc_request(
+def request(
     *,
     target: Annotated[str, Doc("gRPC server address in host:port format.")],
     service_name: Annotated[str, Doc("gRPC service name (e.g., 'API').")],
     method_name: Annotated[str, Doc("gRPC method name (e.g., 'Query').")],
-    request_message_name: Annotated[
-        str, Doc("Request message type name (e.g., 'VQLCollectorArgs').")
-    ],
     proto: Annotated[
         str,
         Doc("Inline .proto definition."),
     ],
-    request_payload: Annotated[
+    payload: Annotated[
         dict[str, Any] | None,
         Doc("Request payload as a dict matching the protobuf schema."),
     ] = None,
@@ -282,17 +304,6 @@ def grpc_request(
         bool,
         Doc("Use an insecure plaintext channel. Defaults to False (TLS channel)."),
     ] = False,
-    channel_options: Annotated[
-        dict[str, str | int] | None,
-        Doc(
-            "Optional gRPC channel options (e.g., "
-            "{'grpc.ssl_target_name_override': 'service.local'})."
-        ),
-    ] = None,
-    ssl_target_name_override: Annotated[
-        str | None,
-        Doc("Optional TLS target name override for self-signed certificates."),
-    ] = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Call a gRPC method using a runtime-compiled protobuf definition."""
     client_cert = secrets.get_or_default("TLS_CERTIFICATE")
@@ -304,15 +315,12 @@ def grpc_request(
         target=target,
         service_name=service_name,
         method_name=method_name,
-        request_message_name=request_message_name,
-        request_payload=request_payload,
+        payload=payload,
         timeout_seconds=timeout_seconds,
         ca_certificate=ca_certificate,
         client_private_key=client_private_key,
         client_cert=client_cert,
         insecure=insecure,
-        channel_options=channel_options,
-        ssl_target_name_override=ssl_target_name_override,
     )
 
     if isinstance(result, Iterator):

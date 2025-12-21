@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from grpc_tools import protoc
-from tracecat_registry.core.grpc import grpc_request
+from tracecat_registry.core.grpc import request as grpc_request
 
 from tracecat.secrets import secrets_manager
 
@@ -265,8 +265,7 @@ def test_grpc_request_unary(grpc_server, grpc_proto_source: str) -> None:
         target=grpc_server,
         service_name="TestService",
         method_name="Echo",
-        request_message_name="EchoRequest",
-        request_payload={"message": "hello"},
+        payload={"message": "hello"},
         proto=grpc_proto_source,
         insecure=True,
     )
@@ -278,8 +277,7 @@ def test_grpc_request_streaming(grpc_server, grpc_proto_source: str) -> None:
         target=grpc_server,
         service_name="TestService",
         method_name="StreamEcho",
-        request_message_name="EchoRequest",
-        request_payload={"message": "hi"},
+        payload={"message": "hi"},
         proto=grpc_proto_source,
         insecure=True,
     )
@@ -296,8 +294,7 @@ def test_grpc_request_invalid_service(grpc_proto_source: str) -> None:
             target="127.0.0.1:50051",
             service_name="Missing",
             method_name="Echo",
-            request_message_name="EchoRequest",
-            request_payload={"message": "hello"},
+            payload={"message": "hello"},
             proto=grpc_proto_source,
             insecure=True,
         )
@@ -343,8 +340,7 @@ def test_grpc_request_mtls(
                 target=f"127.0.0.1:{port}",
                 service_name="TestService",
                 method_name="Echo",
-                request_message_name="EchoRequest",
-                request_payload={"message": "secure"},
+                payload={"message": "secure"},
                 proto=grpc_proto_source,
             )
         assert result == {"message": "secure"}
