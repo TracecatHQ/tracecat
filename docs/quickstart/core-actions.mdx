@@ -43,6 +43,7 @@ They include:
 | `core.transform.gather` | `Gather` | Merge scattered data back into a single list. |
 | `core.http_request` | `HTTP Request` | Make a HTTP request. |
 | `core.http_poll` | `HTTP Polling` | Poll a REST API until a condition is met. |
+| `core.grpc_request` | `gRPC request` | Call a gRPC method using an inline proto definition. |
 | `core.script.run_python` | `Run Python script` | Execute custom Python code in a secure sandbox. |
 
 ## Reshape
@@ -357,6 +358,75 @@ Examples:
   This returns a flat list of page bodies (e.g., `[page1_body, page2_body, ...]`).
   If you omit `items_jsonpath`, the action returns a list of full `HTTPResponse` objects (headers, status_code, data) — one per page.
 </Note>
+
+## gRPC Request
+
+Call a gRPC method using an inline proto definition.
+
+**Parameters**
+
+- `target` (str, required): gRPC server address in `host:port` format.
+- `service_name` (str, required): gRPC service name (e.g., `"API"`).
+- `method_name` (str, required): gRPC method name (e.g., `"Query"`).
+- `request_message_name` (str, required): Request message type name (e.g., `"VQLCollectorArgs"`).
+- `proto` (str, required): Inline `.proto` definition. File paths are not supported.
+- `request_payload` (dict[str, Any], optional): Request payload as a dict matching the protobuf schema.
+- `timeout_seconds` (float, optional): Timeout in seconds for the RPC. Defaults to no timeout.
+- `insecure` (bool, optional, default: False): Use an insecure plaintext channel.
+- `channel_options` (dict[str, str | int], optional): gRPC channel options (e.g., `{"grpc.ssl_target_name_override": "service.local"}`).
+- `ssl_target_name_override` (str, optional): TLS target name override for self-signed certificates.
+
+**Returns**
+
+- Unary RPCs return a dict representation of the response message.
+- Server-streaming RPCs return a list of response dicts.
+
+### gRPC TLS and CA setup
+
+You can attach a client certificate (mTLS) and/or a custom CA bundle to
+`core.grpc_request` by creating workspace secrets with specific names and keys.
+
+Create these secrets in the workspace credentials UI:
+
+- `grpc_mtls` (type: `mtls`)
+  - `TLS_CERTIFICATE`: PEM-encoded certificate (chain ok)
+  - `TLS_PRIVATE_KEY`: PEM-encoded private key
+- `grpc_ca_cert` (type: `ca-cert`, optional)
+  - `CA_CERTIFICATE`: PEM-encoded CA bundle
+
+Once present, the action automatically loads them. Set `insecure: true` to disable TLS entirely.
+
+Example:
+
+```yaml
+actions:
+  - name: VQL Query
+    provider: core
+    action: grpc_request
+    params:
+      target: "127.0.0.1:8001"
+      service_name: "API"
+      method_name: "Query"
+      request_message_name: "VQLCollectorArgs"
+      proto: |
+        syntax = "proto3";
+        package proto;
+        import "google/protobuf/empty.proto";
+
+        service API {
+          rpc Query(VQLCollectorArgs) returns (stream VQLResponse);
+        }
+
+        message VQLCollectorArgs {
+          string query = 1;
+        }
+
+        message VQLResponse {
+          string response = 1;
+        }
+      request_payload:
+        query: "SELECT * FROM pslist()"
+```
 
 ## Tutorial: URLScan
 
