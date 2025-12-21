@@ -1410,6 +1410,7 @@ class TestCoreListComments:
                 # First comment should have user info
                 assert result[0]["content"] == "Comment 1"
                 assert "user" in result[0]
+                assert result[0]["user"] is not None
                 assert result[0]["user"]["email"] == "user1@example.com"
 
                 # Second comment should have user as None
@@ -1983,7 +1984,7 @@ class TestCoreCreateCaseErrorHandling:
         self, mock_with_session
     ):
         """Test that creating a case with an invalid field shows a clear error message."""
-        from tracecat.exceptions import TracecatException
+        from tracecat_registry._internal.exceptions import TracecatException
 
         # Set up the mock service context manager
         mock_service = AsyncMock()
@@ -2016,7 +2017,7 @@ class TestCoreCreateCaseErrorHandling:
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_create_case_atomicity_verified(self, mock_with_session):
         """Test that case creation failure doesn't leave partial data."""
-        from tracecat.exceptions import TracecatException
+        from tracecat_registry._internal.exceptions import TracecatException
 
         # Set up mock to simulate field creation failure AFTER case creation
         mock_service = AsyncMock()

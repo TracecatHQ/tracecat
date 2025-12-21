@@ -2,7 +2,7 @@ from typing import Any
 
 
 class TracecatException(Exception):
-    """Tracecat generic user-facing exception"""
+    """Tracecat generic user-facing exception."""
 
     def __init__(self, *args, detail: Any | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -25,3 +25,7 @@ class ActionIsInterfaceError(RegistryActionError):
             "This UDF only defines an interface and cannot be invoked directly. "
             "If you are seeing this error, please contact your administrator."
         )
+
+
+class TracecatExpressionError(TracecatException):
+    """Exception raised when an expression evaluation fails."""
