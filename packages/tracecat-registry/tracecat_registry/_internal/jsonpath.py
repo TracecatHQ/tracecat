@@ -4,8 +4,6 @@ This module provides a lightweight JSONPath evaluation function that avoids
 importing heavy tracecat modules during SDK-style invocation.
 """
 
-from collections.abc import Mapping
-from enum import StrEnum
 from typing import Any
 
 import jsonpath_ng.ext
@@ -18,7 +16,7 @@ from tracecat_registry._internal.logger import logger
 
 def eval_jsonpath(
     expr: str,
-    operand: Mapping[str | StrEnum, Any],
+    operand: dict[str, Any] | list[Any],
     *,
     strict: bool = False,
 ) -> Any | None:

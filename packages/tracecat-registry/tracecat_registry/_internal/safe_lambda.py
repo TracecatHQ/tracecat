@@ -249,7 +249,13 @@ class SafeLambdaValidator(ast.NodeVisitor):
 
 
 def _sandbox_lambda(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Wrap a lambda function with runtime protections (internal)."""
+    """Wrap a lambda function with runtime protections (internal).
+
+    Note: The recursion limit manipulation is not fully thread-safe since
+    sys.setrecursionlimit() is process-global. However, the practical impact
+    is minimal - the worst case is the limit being temporarily incorrect,
+    and the AST validation already prevents recursive function definitions.
+    """
 
     @functools.wraps(func)
     def sandboxed_wrapper(x):
