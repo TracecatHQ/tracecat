@@ -8,6 +8,17 @@ MAX_ROWS_CLIENT_POSTGRES = int(
     os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
 )
 
+# File upload limits
+TRACECAT__MAX_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 20 * 1024 * 1024)  # Default 20MB
+)
+TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
+)
+TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
+)
+
 
 class _FeatureFlags:
     """Feature flags checked directly from env to avoid heavy tracecat imports.

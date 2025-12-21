@@ -2,8 +2,6 @@ from builtins import filter as filter_
 from builtins import map as map_
 from typing import Annotated, Any, Literal
 
-from tracecat.expressions.common import eval_jsonpath
-from tracecat.sandbox.safe_lambda import build_safe_lambda
 from typing_extensions import Doc
 import hashlib
 import json
@@ -11,6 +9,8 @@ import os
 import redis.asyncio as redis
 import orjson
 from tracecat_registry import ActionIsInterfaceError, registry
+from tracecat_registry._internal.jsonpath import eval_jsonpath
+from tracecat_registry._internal.safe_lambda import build_safe_lambda
 
 
 @registry.register(
