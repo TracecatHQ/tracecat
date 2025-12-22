@@ -151,6 +151,22 @@ class CaseCommentRead(TypedDict):
     last_edited_at: datetime | None
 
 
+class CaseTaskRead(TypedDict):
+    """Case task information."""
+
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+    case_id: UUID
+    title: str
+    description: str | None
+    priority: str
+    status: str
+    assignee: UserRead | None
+    workflow_id: str | None
+    default_trigger_values: dict[str, Any] | None
+
+
 class TagRead(TypedDict):
     """Tag information."""
 

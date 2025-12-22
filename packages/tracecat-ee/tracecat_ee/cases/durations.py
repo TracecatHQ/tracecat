@@ -1,12 +1,11 @@
-from typing import Annotated, Any
+from typing import Annotated, cast
 from uuid import UUID
 
-from tracecat_registry import registry
+from tracecat_registry import config, registry
+from tracecat_registry.context import get_context
 from typing_extensions import Doc
 
-from tracecat.cases.durations.service import CaseDurationService
-from tracecat.cases.service import CasesService
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat_ee.cases.types import CaseDurationMetric
 
 
 @registry.register(
@@ -20,7 +19,7 @@ async def get_case_metrics(
         list[str],
         Doc("List of case IDs to get case metrics for."),
     ],
-) -> list[dict[str, Any]]:
+) -> list[CaseDurationMetric]:
     """Get case metrics as OTEL-aligned time-series for the provided case IDs.
 
     Returns a list of time-series metrics with the following fields:
@@ -35,6 +34,12 @@ async def get_case_metrics(
     if not case_ids:
         return []
 
+    if config.flags.registry_client:
+        return cast(
+            list[CaseDurationMetric],
+            await get_context().cases.get_case_metrics(case_ids),
+        )
+
     # Validate and convert case IDs
     case_uuids: list[UUID] = []
     for case_id in case_ids:
@@ -42,6 +47,10 @@ async def get_case_metrics(
             case_uuids.append(UUID(case_id))
         except ValueError as err:
             raise ValueError(f"Invalid case ID format: {case_id}") from err
+
+    from tracecat.cases.durations.service import CaseDurationService
+    from tracecat.cases.service import CasesService
+    from tracecat.db.engine import get_async_session_context_manager
 
     async with get_async_session_context_manager() as session:
         cases_service = CasesService(session)
@@ -58,4 +67,7 @@ async def get_case_metrics(
         # Get duration time-series metrics
         metrics = await duration_service.compute_time_series(cases)
 
-    return [metric.model_dump(mode="json") for metric in metrics]
+    return cast(
+        list[CaseDurationMetric],
+        [metric.model_dump(mode="json") for metric in metrics],
+    )

@@ -18,6 +18,8 @@ from starlette.status import (
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
+from tracecat.cases.durations.schemas import CaseDurationMetric
+from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
@@ -652,6 +654,39 @@ async def list_events_with_users(
     return CaseEventsWithUsers(events=events, users=users)
 
 
+class CaseMetricsRequest(Schema):
+    """Request body for case metrics."""
+
+    case_ids: list[uuid.UUID]
+
+
+@router.post("/metrics", status_code=HTTP_200_OK)
+async def get_case_metrics(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: CaseMetricsRequest,
+) -> list[CaseDurationMetric]:
+    """Get case metrics as time-series for the provided case IDs."""
+    if not params.case_ids:
+        return []
+
+    cases_service = CasesService(session, role)
+    duration_service = CaseDurationService(session, role)
+
+    cases = []
+    for case_id in params.case_ids:
+        case = await cases_service.get_case(case_id)
+        if case is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Case with ID {case_id} not found",
+            )
+        cases.append(case)
+
+    return await duration_service.compute_time_series(cases)
+
+
 @router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
 async def list_tasks(
     *,
@@ -782,6 +817,107 @@ async def delete_task(
         existing = await service.get_task(task_id)
         if existing.case_id != case_id:
             raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
+        await service.delete_task(task_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        ) from e
+    except Exception as e:
+        logger.exception(f"Failed to delete task: {e}")
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete task",
+        ) from e
+
+
+@router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
+async def get_task_by_id(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    task_id: uuid.UUID,
+) -> CaseTaskRead:
+    """Get a task by ID."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.get_task(task_id)
+        return CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+            if task.assignee
+            else None,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+            default_trigger_values=task.default_trigger_values,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        ) from e
+
+
+@router.patch("/tasks/{task_id}", status_code=HTTP_200_OK)
+async def update_task_by_id(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    task_id: uuid.UUID,
+    params: CaseTaskUpdate,
+) -> CaseTaskRead:
+    """Update a task by ID."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.update_task(task_id, params)
+        return CaseTaskRead(
+            id=task.id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            case_id=task.case_id,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            status=task.status,
+            assignee=UserRead.model_validate(task.assignee, from_attributes=True)
+            if task.assignee
+            else None,
+            workflow_id=WorkflowUUID.new(task.workflow_id).short()
+            if task.workflow_id
+            else None,
+            default_trigger_values=task.default_trigger_values,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        ) from e
+    except Exception as e:
+        logger.exception(f"Failed to update task: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Failed to update task",
+        ) from e
+
+
+@router.delete("/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+async def delete_task_by_id(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    task_id: uuid.UUID,
+) -> None:
+    """Delete a task by ID."""
+    service = CaseTasksService(session, role)
+    try:
         await service.delete_task(task_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
