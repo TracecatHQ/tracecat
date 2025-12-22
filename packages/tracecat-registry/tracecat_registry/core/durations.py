@@ -1,9 +1,9 @@
 """Core registry UDFs for case durations (feature-flagged)."""
 
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
-from tracecat.logger import logger
+from tracecat_registry import config
+from tracecat_registry._internal.logger import logger
 
-if is_feature_enabled(FeatureFlag.CASE_DURATIONS):
+if config.flags.case_durations:
     logger.info(
         "Case durations feature flag is enabled. Enabling case durations integration."
     )
