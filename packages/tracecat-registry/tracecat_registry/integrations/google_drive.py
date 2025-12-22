@@ -9,9 +9,11 @@ can click "Connect with OAuth" to authorize Drive access.
 """
 
 from typing import Annotated, Any
+
 import httpx
 from pydantic import Field
-from tracecat_registry import registry, RegistryOAuthSecret, secrets
+
+from tracecat_registry import RegistryOAuthSecret, registry, secrets
 
 
 # Use Tracecat's built-in OAuth system
@@ -19,6 +21,14 @@ drive_oauth_secret = RegistryOAuthSecret(
     provider_id="google_drive",
     grant_type="authorization_code",
 )
+"""Google Drive OAuth credentials.
+
+Configure the 'google_drive' OAuth integration in Tracecat with:
+- OAuth 2.0 client credentials from Google Cloud Console
+- Required scopes: https://www.googleapis.com/auth/drive
+
+See: https://developers.google.com/drive/api/guides/about-auth
+"""
 
 
 def _get_drive_token() -> str:
@@ -34,13 +44,26 @@ def _get_drive_token() -> str:
     secrets=[drive_oauth_secret],
 )
 async def list_files(
-    query: Annotated[str, Field(default="", description="Search query (e.g., 'name contains \"report\"')")] = "",
-    max_results: Annotated[int, Field(default=10, description="Maximum number of results")] = 10,
-    order_by: Annotated[str, Field(default="modifiedTime desc", description="Sort order")] = "modifiedTime desc",
-) -> list[dict[str, Any]]:
+    query: Annotated[
+        str, Field(default="", description="Search query (e.g., 'name contains \"report\"')")
+    ] = "",
+    max_results: Annotated[
+        int, Field(default=10, description="Maximum number of results")
+    ] = 10,
+    order_by: Annotated[
+        str, Field(default="modifiedTime desc", description="Sort order")
+    ] = "modifiedTime desc",
+    fields: Annotated[
+        str,
+        Field(
+            default="*",
+            description="Fields to return (e.g., 'files(id,name,mimeType)' or '*' for all)",
+        ),
+    ] = "*",
+) -> dict[str, Any]:
     """
     List and search files in Google Drive.
-    
+
     Query examples:
     - name contains 'report' - Files with 'report' in name
     - mimeType = 'application/pdf' - PDF files only
@@ -48,28 +71,27 @@ async def list_files(
     - 'me' in owners - Files you own
     - modifiedTime > '2024-01-01' - Recently modified
     - trashed = false - Not in trash
-    
-    Returns list of files with metadata (id, name, mimeType, owners, etc.)
+
+    Returns the full API response including files array and nextPageToken.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
-        params = {
+        params: dict[str, Any] = {
             "pageSize": max_results,
             "orderBy": order_by,
-            "fields": "files(id,name,mimeType,createdTime,modifiedTime,size,owners,shared,permissions,webViewLink)",
+            "fields": fields,
         }
         if query:
             params["q"] = query
-            
+
         response = await client.get(
             "https://www.googleapis.com/drive/v3/files",
             headers={"Authorization": f"Bearer {access_token}"},
             params=params,
         )
         response.raise_for_status()
-        data = response.json()
-        return data.get("files", [])
+        return response.json()
 
 
 @registry.register(
@@ -81,20 +103,23 @@ async def list_files(
 )
 async def get_file(
     file_id: Annotated[str, Field(description="The file ID")],
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
 ) -> dict[str, Any]:
     """
     Get detailed metadata for a specific file.
-    
+
     Returns complete file information including permissions, sharing status,
     owners, and other metadata.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"https://www.googleapis.com/drive/v3/files/{file_id}",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": "*"},
+            params={"fields": fields},
         )
         response.raise_for_status()
         return response.json()
@@ -110,26 +135,34 @@ async def get_file(
 async def upload_file(
     file_name: Annotated[str, Field(description="Name for the uploaded file")],
     file_content: Annotated[str, Field(description="Base64-encoded file content")],
-    mime_type: Annotated[str, Field(default="application/octet-stream", description="MIME type of file")] = "application/octet-stream",
-    parent_folder_id: Annotated[str, Field(default="", description="Parent folder ID (empty = root)")] = "",
+    mime_type: Annotated[
+        str, Field(default="application/octet-stream", description="MIME type of file")
+    ] = "application/octet-stream",
+    parent_folder_id: Annotated[
+        str, Field(default="", description="Parent folder ID (empty = root)")
+    ] = "",
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
 ) -> dict[str, Any]:
     """
     Upload a file to Google Drive.
-    
+
     Returns uploaded file metadata including id and webViewLink.
     """
     access_token = _get_drive_token()
-    
+
     import base64
     import json
+
     content_bytes = base64.b64decode(file_content)
-    
-    metadata = {"name": file_name, "mimeType": mime_type}
+
+    metadata: dict[str, Any] = {"name": file_name, "mimeType": mime_type}
     if parent_folder_id:
         metadata["parents"] = [parent_folder_id]
-    
+
     # Construct multipart/related request with metadata and file content
-    boundary = "boundary_string"
+    boundary = "tracecat_boundary"
     multipart_body = (
         f"--{boundary}\r\n"
         f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
@@ -137,7 +170,7 @@ async def upload_file(
         f"--{boundary}\r\n"
         f"Content-Type: {mime_type}\r\n\r\n"
     ).encode("utf-8") + content_bytes + f"\r\n--{boundary}--".encode("utf-8")
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://www.googleapis.com/upload/drive/v3/files",
@@ -145,7 +178,7 @@ async def upload_file(
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": f"multipart/related; boundary={boundary}",
             },
-            params={"uploadType": "multipart", "fields": "*"},
+            params={"uploadType": "multipart", "fields": fields},
             content=multipart_body,
         )
         response.raise_for_status()
@@ -161,28 +194,33 @@ async def upload_file(
 )
 async def create_folder(
     folder_name: Annotated[str, Field(description="Name for the new folder")],
-    parent_folder_id: Annotated[str, Field(default="", description="Parent folder ID (empty = root)")] = "",
+    parent_folder_id: Annotated[
+        str, Field(default="", description="Parent folder ID (empty = root)")
+    ] = "",
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
 ) -> dict[str, Any]:
     """
     Create a new folder in Google Drive.
-    
+
     Returns created folder metadata including id and webViewLink.
     Useful for organizing incident investigations or security reports.
     """
     access_token = _get_drive_token()
-    
-    metadata = {
+
+    metadata: dict[str, Any] = {
         "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
     }
     if parent_folder_id:
         metadata["parents"] = [parent_folder_id]
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://www.googleapis.com/drive/v3/files",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": "*"},
+            params={"fields": fields},
             json=metadata,
         )
         response.raise_for_status()
@@ -198,23 +236,27 @@ async def create_folder(
 )
 async def delete_file(
     file_id: Annotated[str, Field(description="The file or folder ID to delete")],
-) -> dict[str, str]:
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
+) -> dict[str, Any]:
     """
     Move a file or folder to trash.
-    
+
     The file can be restored from trash. For permanent deletion,
     use permanently_delete_file.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.patch(
             f"https://www.googleapis.com/drive/v3/files/{file_id}",
             headers={"Authorization": f"Bearer {access_token}"},
+            params={"fields": fields},
             json={"trashed": True},
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"File {file_id} moved to trash"}
+        return response.json()
 
 
 @registry.register(
@@ -225,23 +267,28 @@ async def delete_file(
     secrets=[drive_oauth_secret],
 )
 async def permanently_delete_file(
-    file_id: Annotated[str, Field(description="The file or folder ID to permanently delete")],
-) -> dict[str, str]:
+    file_id: Annotated[
+        str, Field(description="The file or folder ID to permanently delete")
+    ],
+) -> dict[str, Any]:
     """
     Permanently delete a file or folder (bypass trash).
-    
+
     WARNING: This action cannot be undone. The file is deleted immediately
     and cannot be recovered.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.delete(
             f"https://www.googleapis.com/drive/v3/files/{file_id}",
             headers={"Authorization": f"Bearer {access_token}"},
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"File {file_id} permanently deleted"}
+        # Return empty dict if no content (DELETE typically returns 204)
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
@@ -253,24 +300,26 @@ async def permanently_delete_file(
 )
 async def get_file_permissions(
     file_id: Annotated[str, Field(description="The file ID")],
-) -> list[dict[str, Any]]:
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
+) -> dict[str, Any]:
     """
     List all permissions for a file or folder.
-    
-    Returns list of permissions showing who has access, their role,
-    and permission details. Useful for access auditing and compliance.
+
+    Returns the full API response with permissions array showing who has access,
+    their role, and permission details. Useful for access auditing and compliance.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": "*"},
+            params={"fields": fields},
         )
         response.raise_for_status()
-        data = response.json()
-        return data.get("permissions", [])
+        return response.json()
 
 
 @registry.register(
@@ -283,27 +332,37 @@ async def get_file_permissions(
 async def add_permission(
     file_id: Annotated[str, Field(description="The file or folder ID")],
     email: Annotated[str, Field(description="Email address to grant access to")],
-    role: Annotated[str, Field(description="Role: reader, writer, commenter, owner")] = "reader",
-    send_notification: Annotated[bool, Field(default=False, description="Send email notification")] = False,
+    role: Annotated[
+        str, Field(description="Role: reader, writer, commenter, owner")
+    ] = "reader",
+    send_notification: Annotated[
+        bool, Field(default=False, description="Send email notification")
+    ] = False,
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
 ) -> dict[str, Any]:
     """
     Grant access to a file or folder.
-    
+
     Roles:
     - reader: View only
     - writer: Edit access
     - commenter: Can comment
     - owner: Full control
-    
+
     Returns the created permission.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"sendNotificationEmail": str(send_notification).lower(), "fields": "*"},
+            params={
+                "sendNotificationEmail": str(send_notification).lower(),
+                "fields": fields,
+            },
             json={
                 "type": "user",
                 "role": role,
@@ -325,20 +384,23 @@ async def update_permission(
     file_id: Annotated[str, Field(description="The file or folder ID")],
     permission_id: Annotated[str, Field(description="The permission ID to update")],
     role: Annotated[str, Field(description="New role: reader, writer, commenter")],
+    fields: Annotated[
+        str, Field(default="*", description="Fields to return ('*' for all)")
+    ] = "*",
 ) -> dict[str, Any]:
     """
     Update an existing permission (change role).
-    
+
     Useful for downgrading access (e.g., writer → reader) or
     upgrading access as needed.
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.patch(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions/{permission_id}",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"fields": "*"},
+            params={"fields": fields},
             json={"role": role},
         )
         response.raise_for_status()
@@ -355,22 +417,24 @@ async def update_permission(
 async def revoke_permission(
     file_id: Annotated[str, Field(description="The file or folder ID")],
     permission_id: Annotated[str, Field(description="The permission ID to revoke")],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """
     Remove a permission (revoke access).
-    
+
     Useful for:
     - Removing external shares
     - Revoking access after incidents
     - Automated access cleanup
     """
     access_token = _get_drive_token()
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.delete(
             f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions/{permission_id}",
             headers={"Authorization": f"Bearer {access_token}"},
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"Permission {permission_id} revoked"}
-
+        # Return empty dict if no content (DELETE typically returns 204)
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
