@@ -619,6 +619,7 @@ async def validate_action_template(
     *,
     check_db: bool = False,
     ra_service: RegistryActionsService | None = None,
+    extra_repos: Sequence[Repository] | None = None,
 ) -> list[RegistryActionValidationErrorInfo]:
     """Validate that a template action is correctly formatted."""
     if not (action.is_template and action.template_action):
@@ -629,6 +630,15 @@ async def validate_action_template(
     log = ra_service.logger if ra_service else logger
 
     defn = action.template_action.definition
+
+    def lookup_extra_action(action_name: str) -> BoundRegistryAction | None:
+        if not extra_repos:
+            return None
+        for extra_repo in extra_repos:
+            if action_name in extra_repo.store:
+                return extra_repo.store[action_name]
+        return None
+
     # 1. Validate template steps
     for step in defn.steps:
         # (A) Ensure that the step action type exists
@@ -636,6 +646,8 @@ async def validate_action_template(
             # If this action is already in the repo, we can just use it
             # We will overwrite the action in the DB anyways
             bound_action = repo.store[step.action]
+        elif (extra_action := lookup_extra_action(step.action)) is not None:
+            bound_action = extra_action
         elif (
             check_db
             and ra_service
