@@ -176,6 +176,9 @@ async def search_cases(
             timeout=30.0,
         )
         response.raise_for_status()
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
         return response.json()
 
 
@@ -548,6 +551,9 @@ async def create_case_comment(
             json=request_body,
         )
         response.raise_for_status()
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
         return response.json()
 
 
@@ -620,6 +626,9 @@ async def update_case_comment(
             json=request_body,
         )
         response.raise_for_status()
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
         return response.json()
 
 
@@ -696,6 +705,9 @@ async def close_alert(
             json=request_body,
         )
         response.raise_for_status()
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
         return response.json()
 
 
@@ -817,4 +829,7 @@ async def bulk_close_cases(
             timeout=60.0,  # Longer timeout for bulk operations
         )
         response.raise_for_status()
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
         return response.json()
