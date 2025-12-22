@@ -218,16 +218,22 @@ async def update_task(
                     "Please set a workflow_id in this update or ensure the task already has one."
                 )
 
-        return await get_context().cases.update_task(
-            task_id=task_id,
-            title=title,
-            description=description,
-            priority=priority,
-            status=status,
-            assignee_id=assignee_id,
-            workflow_id=workflow_id,
-            default_trigger_values=default_trigger_values,
-        )
+        update_params: dict[str, Any] = {}
+        if title is not None:
+            update_params["title"] = title
+        if description is not None:
+            update_params["description"] = description
+        if priority is not None:
+            update_params["priority"] = priority
+        if status is not None:
+            update_params["status"] = status
+        if assignee_id is not None:
+            update_params["assignee_id"] = assignee_id
+        if workflow_id is not None:
+            update_params["workflow_id"] = workflow_id
+        update_params["default_trigger_values"] = default_trigger_values
+
+        return await get_context().cases.update_task(task_id=task_id, **update_params)
 
     from tracecat.cases.enums import CasePriority, CaseTaskStatus
     from tracecat.cases.schemas import (
