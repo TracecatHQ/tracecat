@@ -671,8 +671,8 @@ export type Body_auth_reset_reset_password = {
 }
 
 export type Body_auth_sso_acs = {
-  saml_response: string
-  relay_state: string
+  SAMLResponse: string
+  RelayState: string
 }
 
 export type Body_auth_verify_request_token = {
