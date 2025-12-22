@@ -1,12 +1,4 @@
-"""Gmail integration UDFs for Tracecat.
-
-This module provides Gmail API integration for security automation workflows,
-including email search, retrieval, and phishing investigation capabilities.
-
-Uses Tracecat's built-in OAuth system for seamless authentication.
-Configure the 'google_gmail' OAuth integration in Tracecat UI, then users
-can click "Connect with OAuth" to authorize Gmail access.
-"""
+"""Gmail integrations."""
 
 from typing import Annotated, Any
 
@@ -62,7 +54,7 @@ async def search_messages(
     """
     Search Gmail messages using Gmail's search syntax.
 
-    Common query operators for security investigations:
+    Common query operators:
     - from:email - Messages from specific sender
     - to:email - Messages to specific recipient
     - subject:text - Messages with text in subject
