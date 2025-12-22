@@ -44,11 +44,22 @@ async def call_command(
         str | None,
         Field(..., description="Multi-tenant customer ID"),
     ] = None,
+    base_url: Annotated[
+        str | None,
+        Field(..., description="Base URL for the Falcon API"),
+    ] = None,
+    extra_kwargs: Annotated[
+        dict[str, Any] | None,
+        Field(..., description="Extra keyword arguments to pass to the Falcon API"),
+    ] = None,
 ) -> Any:
     params = params or {}
+    extra_kwargs = extra_kwargs or {}
     falcon = APIHarnessV2(
+        base_url=base_url,
         client_id=secrets.get("CROWDSTRIKE_CLIENT_ID"),
         client_secret=secrets.get("CROWDSTRIKE_CLIENT_SECRET"),
         member_cid=member_cid,
+        **extra_kwargs,
     )
     return falcon.command(operation_id, **params)
