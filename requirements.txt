@@ -605,9 +605,9 @@ fastapi-cloud-cli==0.5.2 \
     --hash=sha256:34d04ffadb2562c3ebb39e6f5a599c47353750f75a2ef0a2d9c1442ed09f3308 \
     --hash=sha256:783ab5e41baf8afcbbfb7e513ac5bdf7376202053b8bf2d158a38978dba1ca69
     # via fastapi-cli
-fastapi-users==14.0.1 \
-    --hash=sha256:074df59676dccf79412d2880bdcb661ab1fabc2ecec1f043b4e6a23be97ed9e1 \
-    --hash=sha256:8c032b3a75c6fb2b1f5eab8ffce5321176e9916efe1fe93e7c15ee55f0b02236
+fastapi-users==15.0.2 \
+    --hash=sha256:4cdcc471a5b9e48de3ec4e7dc97e7b7afb610dda5ec6d022d3ddc0a0c0699323 \
+    --hash=sha256:e52f7124f44ac3042b3b0866476bcd5818513609b225b4e485e8ac69f8d49161
     # via
     #   fastapi-users-db-sqlalchemy
     #   tracecat
@@ -678,15 +678,18 @@ fastar==0.8.0 \
     --hash=sha256:fb9ee51e5bffe0dab3d3126d3a4fac8d8f7235cedcb4b8e74936087ce1c157f3 \
     --hash=sha256:fc645994d5b927d769121094e8a649b09923b3c13a8b0b98696d8f853f23c532
     # via fastapi-cloud-cli
-fickling==0.1.5 \
-    --hash=sha256:6aed7270bfa276e188b0abe043a27b3a042129d28ec1fa6ff389bdcc5ad178bb \
-    --hash=sha256:92f9b49e717fa8dbc198b4b7b685587adb652d85aa9ede8131b3e44494efca05
-    # via polyfile
-filelock==3.20.0 \
-    --hash=sha256:339b4732ffda5cd79b13f4e2711a31b0365ce445d95d243bb996273d072546a2 \
-    --hash=sha256:711e943b4ec6be42e1d4e6690b48dc175c822967466bb31c0c293f34334c13f4
+fickling==0.1.6 \
+    --hash=sha256:03cb5d7bd09f9169c7583d2079fad4b3b88b25f865ed0049172e5cb68582311d \
+    --hash=sha256:465d0069548bfc731bdd75a583cb4cf5a4b2666739c0f76287807d724b147ed3
+    # via
+    #   polyfile
+    #   tracecat
+filelock==3.20.1 \
+    --hash=sha256:15d9e9a67306188a44baa72f569d2bfd803076269365fdea0934385da4dc361a \
+    --hash=sha256:b8360948b351b80f420878d8516519a2204b07aefcdcfd24912a5d33127f188c
     # via
     #   ray
+    #   tracecat
     #   virtualenv
 flupy==1.2.3 \
     --hash=sha256:220b6d40dea238cd2d66784c0d4d2a5483447a48acd343385768e0c740af9609 \
@@ -1241,10 +1244,12 @@ markupsafe==3.0.3 \
     # via
     #   jinja2
     #   mako
-marshmallow==3.26.1 \
-    --hash=sha256:3350409f20a70a7e4e11a27661187b77cdcaeb20abca41c1454fe33636bea09c \
-    --hash=sha256:e6d8affb6cb61d39d26402096dc0aee12d5a26d490a121f118d2e81dc0719dc6
-    # via tracecat-registry
+marshmallow==3.26.2 \
+    --hash=sha256:013fa8a3c4c276c24d26d84ce934dc964e2aa794345a0f8c7e5a7191482c8a73 \
+    --hash=sha256:bbe2adb5a03e6e3571b573f42527c6fe926e17467833660bebd11593ab8dfd57
+    # via
+    #   tracecat
+    #   tracecat-registry
 mcp==1.23.0 \
     --hash=sha256:5a645cf111ed329f4619f2629a3f15d9aabd7adc2ea09d600d31467b51ecb64f \
     --hash=sha256:84e0c29316d0a8cf0affd196fd000487ac512aa3f771b63b2ea864e22961772b
@@ -1808,9 +1813,9 @@ ptyprocess==0.7.0 \
     --hash=sha256:4b41f3967fce3af57cc7e94b888626c18bf37a083e3651ca8feeb66d492fef35 \
     --hash=sha256:5c5d0a3b48ceee0b48485e0c26037c0acd7d29765ca3fbb5cb3831d347423220
     # via pexpect
-pwdlib==0.2.1 \
-    --hash=sha256:1823dc6f22eae472b540e889ecf57fd424051d6a4023ec0bcf7f0de2d9d7ef8c \
-    --hash=sha256:9a1d8a8fa09a2f7ebf208265e55d7d008103cbdc82b9e4902ffdd1ade91add5e
+pwdlib==0.3.0 \
+    --hash=sha256:6ca30f9642a1467d4f5d0a4d18619de1c77f17dfccb42dd200b144127d3c83fc \
+    --hash=sha256:f86c15c138858c09f3bba0a10984d4f9178158c55deaa72eac0210849b1a140d
     # via fastapi-users
 py-spy==0.4.1 \
     --hash=sha256:1fb8bf71ab8df95a95cc387deed6552934c50feef2cf6456bc06692a5508fd0c \
@@ -2073,9 +2078,9 @@ python-dotenv==1.1.1 \
     # via
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.20 \
-    --hash=sha256:8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104 \
-    --hash=sha256:8dd0cab45b8e23064ae09147625994d090fa46f5b0d1e13af944c331a7fa9d13
+python-multipart==0.0.21 \
+    --hash=sha256:7137ebd4d3bbf70ea1622998f902b97a29434a9e8dc40eb203bbcf7c2a2cba92 \
+    --hash=sha256:cf7a6713e01c87aa35387f4774e812c4361150938d20d232800f75ffcf266090
     # via
     #   fastapi
     #   fastapi-users
