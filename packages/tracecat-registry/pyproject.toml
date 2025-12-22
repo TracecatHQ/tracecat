@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling == 1.28.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -21,30 +21,30 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "aioboto3>=15.0.0",
-    "ansible-core>=2.18.0,<3.0.0",
-    "ansible-runner==2.4.0",
-    "boto3>=1.39.0,<2.0.0",
-    "crowdstrike-falconpy==1.5.3",
-    "dnspython==2.6.1",
+    "aioboto3==15.5.0",
+    "ansible-core==2.20.1",
+    "ansible-runner==2.4.2",
+    "boto3==1.40.61",
+    "crowdstrike-falconpy==1.5.4",
+    "dnspython==2.8.0",
     "docker==7.1.0",
-    "grpcio==1.75.1",
-    "grpcio-tools==1.75.1",
-    "hatchling==1.27.0",
+    "grpcio==1.76.0",
+    "grpcio-tools==1.76.0",
+    "hatchling==1.28.0",
     "ldap3==2.9.1",
     "marshmallow==3.26.1",
-    "nh3==0.2.18",
-    "pymongo==4.8.0",
-    "slack-sdk==3.28.0",
-    "tavily-python==0.7.6",
-    "tenacity==8.3.0",
+    "nh3==0.3.2",
+    "pymongo==4.15.5",
+    "slack-sdk==3.39.0",
+    "tavily-python==0.7.17",
+    "tenacity==8.5.0",
 ]
 dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
-    "types-aioboto3[sts,s3]>=15.0.0",
-    "types-boto3[sts,s3]>=1.39.0,<2.0.0",
+    "types-aioboto3[sts,s3]==15.5.0",
+    "types-boto3[sts,s3]==1.42.14",
 ]
 
 [project.urls]
