@@ -32,6 +32,8 @@ class _FeatureFlags:
         """Use SDK/API client instead of direct DB access in sandbox mode."""
         self.case_tasks: bool = "case-tasks" in _flags
         """Enable case tasks (enterprise feature)."""
+        self.case_durations: bool = "case-durations" in _flags
+        """Enable case durations (enterprise feature)."""
 
 
 flags = _FeatureFlags()

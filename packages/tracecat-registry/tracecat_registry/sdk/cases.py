@@ -18,6 +18,7 @@ from tracecat_registry.sdk.types import (
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
+    from tracecat_ee.cases.types import CaseDurationMetric
 
 
 class CasesClient:
@@ -815,3 +816,142 @@ class CasesClient:
             f"/cases/{case_id}/attachments/{attachment_id}/url",
             params=params,
         )
+
+    # === Case Metrics (Enterprise) === #
+
+    async def get_case_metrics(
+        self,
+        case_ids: list[str],
+    ) -> list["CaseDurationMetric"]:
+        """Get case metrics as time-series for the provided case IDs.
+
+        Args:
+            case_ids: List of case UUIDs.
+
+        Returns:
+            List of time-series metrics.
+        """
+        return await self._client.post(
+            "/cases/metrics",
+            json={"case_ids": case_ids},
+        )
+
+    # === Case Tasks (Enterprise) === #
+
+    async def create_task(
+        self,
+        case_id: str,
+        *,
+        title: str,
+        description: str | None | Unset = UNSET,
+        priority: str = "unknown",
+        status: str = "todo",
+        assignee_id: str | None | Unset = UNSET,
+        workflow_id: str | None | Unset = UNSET,
+        default_trigger_values: dict[str, Any] | None | Unset = UNSET,
+    ) -> types.CaseTaskRead:
+        """Create a new task for a case.
+
+        Args:
+            case_id: The case UUID.
+            title: Task title.
+            description: Task description.
+            priority: Task priority (unknown, low, medium, high, critical).
+            status: Task status (todo, in_progress, blocked, completed).
+            assignee_id: User ID to assign the task to.
+            workflow_id: Associated workflow ID.
+            default_trigger_values: Default trigger values for the task.
+
+        Returns:
+            Created task data.
+        """
+        data: dict[str, Any] = {
+            "title": title,
+            "priority": priority,
+            "status": status,
+        }
+        if is_set(description):
+            data["description"] = description
+        if is_set(assignee_id):
+            data["assignee_id"] = assignee_id
+        if is_set(workflow_id):
+            data["workflow_id"] = workflow_id
+        if is_set(default_trigger_values):
+            data["default_trigger_values"] = default_trigger_values
+
+        return await self._client.post(f"/cases/{case_id}/tasks", json=data)
+
+    async def get_task(self, task_id: str) -> types.CaseTaskRead:
+        """Get a specific case task by ID.
+
+        Args:
+            task_id: The task UUID.
+
+        Returns:
+            Task data.
+        """
+        return await self._client.get(f"/cases/tasks/{task_id}")
+
+    async def list_tasks(self, case_id: str) -> list[types.CaseTaskRead]:
+        """List all tasks for a case.
+
+        Args:
+            case_id: The case UUID.
+
+        Returns:
+            List of tasks.
+        """
+        return await self._client.get(f"/cases/{case_id}/tasks")
+
+    async def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | Unset = UNSET,
+        description: str | None | Unset = UNSET,
+        priority: str | Unset = UNSET,
+        status: str | Unset = UNSET,
+        assignee_id: str | None | Unset = UNSET,
+        workflow_id: str | None | Unset = UNSET,
+        default_trigger_values: dict[str, Any] | None | Unset = UNSET,
+    ) -> types.CaseTaskRead:
+        """Update an existing case task.
+
+        Args:
+            task_id: The task UUID.
+            title: Updated title.
+            description: Updated description. Pass None to clear.
+            priority: Updated priority.
+            status: Updated status.
+            assignee_id: Updated assignee ID. Pass None to unassign.
+            workflow_id: Updated workflow ID. Pass None to clear.
+            default_trigger_values: Updated default trigger values. Pass None to clear.
+
+        Returns:
+            Updated task data.
+        """
+        data: dict[str, Any] = {}
+        if is_set(title):
+            data["title"] = title
+        if is_set(description):
+            data["description"] = description
+        if is_set(priority):
+            data["priority"] = priority
+        if is_set(status):
+            data["status"] = status
+        if is_set(assignee_id):
+            data["assignee_id"] = assignee_id
+        if is_set(workflow_id):
+            data["workflow_id"] = workflow_id
+        if is_set(default_trigger_values):
+            data["default_trigger_values"] = default_trigger_values
+
+        return await self._client.patch(f"/cases/tasks/{task_id}", json=data)
+
+    async def delete_task(self, task_id: str) -> None:
+        """Delete a case task.
+
+        Args:
+            task_id: The task UUID.
+        """
+        await self._client.delete(f"/cases/tasks/{task_id}")
