@@ -287,14 +287,17 @@ export function NewCredentialsDialog({
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
       {children}
-      <DialogContent className={className}>
-        <DialogHeader>
+      <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle>Create new secret</DialogTitle>
         </DialogHeader>
         <CreateSecretTooltip />
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <div className="space-y-4 overflow-y-auto flex-1 py-2">
               <FormField
                 key="name"
                 control={control}
@@ -498,15 +501,15 @@ export function NewCredentialsDialog({
                   "CA certificate",
                   "-----BEGIN CERTIFICATE-----"
                 )}
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <KeyRoundIcon className="mr-2 size-4" />
-                    Create secret
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
             </div>
+            <DialogFooter className="flex-shrink-0 pt-4">
+              <DialogClose asChild>
+                <Button className="ml-auto space-x-2" type="submit">
+                  <KeyRoundIcon className="mr-2 size-4" />
+                  Create secret
+                </Button>
+              </DialogClose>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>
