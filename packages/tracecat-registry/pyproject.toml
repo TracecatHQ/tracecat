@@ -42,7 +42,6 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-cli = ["typer==0.20.1", "rich==14.2.0"]
 dev = [
     "types-aioboto3[sts,s3]==15.5.0",
     "types-boto3[sts,s3]==1.42.14",
