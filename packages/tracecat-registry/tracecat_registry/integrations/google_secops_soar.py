@@ -16,14 +16,13 @@ from tracecat_registry import RegistrySecret, registry, secrets
 
 google_secops_soar_secret = RegistrySecret(
     name="google_secops_soar",
-    keys=["GOOGLE_SECOPS_API_KEY", "GOOGLE_SECOPS_BASE_URL"],
+    keys=["GOOGLE_SECOPS_API_KEY"],
 )
 """Google SecOps SOAR API credentials.
 
 - name: `google_secops_soar`
 - keys:
-    - `GOOGLE_SECOPS_API_KEY`: Chronicle SOAR API key
-    - `GOOGLE_SECOPS_BASE_URL`: SOAR API base URL (e.g., https://your-instance.siemplify-soar.com/api/external/v1)
+    - `GOOGLE_SECOPS_API_KEY`: Chronicle SOAR API key (found in SOAR Settings → API Keys)
 """
 
 
@@ -37,32 +36,21 @@ def _get_secops_headers() -> dict[str, str]:
     }
 
 
-def _get_base_url() -> str:
-    """Get base URL for Chronicle SOAR API.
-
-    The base URL should be configured in secrets as GOOGLE_SECOPS_BASE_URL.
-    Format: https://YOUR_INSTANCE.siemplify-soar.com/api/external/v1
-
-    Raises:
-        ValueError: If GOOGLE_SECOPS_BASE_URL is not configured.
-    """
-    url = secrets.get("GOOGLE_SECOPS_BASE_URL")
-    if not url:
-        raise ValueError(
-            "GOOGLE_SECOPS_BASE_URL is required. Configure it in the google_secops_soar secret "
-            "(e.g., https://your-instance.siemplify-soar.com/api/external/v1)."
-        )
-    return url.rstrip("/")
-
-
 @registry.register(
-    default_title="Search SOAR Cases",
+    default_title="Search SOAR cases",
     display_group="Google SecOps SOAR",
     description="Search and filter cases in Chronicle SOAR using comprehensive query parameters",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def search_cases(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     title: Annotated[
         str | None,
         Doc("Search by case title/name (partial match supported)"),
@@ -142,7 +130,6 @@ async def search_cases(
 
     Returns paginated case results with totalCount and pageNumber.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     # Build request body
@@ -183,7 +170,7 @@ async def search_cases(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/search/CaseSearchEverything",
+            f"{base_url.rstrip('/')}/search/CaseSearchEverything",
             headers=headers,
             json=request_body,
             timeout=30.0,
@@ -193,13 +180,20 @@ async def search_cases(
 
 
 @registry.register(
-    default_title="Add Case Tag",
+    default_title="Add case tag",
     display_group="Google SecOps SOAR",
     description="Add a tag to a Chronicle SOAR case for filtering and organization",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def add_case_tag(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -220,9 +214,8 @@ async def add_case_tag(
     - Filtering and search
     - Automated workflows and playbooks
 
-    Returns success response.
+    Returns the API response.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body: dict[str, Any] = {
@@ -234,22 +227,32 @@ async def add_case_tag(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/cases/AddCaseTag",
+            f"{base_url.rstrip('/')}/cases/AddCaseTag",
             headers=headers,
             json=request_body,
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"Tag '{tag}' added to case {case_id}"}
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
-    default_title="Assign User to Case",
+    default_title="Assign user to case",
     display_group="Google SecOps SOAR",
     description="Assign a specific user or SOC role to a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def assign_user_to_case(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -271,7 +274,6 @@ async def assign_user_to_case(
 
     The assigned user/role will be visible in the case top bar.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body: dict[str, Any] = {
@@ -283,22 +285,32 @@ async def assign_user_to_case(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/dynamic-cases/AssignUserToCase",
+            f"{base_url.rstrip('/')}/dynamic-cases/AssignUserToCase",
             headers=headers,
             json=request_body,
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"User {user_id} assigned to case {case_id}"}
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
-    default_title="Change Case Stage",
+    default_title="Change case stage",
     display_group="Google SecOps SOAR",
     description="Change the handling stage of a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def change_case_stage(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -320,7 +332,6 @@ async def change_case_stage(
 
     Stages are configured in Settings → Case Data.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body = {
@@ -330,22 +341,32 @@ async def change_case_stage(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/dynamic-cases/ChangeCaseStage",
+            f"{base_url.rstrip('/')}/dynamic-cases/ChangeCaseStage",
             headers=headers,
             json=request_body,
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"Case {case_id} stage changed to {stage}"}
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
-    default_title="Update Case Priority",
+    default_title="Update case priority",
     display_group="Google SecOps SOAR",
     description="Update the priority level of a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def update_case_priority(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -364,9 +385,8 @@ async def update_case_priority(
     - 80: High
     - 100: Critical
 
-    Returns success response.
+    Returns the API response.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body = {
@@ -376,31 +396,32 @@ async def update_case_priority(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/dynamic-cases/UpdateCasePriority",
+            f"{base_url.rstrip('/')}/dynamic-cases/UpdateCasePriority",
             headers=headers,
             json=request_body,
         )
         response.raise_for_status()
-
-        priority_name = {
-            -1: "Informative",
-            40: "Low",
-            60: "Medium",
-            80: "High",
-            100: "Critical",
-        }.get(priority, f"Priority {priority}")
-
-        return {"status": "success", "message": f"Case {case_id} priority updated to {priority_name}"}
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
-    default_title="Update Alert Priority",
+    default_title="Update alert priority",
     display_group="Google SecOps SOAR",
     description="Update the priority of a specific alert within a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def update_alert_priority(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -433,7 +454,6 @@ async def update_alert_priority(
 
     Use this to escalate or de-escalate specific alerts.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body = {
@@ -446,22 +466,32 @@ async def update_alert_priority(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/dynamic-cases/UpdateAlertPriority",
+            f"{base_url.rstrip('/')}/dynamic-cases/UpdateAlertPriority",
             headers=headers,
             json=request_body,
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"Alert priority updated in case {case_id}"}
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
-    default_title="Create Case Comment",
+    default_title="Create case comment",
     display_group="Google SecOps SOAR",
     description="Add a comment (with optional attachment) to a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def create_case_comment(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -496,7 +526,6 @@ async def create_case_comment(
 
     Comments appear in the case wall/history.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body: dict[str, Any] = {
@@ -514,7 +543,7 @@ async def create_case_comment(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/cases/comments",
+            f"{base_url.rstrip('/')}/cases/comments",
             headers=headers,
             json=request_body,
         )
@@ -523,13 +552,20 @@ async def create_case_comment(
 
 
 @registry.register(
-    default_title="Update Case Comment",
+    default_title="Update case comment",
     display_group="Google SecOps SOAR",
     description="Update an existing comment in a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def update_case_comment(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     comment_id: Annotated[
         int,
         Doc("The comment ID to update"),
@@ -563,7 +599,6 @@ async def update_case_comment(
 
     Returns updated comment metadata.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body: dict[str, Any] = {
@@ -580,7 +615,7 @@ async def update_case_comment(
 
     async with httpx.AsyncClient() as client:
         response = await client.put(
-            f"{base_url}/cases/comments/{comment_id}",
+            f"{base_url.rstrip('/')}/cases/comments/{comment_id}",
             headers=headers,
             json=request_body,
         )
@@ -589,13 +624,20 @@ async def update_case_comment(
 
 
 @registry.register(
-    default_title="Close Alert",
+    default_title="Close alert",
     display_group="Google SecOps SOAR",
     description="Close a specific alert within a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def close_alert(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     source_case_id: Annotated[
         int,
         Doc("The case ID where the alert is being closed"),
@@ -636,7 +678,6 @@ async def close_alert(
 
     The alert moves to a closed state and a new case may be created.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body = {
@@ -650,7 +691,7 @@ async def close_alert(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/dynamic-cases/CloseAlert",
+            f"{base_url.rstrip('/')}/dynamic-cases/CloseAlert",
             headers=headers,
             json=request_body,
         )
@@ -659,13 +700,20 @@ async def close_alert(
 
 
 @registry.register(
-    default_title="Reopen Alert",
+    default_title="Reopen alert",
     display_group="Google SecOps SOAR",
     description="Reopen a previously closed alert in a Chronicle SOAR case",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def reopen_alert(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_id: Annotated[
         int,
         Doc("The case ID"),
@@ -682,9 +730,8 @@ async def reopen_alert(
     - The alert was incorrectly closed
     - Additional analysis is required
 
-    Returns success response.
+    Returns the API response.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body = {
@@ -694,22 +741,32 @@ async def reopen_alert(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/dynamic-cases/ReopenAlert",
+            f"{base_url.rstrip('/')}/dynamic-cases/ReopenAlert",
             headers=headers,
             json=request_body,
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"Alert reopened in case {case_id}"}
+        # Return empty dict if no content, otherwise return JSON
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
 
 
 @registry.register(
-    default_title="Bulk Close Cases",
+    default_title="Bulk close cases",
     display_group="Google SecOps SOAR",
     description="Close multiple Chronicle SOAR cases at once",
     namespace="tools.google_secops_soar",
     secrets=[google_secops_soar_secret],
 )
 async def bulk_close_cases(
+    base_url: Annotated[
+        str,
+        Doc(
+            "Chronicle SOAR API base URL "
+            "(e.g., 'https://your-instance.siemplify-soar.com/api/external/v1')"
+        ),
+    ],
     case_ids: Annotated[
         list[int],
         Doc("List of case IDs to close"),
@@ -741,9 +798,8 @@ async def bulk_close_cases(
     - Batch maintenance operations
     - Campaign-based case resolution
 
-    Returns success response.
+    Returns the API response.
     """
-    base_url = _get_base_url()
     headers = _get_secops_headers()
 
     request_body = {
@@ -755,11 +811,10 @@ async def bulk_close_cases(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/cases-queue/bulk-operations/ExecuteBulkCloseCase",
+            f"{base_url.rstrip('/')}/cases-queue/bulk-operations/ExecuteBulkCloseCase",
             headers=headers,
             json=request_body,
             timeout=60.0,  # Longer timeout for bulk operations
         )
         response.raise_for_status()
-        return {"status": "success", "message": f"Closed {len(case_ids)} cases", "case_ids": case_ids}
-
+        return response.json()
