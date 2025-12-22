@@ -843,12 +843,12 @@ class CasesClient:
         case_id: str,
         *,
         title: str,
-        description: str | None = None,
+        description: str | None | Unset = UNSET,
         priority: str = "unknown",
         status: str = "todo",
-        assignee_id: str | None = None,
-        workflow_id: str | None = None,
-        default_trigger_values: dict[str, Any] | None = None,
+        assignee_id: str | None | Unset = UNSET,
+        workflow_id: str | None | Unset = UNSET,
+        default_trigger_values: dict[str, Any] | None | Unset = UNSET,
     ) -> types.CaseTaskRead:
         """Create a new task for a case.
 
@@ -870,13 +870,13 @@ class CasesClient:
             "priority": priority,
             "status": status,
         }
-        if description is not None:
+        if is_set(description):
             data["description"] = description
-        if assignee_id is not None:
+        if is_set(assignee_id):
             data["assignee_id"] = assignee_id
-        if workflow_id is not None:
+        if is_set(workflow_id):
             data["workflow_id"] = workflow_id
-        if default_trigger_values is not None:
+        if is_set(default_trigger_values):
             data["default_trigger_values"] = default_trigger_values
 
         return await self._client.post(f"/cases/{case_id}/tasks", json=data)
@@ -907,44 +907,44 @@ class CasesClient:
         self,
         task_id: str,
         *,
-        title: str | None = None,
-        description: str | None = None,
-        priority: str | None = None,
-        status: str | None = None,
-        assignee_id: str | None = None,
-        workflow_id: str | None = None,
-        default_trigger_values: dict[str, Any] | None = None,
+        title: str | Unset = UNSET,
+        description: str | None | Unset = UNSET,
+        priority: str | Unset = UNSET,
+        status: str | Unset = UNSET,
+        assignee_id: str | None | Unset = UNSET,
+        workflow_id: str | None | Unset = UNSET,
+        default_trigger_values: dict[str, Any] | None | Unset = UNSET,
     ) -> types.CaseTaskRead:
         """Update an existing case task.
 
         Args:
             task_id: The task UUID.
             title: Updated title.
-            description: Updated description.
+            description: Updated description. Pass None to clear.
             priority: Updated priority.
             status: Updated status.
-            assignee_id: Updated assignee ID.
-            workflow_id: Updated workflow ID.
-            default_trigger_values: Updated default trigger values.
+            assignee_id: Updated assignee ID. Pass None to unassign.
+            workflow_id: Updated workflow ID. Pass None to clear.
+            default_trigger_values: Updated default trigger values. Pass None to clear.
 
         Returns:
             Updated task data.
         """
         data: dict[str, Any] = {}
-        if title is not None:
+        if is_set(title):
             data["title"] = title
-        if description is not None:
+        if is_set(description):
             data["description"] = description
-        if priority is not None:
+        if is_set(priority):
             data["priority"] = priority
-        if status is not None:
+        if is_set(status):
             data["status"] = status
-        if assignee_id is not None:
+        if is_set(assignee_id):
             data["assignee_id"] = assignee_id
-        if workflow_id is not None:
+        if is_set(workflow_id):
             data["workflow_id"] = workflow_id
-        # Always include default_trigger_values to allow clearing
-        data["default_trigger_values"] = default_trigger_values
+        if is_set(default_trigger_values):
+            data["default_trigger_values"] = default_trigger_values
 
         return await self._client.patch(f"/cases/tasks/{task_id}", json=data)
 
