@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling == 1.28.0"]
+requires = ["hatchling >= 1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -19,7 +19,12 @@ classifiers = [
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
 ]
-dependencies = []
+dependencies = [
+    # Dependencies for EE features
+    # Note: tracecat core types are imported but not listed as dependency
+    # to avoid circular dependencies in workspace
+    "modal==1.1.4",
+]
 dynamic = ["version"]
 
 [project.urls]
