@@ -290,7 +290,7 @@ export function WorkflowPanel({
                         </HoverCardTrigger>
                         <HoverCardContent
                           className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                          side="right"
+                          side="left"
                           sideOffset={20}
                         >
                           <div className="w-full space-y-4">
@@ -347,7 +347,7 @@ export function WorkflowPanel({
                         </HoverCardTrigger>
                         <HoverCardContent
                           className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                          side="right"
+                          side="left"
                           sideOffset={20}
                         >
                           <div className="w-full space-y-4">
@@ -402,7 +402,7 @@ export function WorkflowPanel({
                       </HoverCardTrigger>
                       <HoverCardContent
                         className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                        side="right"
+                        side="left"
                         sideOffset={20}
                       >
                         <div className="w-full space-y-4">
@@ -448,7 +448,7 @@ export function WorkflowPanel({
                       </HoverCardTrigger>
                       <HoverCardContent
                         className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                        side="right"
+                        side="left"
                         sideOffset={20}
                       >
                         <div className="w-full space-y-4">
@@ -497,7 +497,7 @@ export function WorkflowPanel({
                   </HoverCardTrigger>
                   <HoverCardContent
                     className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                    side="right"
+                    side="left"
                     sideOffset={20}
                   >
                     <WorkflowInputSchemaTooltip />
@@ -517,7 +517,7 @@ export function WorkflowPanel({
                   </HoverCardTrigger>
                   <HoverCardContent
                     className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                    side="right"
+                    side="left"
                     sideOffset={20}
                   >
                     <WorkflowReturnValueTooltip />
