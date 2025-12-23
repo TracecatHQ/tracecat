@@ -62,7 +62,6 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
 import {
   Popover,
   PopoverContent,
@@ -95,6 +94,8 @@ export function BuilderNav() {
 
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading } = useWorkspaceDetails()
+  const workflowTitle = workflow?.title ?? "Untitled workflow"
+
 
   const handleCommit = async () => {
     console.log("Saving changes...")
@@ -134,15 +135,19 @@ export function BuilderNav() {
               {"/"}
             </BreadcrumbSeparator>
             <BreadcrumbItem>
-              <span>{workflow.title}</span>
-              {workflow.alias && (
-                <Badge
-                  variant="secondary"
-                  className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
-                >
-                  {workflow.alias}
-                </Badge>
-              )}
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm text-foreground">
+                  {workflowTitle}
+                </span>
+                {workflow.alias && (
+                  <Badge
+                    variant="secondary"
+                    className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
+                  >
+                    {workflow.alias}
+                  </Badge>
+                )}
+              </div>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -234,6 +239,7 @@ const workflowControlsFormSchema = z.object({
   }),
 })
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
+
 
 const publishFormSchema = z.object({
   message: z.string().optional(),
