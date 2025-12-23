@@ -67,8 +67,6 @@ class _FeatureFlags:
         """Enable agent presets UDFs."""
         self.ai_ranking: bool = "ai-ranking" in _flags
         """Enable AI ranking UDFs."""
-        self.case_durations: bool = "case-durations" in _flags
-        """Enable case durations (enterprise feature)."""
 
 
 flags = _FeatureFlags()
