@@ -1,18 +1,10 @@
 import re
 from typing import Annotated, Any
 
-from tracecat.contexts import ctx_role
-from tracecat.logger import logger
-from tracecat.registry.fields import Code
-from tracecat.sandbox import (
-    PackageInstallError,
-    SandboxExecutionError,
-    SandboxService,
-    SandboxTimeoutError,
-    SandboxValidationError,
-)
-from tracecat_registry import registry
 from typing_extensions import Doc
+
+from tracecat_registry import RegistryActionError, config, registry
+from tracecat_registry.fields import Code
 
 
 class PythonScriptError(Exception):
@@ -136,6 +128,21 @@ async def run_python(
         PythonScriptTimeoutError: If script execution times out.
         PythonScriptExecutionError: If script execution fails.
     """
+    if config.flags.registry_client:
+        raise RegistryActionError(
+            "core.script.run_python cannot run in registry-client mode."
+        )
+
+    from tracecat.contexts import ctx_role
+    from tracecat.logger import logger
+    from tracecat.sandbox import (
+        PackageInstallError,
+        SandboxExecutionError,
+        SandboxService,
+        SandboxTimeoutError,
+        SandboxValidationError,
+    )
+
     # Validate script
     is_valid, error_message = _validate_script(script)
     if not is_valid:
