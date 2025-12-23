@@ -97,7 +97,6 @@ export function BuilderNav() {
   const { workspace, workspaceLoading } = useWorkspaceDetails()
   const workflowTitle = workflow?.title ?? "Untitled workflow"
 
-
   const handleCommit = async () => {
     console.log("Saving changes...")
     try {
@@ -240,7 +239,6 @@ const workflowControlsFormSchema = z.object({
   }),
 })
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
-
 
 const publishFormSchema = z.object({
   message: z.string().optional(),

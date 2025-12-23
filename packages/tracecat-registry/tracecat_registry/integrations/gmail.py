@@ -253,7 +253,9 @@ async def get_thread(
     secrets=[gmail_oauth_secret],
 )
 async def get_attachment(
-    message_id: Annotated[str, Field(description="The message ID containing the attachment")],
+    message_id: Annotated[
+        str, Field(description="The message ID containing the attachment")
+    ],
     attachment_id: Annotated[str, Field(description="The attachment ID to retrieve")],
     user_id: Annotated[
         str, Field(default="me", description="User ID or 'me' for authenticated user")

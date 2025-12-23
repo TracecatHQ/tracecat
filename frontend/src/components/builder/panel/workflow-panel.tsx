@@ -18,6 +18,7 @@ import {
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
+import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import {
   Form,
   FormControl,
@@ -34,7 +35,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import {
   isRequestValidationErrorArray,
   type TracecatApiError,
@@ -311,8 +311,8 @@ function WorkflowSettingsPanel({
                             </span>
                           </div>
                           <span className="text-muted-foreground">
-                            A human-readable name for the workflow. Must be
-                            at least 3 characters and less than 100 characters.
+                            A human-readable name for the workflow. Must be at
+                            least 3 characters and less than 100 characters.
                           </span>
                         </div>
                       </HoverCardContent>
@@ -662,7 +662,9 @@ function WorkflowReadmePanel({
       className="flex h-full flex-col overflow-auto p-4"
     >
       <div className="mb-4 space-y-1">
-        <h4 className="text-xs text-muted-foreground">Edit workflow description</h4>
+        <h4 className="text-xs text-muted-foreground">
+          Edit workflow description
+        </h4>
       </div>
       <div className="min-h-[300px] flex-1 rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3">
         <SimpleEditor
