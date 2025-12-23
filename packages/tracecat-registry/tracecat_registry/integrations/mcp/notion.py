@@ -1,9 +1,9 @@
-from tracecat.agent.runtime import run_agent
 from typing import Any, Annotated
 from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
+from tracecat_registry.sdk.agents import run_agent
 
 
 notion_mcp_oauth_secret = RegistryOAuthSecret(

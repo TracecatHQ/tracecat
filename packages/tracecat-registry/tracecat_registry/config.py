@@ -47,6 +47,15 @@ TRACECAT__DB_URI = os.environ.get(
 )
 TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
+TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES", 20))
+
+TRACECAT__AGENT_MAX_TOOL_CALLS = int(
+    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS", 40)
+)
+"""The maximum number of tool calls that can be made per agent run."""
+
+TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 120))
+"""The maximum number of requests that can be made per agent run."""
 
 
 class _FeatureFlags:
@@ -67,8 +76,6 @@ class _FeatureFlags:
         """Enable agent presets UDFs."""
         self.ai_ranking: bool = "ai-ranking" in _flags
         """Enable AI ranking UDFs."""
-        self.case_durations: bool = "case-durations" in _flags
-        """Enable case durations (enterprise feature)."""
 
 
 flags = _FeatureFlags()
