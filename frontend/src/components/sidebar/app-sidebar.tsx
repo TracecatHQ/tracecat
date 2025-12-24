@@ -2,17 +2,15 @@
 
 import {
   BotIcon,
-  BracketsIcon,
   ChevronDown,
-  KeyRoundIcon,
   type LucideIcon,
+  Settings2Icon,
   SquarePlus,
   SquareStackIcon,
   Table2Icon,
   UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
-  ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -36,6 +34,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
@@ -76,10 +77,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   type NavItem = {
     title: string
-    url: string
+    url?: string
     icon: LucideIcon
     isActive?: boolean
     visible?: boolean
+    items?: {
+      title: string
+      url: string
+      isActive?: boolean
+    }[]
   }
 
   const navMain: NavItem[] = [
@@ -98,7 +104,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ]
 
-  const navWorkspace = [
+  const navWorkspace: NavItem[] = [
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
@@ -112,34 +118,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
-      title: "Agents",
-      url: `${basePath}/agents`,
-      icon: BotIcon,
-      isActive: pathname?.startsWith(`${basePath}/agents`),
-    },
-    {
       title: "Tables",
       url: `${basePath}/tables`,
       icon: Table2Icon,
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
-      title: "Variables",
-      url: `${basePath}/variables`,
-      icon: BracketsIcon,
-      isActive: pathname?.startsWith(`${basePath}/variables`),
-    },
-    {
-      title: "Credentials",
-      url: `${basePath}/credentials`,
-      icon: KeyRoundIcon,
-      isActive: pathname?.startsWith(`${basePath}/credentials`),
-    },
-    {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: ZapIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
+      title: "Configs",
+      icon: Settings2Icon,
+      isActive:
+        pathname?.startsWith(`${basePath}/variables`) ||
+        pathname?.startsWith(`${basePath}/credentials`) ||
+        pathname?.startsWith(`${basePath}/integrations`),
+      items: [
+        {
+          title: "Variables",
+          url: `${basePath}/variables`,
+          isActive: pathname?.startsWith(`${basePath}/variables`),
+        },
+        {
+          title: "Credentials",
+          url: `${basePath}/credentials`,
+          isActive: pathname?.startsWith(`${basePath}/credentials`),
+        },
+        {
+          title: "Integrations",
+          url: `${basePath}/integrations`,
+          isActive: pathname?.startsWith(`${basePath}/integrations`),
+        },
+      ],
     },
     {
       title: "Members",
@@ -199,7 +206,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       </SidebarMenuButton>
                     ) : (
                       <SidebarMenuButton asChild isActive={item.isActive}>
-                        <Link href={item.url}>
+                        <Link href={item.url!}>
                           <item.icon />
                           <span>{item.title}</span>
                         </Link>
@@ -216,12 +223,39 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenu>
               {navWorkspace.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
+                  {item.items ? (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={item.title}
+                        isActive={item.isActive}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                      <SidebarMenuSub>
+                        {item.items.map((subItem) => (
+                          <SidebarMenuSubItem key={subItem.title}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={subItem.isActive}
+                              className="text-[13px]"
+                            >
+                              <Link href={subItem.url}>
+                                <span>{subItem.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </SidebarMenuItem>
+                  ) : (
+                    <SidebarMenuButton asChild isActive={item.isActive}>
+                      <Link href={item.url!}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  )}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
