@@ -21,19 +21,18 @@ from tenacity import (
     wait_fixed,
 )
 import yaml
-from tracecat.expressions.common import eval_jsonpath
-from tracecat.sandbox.safe_lambda import build_safe_lambda
-from tracecat.logger import logger
 from typing_extensions import Doc
 
-from tracecat.config import (
-    TRACECAT__MAX_FILE_SIZE_BYTES,
+from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry._internal.exceptions import TracecatException
+from tracecat_registry._internal.jsonpath import eval_jsonpath
+from tracecat_registry._internal.logger import logger
+from tracecat_registry._internal.safe_lambda import build_safe_lambda
+from tracecat_registry.config import (
     TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES,
+    TRACECAT__MAX_FILE_SIZE_BYTES,
     TRACECAT__MAX_UPLOAD_FILES_COUNT,
 )
-
-from tracecat.exceptions import TracecatException
-from tracecat_registry import RegistrySecret, registry, secrets
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
@@ -657,9 +656,7 @@ async def http_request(
         except httpx.HTTPStatusError as e:
             error_message = _http_status_error_to_message(e)
             logger.error(
-                "HTTP request failed",
-                status_code=e.response.status_code,
-                error_message=error_message,
+                f"HTTP request failed with status {e.response.status_code}: {error_message}"
             )
             raise TracecatException(error_message) from e
         except httpx.ReadTimeout as e:

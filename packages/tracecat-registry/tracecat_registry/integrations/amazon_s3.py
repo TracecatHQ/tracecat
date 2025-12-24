@@ -19,11 +19,11 @@ else:
     DeleteObjectOutputTypeDef = dict[str, Any]
 
 from tracecat_registry import RegistrySecret, registry
-import tracecat_registry.integrations.aws_boto3 as aws_boto3
-from tracecat.config import (
+from tracecat_registry.config import (
     TRACECAT__MAX_FILE_SIZE_BYTES,
     TRACECAT__S3_CONCURRENCY_LIMIT,
 )
+import tracecat_registry.integrations.aws_boto3 as aws_boto3
 
 # Add this at the top with other constants
 BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")

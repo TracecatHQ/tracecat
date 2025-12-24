@@ -1,12 +1,9 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from uuid import UUID
 
-from tracecat_registry import registry
+from tracecat_registry import config, registry, types
+from tracecat_registry.context import get_context
 from typing_extensions import Doc
-
-from tracecat.cases.enums import CasePriority, CaseTaskStatus
-from tracecat.cases.schemas import CaseTaskCreate, CaseTaskRead, CaseTaskUpdate
-from tracecat.cases.service import CaseTasksService
 
 
 @registry.register(
@@ -48,7 +45,7 @@ async def create_task(
         dict[str, Any] | None,
         Doc("The default trigger values for the task."),
     ] = None,
-) -> dict[str, Any]:
+) -> types.CaseTaskRead:
     """Create a new task for a case."""
 
     # Validate that workflow_id is provided if default_trigger_values is set
@@ -56,6 +53,27 @@ async def create_task(
         raise ValueError(
             "workflow_id is required when default_trigger_values is provided"
         )
+
+    if config.flags.registry_client:
+        return await get_context().cases.create_task(
+            case_id=case_id,
+            title=title,
+            description=description,
+            priority=priority,
+            status=status,
+            assignee_id=assignee_id,
+            workflow_id=workflow_id,
+            default_trigger_values=default_trigger_values,
+        )
+
+    from tracecat.cases.enums import CasePriority, CaseTaskStatus
+    from tracecat.cases.schemas import (
+        CaseTaskCreate,
+    )
+    from tracecat.cases.schemas import (
+        CaseTaskRead as CaseTaskReadSchema,
+    )
+    from tracecat.cases.service import CaseTasksService
 
     priority_enum: CasePriority = CasePriority.UNKNOWN
     status_enum: CaseTaskStatus = CaseTaskStatus.TODO
@@ -78,8 +96,11 @@ async def create_task(
             ),
         )
 
-    return CaseTaskRead.model_validate(task, from_attributes=True).model_dump(
-        mode="json"
+    return cast(
+        types.CaseTaskRead,
+        CaseTaskReadSchema.model_validate(task, from_attributes=True).model_dump(
+            mode="json"
+        ),
     )
 
 
@@ -94,13 +115,22 @@ async def get_task(
         str,
         Doc("The ID of the task to retrieve."),
     ],
-) -> dict[str, Any]:
+) -> types.CaseTaskRead:
     """Get a specific case task by ID."""
+    if config.flags.registry_client:
+        return await get_context().cases.get_task(task_id)
+
+    from tracecat.cases.schemas import CaseTaskRead as CaseTaskReadSchema
+    from tracecat.cases.service import CaseTasksService
+
     async with CaseTasksService.with_session() as service:
         task = await service.get_task(UUID(task_id))
 
-    return CaseTaskRead.model_validate(task, from_attributes=True).model_dump(
-        mode="json"
+    return cast(
+        types.CaseTaskRead,
+        CaseTaskReadSchema.model_validate(task, from_attributes=True).model_dump(
+            mode="json"
+        ),
     )
 
 
@@ -115,15 +145,26 @@ async def list_tasks(
         str,
         Doc("The ID of the case to list tasks for."),
     ],
-) -> list[dict[str, Any]]:
+) -> list[types.CaseTaskRead]:
     """List all tasks for a case."""
+    if config.flags.registry_client:
+        return await get_context().cases.list_tasks(case_id)
+
+    from tracecat.cases.schemas import CaseTaskRead as CaseTaskReadSchema
+    from tracecat.cases.service import CaseTasksService
+
     async with CaseTasksService.with_session() as service:
         tasks = await service.list_tasks(UUID(case_id))
 
-    return [
-        CaseTaskRead.model_validate(task, from_attributes=True).model_dump(mode="json")
-        for task in tasks
-    ]
+    return cast(
+        list[types.CaseTaskRead],
+        [
+            CaseTaskReadSchema.model_validate(task, from_attributes=True).model_dump(
+                mode="json"
+            )
+            for task in tasks
+        ],
+    )
 
 
 @registry.register(
@@ -165,8 +206,44 @@ async def update_task(
         dict[str, Any] | None,
         Doc("The default trigger values for the task."),
     ] = None,
-) -> dict[str, Any]:
+) -> types.CaseTaskRead:
     """Update an existing case task."""
+    if config.flags.registry_client:
+        if default_trigger_values and workflow_id is None:
+            existing_task = await get_context().cases.get_task(task_id)
+            effective_workflow_id = existing_task.get("workflow_id")
+            if not effective_workflow_id:
+                raise ValueError(
+                    "workflow_id is required when default_trigger_values is provided. "
+                    "Please set a workflow_id in this update or ensure the task already has one."
+                )
+
+        update_params: dict[str, Any] = {}
+        if title is not None:
+            update_params["title"] = title
+        if description is not None:
+            update_params["description"] = description
+        if priority is not None:
+            update_params["priority"] = priority
+        if status is not None:
+            update_params["status"] = status
+        if assignee_id is not None:
+            update_params["assignee_id"] = assignee_id
+        if workflow_id is not None:
+            update_params["workflow_id"] = workflow_id
+        update_params["default_trigger_values"] = default_trigger_values
+
+        return await get_context().cases.update_task(task_id=task_id, **update_params)
+
+    from tracecat.cases.enums import CasePriority, CaseTaskStatus
+    from tracecat.cases.schemas import (
+        CaseTaskRead as CaseTaskReadSchema,
+    )
+    from tracecat.cases.schemas import (
+        CaseTaskUpdate,
+    )
+    from tracecat.cases.service import CaseTasksService
+
     params: dict[str, Any] = {}
     if title is not None:
         params["title"] = title
@@ -200,8 +277,11 @@ async def update_task(
 
         task = await service.update_task(UUID(task_id), CaseTaskUpdate(**params))
 
-    return CaseTaskRead.model_validate(task, from_attributes=True).model_dump(
-        mode="json"
+    return cast(
+        types.CaseTaskRead,
+        CaseTaskReadSchema.model_validate(task, from_attributes=True).model_dump(
+            mode="json"
+        ),
     )
 
 
@@ -218,5 +298,11 @@ async def delete_task(
     ],
 ) -> None:
     """Delete a case task."""
+    if config.flags.registry_client:
+        await get_context().cases.delete_task(task_id)
+        return
+
+    from tracecat.cases.service import CaseTasksService
+
     async with CaseTasksService.with_session() as service:
         await service.delete_task(UUID(task_id))

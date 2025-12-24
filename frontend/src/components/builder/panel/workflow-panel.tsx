@@ -2,11 +2,11 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type React from "react"
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import "@radix-ui/react-dialog"
 
-import { Info } from "lucide-react"
+import { FileTextIcon, Info, LayoutListIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
+import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import {
   Form,
   FormControl,
@@ -33,7 +34,7 @@ import {
 } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   isRequestValidationErrorArray,
   type TracecatApiError,
@@ -45,12 +46,9 @@ const createWorkflowUpdateFormSchema = (workspaceId: string) =>
     .object({
       title: z
         .string()
-        .min(1, { message: "Name is required" })
+        .trim()
+        .min(3, { message: "Name must be at least 3 characters" })
         .max(100, { message: "Name cannot exceed 100 characters" }),
-      description: z
-        .string()
-        .max(1000, { message: "Description cannot exceed 1000 characters" })
-        .optional(),
       alias: z
         .string()
         .max(100, { message: "Alias cannot exceed 100 characters" })
@@ -131,7 +129,63 @@ type WorkflowUpdateFormSchema = ReturnType<
   typeof createWorkflowUpdateFormSchema
 >
 type WorkflowUpdateForm = z.infer<WorkflowUpdateFormSchema>
+
+const workflowReadmeSchema = z
+  .string()
+  .max(1000, { message: "README cannot exceed 1000 characters" })
+
+type WorkflowPanelTab = "workflow" | "readme"
+
 export function WorkflowPanel({
+  workflow,
+}: {
+  workflow: WorkflowRead
+}): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState<WorkflowPanelTab>("workflow")
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <Tabs
+        defaultValue="workflow"
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as WorkflowPanelTab)}
+        className="flex h-full w-full flex-col"
+      >
+        <div className="w-full min-w-[30rem] shrink-0">
+          <div className="flex items-center justify-start">
+            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-5 py text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="workflow"
+              >
+                <LayoutListIcon className="mr-2 size-4" />
+                <span>Workflow</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-5 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="readme"
+              >
+                <FileTextIcon className="mr-2 size-4" />
+                <span>README</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+          <Separator />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <TabsContent value="workflow" className="mt-0 h-full">
+            <WorkflowSettingsPanel workflow={workflow} />
+          </TabsContent>
+          <TabsContent value="readme" className="mt-0 h-full">
+            <WorkflowReadmePanel workflow={workflow} />
+          </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  )
+}
+
+function WorkflowSettingsPanel({
   workflow,
 }: {
   workflow: WorkflowRead
@@ -146,8 +200,7 @@ export function WorkflowPanel({
       mode: "async",
     }),
     defaultValues: {
-      title: workflow.title || "",
-      description: workflow.description || "",
+      title: workflow.title,
       alias: workflow.alias,
       environment: workflow.config?.environment || "default",
       timeout: workflow.config?.timeout || 0,
@@ -233,50 +286,54 @@ export function WorkflowPanel({
           onSubmit={methods.handleSubmit(onSubmit)}
           className="flex flex-1 flex-col overflow-auto"
         >
-          {/* Title and Description - borderless inputs */}
-          <div className="flex flex-col gap-2 px-4 pt-4">
+          {/* All other fields in one flat section */}
+          <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-32 pt-4">
+            {/* Name */}
             <FormField
               control={methods.control}
               name="title"
               render={({ field }) => (
-                <FormItem className="space-y-1">
-                  <FormLabel className="sr-only">Name</FormLabel>
+                <FormItem>
+                  <FormLabel className="flex items-center text-xs">
+                    <HoverCard openDelay={100} closeDelay={100}>
+                      <HoverCardTrigger asChild className="hover:border-none">
+                        <Info className="mr-1 size-3 stroke-muted-foreground" />
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                        side="left"
+                        sideOffset={20}
+                      >
+                        <div className="w-full space-y-4">
+                          <div className="flex w-full items-center justify-between text-muted-foreground">
+                            <span className="font-mono text-sm font-semibold">
+                              Workflow name
+                            </span>
+                          </div>
+                          <span className="text-muted-foreground">
+                            A human-readable name for the workflow. Must be at
+                            least 3 characters and less than 100 characters.
+                          </span>
+                        </div>
+                      </HoverCardContent>
+                    </HoverCard>
+                    <span>Name</span>
+                  </FormLabel>
                   <FormControl>
                     <Input
-                      className="h-auto w-full border-none bg-transparent px-0 text-lg font-semibold leading-tight text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                      className="text-xs"
                       placeholder="Name your workflow..."
                       {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={methods.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="sr-only">Description</FormLabel>
-                  <FormControl>
-                    <AutoResizeTextarea
-                      value={field.value ?? ""}
+                      value={field.value || ""}
                       onChange={field.onChange}
-                      placeholder="Describe your workflow..."
-                      className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-xs leading-tight text-muted-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-          </div>
 
-          <Separator className="my-4" />
-
-          {/* All other fields in one flat section */}
-          <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-32">
-            {/* Alias - moved above error workflow */}
+            {/* Alias */}
             <FormField
               control={methods.control}
               name="alias"
@@ -290,7 +347,7 @@ export function WorkflowPanel({
                         </HoverCardTrigger>
                         <HoverCardContent
                           className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                          side="right"
+                          side="left"
                           sideOffset={20}
                         >
                           <div className="w-full space-y-4">
@@ -322,7 +379,7 @@ export function WorkflowPanel({
                   <FormControl>
                     <Input
                       className="text-xs"
-                      placeholder="Unique identifier for this workflow."
+                      placeholder="Unique identifier for this workflow"
                       {...field}
                       value={field.value || ""}
                       onChange={field.onChange}
@@ -333,7 +390,7 @@ export function WorkflowPanel({
               )}
             />
 
-            {/* Error workflow */}
+            {/* Error handler */}
             <FormField
               control={methods.control}
               name="error_handler"
@@ -347,7 +404,7 @@ export function WorkflowPanel({
                         </HoverCardTrigger>
                         <HoverCardContent
                           className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                          side="right"
+                          side="left"
                           sideOffset={20}
                         >
                           <div className="w-full space-y-4">
@@ -402,7 +459,7 @@ export function WorkflowPanel({
                       </HoverCardTrigger>
                       <HoverCardContent
                         className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                        side="right"
+                        side="left"
                         sideOffset={20}
                       >
                         <div className="w-full space-y-4">
@@ -448,7 +505,7 @@ export function WorkflowPanel({
                       </HoverCardTrigger>
                       <HoverCardContent
                         className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                        side="right"
+                        side="left"
                         sideOffset={20}
                       >
                         <div className="w-full space-y-4">
@@ -497,7 +554,7 @@ export function WorkflowPanel({
                   </HoverCardTrigger>
                   <HoverCardContent
                     className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                    side="right"
+                    side="left"
                     sideOffset={20}
                   >
                     <WorkflowInputSchemaTooltip />
@@ -517,7 +574,7 @@ export function WorkflowPanel({
                   </HoverCardTrigger>
                   <HoverCardContent
                     className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                    side="right"
+                    side="left"
                     sideOffset={20}
                   >
                     <WorkflowReturnValueTooltip />
@@ -534,48 +591,93 @@ export function WorkflowPanel({
   )
 }
 
-function AutoResizeTextarea({
-  value,
-  onChange,
-  placeholder,
-  className,
+function WorkflowReadmePanel({
+  workflow,
 }: {
-  value: string
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
-  placeholder?: string
-  className?: string
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  workflow: WorkflowRead
+}): React.JSX.Element {
+  const { updateWorkflow } = useWorkflow()
+  const [value, setValue] = useState(workflow.description ?? "")
+  const [isSaving, setIsSaving] = useState(false)
+  const savedValueRef = useRef(workflow.description ?? "")
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isTooLong = value.length > 1000
 
   useEffect(() => {
-    const textarea = textareaRef.current
-    if (textarea) {
-      textarea.style.height = "auto"
-      textarea.style.height = `${Math.max(
-        textarea.scrollHeight,
-        2 * parseFloat(getComputedStyle(textarea).lineHeight)
-      )}px`
-    }
-  }, [value])
+    const nextValue = workflow.description ?? ""
+    const previousValue = savedValueRef.current
+    savedValueRef.current = nextValue
+    setValue((current) => (current === previousValue ? nextValue : current))
+  }, [workflow.description, workflow.id])
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onChange(e)
-    const textarea = e.target
-    textarea.style.height = "auto"
-    textarea.style.height = `${Math.max(
-      textarea.scrollHeight,
-      2 * parseFloat(getComputedStyle(textarea).lineHeight)
-    )}px`
-  }
+  const persistReadme = useCallback(async () => {
+    if (isSaving) {
+      return
+    }
+
+    const nextValue = value ?? ""
+    if (nextValue === savedValueRef.current) {
+      return
+    }
+
+    if (isTooLong) {
+      return
+    }
+
+    const result = workflowReadmeSchema.safeParse(nextValue)
+    if (!result.success) {
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      await updateWorkflow({ description: result.data })
+      savedValueRef.current = result.data
+    } finally {
+      setIsSaving(false)
+    }
+  }, [isSaving, isTooLong, updateWorkflow, value])
+
+  const handleContainerBlur = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      const container = containerRef.current
+      const nextTarget = event.relatedTarget as Node | null
+      if (!container || !nextTarget || !container.contains(nextTarget)) {
+        void persistReadme()
+      }
+    },
+    [persistReadme]
+  )
+
+  const toolbarStatus = isTooLong ? (
+    <span className="text-xs text-destructive">Max 1000 characters</span>
+  ) : isSaving ? (
+    <span className="text-xs text-muted-foreground">Saving...</span>
+  ) : null
 
   return (
-    <Textarea
-      ref={textareaRef}
-      className={className}
-      placeholder={placeholder}
-      value={value}
-      onChange={handleChange}
-    />
+    <div
+      ref={containerRef}
+      onBlur={handleContainerBlur}
+      className="flex h-full flex-col overflow-auto p-4"
+    >
+      <div className="mb-4 space-y-1">
+        <h4 className="text-xs text-muted-foreground">
+          Edit workflow description
+        </h4>
+      </div>
+      <div className="min-h-[300px] flex-1 rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3">
+        <SimpleEditor
+          value={value}
+          onChange={setValue}
+          onSave={() => void persistReadme()}
+          placeholder="Type some markdown here to start writing your README."
+          toolbarStatus={toolbarStatus}
+          className="h-full"
+          style={{ height: "100%" }}
+        />
+      </div>
+    </div>
   )
 }
 

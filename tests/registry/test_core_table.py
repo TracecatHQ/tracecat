@@ -36,7 +36,7 @@ from tracecat.tables.service import TablesService
 
 class _FakeTablesClient:
     async def _call_direct(self, func, *args, **kwargs):
-        with patch("tracecat_registry.core.table._USE_REGISTRY_CLIENT", False):
+        with patch("tracecat_registry.config.flags.registry_client", False):
             return await func(*args, **kwargs)
 
     async def lookup(self, *, table: str, column: str, value: object):
@@ -151,7 +151,9 @@ def registry_client_enabled(request) -> bool:
 
 @pytest.fixture(autouse=True)
 def registry_client_ctx(monkeypatch: pytest.MonkeyPatch, registry_client_enabled: bool):
-    monkeypatch.setattr(table_core, "_USE_REGISTRY_CLIENT", registry_client_enabled)
+    monkeypatch.setattr(
+        table_core.config.flags, "registry_client", registry_client_enabled
+    )
     if registry_client_enabled:
         fake_ctx = SimpleNamespace(tables=_FakeTablesClient())
         monkeypatch.setattr(table_core, "get_context", lambda: fake_ctx)

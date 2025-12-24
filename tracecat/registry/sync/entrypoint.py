@@ -36,6 +36,7 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
 )
 from tracecat.registry.actions.service import validate_action_template
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.schemas import (
     SyncResultError,
@@ -81,11 +82,21 @@ async def load_and_serialize_actions(
     validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = {}
     if validate:
         logger.info("Validating template actions")
+        extra_repos: list[Repository] = []
+        if origin != DEFAULT_REGISTRY_ORIGIN:
+            base_repo = Repository(origin=DEFAULT_REGISTRY_ORIGIN, role=role)
+            await base_repo.load_from_origin()
+            extra_repos.append(base_repo)
         val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = defaultdict(list)
         for action in repo.store.values():
             if not action.is_template:
                 continue
-            if errs := await validate_action_template(action, repo, check_db=False):
+            if errs := await validate_action_template(
+                action,
+                repo,
+                check_db=False,
+                extra_repos=extra_repos or None,
+            ):
                 val_errs[action.action].extend(errs)
         # Keep typed validation errors
         validation_errors = dict(val_errs)

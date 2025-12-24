@@ -63,10 +63,12 @@ from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
 try:
+    from tracecat_registry import secrets as registry_secrets
     from tracecat_registry.context import RegistryContext, set_context
 except ImportError:
     RegistryContext = None  # type: ignore[misc, assignment]
     set_context = None  # type: ignore[assignment]
+    registry_secrets = None  # type: ignore[assignment]
 
 """All these methods are used in the registry executor, not on the worker"""
 
@@ -376,6 +378,11 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     context[ExprContext.VARS] = workspace_variables
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
+
+    # Initialize registry secrets context for SDK mode
+    if registry_secrets is not None and is_feature_enabled(FeatureFlag.REGISTRY_CLIENT):
+        registry_secrets.set_context(flattened_secrets)
+
     with secrets_manager.env_sandbox(flattened_secrets):
         args = evaluate_templated_args(task, context)
         result = await run_single_action(action=action, args=args, context=context)

@@ -1,13 +1,13 @@
 """AI utilities. Actions that use LLMs to perform specific predefined tasks."""
 
-from typing import Annotated, Any, TypedDict, Literal
+from typing import Annotated, Any, Literal, TypedDict
 
 from typing_extensions import Doc
 
-from tracecat.ai.ranker import RankableItem, rank_items_pairwise, rank_items
-from tracecat_registry.core.transform import flatten_dict
 from tracecat_registry import registry
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
+from tracecat_registry.core.transform import flatten_dict
+from tracecat_registry.sdk.agents import RankableItem, rank_items, rank_items_pairwise
 
 
 MAX_KEYS: int = 100

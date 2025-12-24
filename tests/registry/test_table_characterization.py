@@ -83,7 +83,7 @@ async def table_ctx(
 
     respx_mock = None
     with patch(
-        "tracecat_registry.core.table._USE_REGISTRY_CLIENT", registry_client_enabled
+        "tracecat_registry.config.flags.registry_client", registry_client_enabled
     ):
         if registry_client_enabled:
             respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)

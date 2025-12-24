@@ -9,13 +9,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 from typing_extensions import Doc
 
-from tracecat import config
-from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry import RegistrySecret, config, registry, secrets
 
 
 # Maximum number of rows to return from a query
-# This can be overridden via TRACECAT__MAX_ROWS_CLIENT_POSTGRES config
-DEFAULT_MAX_ROWS = config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+# This can be overridden via TRACECAT__MAX_ROWS_CLIENT_POSTGRES env var
+DEFAULT_MAX_ROWS = config.MAX_ROWS_CLIENT_POSTGRES
 
 # Registry secret for SQL connections
 sql_secret = RegistrySecret(
@@ -46,12 +45,21 @@ def _validate_connection_url(connection_url: URL) -> None:
     We only compare against the configured internal database endpoint/port and never
     surface credentials from the internal URI to the user.
 
+    In registry-client mode (sandboxed execution), this validation is skipped as
+    network isolation is the primary security control. The internal DB config is
+    intentionally not passed to the sandbox.
+
     Args:
         connection_url: SQLAlchemy URL object
 
     Raises:
         SQLConnectionValidationError: If connection attempts to access Tracecat's database
     """
+    # Skip validation in registry-client mode - network isolation is the primary control
+    # and internal DB config should not be exposed to the sandbox
+    if config.flags.registry_client:
+        return
+
     # Parse internal database URL
     try:
         internal_url = make_url(config.TRACECAT__DB_URI)

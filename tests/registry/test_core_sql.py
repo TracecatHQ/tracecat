@@ -8,7 +8,6 @@ from tracecat_registry.core.sql import (
 )
 
 from tests.database import TEST_DB_CONFIG
-from tracecat import config
 from tracecat.secrets import secrets_manager
 
 
@@ -16,13 +15,16 @@ def test_validate_connection_url_blocks_internal_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reject user URLs that target the configured internal DB endpoint/port."""
+    from tracecat_registry import config as registry_config
+
+    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
-        config,
+        registry_config,
         "TRACECAT__DB_URI",
         "postgresql+psycopg://tracecat:secret@internal-db:5432/tracecat",
     )
-    monkeypatch.setattr(config, "TRACECAT__DB_ENDPOINT", "internal-db")
-    monkeypatch.setattr(config, "TRACECAT__DB_PORT", "5432")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_ENDPOINT", "internal-db")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_PORT", "5432")
 
     connection_url = make_url(
         "postgresql+psycopg://user:pass@internal-db:5432/external_db"
@@ -40,13 +42,16 @@ def test_validate_connection_url_allows_external_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Allow user URLs that point to a different endpoint."""
+    from tracecat_registry import config as registry_config
+
+    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
-        config,
+        registry_config,
         "TRACECAT__DB_URI",
         "postgresql+psycopg://tracecat:secret@internal-db:5432/tracecat",
     )
-    monkeypatch.setattr(config, "TRACECAT__DB_ENDPOINT", "internal-db")
-    monkeypatch.setattr(config, "TRACECAT__DB_PORT", "5432")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_ENDPOINT", "internal-db")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_PORT", "5432")
 
     connection_url = make_url(
         "postgresql+psycopg://user:pass@external-db:5432/external_db"
@@ -59,13 +64,16 @@ def test_validate_connection_url_uses_internal_uri_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Fallback to TRACECAT__DB_URI when TRACECAT__DB_ENDPOINT is unset."""
+    from tracecat_registry import config as registry_config
+
+    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
-        config,
+        registry_config,
         "TRACECAT__DB_URI",
         "postgresql+psycopg://tracecat:secret@postgres_db:6432/tracecat",
     )
-    monkeypatch.setattr(config, "TRACECAT__DB_ENDPOINT", None)
-    monkeypatch.setattr(config, "TRACECAT__DB_PORT", None)
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_ENDPOINT", None)
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_PORT", None)
 
     connection_url = make_url(
         "postgresql+psycopg://user:pass@postgres_db:6432/external_db"
@@ -77,21 +85,24 @@ def test_validate_connection_url_uses_internal_uri_fallback(
 
 # Integration tests using live Postgres database
 @pytest.fixture
-def setup_sql_test_table(db, monkeypatch: pytest.MonkeyPatch):
+def setup_sql_test_table(db, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
     """Set up test table and mock config for SQL integration tests.
 
     Mocks the internal database config to use a different endpoint
     so the test database on localhost:5432 is allowed by validation.
     """
+    from tracecat_registry import config as registry_config
+
     # Mock internal database config to use a different endpoint
     # This allows the test database on localhost:5432 to pass validation
+    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
-        config,
+        registry_config,
         "TRACECAT__DB_URI",
         "postgresql+psycopg://tracecat:secret@internal-db:5432/tracecat",
     )
-    monkeypatch.setattr(config, "TRACECAT__DB_ENDPOINT", "internal-db")
-    monkeypatch.setattr(config, "TRACECAT__DB_PORT", "5432")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_ENDPOINT", "internal-db")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_PORT", "5432")
 
     # Create test table and insert sample data
     engine = create_engine(TEST_DB_CONFIG.test_url_sync)
@@ -323,14 +334,17 @@ async def test_execute_query_invalid_sql(setup_sql_test_table):
 @pytest.mark.anyio
 async def test_execute_query_invalid_connection_url(monkeypatch: pytest.MonkeyPatch):
     """Test that invalid connection URL raises an error."""
+    from tracecat_registry import config as registry_config
+
     # Mock internal database config to avoid validation issues
+    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
-        config,
+        registry_config,
         "TRACECAT__DB_URI",
         "postgresql+psycopg://tracecat:secret@internal-db:5432/tracecat",
     )
-    monkeypatch.setattr(config, "TRACECAT__DB_ENDPOINT", "internal-db")
-    monkeypatch.setattr(config, "TRACECAT__DB_PORT", "5432")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_ENDPOINT", "internal-db")
+    monkeypatch.setattr(registry_config, "TRACECAT__DB_PORT", "5432")
 
     # The error will be NoSuchModuleError from SQLAlchemy
     from sqlalchemy.exc import NoSuchModuleError

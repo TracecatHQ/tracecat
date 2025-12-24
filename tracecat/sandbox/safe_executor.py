@@ -15,9 +15,11 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -615,6 +617,25 @@ if __name__ == "__main__":
 '''
 
 
+def _extract_dependency_base_name(dependency: str) -> str:
+    """Extract base package name from dependency spec (without version/extras)."""
+    name = dependency.strip()
+    if ";" in name:
+        name = name.split(";", 1)[0].strip()
+    if "@" in name:
+        name = name.split("@", 1)[0].strip()
+    for sep in ("==", ">=", "<=", ">", "<", "~=", "!=", "["):
+        if sep in name:
+            name = name.split(sep, 1)[0].strip()
+            break
+    return name.strip()
+
+
+def _normalize_distribution_name(name: str) -> str:
+    """Normalize a distribution name using PEP 503 rules."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def _extract_package_name(dependency: str) -> str:
     """Extract base package name from dependency spec.
 
@@ -623,13 +644,8 @@ def _extract_package_name(dependency: str) -> str:
         "py-ocsf-models>=0.8.0" -> "py_ocsf_models" (normalized)
         "openpyxl[lxml]" -> "openpyxl"
     """
-    # Remove version specifiers
-    for sep in ("==", ">=", "<=", ">", "<", "~=", "!=", "["):
-        if sep in dependency:
-            dependency = dependency.split(sep)[0]
-
-    # Normalize package name (replace - with _)
-    return dependency.strip().replace("-", "_")
+    base_name = _extract_dependency_base_name(dependency)
+    return base_name.replace("-", "_")
 
 
 class SafePythonExecutor:
@@ -681,62 +697,126 @@ class SafePythonExecutor:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
-    def _get_allowed_modules(self, dependencies: list[str]) -> set[str]:
+    def _iter_site_packages_paths(self, venv_path: Path) -> list[Path]:
+        """Find site-packages paths within a virtual environment."""
+        candidates: list[Path] = []
+
+        for lib_dir in ("lib", "lib64"):
+            lib_root = venv_path / lib_dir
+            if not lib_root.exists():
+                continue
+            for py_dir in sorted(lib_root.glob("python*")):
+                for subdir in ("site-packages", "dist-packages"):
+                    site_packages = py_dir / subdir
+                    if site_packages.exists():
+                        candidates.append(site_packages)
+
+        windows_site_packages = venv_path / "Lib" / "site-packages"
+        if windows_site_packages.exists():
+            candidates.append(windows_site_packages)
+
+        return candidates
+
+    def _get_dependency_import_names(
+        self,
+        venv_path: Path,
+        dependencies: list[str],
+    ) -> set[str]:
+        """Resolve top-level import names for dependencies from venv metadata."""
+        if not dependencies:
+            return set()
+
+        normalized_deps = {
+            _normalize_distribution_name(_extract_dependency_base_name(dep))
+            for dep in dependencies
+        }
+        normalized_deps.discard("")
+        if not normalized_deps:
+            return set()
+
+        import_names: set[str] = set()
+        for site_packages in self._iter_site_packages_paths(venv_path):
+            try:
+                distributions = metadata.distributions(path=[str(site_packages)])
+            except Exception as exc:
+                logger.debug(
+                    "Failed to read dependency metadata",
+                    site_packages=str(site_packages),
+                    error=str(exc),
+                )
+                continue
+
+            for dist in distributions:
+                dist_name = dist.metadata.get("Name")
+                if not dist_name:
+                    continue
+                if _normalize_distribution_name(dist_name) not in normalized_deps:
+                    continue
+
+                top_level = dist.read_text("top_level.txt")
+                if top_level:
+                    for line in top_level.splitlines():
+                        module_name = line.strip()
+                        if module_name:
+                            import_names.add(module_name)
+                else:
+                    import_names.add(_extract_package_name(dist_name))
+
+        return import_names
+
+    def _get_allowed_modules(
+        self,
+        dependencies: list[str],
+        venv_path: Path | None = None,
+    ) -> set[str]:
         """Get the set of allowed modules for import hook.
 
         Args:
             dependencies: List of package specifications.
+            venv_path: Optional venv path to resolve import names from metadata.
 
         Returns:
             Set of module names allowed to be imported.
         """
         allowed: set[str] = set()
 
-        # Add dependency base names
         for dep in dependencies:
-            dep_name = _extract_package_name(dep)
-            allowed.add(dep_name)
-            # Also add original name (with hyphens) in case import differs
-            original = (
-                dep.split("==")[0].split(">=")[0].split("<=")[0].split("[")[0].strip()
+            base_name = _extract_dependency_base_name(dep)
+            if not base_name:
+                continue
+            normalized = base_name.replace("-", "_")
+            allowed.update(
+                {
+                    base_name,
+                    base_name.lower(),
+                    normalized,
+                    normalized.lower(),
+                }
             )
-            allowed.add(original)
+
+        if venv_path is not None:
+            allowed.update(self._get_dependency_import_names(venv_path, dependencies))
 
         return allowed
 
     def _validate_script(
         self,
         script: str,
-        dependencies: list[str] | None,
+        allowed_modules: set[str],
         allow_network: bool,
     ) -> None:
         """Validate script using AST analysis.
 
         Args:
             script: Python source code to validate.
-            dependencies: List of allowed dependencies.
+            allowed_modules: Set of modules allowed for user imports.
             allow_network: Whether network modules are allowed.
 
         Raises:
             SandboxValidationError: If script fails validation.
         """
-        dep_set: set[str] = set()
-        if dependencies:
-            for dep in dependencies:
-                dep_name = _extract_package_name(dep)
-                dep_set.add(dep_name)
-                # Also add original hyphenated name
-                original = (
-                    dep.split("==")[0]
-                    .split(">=")[0]
-                    .split("<=")[0]
-                    .split("[")[0]
-                    .strip()
-                )
-                dep_set.add(original)
-
         validator = ScriptValidator(
-            allowed_dependencies=dep_set,
+            allowed_dependencies=allowed_modules,
             allow_network=allow_network,
         )
         errors = validator.validate(script)
@@ -893,15 +973,13 @@ class SafePythonExecutor:
                 "enable nsjail by setting TRACECAT__DISABLE_NSJAIL=false."
             )
 
-        # Validate script before execution
-        self._validate_script(script, dependencies, allow_network)
-
         # Create temporary working directory
         work_dir = Path(tempfile.mkdtemp(prefix="safe-sandbox-"))
 
         try:
             # Prepare virtual environment with dependencies
             python_path = shutil.which("python3") or "python3"
+            allowed_modules: set[str] = set()
 
             if dependencies:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)
@@ -950,21 +1028,33 @@ class SafePythonExecutor:
                             shutil.rmtree(temp_venv, ignore_errors=True)
 
                 python_path = str(cached_venv / "bin" / "python")
+                allowed_modules = self._get_allowed_modules(
+                    dependencies,
+                    venv_path=cached_venv,
+                )
+            else:
+                allowed_modules = self._get_allowed_modules([])
+
+            # Validate script after dependency resolution
+            self._validate_script(script, allowed_modules, allow_network)
 
             # Write script files
             (work_dir / "script.py").write_text(script)
             (work_dir / "inputs.json").write_text(json.dumps(inputs or {}))
 
             # Generate import hook with allowed modules
-            allowed_modules = self._get_allowed_modules(dependencies or [])
             blocked_modules = set(SYSTEM_ACCESS_MODULES)
             if not allow_network:
                 blocked_modules.update(NETWORK_MODULES)
 
+            safe_stdlib = set(SAFE_STDLIB_MODULES)
+            if allow_network:
+                safe_stdlib.update(NETWORK_MODULES)
+
             import_hook = IMPORT_HOOK_TEMPLATE.format(
                 allowed_modules=allowed_modules,
                 blocked_modules=blocked_modules,
-                safe_stdlib=set(SAFE_STDLIB_MODULES),
+                safe_stdlib=safe_stdlib,
             )
 
             # Generate wrapper with import hook prepended

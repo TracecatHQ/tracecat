@@ -3,10 +3,13 @@
 from typing import Annotated, Any
 from typing_extensions import Doc
 
-from tracecat.agent.factory import build_agent
-from tracecat.agent.runtime import run_agent_sync
-from tracecat.agent.types import AgentConfig, OutputType
-from tracecat.registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry.sdk.agents import (
+    AgentConfig,
+    OutputType,
+    build_agent,
+    run_agent_sync,
+)
 from tracecat_registry import (
     ActionIsInterfaceError,
     RegistrySecret,
