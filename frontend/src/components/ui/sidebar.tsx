@@ -436,7 +436,7 @@ const SidebarGroupLabel = React.forwardRef<
       ref={ref}
       data-sidebar="group-label"
       className={cn(
-        "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 outline-none ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+        "flex h-8 shrink-0 items-center rounded-md px-2 text-[11px] font-medium text-sidebar-foreground/70 outline-none ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
         "group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
         className
       )}
@@ -509,7 +509,7 @@ const SidebarMenuItem = React.forwardRef<
 SidebarMenuItem.displayName = "SidebarMenuItem"
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-sm py-2.5 px-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 outline-none ring-sidebar-ring transition-[width,height,padding,background-color] hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 focus-visible:ring-2 active:bg-foreground/5 dark:active:bg-foreground/10 disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-foreground/5 data-[active=true]:brightness-95 data-[active=true]:text-zinc-900 dark:data-[active=true]:bg-foreground/10 dark:data-[active=true]:text-zinc-100 data-[state=open]:hover:bg-zinc-100 dark:data-[state=open]:hover:bg-zinc-900 group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-2 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-sm py-1.5 px-1.5 text-left text-[13px] text-zinc-700 dark:text-zinc-300 outline-none ring-sidebar-ring transition-[width,height,padding,background-color] hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 focus-visible:ring-2 active:bg-foreground/5 dark:active:bg-foreground/10 disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-foreground/5 data-[active=true]:brightness-95 data-[active=true]:text-zinc-900 dark:data-[active=true]:bg-foreground/10 dark:data-[active=true]:text-zinc-100 data-[state=open]:hover:bg-zinc-100 dark:data-[state=open]:hover:bg-zinc-900 group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-2 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -518,9 +518,9 @@ const sidebarMenuButtonVariants = cva(
           "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
       },
       size: {
-        default: "h-8 text-sm",
-        sm: "h-7 text-xs",
-        lg: "h-10 text-sm group-data-[collapsible=icon]:!p-0",
+        default: "h-7 text-[13px]",
+        sm: "h-6 text-xs",
+        lg: "h-9 text-[13px] group-data-[collapsible=icon]:!p-0",
       },
     },
     defaultVariants: {
