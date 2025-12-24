@@ -3,9 +3,10 @@
 import {
   BotIcon,
   BracketsIcon,
+  ChevronDown,
   KeyRoundIcon,
   type LucideIcon,
-  MessageSquareIcon,
+  SquarePlus,
   SquareStackIcon,
   Table2Icon,
   UserCheckIcon,
@@ -14,11 +15,16 @@ import {
   ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams, usePathname } from "next/navigation"
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Sidebar,
   SidebarContent,
@@ -33,6 +39,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -41,6 +48,8 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
   const params = useParams<{ caseId?: string }>()
   const { setOpen: setSidebarOpen } = useSidebar()
@@ -49,6 +58,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
+  const [isCreatingChat, setIsCreatingChat] = useState(false)
+  const { createChat } = useCreateChat(workspaceId)
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -73,11 +84,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const navMain: NavItem[] = [
     {
-      title: "Copilot",
+      title: "New chat",
       url: `${basePath}/copilot`,
-      icon: MessageSquareIcon,
-      isActive: pathname?.startsWith(`${basePath}/copilot`),
+      icon: SquarePlus,
+      isActive:
+        pathname === `${basePath}/copilot` && !searchParams?.get("chatId"),
     },
+    {
+      title: "Approvals",
+      url: `${basePath}/approvals`,
+      icon: UserCheckIcon,
+      isActive: pathname?.startsWith(`${basePath}/approvals`),
+    },
+  ]
+
+  const navWorkspace = [
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
@@ -96,15 +117,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: BotIcon,
       isActive: pathname?.startsWith(`${basePath}/agents`),
     },
-    {
-      title: "Approvals",
-      url: `${basePath}/approvals`,
-      icon: UserCheckIcon,
-      isActive: pathname?.startsWith(`${basePath}/approvals`),
-    },
-  ]
-
-  const navWorkspace = [
     {
       title: "Tables",
       url: `${basePath}/tables`,
@@ -137,6 +149,32 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ]
 
+  const { chats } = useListChats({
+    workspaceId,
+    entityType: "copilot",
+    entityId: workspaceId,
+    limit: 100,
+  })
+
+  const recentChats = chats?.slice(0, 10)
+
+  const handleNewChat = useCallback(async () => {
+    if (isCreatingChat) return
+    setIsCreatingChat(true)
+    try {
+      const newChat = await createChat({
+        title: `Chat ${(chats?.length || 0) + 1}`,
+        entity_type: "copilot",
+        entity_id: workspaceId,
+      })
+      router.push(`${basePath}/copilot?chatId=${newChat.id}`)
+    } catch (error) {
+      console.error("Failed to create chat:", error)
+    } finally {
+      setIsCreatingChat(false)
+    }
+  }, [isCreatingChat, createChat, workspaceId, router, basePath, chats])
+
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
@@ -150,12 +188,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 .filter((item) => item.visible !== false)
                 .map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={item.isActive}>
-                      <Link href={item.url}>
+                    {item.title === "New chat" ? (
+                      <SidebarMenuButton
+                        onClick={handleNewChat}
+                        disabled={isCreatingChat}
+                        isActive={item.isActive}
+                      >
                         <item.icon />
                         <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
+                      </SidebarMenuButton>
+                    ) : (
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    )}
                   </SidebarMenuItem>
                 ))}
             </SidebarMenu>
@@ -178,6 +227,39 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <SidebarGroupLabel asChild>
+              <CollapsibleTrigger>
+                Chats
+                <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </CollapsibleTrigger>
+            </SidebarGroupLabel>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {recentChats?.map((chat) => (
+                    <SidebarMenuItem key={chat.id}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={
+                          pathname === `${basePath}/copilot` &&
+                          searchParams?.get("chatId") === chat.id
+                        }
+                      >
+                        <Link href={`${basePath}/copilot?chatId=${chat.id}`}>
+                          <span className="truncate">
+                            {chat.title || "Untitled Chat"}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
       </SidebarContent>
       <SidebarFooter>
         <SidebarUserNav />
