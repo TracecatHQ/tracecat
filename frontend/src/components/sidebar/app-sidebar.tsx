@@ -1,28 +1,61 @@
 "use client"
 
 import {
-  BotIcon,
   ChevronDown,
   type LucideIcon,
+  MoreHorizontal,
+  PencilIcon,
   Settings2Icon,
   SquarePlus,
   SquareStackIcon,
   Table2Icon,
+  TrashIcon,
   UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
+import {
+  useParams,
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation"
 import type * as React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { ChatRead } from "@/client"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import {
   Sidebar,
   SidebarContent,
@@ -32,6 +65,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -40,8 +74,126 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { useCreateChat, useListChats } from "@/hooks/use-chat"
+import {
+  useCreateChat,
+  useDeleteChat,
+  useListChats,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+function ChatSidebarItem({
+  chat,
+  workspaceId,
+  isActive,
+  basePath,
+}: {
+  chat: ChatRead
+  workspaceId: string
+  isActive: boolean
+  basePath: string
+}) {
+  const router = useRouter()
+  const { updateChat } = useUpdateChat(workspaceId)
+  const { deleteChat } = useDeleteChat(workspaceId)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [newName, setNewName] = useState(chat.title)
+
+  const handleRename = async () => {
+    try {
+      await updateChat({ chatId: chat.id, update: { title: newName } })
+      setIsRenaming(false)
+    } catch (error) {
+      console.error("Failed to rename chat:", error)
+    }
+  }
+
+  const handleDelete = async () => {
+    try {
+      await deleteChat({ chatId: chat.id })
+      setIsDeleting(false)
+      router.push(`${basePath}/copilot`)
+    } catch (error) {
+      console.error("Failed to delete chat:", error)
+    }
+  }
+
+  return (
+    <>
+      <SidebarMenuItem>
+        <SidebarMenuButton asChild isActive={isActive}>
+          <Link href={`${basePath}/copilot?chatId=${chat.id}`}>
+            <span className="truncate">{chat.title || "Untitled Chat"}</span>
+          </Link>
+        </SidebarMenuButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuAction showOnHover>
+              <MoreHorizontal />
+              <span className="sr-only">More</span>
+            </SidebarMenuAction>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-48" side="bottom" align="end">
+            <DropdownMenuItem onClick={() => setIsRenaming(true)}>
+              <PencilIcon className="mr-2 size-3.5" />
+              <span>Rename</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setIsDeleting(true)}
+              className="text-destructive focus:text-destructive"
+            >
+              <TrashIcon className="mr-2 size-3.5" />
+              <span>Delete</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+
+      <Dialog open={isRenaming} onOpenChange={setIsRenaming}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Chat</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleRename()
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRenaming(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleRename}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={isDeleting} onOpenChange={setIsDeleting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the chat "{chat.title}". This action
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
@@ -266,21 +418,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {recentChats?.map((chat) => (
-                    <SidebarMenuItem key={chat.id}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={
-                          pathname === `${basePath}/copilot` &&
-                          searchParams?.get("chatId") === chat.id
-                        }
-                      >
-                        <Link href={`${basePath}/copilot?chatId=${chat.id}`}>
-                          <span className="truncate">
-                            {chat.title || "Untitled Chat"}
-                          </span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
+                    <ChatSidebarItem
+                      key={chat.id}
+                      chat={chat}
+                      workspaceId={workspaceId}
+                      basePath={basePath}
+                      isActive={
+                        pathname === `${basePath}/copilot` &&
+                        searchParams?.get("chatId") === chat.id
+                      }
+                    />
                   ))}
                 </SidebarMenu>
               </SidebarGroupContent>

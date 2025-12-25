@@ -17,6 +17,7 @@ import {
   type ChatUpdate,
   type ContinueRunRequest,
   chatCreateChat,
+  chatDeleteChat,
   chatGetChat,
   chatGetChatVercel,
   chatListChats,
@@ -197,6 +198,37 @@ export function useUpdateChat(workspaceId: string) {
     updateChat: mutation.mutateAsync,
     isUpdating: mutation.isPending,
     updateError: mutation.error,
+  }
+}
+
+// Hook for deleting a chat
+export function useDeleteChat(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<void, ApiError, { chatId: string }>({
+    mutationFn: ({ chatId }) =>
+      chatDeleteChat({
+        chatId,
+        workspaceId,
+      }),
+    onSuccess: (_, variables) => {
+      // Invalidate and refetch chat data
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chats", workspaceId],
+      })
+    },
+  })
+
+  return {
+    deleteChat: mutation.mutateAsync,
+    isDeleting: mutation.isPending,
+    deleteError: mutation.error,
   }
 }
 
