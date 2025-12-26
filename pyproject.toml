@@ -146,9 +146,7 @@ xfail_strict = true
 log_level = "ERROR"
 log_cli = true
 log_cli_level = "ERROR"
-filterwarnings = [
-    "ignore:Pydantic serializer warnings:UserWarning",
-]
+filterwarnings = ["ignore:Pydantic serializer warnings:UserWarning"]
 markers = [
     "anyio: marks tests as requiring the anyio pytest plugin",
     "webtest: marks tests that require the web",
