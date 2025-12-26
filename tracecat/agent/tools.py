@@ -1,9 +1,16 @@
 """Functions that create and call tools added to the agent."""
 
+from __future__ import annotations
+
+import asyncio
 import inspect
 import keyword
+import os
+import sys
+import tempfile
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import orjson
@@ -19,20 +26,12 @@ from pydantic_core import PydanticUndefined
 from tracecat_registry import RegistrySecretType
 
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
+from tracecat.contexts import ctx_role
 from tracecat.db.models import RegistryAction
-from tracecat.dsl.common import create_default_execution_context
-from tracecat.executor.service import (
-    _run_action_direct,
-    get_workspace_variables,
-    run_template_action,
-)
-from tracecat.expressions.common import ExprContext
-from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import BoundRegistryAction, RegistryActionOptions
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.secrets import secrets_manager
 
 
 def create_tool_call_message(
@@ -83,53 +82,102 @@ def create_tool_return_message(
 async def call_tracecat_action(
     action_name: str,
     args: dict[str, Any],
-    *,
-    service: RegistryActionsService | None = None,
 ) -> Any:
-    # Use provided service or create a new session context
-    if service is None:
-        async with RegistryActionsService.with_session() as session_service:
-            return await call_tracecat_action(
-                action_name, args, service=session_service
+    """Execute a Tracecat action in a subprocess.
+
+    This spawns a separate process to run the action, providing process isolation
+    and avoiding load on the executor service which handles workflow executions.
+
+    Uses temporary files for input/output to avoid Unix pipe buffer limits (64KB).
+
+    Args:
+        action_name: The action to execute (e.g., "core.http_request")
+        args: Arguments to pass to the action
+
+    Returns:
+        The action result
+    """
+
+    # Get the current role context to pass to subprocess
+    role = ctx_role.get()
+    role_data = role.model_dump(mode="json") if role else None
+
+    # Use temp files for input/output to avoid pipe buffer limits
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir) / "input.json"
+        output_path = Path(tmpdir) / "output.json"
+
+        # Write input payload to file
+        payload = orjson.dumps(
+            {
+                "action_name": action_name,
+                "args": args,
+                "role": role_data,
+            }
+        )
+        input_path.write_bytes(payload)
+
+        # Run the subprocess
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "tracecat.agent._subprocess_runner",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            stderr=asyncio.subprocess.PIPE,
+            env=os.environ.copy(),
+        )
+
+        stdout, stderr = await proc.communicate()
+        logger.info(
+            "Subprocess completed",
+            returncode=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        if proc.returncode != 0:
+            error_msg = stderr.decode() if stderr else "Unknown subprocess error"
+            logger.error(
+                "Subprocess failed",
+                action_name=action_name,
+                returncode=proc.returncode,
+                stderr=error_msg,
             )
+            raise ModelRetry(f"Action execution failed: {error_msg}")
 
-    # Service provided - use it directly
-    reg_action = await service.get_action(action_name)
-    action_secrets = await service.fetch_all_action_secrets(reg_action)
-    bound_action = service.get_bound(reg_action, mode="execution")
+        # Read output from file
+        if not output_path.exists():
+            logger.error(
+                "Subprocess did not produce output file",
+                action_name=action_name,
+            )
+            raise ModelRetry("Action execution failed: no output produced")
 
-    collected = collect_expressions(args)
-    secrets = await secrets_manager.get_action_secrets(
-        secret_exprs=collected.secrets, action_secrets=action_secrets
-    )
-    ws_vars = await get_workspace_variables(variable_exprs=collected.variables)
+        try:
+            result = orjson.loads(output_path.read_bytes())
+        except orjson.JSONDecodeError as e:
+            logger.error(
+                "Failed to parse subprocess output",
+                action_name=action_name,
+                error=str(e),
+            )
+            raise ModelRetry(f"Failed to parse action result: {e}") from e
+        else:
+            # Best-effort cleanup after reading output.
+            try:
+                output_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
-    # Call action with secrets in environment
-    context = create_default_execution_context()
-    context[ExprContext.SECRETS] = secrets
-    context[ExprContext.VARS] = ws_vars
+    if not result.get("success"):
+        error = result.get("error", "Unknown error")
+        logger.error("Action execution failed", action_name=action_name, error=error)
+        raise ModelRetry(error)
 
-    flattened_secrets = secrets_manager.flatten_secrets(secrets)
-    try:
-        args = eval_templated_object(args, operand=context)
-        with secrets_manager.env_sandbox(flattened_secrets):
-            # Call directly based on action type
-            if bound_action.is_template:
-                # For templates, pass the context with secrets
-                result = await run_template_action(
-                    action=bound_action,
-                    args=args,
-                    context=context,
-                )
-            else:
-                # UDFs can be called directly - secrets are now in the environment
-                result = await _run_action_direct(
-                    action=bound_action,
-                    args=args,
-                )
-    except Exception as e:
-        raise ModelRetry(str(e)) from e
-    return result
+    return result.get("result")
 
 
 async def create_tool_from_registry(
@@ -202,7 +250,7 @@ async def create_tool_from_registry(
         raise ValueError(f"Action '{action_name}' has no description")
 
     # Set function signature and annotations
-    tool_func.__signature__ = sig.signature
+    tool_func.__signature__ = sig.signature  # pyright: ignore[reportFunctionMemberAccess]
     tool_func.__annotations__ = sig.annotations
 
     # Generate Google-style docstring, excluding fixed args
