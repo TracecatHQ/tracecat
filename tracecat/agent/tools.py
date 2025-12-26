@@ -130,7 +130,18 @@ async def call_tracecat_action(
             env=os.environ.copy(),
         )
 
-        _, stderr = await proc.communicate()
+        try:
+            _, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            # Ensure the subprocess doesn't outlive a cancelled tool call.
+            if proc.returncode is None:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+            raise
 
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown subprocess error"
