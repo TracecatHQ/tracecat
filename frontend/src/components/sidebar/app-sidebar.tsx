@@ -7,12 +7,14 @@ import {
   PencilIcon,
   Settings2Icon,
   SquarePlus,
+  Plus,
   SquareStackIcon,
   Table2Icon,
   TrashIcon,
   UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
+  Bot,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -61,6 +63,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -80,6 +83,8 @@ import {
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
+import { useAgentPresets } from "@/hooks"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function ChatSidebarItem({
@@ -213,6 +218,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const isCasesList = pathname === casesListPath
   const [isCreatingChat, setIsCreatingChat] = useState(false)
   const { createChat } = useCreateChat(workspaceId)
+  const { isFeatureEnabled } = useFeatureFlag()
+  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { presets } = useAgentPresets(workspaceId, {
+    enabled: agentPresetsEnabled,
+  })
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -365,47 +375,95 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navWorkspace.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  {item.items ? (
-                    <SidebarMenuItem>
-                      <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
-                        <item.icon className="size-4 shrink-0" />
-                        <span className="font-medium">{item.title}</span>
-                      </div>
-                      <SidebarMenuSub>
-                        {item.items.map((subItem) => (
-                          <SidebarMenuSubItem key={subItem.title}>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={subItem.isActive}
-                              className="text-[13px]"
-                            >
-                              <Link href={subItem.url}>
-                                <span>{subItem.title}</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <SidebarGroupLabel asChild>
+              <CollapsibleTrigger>
+                Workspace
+                <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </CollapsibleTrigger>
+            </SidebarGroupLabel>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {navWorkspace.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      {item.items ? (
+                        <SidebarMenuItem>
+                          <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
+                            <item.icon className="size-4 shrink-0" />
+                            <span className="font-medium">{item.title}</span>
+                          </div>
+                          <SidebarMenuSub>
+                            {item.items.map((subItem) => (
+                              <SidebarMenuSubItem key={subItem.title}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={subItem.isActive}
+                                  className="text-[13px]"
+                                >
+                                  <Link href={subItem.url}>
+                                    <span>{subItem.title}</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ))}
+                          </SidebarMenuSub>
+                        </SidebarMenuItem>
+                      ) : (
+                        <SidebarMenuButton asChild isActive={item.isActive}>
+                          <Link href={item.url!}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      )}
                     </SidebarMenuItem>
-                  ) : (
-                    <SidebarMenuButton asChild isActive={item.isActive}>
-                      <Link href={item.url!}>
-                        <item.icon />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  )}
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+        {agentPresetsEnabled ? (
+          <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup className="group/label">
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger>
+                  Agents
+                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <SidebarGroupAction
+                title="New agent"
+                asChild
+                className="mr-5 opacity-0 transition-opacity group-hover/label:opacity-100"
+              >
+                <Link href={`${basePath}/agents/new`}>
+                  <Plus /> <span className="sr-only">New agent</span>
+                </Link>
+              </SidebarGroupAction>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {presets?.map((preset) => (
+                      <SidebarMenuItem key={preset.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={pathname?.includes(`/agents/${preset.id}`)}
+                        >
+                          <Link href={`${basePath}/agents/${preset.id}`}>
+                            <span className="truncate">{preset.name}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        ) : null}
         <Collapsible defaultOpen className="group/collapsible">
           <SidebarGroup>
             <SidebarGroupLabel asChild>

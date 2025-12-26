@@ -99,7 +99,6 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -286,8 +285,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [mcpIntegrations])
 
-  const currentTab = searchParams?.get("tab") === "chat" ? "chat" : "presets"
-
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
@@ -305,14 +302,9 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         return
       }
       const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
-      const params = new URLSearchParams(searchParams?.toString())
-      params.set("tab", currentTab)
-      const url = params.toString()
-        ? `${nextPath}?${params.toString()}`
-        : nextPath
-      router.replace(url)
+      router.replace(nextPath)
     },
-    [activePresetId, router, searchParams, currentTab, workspaceId]
+    [activePresetId, router, workspaceId]
   )
 
   // Fetch full preset data when a preset is selected (not in create mode)
@@ -345,23 +337,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       handleSetSelectedPresetId(NEW_PRESET_ID)
     }
   }, [presets, handleSetSelectedPresetId, presetId, presetsIsLoading])
-
-  const chatTabDisabled =
-    !selectedPreset && !presetIsLoading && !featureFlagsLoading
-
-  useEffect(() => {
-    if (chatTabDisabled && currentTab === "chat") {
-      if (!pathname) {
-        return
-      }
-      const params = new URLSearchParams(searchParams?.toString())
-      params.set("tab", "presets")
-      const url = params.toString()
-        ? `${pathname}?${params.toString()}`
-        : pathname
-      router.replace(url)
-    }
-  }, [chatTabDisabled, pathname, router, searchParams, currentTab])
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -452,64 +427,10 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel defaultSize={26} minSize={18}>
           <div className="flex h-full flex-col border-r bg-muted/40">
-            <Tabs
-              value={currentTab}
-              onValueChange={(value) => {
-                if (value === "chat" && chatTabDisabled) {
-                  return
-                }
-                if (!pathname) {
-                  return
-                }
-                const nextTab = value as "presets" | "chat"
-                const params = new URLSearchParams(searchParams?.toString())
-                params.set("tab", nextTab)
-                const url = params.toString()
-                  ? `${pathname}?${params.toString()}`
-                  : pathname
-                router.replace(url)
-              }}
-              className="flex h-full flex-col"
-            >
-              <div className="px-3 pt-3">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="presets" disableUnderline>
-                    <Bot className="mr-1.5 h-3.5 w-3.5" />
-                    Agents
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="chat"
-                    disabled={chatTabDisabled}
-                    disableUnderline
-                  >
-                    <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
-                    Live chat
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-              <div className="flex-1 min-h-0">
-                <TabsContent
-                  value="presets"
-                  className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
-                >
-                  <PresetsSidebar
-                    presets={presets ?? []}
-                    selectedId={activePresetId}
-                    workspaceId={workspaceId}
-                    onCreate={() => handleSetSelectedPresetId(NEW_PRESET_ID)}
-                  />
-                </TabsContent>
-                <TabsContent
-                  value="chat"
-                  className="h-full flex-col px-0 py-0 data-[state=active]:flex data-[state=inactive]:hidden"
-                >
-                  <AgentPresetChatPane
-                    preset={selectedPreset ?? null}
-                    workspaceId={workspaceId}
-                  />
-                </TabsContent>
-              </div>
-            </Tabs>
+            <AgentPresetChatPane
+              preset={selectedPreset ?? null}
+              workspaceId={workspaceId}
+            />
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
@@ -573,141 +494,6 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
-  )
-}
-
-function PresetsSidebar({
-  presets,
-  selectedId,
-  workspaceId,
-  onCreate,
-}: {
-  presets: AgentPresetReadMinimal[]
-  selectedId: string
-  workspaceId: string
-  onCreate: () => void
-}) {
-  const list = presets
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div>
-          <p className="text-xs text-muted-foreground">{list.length} agents</p>
-        </div>
-        <Button size="sm" onClick={onCreate} variant="ghost">
-          <Plus className="mr-2 size-4" />
-          New
-        </Button>
-      </div>
-      <div className="flex-1 min-h-0">
-        {list.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-2">
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Bot />
-                </EmptyMedia>
-                <EmptyTitle>No agent preset found.</EmptyTitle>
-                <EmptyDescription>
-                  Create an AI agent preset to reuse across workflows, cases,
-                  and chat.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </div>
-        ) : (
-          <ScrollArea className="h-full">
-            <div className="px-2 py-3 space-y-1">
-              {list.map((preset) => (
-                <SidebarItem
-                  key={preset.id}
-                  href={`/workspaces/${workspaceId}/agents/${preset.id}`}
-                  active={selectedId === preset.id}
-                  title={preset.name}
-                  description={preset.description}
-                  slug={preset.slug}
-                />
-              ))}
-            </div>
-          </ScrollArea>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SidebarItem({
-  active,
-  href,
-  title,
-  description,
-  slug,
-  status,
-}: {
-  active?: boolean
-  href: string
-  title: string
-  description?: string | null
-  slug?: string
-  status?: string | null
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "block w-full rounded-md border px-3 py-2.5 text-left transition-colors",
-        active
-          ? "border-primary bg-primary/10 text-foreground shadow-sm"
-          : "border-transparent bg-background text-foreground hover:border-border hover:bg-accent/50"
-      )}
-    >
-      <div className="flex items-center justify-between text-sm font-medium">
-        <span className="truncate">{title}</span>
-        {slug ? (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "ml-2 shrink-0 text-xs font-normal",
-                    active ? "text-foreground/80" : "text-muted-foreground"
-                  )}
-                >
-                  {slug}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>
-                  Agent preset slug used to identify the preset in workflows.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : status ? (
-          <Badge
-            variant="outline"
-            className={cn(
-              "ml-2 border-muted-foreground/40 text-xs font-normal shrink-0",
-              active ? "text-foreground/80" : "text-muted-foreground"
-            )}
-          >
-            {status}
-          </Badge>
-        ) : null}
-      </div>
-      {description ? (
-        <p
-          className={cn(
-            "mt-1.5 line-clamp-1 text-xs",
-            active ? "text-muted-foreground" : "text-muted-foreground/70"
-          )}
-        >
-          {description}
-        </p>
-      ) : null}
-    </Link>
   )
 }
 
