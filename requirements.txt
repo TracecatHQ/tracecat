@@ -2515,9 +2515,9 @@ sqlalchemy==2.0.45 \
     #   alembic-utils
     #   fastapi-users-db-sqlalchemy
     #   tracecat
-sse-starlette==3.0.4 \
-    --hash=sha256:32c80ef0d04506ced4b0b6ab8fe300925edc37d26f666afb1874c754895f5dc3 \
-    --hash=sha256:5e34286862e96ead0eb70f5ddd0bd21ab1f6473a8f44419dd267f431611383dd
+sse-starlette==3.1.1 \
+    --hash=sha256:bb38f71ae74cfd86b529907a9fda5632195dfa6ae120f214ea4c890c7ee9d436 \
+    --hash=sha256:bffa531420c1793ab224f63648c059bcadc412bf9fdb1301ac8de1cf9a67b7fb
     # via mcp
 starlette==0.49.3 \
     --hash=sha256:1c14546f299b5901a1ea0e34410575bc33bbd741377a10484a54445588d00284 \

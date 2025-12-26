@@ -501,33 +501,6 @@ export function NewCredentialsDialog({
                   "CA certificate",
                   "-----BEGIN CERTIFICATE-----"
                 )}
-              {secretType === "ssh-key" && (
-                <SshPrivateKeyField
-                  control={control}
-                  register={register}
-                  name="private_key"
-                />
-              )}
-              {secretType === "mtls" && (
-                <>
-                  {renderTextareaField(
-                    "tls_certificate",
-                    "TLS certificate",
-                    "-----BEGIN CERTIFICATE-----"
-                  )}
-                  {renderTextareaField(
-                    "tls_private_key",
-                    "TLS private key",
-                    "-----BEGIN PRIVATE KEY-----"
-                  )}
-                </>
-              )}
-              {secretType === "ca-cert" &&
-                renderTextareaField(
-                  "ca_certificate",
-                  "CA certificate",
-                  "-----BEGIN CERTIFICATE-----"
-                )}
             </div>
             <DialogFooter className="flex-shrink-0 pt-4">
               <DialogClose asChild>
