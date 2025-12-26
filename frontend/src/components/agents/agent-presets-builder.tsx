@@ -581,21 +581,7 @@ function AgentPresetChatPane({
 
   const renderBody = () => {
     if (!preset) {
-      return (
-        <div className="flex h-full items-center justify-center px-4">
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <MessageCircle />
-              </EmptyMedia>
-              <EmptyTitle>Select a saved preset</EmptyTitle>
-              <EmptyDescription>
-                Select a saved preset to start a conversation.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </div>
-      )
+      return null
     }
 
     if (providersStatusLoading) {
@@ -722,7 +708,7 @@ function AgentPresetChatPane({
     <div className="flex h-full flex-col bg-background">
       <div className="flex h-10 items-center justify-between border-b px-3">
         <p className="text-xs text-muted-foreground">
-          {preset ? `Chat with ${preset.name}` : "Select a preset to begin"}
+          {preset ? `Chat with ${preset.name}` : "Live chat"}
         </p>
         <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
           <AlertDialogTrigger asChild>
