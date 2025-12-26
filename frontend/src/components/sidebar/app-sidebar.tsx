@@ -5,16 +5,15 @@ import {
   type LucideIcon,
   MoreHorizontal,
   PencilIcon,
+  Plus,
   Settings2Icon,
   SquarePlus,
-  Plus,
   SquareStackIcon,
   Table2Icon,
   TrashIcon,
   UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
-  Bot,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -77,13 +76,13 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useAgentPresets } from "@/hooks"
 import {
   useCreateChat,
   useDeleteChat,
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
-import { useAgentPresets } from "@/hooks"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 

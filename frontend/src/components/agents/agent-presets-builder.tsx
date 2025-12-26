@@ -23,7 +23,7 @@ import {
   Type,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import {
   type MouseEvent,
   useCallback,
@@ -37,7 +37,6 @@ import { z } from "zod"
 import type {
   AgentPresetCreate,
   AgentPresetRead,
-  AgentPresetReadMinimal,
   AgentPresetUpdate,
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
@@ -59,7 +58,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -100,12 +98,6 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import {
   useAgentPreset,
   useAgentPresets,
@@ -252,8 +244,6 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
 
 export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
@@ -310,7 +300,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   // Fetch full preset data when a preset is selected (not in create mode)
   const selectedPresetId =
     activePresetId === NEW_PRESET_ID ? null : activePresetId
-  const { preset: selectedPreset, presetIsLoading } = useAgentPreset(
+  const { preset: selectedPreset } = useAgentPreset(
     workspaceId,
     selectedPresetId,
     {
@@ -1723,9 +1713,7 @@ function AgentPresetBuilderChatPane({
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>
-                Reset the builder assistant?
-              </AlertDialogTitle>
+              <AlertDialogTitle>Reset the builder assistant?</AlertDialogTitle>
               <AlertDialogDescription>
                 This will start a new conversation. Your current chat history
                 will no longer be accessible.
