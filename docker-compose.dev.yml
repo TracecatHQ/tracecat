@@ -33,7 +33,6 @@ services:
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
-      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
@@ -104,7 +103,6 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
-      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
@@ -140,18 +138,13 @@ services:
       redis:
         condition: service_healthy
 
-  executor:
+  executor-worker:
     build:
       context: .
       dockerfile: Dockerfile
       target: development
     restart: unless-stopped
-    ports:
-      - ${EXECUTOR_DASHBOARD_PORT:-8265}:8265
-      # NOTE: Unit tests in `test_workflows.py` need
-      # to connect to the executor directly
-      - ${EXECUTOR_API_PORT:-8001}:8000
-    # Required for nsjail sandbox
+    # Required for nsjail sandbox (when enabled)
     cap_add:
       - SYS_ADMIN
     security_opt:
@@ -177,33 +170,29 @@ services:
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
       TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
-      # PyPI Configuration (optional - for private mirrors or air-gapped deployments)
-      # TRACECAT__SANDBOX_PYPI_INDEX_URL: https://pypi.org/simple  # Default
-      # TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS: https://extra.pypi.example.com/simple  # Optional
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      # Executor worker configuration
+      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
+      # Pool size auto-scales based on available CPUs if not set
+      TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       # Redis
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
-      # Modal
-      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
-      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
+      # Blob storage (for S3/MinIO wheel access)
+      TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
-    command:
-      [
-        "python",
-        "-m",
-        "uvicorn",
-        "tracecat.api.executor:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000",
-        "--reload",
-      ]
+    command: ["python", "-m", "tracecat.executor.worker"]
     depends_on:
       postgres_db:
         condition: service_healthy
