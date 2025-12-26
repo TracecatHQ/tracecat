@@ -130,13 +130,7 @@ async def call_tracecat_action(
             env=os.environ.copy(),
         )
 
-        stdout, stderr = await proc.communicate()
-        logger.info(
-            "Subprocess completed",
-            returncode=proc.returncode,
-            stdout=stdout,
-            stderr=stderr,
-        )
+        _, stderr = await proc.communicate()
 
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown subprocess error"
