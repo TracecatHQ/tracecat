@@ -67,16 +67,6 @@ def test_text_part_delta_conversion():
     assert unified.text == " world"
 
 
-def test_text_part_delta_with_none_content():
-    """Test TextPartDelta with None content delta."""
-    native = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta=None))
-    unified = PydanticAIAdapter.to_unified_event(native)
-
-    assert unified.type == StreamEventType.TEXT_DELTA
-    assert unified.part_id == 0
-    assert unified.text is None
-
-
 # ==============================================================================
 # Thinking/Reasoning Part Conversion Tests
 # ==============================================================================
@@ -165,24 +155,6 @@ def test_tool_call_start_with_empty_args():
     assert unified.tool_input == {}
 
 
-def test_tool_call_start_without_tool_call_id():
-    """Test ToolCallPart start without tool_call_id generates a UUID."""
-    native = PartStartEvent(
-        index=0,
-        part=ToolCallPart(
-            tool_name="search",
-            tool_call_id=None,
-            args={"query": "test"},
-        ),
-    )
-    unified = PydanticAIAdapter.to_unified_event(native)
-
-    assert unified.type == StreamEventType.TOOL_CALL_START
-    assert unified.tool_call_id is not None
-    # Should be a valid UUID format
-    assert len(unified.tool_call_id) > 0
-
-
 def test_tool_call_delta_conversion():
     """Test ToolCallPartDelta conversion."""
     native = PartDeltaEvent(
@@ -238,22 +210,6 @@ def test_function_tool_call_event_conversion():
     assert unified.tool_input == {"query": "test", "limit": 10}
 
 
-def test_function_tool_call_event_without_tool_call_id():
-    """Test FunctionToolCallEvent without tool_call_id generates a UUID."""
-    native = FunctionToolCallEvent(
-        part=ToolCallPart(
-            tool_name="search",
-            tool_call_id=None,
-            args={"query": "test"},
-        )
-    )
-    unified = PydanticAIAdapter.to_unified_event(native)
-
-    assert unified.type == StreamEventType.TOOL_CALL_STOP
-    assert unified.tool_call_id is not None
-    assert len(unified.tool_call_id) > 0
-
-
 # ==============================================================================
 # Tool Result Conversion Tests
 # ==============================================================================
@@ -274,8 +230,8 @@ def test_tool_return_part_success():
     assert unified.tool_call_id == "call_123"
     assert unified.tool_name == "search"
     assert unified.is_error is False
-    # Content is converted to string
-    assert "results" in unified.tool_output
+    assert unified.tool_output is not None
+    assert unified.tool_output["results"] == ["item1", "item2"]
 
 
 def test_tool_return_part_with_string_content():
@@ -308,24 +264,8 @@ def test_retry_prompt_part_error():
     assert unified.type == StreamEventType.TOOL_RESULT
     assert unified.tool_name == "search"
     assert unified.is_error is True
-    assert "Validation error" in unified.tool_output
-
-
-def test_retry_prompt_part_with_list_content():
-    """Test RetryPromptPart with list content."""
-    native = FunctionToolResultEvent(
-        result=RetryPromptPart(
-            tool_name="calculate",
-            tool_call_id="call_456",
-            content=["error1", "error2"],
-        )
-    )
-    unified = PydanticAIAdapter.to_unified_event(native)
-
-    assert unified.type == StreamEventType.TOOL_RESULT
-    assert unified.is_error is True
-    # List content is converted to string
     assert unified.tool_output is not None
+    assert "Validation error" in unified.tool_output
 
 
 # ==============================================================================

@@ -9,7 +9,6 @@ Note: This adapter requires the claude-agent-sdk package to be installed.
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any
 
 from tracecat.agent.adapter.base import BaseHarnessAdapter
@@ -78,7 +77,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
         # Store block metadata in context for stop event
         context[index] = {
             "block_type": block_type,
-            "tool_id": content_block.get("id"),
+            "tool_call_id": content_block.get("id"),
             "tool_name": content_block.get("name"),
             "args_json": "",
         }
@@ -94,10 +93,14 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 part_id=index,
             )
         elif block_type == "tool_use":
+            # Claude API always provides an id for tool_use blocks
+            tool_call_id = content_block.get("id")
+            if tool_call_id is None:
+                raise ValueError("Claude tool_use block missing required 'id' field")
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_START,
                 part_id=index,
-                tool_call_id=content_block.get("id", str(uuid.uuid4())),
+                tool_call_id=tool_call_id,
                 tool_name=content_block.get("name", "unknown"),
                 tool_input={},
             )
@@ -168,10 +171,16 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             except json.JSONDecodeError:
                 args = {}
 
+            # tool_call_id was stored from content_block_start - should always exist
+            tool_call_id = state.get("tool_call_id")
+            if tool_call_id is None:
+                raise ValueError(
+                    "Missing tool_call_id in context for tool_use stop event"
+                )
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_STOP,
                 part_id=index,
-                tool_call_id=state.get("tool_id") or str(uuid.uuid4()),
+                tool_call_id=tool_call_id,
                 tool_name=state.get("tool_name") or "unknown",
                 tool_input=args,
             )

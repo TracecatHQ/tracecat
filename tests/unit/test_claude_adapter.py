@@ -208,23 +208,6 @@ def test_tool_use_block_start():
     assert unified.tool_input == {}
 
 
-def test_tool_use_block_start_without_id():
-    """Test tool_use start without id generates a UUID."""
-    native = make_stream_event(
-        {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "tool_use", "name": "search"},
-        }
-    )
-    context: dict = {}
-    unified = ClaudeSDKAdapter.to_unified_event(native, context)
-
-    assert unified.type == StreamEventType.TOOL_CALL_START
-    assert unified.tool_call_id is not None
-    assert len(unified.tool_call_id) > 0
-
-
 def test_tool_use_input_json_delta():
     """Test input_json_delta event conversion."""
     native = make_stream_event(
@@ -265,7 +248,7 @@ def test_tool_use_block_stop():
     context: dict = {
         0: {
             "block_type": "tool_use",
-            "tool_id": "toolu_123",
+            "tool_call_id": "toolu_123",
             "tool_name": "search",
             "args_json": '{"query": "test", "limit": 10}',
         }
@@ -285,7 +268,7 @@ def test_tool_use_block_stop_empty_args():
     context: dict = {
         0: {
             "block_type": "tool_use",
-            "tool_id": "toolu_456",
+            "tool_call_id": "toolu_456",
             "tool_name": "get_time",
             "args_json": "",
         }
@@ -302,7 +285,7 @@ def test_tool_use_block_stop_invalid_json():
     context: dict = {
         0: {
             "block_type": "tool_use",
-            "tool_id": "toolu_789",
+            "tool_call_id": "toolu_789",
             "tool_name": "broken",
             "args_json": '{"incomplete": ',
         }
@@ -312,24 +295,6 @@ def test_tool_use_block_stop_invalid_json():
 
     assert unified.type == StreamEventType.TOOL_CALL_STOP
     assert unified.tool_input == {}
-
-
-def test_tool_use_block_stop_without_tool_id():
-    """Test tool_use stop without tool_id generates a UUID."""
-    context: dict = {
-        0: {
-            "block_type": "tool_use",
-            "tool_id": None,
-            "tool_name": "search",
-            "args_json": "{}",
-        }
-    }
-    native = make_stream_event({"type": "content_block_stop", "index": 0})
-    unified = ClaudeSDKAdapter.to_unified_event(native, context)
-
-    assert unified.type == StreamEventType.TOOL_CALL_STOP
-    assert unified.tool_call_id is not None
-    assert len(unified.tool_call_id) > 0
 
 
 # ==============================================================================
@@ -351,7 +316,7 @@ def test_context_populated_on_block_start():
 
     assert 2 in context
     assert context[2]["block_type"] == "tool_use"
-    assert context[2]["tool_id"] == "toolu_abc"
+    assert context[2]["tool_call_id"] == "toolu_abc"
     assert context[2]["tool_name"] == "calc"
     assert context[2]["args_json"] == ""
 

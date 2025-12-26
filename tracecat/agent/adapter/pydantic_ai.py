@@ -6,7 +6,6 @@ Message persistence is handled by ChatMessage with raw JSON - no conversion need
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from pydantic_ai.messages import (
@@ -76,7 +75,7 @@ class PydanticAIAdapter(BaseHarnessAdapter):
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_START,
                 part_id=part_id,
-                tool_call_id=part.tool_call_id or str(uuid.uuid4()),
+                tool_call_id=part.tool_call_id,
                 tool_name=part.tool_name,
                 tool_input=part.args_as_dict() if hasattr(part, "args_as_dict") else {},
             )
@@ -129,7 +128,7 @@ class PydanticAIAdapter(BaseHarnessAdapter):
         """Convert FunctionToolCallEvent to UnifiedStreamEvent."""
         return UnifiedStreamEvent(
             type=StreamEventType.TOOL_CALL_STOP,
-            tool_call_id=event.part.tool_call_id or str(uuid.uuid4()),
+            tool_call_id=event.part.tool_call_id,
             tool_name=event.part.tool_name,
             tool_input=event.part.args_as_dict()
             if hasattr(event.part, "args_as_dict")
@@ -143,29 +142,19 @@ class PydanticAIAdapter(BaseHarnessAdapter):
         is_error = isinstance(result, RetryPromptPart)
 
         if isinstance(result, ToolReturnPart):
-            content = (
-                result.content
-                if isinstance(result.content, str)
-                else str(result.content)
-            )
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_RESULT,
                 tool_call_id=result.tool_call_id,
                 tool_name=result.tool_name,
-                tool_output=content,
+                tool_output=result.content,
                 is_error=False,
             )
         elif isinstance(result, RetryPromptPart):
-            content = (
-                result.content
-                if isinstance(result.content, str)
-                else str(result.content)
-            )
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_RESULT,
-                tool_call_id=result.tool_name or "unknown",
+                tool_call_id=result.tool_call_id,
                 tool_name=result.tool_name,
-                tool_output=content,
+                tool_output=result.content,
                 is_error=True,
             )
         else:
