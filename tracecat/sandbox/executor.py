@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +19,28 @@ from tracecat.config import (
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
+
+
+@dataclass
+class ActionSandboxConfig:
+    """Configuration for action sandbox execution.
+
+    Attributes:
+        registry_cache_dir: Directory containing extracted registry tarballs (mounted at /packages).
+        tracecat_app_dir: Directory containing tracecat package (mounted at /app).
+        site_packages_dir: Directory containing Python site-packages with dependencies (mounted at /site-packages).
+        env_vars: Environment variables to inject (DB creds, S3 config, secrets).
+        resources: Resource limits for the sandbox.
+        timeout_seconds: Maximum execution time in seconds.
+    """
+
+    registry_cache_dir: Path
+    tracecat_app_dir: Path
+    site_packages_dir: Path | None = None
+    env_vars: dict[str, str] = field(default_factory=dict)
+    resources: ResourceLimits = field(default_factory=ResourceLimits)
+    timeout_seconds: float = 300
+
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -522,6 +545,296 @@ class NsjailExecutor:
             stdout=stdout,
             stderr=stderr,
             error=stderr if not success else None,
+            exit_code=process.returncode,
+            execution_time_ms=execution_time_ms,
+        )
+
+    def _build_action_config(
+        self,
+        job_dir: Path,
+        config: ActionSandboxConfig,
+    ) -> str:
+        """Build nsjail protobuf config for action execution.
+
+        Args:
+            job_dir: Directory containing input.json (mounted at /work).
+            config: Action sandbox configuration.
+
+        Returns:
+            nsjail protobuf configuration as a string.
+
+        Raises:
+            SandboxValidationError: If any input contains dangerous characters.
+        """
+        # Validate inputs to prevent injection into protobuf config
+        _validate_path(job_dir, "job_dir")
+        _validate_path(self.rootfs, "rootfs")
+        _validate_path(config.registry_cache_dir, "registry_cache_dir")
+        _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
+        if config.site_packages_dir:
+            _validate_path(config.site_packages_dir, "site_packages_dir")
+
+        # Network always enabled for action execution (DB, S3, external APIs)
+        lines = [
+            'name: "action_sandbox"',
+            "mode: ONCE",
+            'hostname: "sandbox"',
+            "keep_env: false",
+            "",
+            "# Namespace isolation - network enabled for DB/S3/external APIs",
+            "clone_newnet: false",
+            "clone_newuser: true",
+            "clone_newns: true",
+            "clone_newpid: true",
+            "clone_newipc: true",
+            "clone_newuts: true",
+            "",
+            "# UID/GID mapping - map container user to current user",
+            f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
+            f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+            "",
+            "# Rootfs mounts - read-only base system",
+            f'mount {{ src: "{self.rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
+            f'mount {{ src: "{self.rootfs}/lib" dst: "/lib" is_bind: true rw: false }}',
+            f'mount {{ src: "{self.rootfs}/bin" dst: "/bin" is_bind: true rw: false }}',
+            f'mount {{ src: "{self.rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
+        ]
+
+        # Optional mounts - only include if the directories exist in rootfs
+        lib64_path = self.rootfs / "lib64"
+        if lib64_path.exists():
+            lines.append(
+                f'mount {{ src: "{lib64_path}" dst: "/lib64" is_bind: true rw: false }}'
+            )
+
+        sbin_path = self.rootfs / "sbin"
+        if sbin_path.exists():
+            lines.append(
+                f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
+            )
+
+        lines.extend(
+            [
+                "",
+                "# DNS resolution - mount host's resolv.conf for Docker DNS",
+                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                "",
+                "# /dev essentials",
+                'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',
+                'mount { src: "/dev/urandom" dst: "/dev/urandom" is_bind: true rw: false }',
+                'mount { src: "/dev/random" dst: "/dev/random" is_bind: true rw: false }',
+                'mount { src: "/dev/zero" dst: "/dev/zero" is_bind: true rw: false }',
+                "",
+                "# Temporary filesystems",
+                'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
+                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                "",
+                "# Action execution mounts",
+                f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
+            ]
+        )
+
+        # Mount registry cache if it exists and has content
+        if config.registry_cache_dir.exists():
+            lines.append(
+                f'mount {{ src: "{config.registry_cache_dir}" dst: "/packages" is_bind: true rw: false }}'
+            )
+
+        # Mount tracecat app directory
+        if config.tracecat_app_dir.exists():
+            lines.append(
+                f'mount {{ src: "{config.tracecat_app_dir}" dst: "/app" is_bind: true rw: false }}'
+            )
+
+        # Mount site-packages directory for Python dependencies
+        if config.site_packages_dir and config.site_packages_dir.exists():
+            lines.append(
+                f'mount {{ src: "{config.site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}'
+            )
+
+        # Resource limits
+        lines.extend(
+            [
+                "",
+                "# Resource limits",
+                f"rlimit_as: {config.resources.memory_mb * 1024 * 1024}",
+                f"rlimit_cpu: {config.resources.cpu_seconds}",
+                f"rlimit_fsize: {config.resources.max_file_size_mb * 1024 * 1024}",
+                f"rlimit_nofile: {config.resources.max_open_files}",
+                f"rlimit_nproc: {config.resources.max_processes}",
+                f"time_limit: {int(config.timeout_seconds)}",
+            ]
+        )
+
+        # Execution settings - run subprocess_entrypoint as a module
+        lines.extend(
+            [
+                "",
+                "# Execution",
+                'cwd: "/work"',
+                'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.executor.subprocess_entrypoint" }',
+            ]
+        )
+
+        return "\n".join(lines)
+
+    def _build_action_env_map(
+        self,
+        config: ActionSandboxConfig,
+    ) -> dict[str, str]:
+        """Construct environment for action sandbox execution."""
+        env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
+
+        # Set PYTHONPATH to include registry cache, tracecat app, and site-packages
+        pythonpath_parts = []
+        if config.registry_cache_dir.exists():
+            pythonpath_parts.append("/packages")
+        if config.tracecat_app_dir.exists():
+            pythonpath_parts.append("/app")
+        if config.site_packages_dir and config.site_packages_dir.exists():
+            pythonpath_parts.append("/site-packages")
+        if pythonpath_parts:
+            env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
+
+        # Add user-provided env vars (DB creds, S3 config, secrets, etc.)
+        for key, value in config.env_vars.items():
+            _validate_env_key(key)
+            env_map[key] = value
+
+        return env_map
+
+    async def execute_action(
+        self,
+        job_dir: Path,
+        config: ActionSandboxConfig,
+    ) -> SandboxResult:
+        """Execute a registry action inside the nsjail sandbox.
+
+        Args:
+            job_dir: Directory containing input.json (will be mounted at /work).
+            config: Action sandbox configuration.
+
+        Returns:
+            SandboxResult with execution outcome.
+            The result.json file in job_dir contains the action result.
+        """
+        start_time = time.time()
+
+        # Generate nsjail config for action execution
+        nsjail_config = self._build_action_config(job_dir, config)
+
+        # Write config to job directory
+        config_path = job_dir / "nsjail.cfg"
+        config_path.write_text(nsjail_config)
+        config_path.chmod(0o600)
+
+        env_map = self._build_action_env_map(config)
+        env_args: list[str] = []
+        for key in env_map:
+            env_args.extend(["--env", key])
+
+        # Build nsjail command
+        cmd = [
+            str(self.nsjail_path),
+            "--config",
+            str(config_path),
+            *env_args,
+        ]
+
+        logger.debug(
+            "Executing action in nsjail sandbox",
+            cmd=cmd,
+            job_dir=str(job_dir),
+            registry_cache=str(config.registry_cache_dir),
+            tracecat_app=str(config.tracecat_app_dir),
+        )
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(job_dir),
+            env=env_map,
+        )
+
+        try:
+            # Wait with timeout (add buffer for nsjail overhead)
+            timeout = config.timeout_seconds + 10
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout,
+            )
+
+        except TimeoutError as e:
+            process.kill()
+            await process.wait()
+            raise SandboxTimeoutError(
+                f"Action execution timed out after {config.timeout_seconds}s"
+            ) from e
+
+        finally:
+            # Clean up config file
+            try:
+                config_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        execution_time_ms = (time.time() - start_time) * 1000
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        # Try to parse result.json for structured output
+        result_path = job_dir / "result.json"
+        if result_path.exists():
+            try:
+                result_data = json.loads(result_path.read_text())
+                # Log subprocess stderr for debugging (contains timing info)
+                # Filter out nsjail verbose output, look for Python logs
+                if stderr.strip():
+                    # Extract lines that look like Python logs (not nsjail [I] lines)
+                    python_logs = "\n".join(
+                        line
+                        for line in stderr.split("\n")
+                        if not line.startswith("[I]") and not line.startswith("[W]")
+                    )
+                    if python_logs.strip():
+                        logger.info("Subprocess output", output=python_logs[:2000])
+                return SandboxResult(
+                    success=result_data.get("success", False),
+                    output=result_data.get("result"),
+                    stdout=stdout,
+                    stderr=stderr,
+                    error=result_data.get("error"),
+                    exit_code=process.returncode,
+                    execution_time_ms=execution_time_ms,
+                )
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Failed to parse action result.json", path=str(result_path)
+                )
+
+        # No result.json - infrastructure error
+        if process.returncode != 0:
+            logger.error(
+                "Action sandbox execution failed",
+                returncode=process.returncode,
+                stderr=stderr[:500],
+            )
+            return SandboxResult(
+                success=False,
+                error="Action sandbox execution failed",
+                stdout=stdout,
+                stderr=stderr[:500],
+                exit_code=process.returncode,
+                execution_time_ms=execution_time_ms,
+            )
+
+        # Process succeeded but no result.json
+        return SandboxResult(
+            success=True,
+            output=None,
+            stdout=stdout,
+            stderr=stderr,
             exit_code=process.returncode,
             execution_time_ms=execution_time_ms,
         )
