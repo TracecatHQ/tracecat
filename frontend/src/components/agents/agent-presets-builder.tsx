@@ -426,12 +426,10 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     <div className="flex h-full w-full flex-col overflow-hidden">
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel defaultSize={26} minSize={18}>
-          <div className="flex h-full flex-col border-r bg-muted/40">
-            <AgentPresetChatPane
-              preset={selectedPreset ?? null}
-              workspaceId={workspaceId}
-            />
-          </div>
+          <AgentPresetChatPane
+            preset={selectedPreset ?? null}
+            workspaceId={workspaceId}
+          />
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={50} minSize={34}>
@@ -722,45 +720,42 @@ function AgentPresetChatPane({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div>
-          <p className="text-xs text-muted-foreground">
-            {preset ? `Chat with ${preset.name}` : "Select a preset to begin"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-            <AlertDialogTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={createChatPending || !canStartChat}
-              >
-                {createChatPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="mr-2 size-4" />
-                )}
+      <div className="flex h-10 items-center justify-between border-b px-3">
+        <p className="text-xs text-muted-foreground">
+          {preset ? `Chat with ${preset.name}` : "Select a preset to begin"}
+        </p>
+        <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs"
+              disabled={createChatPending || !canStartChat}
+            >
+              {createChatPending ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-2 size-4" />
+              )}
+              Reset chat
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reset this chat?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will start a new conversation. Your current chat history
+                will no longer be accessible.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void handleResetChat()}>
                 Reset chat
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Reset this chat?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will start a new conversation. Your current chat history
-                  will no longer be accessible.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void handleResetChat()}>
-                  Reset chat
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>
@@ -1722,45 +1717,42 @@ function AgentPresetBuilderChatPane({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div>
-          <h3 className="text-sm font-semibold">Builder assistant</h3>
-        </div>
-        <div className="flex items-center gap-2">
-          <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-            <AlertDialogTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={createChatPending || !canStartChat}
-              >
-                {createChatPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="mr-2 size-4" />
-                )}
+      <div className="flex h-10 items-center justify-between border-b px-3">
+        <p className="text-xs text-muted-foreground">Builder assistant</p>
+        <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs"
+              disabled={createChatPending || !canStartChat}
+            >
+              {createChatPending ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-2 size-4" />
+              )}
+              Reset assistant
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Reset the builder assistant?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This will start a new conversation. Your current chat history
+                will no longer be accessible.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void handleResetChat()}>
                 Reset assistant
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Reset the builder assistant?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will start a new conversation. Your current chat history
-                  will no longer be accessible.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void handleResetChat()}>
-                  Reset assistant
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>
