@@ -1154,9 +1154,12 @@ class DSLWorkflow:
             registry_lock=self.registry_lock,
         )
 
+        # Dispatch to ExecutorWorker on shared-action-queue
+        # Using string activity name since it's registered on a different worker
         return await workflow.execute_activity(
-            DSLActivities.run_action_activity,
+            "execute_action_activity",
             args=(arg, self.role),
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
             ),

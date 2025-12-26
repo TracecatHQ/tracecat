@@ -6,26 +6,11 @@ from typing import Any
 import dateparser
 from pydantic import BaseModel
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.schemas import ActionStatement, RunActionInput
-from tracecat.dsl.types import ActionErrorInfo
-from tracecat.exceptions import (
-    ExecutorClientError,
-    RateLimitExceeded,
-    RegistryError,
-    TracecatExpressionError,
-)
-from tracecat.executor.client import ExecutorClient
+from tracecat.exceptions import RegistryError, TracecatExpressionError
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import eval_templated_object
@@ -93,95 +78,6 @@ class DSLActivities:
     def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
         """No-op gather action activity."""
         return input.exec_context.get(ExprContext.ACTIONS, {}).get(input.task.ref)
-
-    @staticmethod
-    @activity.defn
-    async def run_action_activity(input: RunActionInput, role: Role) -> Any:
-        """Run an action.
-        Goals:
-        - Think of this as a controller activity that will orchestrate the execution of the action.
-        - The implementation of the action is located elsewhere (registry service on API)
-        """
-        ctx_run.set(input.run_context)
-        task = input.task
-        environment = input.run_context.environment
-        action_name = task.action
-
-        log = logger.bind(
-            task_ref=task.ref,
-            action_name=action_name,
-            wf_id=input.run_context.wf_id,
-            role=role,
-            environment=environment,
-        )
-        ctx_logger.set(log)
-
-        act_info = activity.info()
-        act_attempt = act_info.attempt
-        log.debug(
-            "Action activity details",
-            task=task,
-            attempt=act_attempt,
-            retry_policy=task.retry_policy,
-        )
-        try:
-            async for attempt_manager in AsyncRetrying(
-                retry=retry_if_exception_type(RateLimitExceeded),
-                stop=stop_after_attempt(20),
-                wait=wait_exponential(min=4, max=300),
-            ):
-                with attempt_manager:
-                    log.info(
-                        "Begin action attempt",
-                        attempt_number=attempt_manager.retry_state.attempt_number,
-                    )
-                    client = ExecutorClient(role=role)
-                    return await client.run_action_memory_backend(input)
-        except ExecutorClientError as e:
-            # We only expect ExecutorClientError to be raised from the executor client
-            kind = e.__class__.__name__
-            msg = str(e)
-            log.info("Executor client error", error=msg, detail=e.detail)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("run_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
-        except ApplicationError as e:
-            # Unexpected application error - depends
-            log.error("ApplicationError occurred", error=e)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=str(e),
-                type=e.type or e.__class__.__name__,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("run_action")
-            raise ApplicationError(
-                err_msg, err_info, non_retryable=e.non_retryable, type=e.type
-            ) from e
-        except Exception as e:
-            # Unexpected errors - non-retryable
-            kind = e.__class__.__name__
-            raw_msg = f"Unexpected {kind} occurred:\n{e}"
-            log.error(raw_msg)
-
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=raw_msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("run_action")
-            raise ApplicationError(
-                err_msg, err_info, type=kind, non_retryable=True
-            ) from e
 
     @staticmethod
     @activity.defn

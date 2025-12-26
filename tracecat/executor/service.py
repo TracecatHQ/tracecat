@@ -3,17 +3,12 @@ from __future__ import annotations
 import asyncio
 import itertools
 import time
-import traceback
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, cast
 
-import ray
-import uvloop
-from pydantic_core import to_jsonable_python
-from ray.exceptions import RayTaskError
-from ray.runtime_env import RuntimeEnv
+from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
@@ -27,7 +22,8 @@ from tracecat.contexts import (
     ctx_session_id,
     with_session,
 )
-from tracecat.db.engine import get_async_engine, get_async_session_context_manager
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.schemas import (
     ActionStatement,
@@ -41,6 +37,7 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
 )
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
@@ -50,15 +47,12 @@ from tracecat.expressions.eval import (
 )
 from tracecat.feature_flags import is_feature_enabled
 from tracecat.feature_flags.enums import FeatureFlag
-from tracecat.git.types import GitUrl
-from tracecat.git.utils import safe_prepare_git_url
 from tracecat.logger import logger
-from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
+from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.schemas import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
-from tracecat.ssh import get_ssh_command
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -80,89 +74,163 @@ type ExecutionResult = Any | ExecutorActionErrorInfo
 @dataclass
 class DispatchActionContext:
     role: Role
-    ssh_command: str | None = None
-    git_url: GitUrl | None = None
 
 
-_git_context_lock = asyncio.Lock()
-_git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
+@dataclass
+class RegistryArtifactsContext:
+    origin: str
+    version: str
+    tarball_uri: str
 
 
-async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
-    """Cache git URL and SSH command for 60 seconds to avoid repeated DB sessions.
+_registry_artifacts_lock = asyncio.Lock()
+_registry_artifacts_cache: dict[str, tuple[float, list[RegistryArtifactsContext]]] = {}
 
-    Returns:
-        Tuple of (git_url, ssh_command) or (None, None) if not configured
-    """
+
+async def get_registry_artifacts_cached(role: Role) -> list[RegistryArtifactsContext]:
+    """Get latest registry tarball URIs, cached per workspace."""
     cache_key = str(role.workspace_id)
-
-    # Check cache first
-    if cached := _git_context_cache.get(cache_key):
-        expire_time, git_url, ssh_cmd = cached
+    logger.debug("Checking registry artifacts cache", cache_key=cache_key)
+    if cached := _registry_artifacts_cache.get(cache_key):
+        expire_time, artifacts = cached
         if time.time() < expire_time:
-            logger.debug("Using cached git context", workspace_id=role.workspace_id)
-            return git_url, ssh_cmd
+            logger.debug("Cache hit for registry artifacts", cache_key=cache_key)
+            return artifacts
 
-    # Load once under lock
-    async with _git_context_lock:
-        # Double-check after acquiring lock
-        if cached := _git_context_cache.get(cache_key):
-            expire_time, git_url, ssh_cmd = cached
+    async with _registry_artifacts_lock:
+        logger.debug("Acquired registry artifacts lock", cache_key=cache_key)
+        if cached := _registry_artifacts_cache.get(cache_key):
+            expire_time, artifacts = cached
             if time.time() < expire_time:
-                return git_url, ssh_cmd
+                logger.debug(
+                    "Cache hit for registry artifacts (post-lock)", cache_key=cache_key
+                )
+                return artifacts
 
-        # Actually fetch from database
-        logger.debug(
-            "Fetching git context from database", workspace_id=role.workspace_id
-        )
+        logger.info("Querying latest registry artifacts from DB", cache_key=cache_key)
         async with (
             get_async_session_context_manager() as session,
             with_session(session=session),
         ):
-            git_url = await safe_prepare_git_url(session=session, role=role)
-            ssh_cmd = None
-            if git_url:
-                ssh_cmd = await get_ssh_command(
-                    git_url=git_url, session=session, role=role
+            subq = (
+                select(
+                    RegistryVersion.repository_id,
+                    func.max(RegistryVersion.created_at).label("max_created_at"),
+                )
+                .where(
+                    RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID
+                )
+                .group_by(RegistryVersion.repository_id)
+                .subquery()
+            )
+            rv_alias = aliased(RegistryVersion)
+            statement = (
+                select(
+                    RegistryRepository.origin,
+                    rv_alias.version,
+                    rv_alias.tarball_uri,
+                )
+                .join(subq, RegistryRepository.id == subq.c.repository_id)
+                .join(
+                    rv_alias,
+                    (rv_alias.repository_id == subq.c.repository_id)
+                    & (rv_alias.created_at == subq.c.max_created_at),
+                )
+                .where(
+                    RegistryRepository.organization_id
+                    == config.TRACECAT__DEFAULT_ORG_ID
+                )
+            )
+            logger.debug(
+                "Executing SQL to fetch registry artifacts", sql=str(statement)
+            )
+            result = await session.execute(statement)
+            # Only include artifacts that have a tarball_uri (required after migration)
+            artifacts = [
+                RegistryArtifactsContext(
+                    origin=str(origin),
+                    version=str(version),
+                    tarball_uri=str(tarball_uri),
+                )
+                for origin, version, tarball_uri in result.all()
+                if tarball_uri is not None
+            ]
+
+        logger.info(
+            "Fetched registry artifacts and updating cache",
+            count=len(artifacts),
+            cache_key=cache_key,
+        )
+        _registry_artifacts_cache[cache_key] = (time.time() + 60, artifacts)
+        return artifacts
+
+
+async def get_registry_artifacts_for_lock(
+    registry_lock: dict[str, str],
+) -> list[RegistryArtifactsContext]:
+    """Get registry tarball URIs for specific locked versions.
+
+    Args:
+        registry_lock: Maps origin -> version string.
+            Example: {"tracecat_registry": "2024.12.10.123456", "git+ssh://...": "abc1234"}
+
+    Returns:
+        List of RegistryArtifactsContext for the locked versions.
+    """
+    if not registry_lock:
+        return []
+
+    async with (
+        get_async_session_context_manager() as session,
+        with_session(session=session),
+    ):
+        artifacts: list[RegistryArtifactsContext] = []
+
+        for origin, version in registry_lock.items():
+            # Query for the specific version
+            statement = (
+                select(
+                    RegistryRepository.origin,
+                    RegistryVersion.version,
+                    RegistryVersion.tarball_uri,
+                )
+                .join(
+                    RegistryVersion,
+                    RegistryVersion.repository_id == RegistryRepository.id,
+                )
+                .where(
+                    RegistryRepository.origin == origin,
+                    RegistryVersion.version == version,
+                    RegistryRepository.organization_id
+                    == config.TRACECAT__DEFAULT_ORG_ID,
+                )
+            )
+            result = await session.execute(statement)
+            row = result.first()
+
+            if row and row[2] is not None:
+                # Only include if tarball_uri exists (required after migration)
+                artifacts.append(
+                    RegistryArtifactsContext(
+                        origin=str(row[0]),
+                        version=str(row[1]),
+                        tarball_uri=str(row[2]),
+                    )
+                )
+            elif row:
+                logger.warning(
+                    "Registry version found but missing tarball_uri",
+                    origin=origin,
+                    version=version,
+                )
+            else:
+                logger.warning(
+                    "Registry version not found for lock entry",
+                    origin=origin,
+                    version=version,
                 )
 
-        # Cache for 60 seconds
-        _git_context_cache[cache_key] = (time.time() + 60, git_url, ssh_cmd)
-        logger.debug(
-            "Cached git context",
-            workspace_id=role.workspace_id,
-            has_git_url=bool(git_url),
-        )
-        return git_url, ssh_cmd
-
-
-def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
-    """We run this on the ray cluster."""
-
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    logger.info("Running action in sync entrypoint", action=input.task.action)
-
-    async_engine = get_async_engine()
-    try:
-        coro = run_action_from_input(input=input, role=role)
-        result = loop.run_until_complete(coro)
-        # Use serialize_unknown=True for additional safety
-        return to_jsonable_python(result, serialize_unknown=True)
-    except Exception as e:
-        # Raise the error proxy here
-        logger.info(
-            "Error running action, raising error proxy",
-            error=e,
-            type=type(e).__name__,
-            traceback=traceback.format_exc(),
-        )
-        return ExecutorActionErrorInfo.from_exc(e, input.task.action)
-    finally:
-        loop.run_until_complete(async_engine.dispose())
-        loop.close()  # We always close the loop
+    return artifacts
 
 
 async def _run_action_direct(*, action: BoundRegistryAction, args: ArgsT) -> Any:
@@ -394,124 +462,199 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     return result
 
 
-@ray.remote
-def run_action_task(input: RunActionInput, role: Role) -> ExecutionResult:
-    """Ray task that runs an action."""
-    return sync_executor_entrypoint(input, role)
-
-
-async def run_action_on_ray_cluster(
+async def run_action_in_sandboxed_pool(
     input: RunActionInput, ctx: DispatchActionContext, iteration: int | None = None
 ) -> ExecutionResult:
-    """Run an action on the ray cluster.
+    """Run action in the sandboxed worker pool (nsjail + warm Python)."""
+    from tracecat.executor.sandboxed_pool import get_sandboxed_worker_pool
 
-    If any exceptions are thrown here, they're platform level errors.
-    All application/user level errors are caught by the executor and returned as values.
-    """
-    # Initialize runtime environment variables
-    env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
-    # Override UV_SYSTEM_PYTHON to allow uv to respect Ray's virtual environment
-    # The global UV_SYSTEM_PYTHON=1 in Dockerfile forces system Python usage,
-    # but Ray creates its own virtual environment and expects uv to use it
-    env_vars["UV_SYSTEM_PYTHON"] = "false"
-    additional_vars: dict[str, Any] = {}
+    role = ctx.role
+    action_name = input.task.action
+    timeout = 900.0  # Default timeout for sandbox execution
 
-    # Add git URL to pip dependencies if SHA is present
-    pip_deps = []
-    if ctx.git_url and ctx.git_url.ref:
-        try:
-            url = ctx.git_url.to_url()
-            pip_deps.append(url)
-            logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
-        except Exception as e:
-            logger.error("Error adding git URL to runtime env", error=e)
+    # Get pythonpath for the registry version
+    await _get_registry_pythonpath(input, role)
 
-    # If we have a local registry, we need to add it to the runtime env
-    if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
-        local_repo_path = config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH
-        logger.info(
-            "Adding local repository and required dependencies to runtime env",
-            local_repo_path=local_repo_path,
-        )
+    pool = await get_sandboxed_worker_pool()
 
-        # Try pyproject.toml first
-        pyproject_path = Path(local_repo_path) / "pyproject.toml"
-        if not pyproject_path.exists():
-            logger.error(
-                "No pyproject.toml found in local repository", path=pyproject_path
-            )
-            raise ValueError("No pyproject.toml found in local repository")
-        required_deps = await asyncio.to_thread(
-            get_pyproject_toml_required_deps, pyproject_path
-        )
-        logger.debug(
-            "Found pyproject.toml with required dependencies", deps=required_deps
-        )
-        pip_deps.extend([local_repo_path, *required_deps])
-
-    # Add pip dependencies to runtime env using uv
-    if pip_deps:
-        additional_vars["uv"] = pip_deps
-
-    runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
-
-    logger.trace("Running action on ray cluster", runtime_env=runtime_env)
-    obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
     try:
-        coro = asyncio.to_thread(ray.get, obj_ref)
-        exec_result = await asyncio.wait_for(
-            coro, timeout=config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+        result = await pool.execute(
+            input=input,
+            role=role,
+            timeout=timeout,
         )
-    except TimeoutError as e:
-        logger.error("Action timed out, cancelling task", error=e)
-        ray.cancel(obj_ref, force=True)
-        raise e
-    except RayTaskError as e:
-        logger.error("Error running action on ray cluster", error=e)
-        if isinstance(e.cause, BaseException):
-            raise e.cause from None
-        raise e
+    except Exception as e:
+        # Infrastructure errors (socket timeout, connection failure, worker crash)
+        # need to be wrapped in ExecutorActionErrorInfo for consistent error handling
+        logger.error(
+            "Sandboxed pool execution failed",
+            action=action_name,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
+        if iteration is not None:
+            exec_result.loop_iteration = iteration
+            exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
+        raise ExecutionError(info=exec_result) from e
 
-    # Here, we have some result or error.
-    # Reconstruct the error and raise some kind of proxy
+    # Handle response - pool worker returns {"success": bool, "result": ..., "error": ...}
+    if result.get("success"):
+        exec_result = result["result"]
+    else:
+        # Error is a serialized ExecutorActionErrorInfo
+        error_data = result.get("error", {})
+        exec_result = ExecutorActionErrorInfo.model_validate(error_data)
+
+    # Handle errors (same as subprocess path)
     if isinstance(exec_result, ExecutorActionErrorInfo):
         logger.trace("Raising executor error proxy", exec_result=exec_result)
         if iteration is not None:
             exec_result.loop_iteration = iteration
-            exec_result.loop_vars = input.exec_context[ExprContext.LOCAL_VARS]
+            exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
         raise ExecutionError(info=exec_result)
+
     return exec_result
 
 
-async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
-    """Schedule actions on the ray cluster.
+async def _get_registry_pythonpath(input: RunActionInput, role: Role) -> str | None:
+    """Get the PYTHONPATH for the current registry version.
 
-    This function handles dispatching actions to be executed on a Ray cluster. It supports
+    Uses the same logic as run_action_in_subprocess to get artifacts.
+    Returns a colon-separated path including all registry tarballs.
+    """
+    if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+        return None
+
+    # Get artifacts from registry (S3 wheelhouse/tarball)
+    tarball_uris: list[str] = []
+    try:
+        if input.registry_lock:
+            artifacts = await get_registry_artifacts_for_lock(input.registry_lock)
+        else:
+            artifacts = await get_registry_artifacts_cached(role)
+
+        # Collect ALL tarball URIs, not just the first one
+        # This is important for multi-registry setups (e.g., builtin + custom)
+        for artifact in artifacts:
+            if artifact.tarball_uri:
+                tarball_uris.append(artifact.tarball_uri)
+    except Exception as e:
+        logger.warning("Failed to load registry artifacts metadata", error=str(e))
+        return None
+
+    if not tarball_uris:
+        return None
+
+    # Use ActionRunner to ensure all registry environments are set up
+    runner = get_action_runner()
+    paths: list[str] = []
+    for tarball_uri in tarball_uris:
+        target_dir = await runner.ensure_registry_environment(tarball_uri=tarball_uri)
+        if target_dir:
+            paths.append(str(target_dir))
+
+    return ":".join(paths) if paths else None
+
+
+async def run_action_on_cluster(
+    input: RunActionInput, ctx: DispatchActionContext, iteration: int | None = None
+) -> ExecutionResult:
+    """Execute action using the configured backend.
+
+    The backend is selected via TRACECAT__EXECUTOR_BACKEND config:
+    - 'sandboxed_pool': Warm nsjail workers (single-tenant, high throughput)
+    - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation)
+    - 'direct': In-process execution (development only)
+    - 'auto': Auto-select based on environment
+    """
+    from tracecat.executor.backends import get_executor_backend
+
+    role = ctx.role
+    action_name = input.task.action
+    timeout = 900.0  # Default timeout
+
+    # Ensure registry environment is set up (for tarball extraction)
+    await _get_registry_pythonpath(input, role)
+
+    backend = await get_executor_backend()
+
+    try:
+        result = await backend.execute(input=input, role=role, timeout=timeout)
+    except Exception as e:
+        # Infrastructure errors need to be wrapped for consistent error handling
+        logger.error(
+            "Backend execution failed",
+            action=action_name,
+            error=str(e),
+            error_type=type(e).__name__,
+            backend=type(backend).__name__,
+        )
+        exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
+        if iteration is not None:
+            exec_result.loop_iteration = iteration
+            exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
+        raise ExecutionError(info=exec_result) from e
+
+    # Handle response from backend
+    if result.get("success"):
+        return result["result"]
+
+    # Error response from backend
+    error_data = result.get("error", {})
+    exec_result = ExecutorActionErrorInfo.model_validate(error_data)
+    if iteration is not None:
+        exec_result.loop_iteration = iteration
+        exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
+    raise ExecutionError(info=exec_result)
+
+
+async def run_action_direct(
+    input: RunActionInput, ctx: DispatchActionContext, iteration: int | None = None
+) -> ExecutionResult:
+    """Run action directly without sandbox isolation (for local dev)."""
+    role = ctx.role
+    action_name = input.task.action
+    try:
+        result = await run_action_from_input(input, role)
+        return result
+    except Exception as e:
+        # Use the factory method to properly extract traceback info
+        exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
+        if iteration is not None:
+            exec_result.loop_iteration = iteration
+            exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
+        raise ExecutionError(info=exec_result) from e
+
+
+async def dispatch_action(input: RunActionInput) -> Any:
+    """Dispatch action for execution.
+
+    This function handles dispatching actions to be executed. It supports
     both single action execution and parallel execution using for_each loops.
+
+    Called by:
+    - ExecutorActivities.execute_action_activity (Temporal activity on shared-action-queue)
 
     Args:
         input: The RunActionInput containing the task definition and execution context
-        role: The Role used for authorization
-        git_url: The Git URL to use for the action
+
     Returns:
         Any: For single actions, returns the ExecutionResult. For for_each loops, returns
              a list of results from all parallel executions.
 
     Raises:
         TracecatException: If there are errors evaluating for_each expressions or during execution
-        ExecutorErrorWrapper: If there are errors from the executor itself
+        ExecutionError: If there are errors from the executor itself
+        LoopExecutionError: If there are errors in for_each loop execution
     """
-
     role = ctx_role.get()
     ctx = DispatchActionContext(role=role)
-
-    # Use cached git context to avoid opening DB sessions unnecessarily
-    git_url, ssh_cmd = await get_git_context_cached(role=role)
-    if git_url:
-        ctx.git_url = git_url
-        ctx.ssh_command = ssh_cmd
-
     return await _dispatch_action(input=input, ctx=ctx)
+
+
+# Alias for backward compatibility with HTTP executor router
+dispatch_action_on_cluster = dispatch_action
 
 
 async def _dispatch_action(
@@ -522,7 +665,7 @@ async def _dispatch_action(
     logger.info("Preparing runtime environment", ctx=ctx)
     # If there's no for_each, execute normally
     if not task.for_each:
-        return await run_action_on_ray_cluster(input, ctx)
+        return await run_action_on_cluster(input, ctx)
 
     logger.info("Running for_each on action in parallel", action=task.action)
 
@@ -533,7 +676,7 @@ async def _dispatch_action(
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
     async def iteration(patched_input: RunActionInput, i: int):
-        return await run_action_on_ray_cluster(patched_input, ctx, iteration=i)
+        return await run_action_on_cluster(patched_input, ctx, iteration=i)
 
     tasks: list[asyncio.Task[ExecutionResult]] = []
     try:

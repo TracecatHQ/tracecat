@@ -23,32 +23,18 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
 )
 
 
-TRACECAT__EXECUTOR_URL = os.environ.get(
-    "TRACECAT__EXECUTOR_URL", "http://executor:8000"
-)
-TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
-    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 900.0
-)
-"""Timeout for the executor client in seconds (default 900s).
-
-The `httpx.Client` default is 5s, which doesn't work for long-running actions.
-This value is also used when waiting for Ray task execution so the outbound
-client timeout and Ray task await timeout remain aligned.
-"""
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
 
-TRACECAT__EXECUTOR_MODE = os.environ.get("TRACECAT__EXECUTOR_MODE", "ray")
-"""Executor mode: 'ray' (default) or 'subprocess'.
-
-- ray: Use Ray cluster for action execution (current default)
-- subprocess: Use subprocess-based execution with venv caching (Lambda-portable)
-"""
-
-TRACECAT__EXECUTOR_WHEEL_CACHE_DIR = os.environ.get(
-    "TRACECAT__EXECUTOR_WHEEL_CACHE_DIR", "/tmp/tracecat/wheel-cache"
+TRACECAT__EXECUTOR_QUEUE = os.environ.get(
+    "TRACECAT__EXECUTOR_QUEUE", "shared-action-queue"
 )
-"""Directory for caching extracted tarball venvs in subprocess mode. Uses /tmp for ephemeral storage."""
+"""Task queue for the ExecutorWorker (Temporal activity queue)."""
+
+TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
+    "TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR", "/tmp/tracecat/registry-cache"
+)
+"""Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
@@ -253,11 +239,11 @@ TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = os.environ.get(
 )
 """Bucket for case attachments."""
 
-# Bucket for registry wheels
+# Bucket for registry artifacts
 TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "tracecat-registry"
 )
-"""Bucket for registry wheel files and versioned artifacts."""
+"""Bucket for registry tarball files and versioned artifacts."""
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
@@ -339,6 +325,50 @@ When False, uses nsjail sandbox for full OS-level isolation. Requires:
 - nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
 - Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
 """
+
+# === Action Executor === #
+TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "auto")
+"""Executor backend for running actions.
+
+Supported values:
+- 'sandboxed_pool': Warm nsjail workers (single-tenant, high throughput, ~100-200ms)
+- 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
+- 'direct': In-process execution (development only, no isolation)
+- 'auto': Auto-select based on environment (sandboxed_pool if nsjail available, else direct)
+"""
+
+TRACECAT__EXECUTOR_TRUST_MODE: Literal["trusted", "untrusted"] = os.environ.get(
+    "TRACECAT__EXECUTOR_TRUST_MODE", "trusted"
+)  # type: ignore[assignment]
+"""Trust mode for executor backends (applies to sandboxed_pool and ephemeral).
+
+Supported values:
+- 'trusted': Pass DB credentials and storage credentials to sandbox (default).
+  Actions can directly access the database for secrets/variables. Use for
+  single-tenant deployments with trusted code.
+
+- 'untrusted': Do NOT pass sensitive credentials to sandbox. Actions must
+  use the Tracecat SDK to call back to the API for secrets/variables. Use
+  for multitenant deployments with untrusted code.
+
+In untrusted mode, the sandbox receives:
+- TRACECAT__API_URL: API endpoint for SDK calls
+- TRACECAT__EXECUTOR_TOKEN: JWT for authentication
+- TRACECAT__WORKSPACE_ID, TRACECAT__WORKFLOW_ID, TRACECAT__RUN_ID: Context
+
+It does NOT receive:
+- TRACECAT__DB_* credentials
+- MINIO_*/S3 credentials
+- TRACECAT__DB_ENCRYPTION_KEY
+"""
+
+TRACECAT__EXECUTOR_MODE = os.environ.get("TRACECAT__EXECUTOR_MODE", "subprocess")
+"""Executor mode for running actions. Supported: 'subprocess'. Deprecated: use EXECUTOR_BACKEND."""
+
+TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT", "300")
+)
+"""Default timeout in seconds for executor client operations (default: 300s)."""
 
 # === Action Executor Sandbox === #
 TRACECAT__EXECUTOR_SANDBOX_ENABLED = os.environ.get(
