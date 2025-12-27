@@ -13,16 +13,19 @@ Trust Modes:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from tracecat import config
+from tracecat.auth.types import Role
+from tracecat.dsl.schemas import RunActionInput
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backend import ExecutorBackend
-from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.schemas import ExecutorActionErrorInfo, get_trust_mode
+from tracecat.executor.service import (
+    get_registry_artifacts_cached,
+    get_registry_artifacts_for_lock,
+)
 from tracecat.logger import logger
-
-if TYPE_CHECKING:
-    from tracecat.auth.types import Role
-    from tracecat.dsl.schemas import RunActionInput
 
 
 class EphemeralBackend(ExecutorBackend):
@@ -56,19 +59,10 @@ class EphemeralBackend(ExecutorBackend):
       pre-resolved on the host. Use for multitenant with untrusted code.
     """
 
-    def __init__(self, trust_mode: str | None = None):
-        """Initialize ephemeral backend.
-
-        Args:
-            trust_mode: Override trust mode ('trusted' or 'untrusted').
-                If None, uses TRACECAT__EXECUTOR_TRUST_MODE config.
-        """
-        self._trust_mode = trust_mode
-
     @property
     def trust_mode(self) -> str:
-        """Get the trust mode for this backend."""
-        return self._trust_mode or config.TRACECAT__EXECUTOR_TRUST_MODE
+        """Get the trust mode for this backend (derived from backend type)."""
+        return get_trust_mode()
 
     async def execute(
         self,
@@ -77,8 +71,6 @@ class EphemeralBackend(ExecutorBackend):
         timeout: float = 300.0,
     ) -> dict[str, Any]:
         """Execute action in an ephemeral nsjail sandbox."""
-        from tracecat.executor.action_runner import get_action_runner
-
         action_name = input.task.action
         trust_mode = self.trust_mode
 
@@ -110,12 +102,6 @@ class EphemeralBackend(ExecutorBackend):
 
     async def _get_tarball_uri(self, input: RunActionInput, role: Role) -> str | None:
         """Get the tarball URI for the registry environment."""
-        from tracecat import config
-        from tracecat.executor.service import (
-            get_registry_artifacts_cached,
-            get_registry_artifacts_for_lock,
-        )
-
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             return None
 

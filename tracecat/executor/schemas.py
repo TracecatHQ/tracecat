@@ -2,15 +2,104 @@ from __future__ import annotations
 
 import json
 import traceback
+from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from pydantic import UUID4, BaseModel
 
+from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
+
+
+class ExecutorBackendType(StrEnum):
+    """Executor backend types for action execution.
+
+    - SANDBOXED_POOL: Warm nsjail workers (single-tenant, trusted, high throughput)
+    - EPHEMERAL: Cold nsjail subprocess per action (multitenant, untrusted, full isolation)
+    - DIRECT: In-process execution (development only, trusted)
+    - AUTO: Auto-select based on environment
+    """
+
+    SANDBOXED_POOL = "sandboxed_pool"
+    EPHEMERAL = "ephemeral"
+    DIRECT = "direct"
+    AUTO = "auto"
+
+    @property
+    def is_untrusted(self) -> bool:
+        """Return True if this backend uses untrusted mode (no DB creds in sandbox)."""
+        return self == ExecutorBackendType.EPHEMERAL
+
+
+def _is_nsjail_available() -> bool:
+    """Check if nsjail is available in the current environment."""
+    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
+    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
+    return nsjail_path.exists() and rootfs_path.exists()
+
+
+def _resolve_backend_type() -> ExecutorBackendType:
+    """Resolve the backend type from config, handling 'auto' mode."""
+    from tracecat.logger import logger
+
+    try:
+        backend_type = ExecutorBackendType(config.TRACECAT__EXECUTOR_BACKEND)
+    except ValueError:
+        valid = ", ".join(f"'{v.value}'" for v in ExecutorBackendType)
+        raise ValueError(
+            f"Invalid TRACECAT__EXECUTOR_BACKEND: {config.TRACECAT__EXECUTOR_BACKEND!r}. "
+            f"Valid values: {valid}"
+        ) from None
+
+    if backend_type == ExecutorBackendType.AUTO:
+        # Auto-select based on environment
+        if config.TRACECAT__DISABLE_NSJAIL:
+            logger.info(
+                "Auto-selecting 'direct' backend (DISABLE_NSJAIL=true)",
+            )
+            backend_type = ExecutorBackendType.DIRECT
+        elif _is_nsjail_available():
+            logger.info(
+                "Auto-selecting 'sandboxed_pool' backend (nsjail available)",
+            )
+            backend_type = ExecutorBackendType.SANDBOXED_POOL
+        else:
+            logger.warning(
+                "Auto-selecting 'direct' backend (nsjail not available)",
+            )
+            backend_type = ExecutorBackendType.DIRECT
+
+    return backend_type
+
+
+def get_trust_mode() -> str:
+    """Get the trust mode derived from the backend type.
+
+    Returns:
+        'trusted' for sandboxed_pool and direct backends.
+        'untrusted' for ephemeral backend.
+    """
+    backend_type = _resolve_backend_type()
+    return "untrusted" if backend_type.is_untrusted else "trusted"
 
 
 class ExecutorSyncInput(BaseModel):
     repository_id: UUID4
+
+
+class ResolvedContext(BaseModel):
+    """Pre-resolved secrets and variables for untrusted execution mode.
+
+    In untrusted mode, the sandbox doesn't have DB access, so secrets and
+    variables are resolved by the caller and passed in this object.
+    """
+
+    secrets: dict[str, Any] = {}
+    """Pre-resolved secrets keyed by secret name."""
+
+    variables: dict[str, Any] = {}
+    """Pre-resolved workspace variables keyed by variable name."""
 
 
 class ExecutorActionErrorInfo(BaseModel):

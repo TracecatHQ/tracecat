@@ -28,8 +28,15 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
-from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.schemas import (
+    ExecutorActionErrorInfo,
+    ResolvedContext,
+    get_trust_mode,
+)
+from tracecat.expressions.eval import collect_expressions
 from tracecat.logger import logger
+from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.secrets import secrets_manager
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -271,13 +278,14 @@ class ActionRunner:
             timeout: Execution timeout in seconds
             force_sandbox: If True, always use nsjail sandbox regardless of config
             trust_mode: Override trust mode ('trusted' or 'untrusted').
-                If None, uses TRACECAT__EXECUTOR_TRUST_MODE config.
+                If None, derives from executor backend type.
 
         Returns:
             The action result, or ExecutorActionErrorInfo on error
         """
+
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
-        trust_mode = trust_mode or config.TRACECAT__EXECUTOR_TRUST_MODE
+        trust_mode = trust_mode or get_trust_mode()
 
         # Download and extract tarball venv
         if tarball_uri:
@@ -304,12 +312,12 @@ class ActionRunner:
             use_sandbox=use_sandbox,
             force_sandbox=force_sandbox,
             trust_mode=trust_mode,
-            mode=config.TRACECAT__EXECUTOR_MODE,
         )
 
         # For untrusted mode, pre-resolve secrets and variables
+        resolved_context: ResolvedContext | None = None
         if trust_mode == "untrusted":
-            input = await self._prepare_untrusted_input(input, role)
+            resolved_context = await self._prepare_resolved_context(input, role)
 
         if use_sandbox:
             return await self._execute_sandboxed(
@@ -319,6 +327,7 @@ class ActionRunner:
                 env_vars=env_vars,
                 timeout=timeout,
                 trust_mode=trust_mode,
+                resolved_context=resolved_context,
             )
         else:
             return await self._execute_direct(
@@ -329,20 +338,18 @@ class ActionRunner:
                 timeout=timeout,
             )
 
-    async def _prepare_untrusted_input(
+    async def _prepare_resolved_context(
         self,
         input: RunActionInput,
         role: Role,
-    ) -> RunActionInput:
+    ) -> ResolvedContext:
         """Pre-resolve secrets and variables for untrusted mode.
 
         In untrusted mode, the sandbox doesn't have DB access, so we
-        resolve secrets and variables here and pass them in the input.
+        resolve secrets and variables here and pass them separately.
         """
+        # Lazy import to avoid circular dependency with service.py
         from tracecat.executor.service import get_workspace_variables
-        from tracecat.expressions.parser.collector import collect_expressions
-        from tracecat.registry.actions.service import RegistryActionsService
-        from tracecat.secrets import secrets_manager
 
         task = input.task
         action_name = task.action
@@ -374,13 +381,7 @@ class ActionRunner:
             num_variables=len(workspace_variables),
         )
 
-        # Create new input with resolved values
-        return input.model_copy(
-            update={
-                "resolved_secrets": secrets,
-                "resolved_variables": workspace_variables,
-            }
-        )
+        return ResolvedContext(secrets=secrets, variables=workspace_variables)
 
     async def _execute_sandboxed(
         self,
@@ -390,6 +391,7 @@ class ActionRunner:
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         trust_mode: str = "trusted",
+        resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
         """Execute an action in an nsjail sandbox.
 
@@ -400,6 +402,7 @@ class ActionRunner:
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
             trust_mode: 'trusted' (pass DB creds) or 'untrusted' (SDK mode)
+            resolved_context: Pre-resolved secrets/variables for untrusted mode
         """
         from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
         from tracecat.sandbox.types import ResourceLimits
@@ -410,8 +413,13 @@ class ActionRunner:
         job_dir = Path(tempfile.mkdtemp(prefix="tracecat_action_"))
 
         try:
+            # Build payload with optional resolved_context for untrusted mode
+            payload: dict[str, Any] = {"input": input, "role": role}
+            if resolved_context is not None:
+                payload["resolved_context"] = resolved_context
+
             # Write input JSON to job directory
-            input_json = to_json({"input": input, "role": role})
+            input_json = to_json(payload)
             input_path = job_dir / "input.json"
             input_path.write_bytes(input_json)
 
@@ -434,11 +442,11 @@ class ActionRunner:
                 sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
 
                 # Mint an executor token for SDK calls
-                from tracecat.auth.enums import AccessLevel
-                from tracecat.auth.token import mint_executor_token
+                from tracecat.auth.executor_tokens import mint_executor_token
+                from tracecat.auth.types import AccessLevel
                 from tracecat.auth.types import Role as AuthRole
+                from tracecat.feature_flags import is_feature_enabled
                 from tracecat.feature_flags.enums import FeatureFlag
-                from tracecat.feature_flags.service import is_feature_enabled
 
                 if is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
                     executor_role = AuthRole(

@@ -335,35 +335,12 @@ Supported values:
 - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
 - 'direct': In-process execution (development only, no isolation)
 - 'auto': Auto-select based on environment (sandboxed_pool if nsjail available, else direct)
+
+Trust mode is derived from the backend type:
+- sandboxed_pool: trusted (DB creds passed to sandbox)
+- ephemeral: untrusted (secrets pre-resolved, no DB creds)
+- direct: trusted (no sandbox)
 """
-
-TRACECAT__EXECUTOR_TRUST_MODE: Literal["trusted", "untrusted"] = os.environ.get(
-    "TRACECAT__EXECUTOR_TRUST_MODE", "trusted"
-)  # type: ignore[assignment]
-"""Trust mode for executor backends (applies to sandboxed_pool and ephemeral).
-
-Supported values:
-- 'trusted': Pass DB credentials and storage credentials to sandbox (default).
-  Actions can directly access the database for secrets/variables. Use for
-  single-tenant deployments with trusted code.
-
-- 'untrusted': Do NOT pass sensitive credentials to sandbox. Actions must
-  use the Tracecat SDK to call back to the API for secrets/variables. Use
-  for multitenant deployments with untrusted code.
-
-In untrusted mode, the sandbox receives:
-- TRACECAT__API_URL: API endpoint for SDK calls
-- TRACECAT__EXECUTOR_TOKEN: JWT for authentication
-- TRACECAT__WORKSPACE_ID, TRACECAT__WORKFLOW_ID, TRACECAT__RUN_ID: Context
-
-It does NOT receive:
-- TRACECAT__DB_* credentials
-- MINIO_*/S3 credentials
-- TRACECAT__DB_ENCRYPTION_KEY
-"""
-
-TRACECAT__EXECUTOR_MODE = os.environ.get("TRACECAT__EXECUTOR_MODE", "subprocess")
-"""Executor mode for running actions. Supported: 'subprocess'. Deprecated: use EXECUTOR_BACKEND."""
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT", "300")

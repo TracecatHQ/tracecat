@@ -10,7 +10,7 @@ Trusted mode (default):
 
 Untrusted mode (TRACECAT__EXECUTOR_TRUST_MODE=untrusted):
 - No access to DB credentials
-- Uses SDK to call back to Tracecat API for secrets/variables
+- Uses pre-resolved secrets/variables passed in payload
 - Used for multitenant deployments with untrusted code
 
 Input/Output:
@@ -25,30 +25,57 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict, cast
 
 import orjson
 from pydantic_core import to_jsonable_python
 
+from tracecat.auth.types import Role
+from tracecat.dsl.schemas import RunActionInput
+from tracecat.executor.schemas import ExecutorActionErrorInfo, ResolvedContext
+from tracecat.executor.service import run_action_from_input
+from tracecat.executor.untrusted_runner import run_action_untrusted
 
-def _run_trusted(input_data: dict[str, Any]) -> dict[str, Any]:
+
+class ExecutionErrorDict(TypedDict, total=False):
+    """Error information from subprocess action execution."""
+
+    # Always present
+    type: str
+    message: str
+
+    # From ExecutorActionErrorInfo
+    action_name: str
+    filename: str
+    function: str
+    lineno: int | None
+    loop_iteration: int | None
+    loop_vars: dict[str, Any] | None
+
+    # Fallback error fields
+    traceback: str
+
+
+class ExecutionResult(TypedDict):
+    """Result from subprocess action execution."""
+
+    success: bool
+    result: Any | None
+    error: NotRequired[ExecutionErrorDict | None]
+
+
+def _run_trusted(input_data: dict[str, Any]) -> ExecutionResult:
     """Run action in trusted mode with direct DB access."""
-    from tracecat.auth.types import Role
-    from tracecat.dsl.schemas import RunActionInput
-    from tracecat.executor.schemas import ExecutorActionErrorInfo
-    from tracecat.executor.service import run_action_from_input
-
     try:
         input_obj = RunActionInput.model_validate(input_data["input"])
         role = Role.model_validate(input_data["role"])
 
         result = asyncio.run(run_action_from_input(input=input_obj, role=role))
 
-        return {
-            "success": True,
-            "result": to_jsonable_python(result),
-            "error": None,
-        }
+        return ExecutionResult(
+            success=True,
+            result=to_jsonable_python(result),
+        )
 
     except Exception as e:
         action_name = (
@@ -56,43 +83,46 @@ def _run_trusted(input_data: dict[str, Any]) -> dict[str, Any]:
         )
         try:
             error_info = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
-            error_dict = error_info.model_dump(mode="json")
+            error_dict = cast(ExecutionErrorDict, error_info.model_dump(mode="json"))
         except Exception:
-            error_dict = {
-                "type": type(e).__name__,
-                "message": str(e),
-                "traceback": traceback.format_exc(),
-            }
+            error_dict = ExecutionErrorDict(
+                type=type(e).__name__,
+                message=str(e),
+                traceback=traceback.format_exc(),
+            )
 
-        return {
-            "success": False,
-            "result": None,
-            "error": error_dict,
-        }
+        return ExecutionResult(
+            success=False,
+            result=None,
+            error=error_dict,
+        )
 
 
-def _run_untrusted(input_data: dict[str, Any]) -> dict[str, Any]:
-    """Run action in untrusted mode using SDK for secrets/variables.
+def _run_untrusted(input_data: dict[str, Any]) -> ExecutionResult:
+    """Run action in untrusted mode using pre-resolved secrets/variables.
 
-    In this mode, we don't have DB credentials. Instead we use the
-    Tracecat SDK to call back to the API for secrets and variables.
+    In this mode, we don't have DB credentials. Secrets and variables are
+    pre-resolved by the caller and passed via 'resolved_context' in the payload.
     """
-    from tracecat.auth.types import Role
-    from tracecat.dsl.schemas import RunActionInput
-    from tracecat.executor.schemas import ExecutorActionErrorInfo
-    from tracecat.executor.untrusted_runner import run_action_untrusted
-
     try:
         input_obj = RunActionInput.model_validate(input_data["input"])
         role = Role.model_validate(input_data["role"])
 
-        result = asyncio.run(run_action_untrusted(input=input_obj, role=role))
+        # Get resolved context from payload (pre-resolved by caller)
+        resolved_context = ResolvedContext.model_validate(
+            input_data.get("resolved_context", {})
+        )
 
-        return {
-            "success": True,
-            "result": to_jsonable_python(result),
-            "error": None,
-        }
+        result = asyncio.run(
+            run_action_untrusted(
+                input=input_obj, role=role, resolved_context=resolved_context
+            )
+        )
+
+        return ExecutionResult(
+            success=True,
+            result=to_jsonable_python(result),
+        )
 
     except Exception as e:
         action_name = (
@@ -100,19 +130,19 @@ def _run_untrusted(input_data: dict[str, Any]) -> dict[str, Any]:
         )
         try:
             error_info = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
-            error_dict = error_info.model_dump(mode="json")
+            error_dict = cast(ExecutionErrorDict, error_info.model_dump(mode="json"))
         except Exception:
-            error_dict = {
-                "type": type(e).__name__,
-                "message": str(e),
-                "traceback": traceback.format_exc(),
-            }
+            error_dict = ExecutionErrorDict(
+                type=type(e).__name__,
+                message=str(e),
+                traceback=traceback.format_exc(),
+            )
 
-        return {
-            "success": False,
-            "result": None,
-            "error": error_dict,
-        }
+        return ExecutionResult(
+            success=False,
+            result=None,
+            error=error_dict,
+        )
 
 
 def main() -> None:

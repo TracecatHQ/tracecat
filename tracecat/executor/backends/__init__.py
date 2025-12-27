@@ -13,24 +13,21 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 from tracecat import config
 from tracecat.executor.backend import ExecutorBackend
-from tracecat.executor.backends.direct import DirectBackend
-from tracecat.executor.backends.ephemeral import EphemeralBackend
-from tracecat.executor.backends.sandboxed_pool import SandboxedPoolBackend
+from tracecat.executor.schemas import (
+    ExecutorBackendType,
+    _resolve_backend_type,
+    get_trust_mode,
+)
 from tracecat.logger import logger
 
-if TYPE_CHECKING:
-    pass
-
 __all__ = [
-    "DirectBackend",
-    "EphemeralBackend",
     "ExecutorBackend",
-    "SandboxedPoolBackend",
+    "ExecutorBackendType",
     "get_executor_backend",
+    "get_trust_mode",
     "shutdown_executor_backend",
 ]
 
@@ -39,54 +36,27 @@ _backend: ExecutorBackend | None = None
 _backend_lock = asyncio.Lock()
 
 
-def _is_nsjail_available() -> bool:
-    """Check if nsjail sandbox is available."""
-    from pathlib import Path
+def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
+    """Create a backend instance by type.
 
-    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
+    Uses lazy imports to avoid circular dependencies with action_runner.
+    """
+    match backend_type:
+        case ExecutorBackendType.SANDBOXED_POOL:
+            from tracecat.executor.backends.sandboxed_pool import SandboxedPoolBackend
 
-    return nsjail_path.exists() and rootfs_path.exists()
+            return SandboxedPoolBackend()
+        case ExecutorBackendType.EPHEMERAL:
+            from tracecat.executor.backends.ephemeral import EphemeralBackend
 
+            return EphemeralBackend()
+        case ExecutorBackendType.DIRECT:
+            from tracecat.executor.backends.direct import DirectBackend
 
-def _resolve_backend_type() -> str:
-    """Resolve the backend type from config, handling 'auto' mode."""
-    backend_type = config.TRACECAT__EXECUTOR_BACKEND
-
-    if backend_type == "auto":
-        # Auto-select based on environment
-        if config.TRACECAT__DISABLE_NSJAIL:
-            logger.info(
-                "Auto-selecting 'direct' backend (DISABLE_NSJAIL=true)",
-            )
-            return "direct"
-        elif _is_nsjail_available():
-            logger.info(
-                "Auto-selecting 'sandboxed_pool' backend (nsjail available)",
-            )
-            return "sandboxed_pool"
-        else:
-            logger.warning(
-                "Auto-selecting 'direct' backend (nsjail not available)",
-            )
-            return "direct"
-
-    return backend_type
-
-
-def _create_backend(backend_type: str) -> ExecutorBackend:
-    """Create a backend instance by type."""
-    if backend_type == "sandboxed_pool":
-        return SandboxedPoolBackend()
-    elif backend_type == "ephemeral":
-        return EphemeralBackend()
-    elif backend_type == "direct":
-        return DirectBackend()
-    else:
-        raise ValueError(
-            f"Unknown executor backend: {backend_type!r}. "
-            f"Supported: 'sandboxed_pool', 'ephemeral', 'direct', 'auto'"
-        )
+            return DirectBackend()
+        case _:
+            # This shouldn't be reachable due to enum validation
+            raise ValueError(f"Unknown executor backend: {backend_type!r}")
 
 
 async def get_executor_backend() -> ExecutorBackend:
