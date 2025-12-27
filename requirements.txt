@@ -1260,7 +1260,9 @@ marshmallow==3.26.2 \
 mcp==1.25.0 \
     --hash=sha256:56310361ebf0364e2d438e5b45f7668cbb124e158bb358333cd06e49e83a6802 \
     --hash=sha256:b37c38144a666add0862614cc79ec276e97d72aa8ca26d622818d4e278b9721a
-    # via pydantic-ai-slim
+    # via
+    #   claude-agent-sdk
+    #   pydantic-ai-slim
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 \
     --hash=sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba

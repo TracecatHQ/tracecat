@@ -1341,17 +1341,23 @@ export type ChatEntity =
   | "copilot"
 
 /**
- * Model for chat metadata with a single message.
+ * Model for a chat message with harness metadata.
  */
 export type ChatMessage = {
   /**
-   * Unique chat identifier
+   * Unique message identifier
    */
   id: string
   /**
-   * The message from the chat
+   * The harness type that created this message (e.g., pydantic-ai, claude-sdk)
    */
-  message: ModelRequest | ModelResponse
+  harness?: string
+  /**
+   * Raw message data in native harness format
+   */
+  data: {
+    [key: string]: unknown
+  }
 }
 
 /**

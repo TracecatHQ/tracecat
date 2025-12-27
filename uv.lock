@@ -4198,7 +4198,7 @@ requires-dist = [
     { name = "async-lru", specifier = "==2.0.4" },
     { name = "asyncpg", specifier = "==0.29.0" },
     { name = "authlib", specifier = "==1.6.5" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.14" },
+    { name = "claude-agent-sdk", specifier = "==0.1.18" },
     { name = "cloudpickle", specifier = "==3.0.0" },
     { name = "cramjam", specifier = "==2.11.0" },
     { name = "croniter", specifier = "==6.0.0" },

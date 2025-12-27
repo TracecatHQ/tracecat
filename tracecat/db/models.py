@@ -2373,6 +2373,13 @@ class ChatMessage(WorkspaceModel):
         index=True,
     )
     kind: Mapped[str] = mapped_column(String, nullable=False, doc="The kind of message")
+    harness: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="pydantic-ai",
+        server_default="pydantic-ai",
+        doc="The harness type that created this message (e.g., pydantic-ai, claude-sdk)",
+    )
     data: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         default=dict,

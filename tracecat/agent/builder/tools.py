@@ -204,7 +204,12 @@ async def build_agent_preset_builder_tools(
                     updated_at=chat.updated_at,
                     last_stream_id=chat.last_stream_id,
                     messages=[
-                        ChatMessage.from_db(message) for message in chat.messages
+                        ChatMessage(
+                            id=str(message.id),
+                            harness=message.harness,
+                            data=message.data,
+                        )
+                        for message in chat.messages
                     ],
                 )
         except ModelRetry:

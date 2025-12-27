@@ -10,7 +10,7 @@ import aiohttp
 from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
-from tracecat.agent.stream.events import AgentStreamEventTA
+from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -135,7 +135,9 @@ class AgentStreamWriter:
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
         async for event in events:
-            await self.stream.append(event)
+            # Convert pydantic-ai event to unified format before appending
+            unified_event = PydanticAIAdapter().to_unified_event(event)
+            await self.stream.append(unified_event.model_dump())
 
 
 class HttpStreamWriter(StreamWriter):
@@ -152,10 +154,12 @@ class HttpStreamWriter(StreamWriter):
         self._ensure_secure_url()
         async with aiohttp.ClientSession() as session:
             async for event in events:
-                logger.warning("STREAM EVENT", event=event)
+                # Convert pydantic-ai event to unified format
+                unified_event = PydanticAIAdapter().to_unified_event(event)
+                logger.warning("STREAM EVENT", event=unified_event)
                 # Make a post request to the API to stream the event
                 async with session.post(
                     self.url,
-                    json={"event": AgentStreamEventTA.dump_json(event).decode()},
+                    json={"event": unified_event.model_dump_json()},
                 ) as response:
                     logger.warning("STREAM RESPONSE", response=response.status)
