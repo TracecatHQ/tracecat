@@ -150,6 +150,7 @@ anyio==4.12.0 \
     --hash=sha256:dad2376a628f98eeca4881fc56cd06affd18f659b17a747d3ff0307ced94b1bb
     # via
     #   anthropic
+    #   claude-agent-sdk
     #   google-genai
     #   httpx
     #   mcp
@@ -420,6 +421,13 @@ cint==1.0.0 \
     --hash=sha256:66f026d28c46ef9ea9635be5cb342506c6a1af80d11cb1c881a8898ca429fc91 \
     --hash=sha256:8aa33028e04015711c0305f918cb278f1dc8c5c9997acdc45efad2c7cb1abf50
     # via polyfile
+claude-agent-sdk==0.1.18 \
+    --hash=sha256:36f5b84d5c3c8773ee9b56aeb5ab345d1033231db37f80d1f20ac15239bef41c \
+    --hash=sha256:3c41bd8f38848609ae0d5da8d7327a4c2d7057a363feafb6fd70df611ea204cc \
+    --hash=sha256:4fcb8730cc77dea562fbe9aa48c65eced3ef58a6bb1f34f77e50e8258902477d \
+    --hash=sha256:983f15e51253f40c55136a86d7cc63e023a3576428b05fa1459093d461b2d215 \
+    --hash=sha256:9e45b4e3c20c072c3e3325fa60bab9a4b5a7cbbce64ca274b8d7d0af42dd9dd8
+    # via tracecat
 click==8.2.1 \
     --hash=sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202 \
     --hash=sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b
