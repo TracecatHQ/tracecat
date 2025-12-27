@@ -44,9 +44,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from pydantic import TypeAdapter
 
 from tracecat import config
+from tracecat.executor.schemas import ExecutorResult
 from tracecat.logger import logger
+
+if TYPE_CHECKING:
+    from tracecat.auth.types import Role
+    from tracecat.dsl.schemas import RunActionInput
+
+_ExecutorResultAdapter = TypeAdapter(ExecutorResult)
 
 
 def get_available_cpus() -> int:
@@ -68,11 +76,6 @@ def get_available_cpus() -> int:
             pass
     # Fallback for platforms without sched_getaffinity (e.g., macOS)
     return os.cpu_count() or 4
-
-
-if TYPE_CHECKING:
-    from tracecat.auth.types import Role
-    from tracecat.dsl.schemas import RunActionInput
 
 
 @dataclass
@@ -328,7 +331,7 @@ class SandboxedWorkerPool:
         cmd = [
             sys.executable,
             "-m",
-            "tracecat.executor.pool_worker",
+            "tracecat.executor.backends.sandboxed_pool.worker",
         ]
 
         logger.debug(
@@ -542,7 +545,7 @@ class SandboxedWorkerPool:
                 "exec_bin {",
                 '  path: "/usr/local/bin/python3"',
                 '  arg: "-m"',
-                '  arg: "tracecat.executor.pool_worker"',
+                '  arg: "tracecat.executor.backends.sandboxed_pool.worker"',
                 "}",
                 "",
                 'cwd: "/app"',
@@ -928,7 +931,7 @@ class SandboxedWorkerPool:
         input: RunActionInput,
         role: Role,
         timeout: float = 300.0,
-    ) -> dict[str, Any]:
+    ) -> ExecutorResult:
         """Execute a task on an available sandboxed worker."""
         if not self._started:
             raise RuntimeError("Sandboxed worker pool not started")
@@ -1030,7 +1033,7 @@ class SandboxedWorkerPool:
         input: RunActionInput,
         role: Role,
         timeout: float,
-    ) -> dict[str, Any]:
+    ) -> ExecutorResult:
         """Execute task on a sandboxed worker via Unix socket."""
 
         start_time = time.monotonic()
@@ -1115,7 +1118,10 @@ class SandboxedWorkerPool:
             )
 
             elapsed_ms = (time.monotonic() - start_time) * 1000
-            result = orjson.loads(response_bytes)
+            data = orjson.loads(response_bytes)
+
+            # Validate using discriminated union
+            result = _ExecutorResultAdapter.validate_python(data)
 
             logger.info(
                 "Sandboxed worker task completed",
@@ -1123,7 +1129,7 @@ class SandboxedWorkerPool:
                 action=action_name,
                 task_ref=task_ref,
                 elapsed_ms=f"{elapsed_ms:.1f}",
-                success=result.get("success"),
+                success=result.type == "success",
             )
 
             return result

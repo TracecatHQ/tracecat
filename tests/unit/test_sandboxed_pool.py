@@ -14,11 +14,11 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.sandboxed_pool import (
+from tracecat.executor.backends.sandboxed_pool import (
     SandboxedWorkerInfo,
     SandboxedWorkerPool,
-    get_available_cpus,
 )
+from tracecat.executor.backends.sandboxed_pool.pool import get_available_cpus
 from tracecat.identifiers.workflow import WorkflowUUID
 
 

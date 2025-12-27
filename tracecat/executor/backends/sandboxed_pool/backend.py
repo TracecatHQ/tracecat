@@ -9,14 +9,19 @@ Best for single-tenant deployments where high throughput is critical.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from tracecat.executor.backend import ExecutorBackend
+from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.backends.sandboxed_pool.pool import (
+    get_sandboxed_worker_pool,
+    shutdown_sandboxed_worker_pool,
+)
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
+    from tracecat.executor.schemas import ExecutorResult
 
 
 class SandboxedPoolBackend(ExecutorBackend):
@@ -39,9 +44,8 @@ class SandboxedPoolBackend(ExecutorBackend):
         input: RunActionInput,
         role: Role,
         timeout: float = 300.0,
-    ) -> dict[str, Any]:
+    ) -> ExecutorResult:
         """Execute action in the sandboxed worker pool."""
-        from tracecat.executor.sandboxed_pool import get_sandboxed_worker_pool
 
         action_name = input.task.action
         logger.debug(
@@ -55,14 +59,10 @@ class SandboxedPoolBackend(ExecutorBackend):
 
     async def start(self) -> None:
         """Initialize the worker pool."""
-        from tracecat.executor.sandboxed_pool import get_sandboxed_worker_pool
-
         logger.info("Starting sandboxed pool backend")
         await get_sandboxed_worker_pool()
 
     async def shutdown(self) -> None:
         """Shutdown the worker pool."""
-        from tracecat.executor.sandboxed_pool import shutdown_sandboxed_worker_pool
-
         logger.info("Shutting down sandboxed pool backend")
         await shutdown_sandboxed_worker_pool()

@@ -13,14 +13,18 @@ Trust Modes:
 
 from __future__ import annotations
 
-from typing import Any
-
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.executor.action_runner import get_action_runner
-from tracecat.executor.backend import ExecutorBackend
-from tracecat.executor.schemas import ExecutorActionErrorInfo, get_trust_mode
+from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.schemas import (
+    ExecutorActionErrorInfo,
+    ExecutorResult,
+    ExecutorResultFailure,
+    ExecutorResultSuccess,
+    get_trust_mode,
+)
 from tracecat.executor.service import (
     get_registry_artifacts_cached,
     get_registry_artifacts_for_lock,
@@ -69,7 +73,7 @@ class EphemeralBackend(ExecutorBackend):
         input: RunActionInput,
         role: Role,
         timeout: float = 300.0,
-    ) -> dict[str, Any]:
+    ) -> ExecutorResult:
         """Execute action in an ephemeral nsjail sandbox."""
         action_name = input.task.action
         trust_mode = self.trust_mode
@@ -97,8 +101,8 @@ class EphemeralBackend(ExecutorBackend):
 
         # Convert to standard response format
         if isinstance(result, ExecutorActionErrorInfo):
-            return {"success": False, "error": result.model_dump()}
-        return {"success": True, "result": result}
+            return ExecutorResultFailure(error=result)
+        return ExecutorResultSuccess(result=result)
 
     async def _get_tarball_uri(self, input: RunActionInput, role: Role) -> str | None:
         """Get the tarball URI for the registry environment."""

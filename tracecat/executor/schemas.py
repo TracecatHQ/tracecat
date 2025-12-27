@@ -4,12 +4,33 @@ import json
 import traceback
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import UUID4, BaseModel
+from pydantic import UUID4, BaseModel, Field
 
 from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
+from tracecat.logger import logger
+
+
+class ExecutorResultSuccess(BaseModel):
+    """Successful executor result."""
+
+    type: Literal["success"] = "success"
+    result: Any
+
+
+class ExecutorResultFailure(BaseModel):
+    """Failed executor result."""
+
+    type: Literal["failure"] = "failure"
+    error: ExecutorActionErrorInfo
+
+
+ExecutorResult = Annotated[
+    ExecutorResultSuccess | ExecutorResultFailure,
+    Field(discriminator="type"),
+]
 
 
 class ExecutorBackendType(StrEnum):
@@ -41,7 +62,6 @@ def _is_nsjail_available() -> bool:
 
 def _resolve_backend_type() -> ExecutorBackendType:
     """Resolve the backend type from config, handling 'auto' mode."""
-    from tracecat.logger import logger
 
     try:
         backend_type = ExecutorBackendType(config.TRACECAT__EXECUTOR_BACKEND)

@@ -38,7 +38,8 @@ from tracecat.exceptions import (
     TracecatException,
 )
 from tracecat.executor.action_runner import get_action_runner
-from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.backends import get_executor_backend
+from tracecat.executor.schemas import ExecutorActionErrorInfo, ExecutorResultSuccess
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     collect_expressions,
@@ -462,61 +463,6 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     return result
 
 
-async def run_action_in_sandboxed_pool(
-    input: RunActionInput, ctx: DispatchActionContext, iteration: int | None = None
-) -> ExecutionResult:
-    """Run action in the sandboxed worker pool (nsjail + warm Python)."""
-    from tracecat.executor.sandboxed_pool import get_sandboxed_worker_pool
-
-    role = ctx.role
-    action_name = input.task.action
-    timeout = 900.0  # Default timeout for sandbox execution
-
-    # Get pythonpath for the registry version
-    await _get_registry_pythonpath(input, role)
-
-    pool = await get_sandboxed_worker_pool()
-
-    try:
-        result = await pool.execute(
-            input=input,
-            role=role,
-            timeout=timeout,
-        )
-    except Exception as e:
-        # Infrastructure errors (socket timeout, connection failure, worker crash)
-        # need to be wrapped in ExecutorActionErrorInfo for consistent error handling
-        logger.error(
-            "Sandboxed pool execution failed",
-            action=action_name,
-            error=str(e),
-            error_type=type(e).__name__,
-        )
-        exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
-        if iteration is not None:
-            exec_result.loop_iteration = iteration
-            exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
-        raise ExecutionError(info=exec_result) from e
-
-    # Handle response - pool worker returns {"success": bool, "result": ..., "error": ...}
-    if result.get("success"):
-        exec_result = result["result"]
-    else:
-        # Error is a serialized ExecutorActionErrorInfo
-        error_data = result.get("error", {})
-        exec_result = ExecutorActionErrorInfo.model_validate(error_data)
-
-    # Handle errors (same as subprocess path)
-    if isinstance(exec_result, ExecutorActionErrorInfo):
-        logger.trace("Raising executor error proxy", exec_result=exec_result)
-        if iteration is not None:
-            exec_result.loop_iteration = iteration
-            exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
-        raise ExecutionError(info=exec_result)
-
-    return exec_result
-
-
 async def _get_registry_pythonpath(input: RunActionInput, role: Role) -> str | None:
     """Get the PYTHONPATH for the current registry version.
 
@@ -568,7 +514,6 @@ async def run_action_on_cluster(
     - 'direct': In-process execution (development only)
     - 'auto': Auto-select based on environment
     """
-    from tracecat.executor.backends import get_executor_backend
 
     role = ctx.role
     action_name = input.task.action
@@ -597,11 +542,11 @@ async def run_action_on_cluster(
         raise ExecutionError(info=exec_result) from e
 
     # Handle response from backend
-    if result.get("success"):
-        return result["result"]
+    if isinstance(result, ExecutorResultSuccess):
+        return result.result
 
     # Error response from backend
-    error_data = result.get("error", {})
+    error_data = result.error
     exec_result = ExecutorActionErrorInfo.model_validate(error_data)
     if iteration is not None:
         exec_result.loop_iteration = iteration

@@ -8,10 +8,16 @@ WARNING: Do not use in production with untrusted workloads.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from tracecat.executor.backend import ExecutorBackend
-from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.schemas import (
+    ExecutorActionErrorInfo,
+    ExecutorResult,
+    ExecutorResultFailure,
+    ExecutorResultSuccess,
+)
+from tracecat.executor.service import run_action_from_input
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -38,9 +44,8 @@ class DirectBackend(ExecutorBackend):
         input: RunActionInput,
         role: Role,
         timeout: float = 300.0,
-    ) -> dict[str, Any]:
+    ) -> ExecutorResult:
         """Execute action directly in-process."""
-        from tracecat.executor.service import run_action_from_input
 
         action_name = input.task.action
         logger.debug(
@@ -51,7 +56,7 @@ class DirectBackend(ExecutorBackend):
 
         try:
             result = await run_action_from_input(input, role)
-            return {"success": True, "result": result}
+            return ExecutorResultSuccess(result=result)
         except Exception as e:
             logger.error(
                 "Direct execution failed",
@@ -60,4 +65,4 @@ class DirectBackend(ExecutorBackend):
                 error_type=type(e).__name__,
             )
             error_info = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
-            return {"success": False, "error": error_info.model_dump()}
+            return ExecutorResultFailure(error=error_info)

@@ -12,11 +12,12 @@ Available backends:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
+    from tracecat.executor.schemas import ExecutorResult
 
 
 class ExecutorBackend(ABC):
@@ -24,10 +25,6 @@ class ExecutorBackend(ABC):
 
     Backends implement different execution strategies with varying
     trade-offs between isolation, latency, and resource usage.
-
-    The execute() method must return a dict in the format:
-    - Success: {"success": True, "result": <any>}
-    - Failure: {"success": False, "error": <ExecutorActionErrorInfo dict>}
     """
 
     @abstractmethod
@@ -36,7 +33,7 @@ class ExecutorBackend(ABC):
         input: RunActionInput,
         role: Role,
         timeout: float = 300.0,
-    ) -> dict[str, Any]:
+    ) -> ExecutorResult:
         """Execute an action and return result.
 
         Args:
@@ -45,8 +42,7 @@ class ExecutorBackend(ABC):
             timeout: Execution timeout in seconds
 
         Returns:
-            dict with {"success": True, "result": Any} on success
-            dict with {"success": False, "error": dict} on failure
+            ExecutorResultSuccess on success, ExecutorResultFailure on failure.
         """
         ...
 
@@ -55,9 +51,6 @@ class ExecutorBackend(ABC):
 
         Called once at worker startup. Override to perform setup
         like creating worker pools or establishing connections.
-
-        This is intentionally not abstract - backends with no setup
-        can use the default empty implementation.
         """
 
     async def shutdown(self) -> None:  # noqa: B027
@@ -65,7 +58,4 @@ class ExecutorBackend(ABC):
 
         Called at worker shutdown. Override to release resources
         like terminating worker processes or closing connections.
-
-        This is intentionally not abstract - backends with no cleanup
-        can use the default empty implementation.
         """

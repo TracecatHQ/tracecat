@@ -23,7 +23,10 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.action_runner import ActionRunner
-from tracecat.executor.sandboxed_pool import SandboxedWorkerInfo, SandboxedWorkerPool
+from tracecat.executor.backends.sandboxed_pool import (
+    SandboxedWorkerInfo,
+    SandboxedWorkerPool,
+)
 from tracecat.executor.service import (
     RegistryArtifactsContext,
     _get_registry_pythonpath,

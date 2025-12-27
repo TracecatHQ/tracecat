@@ -78,7 +78,7 @@ async def sandboxed_pool():
 
     Workers run as direct subprocesses (TRACECAT__DISABLE_NSJAIL=true).
     """
-    from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+    from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
 
     pool = SandboxedWorkerPool(
         size=2,
@@ -100,7 +100,7 @@ async def small_recycle_pool():
     - size=1: Single worker to ensure same worker handles all tasks
     - max_tasks_per_worker=5: Recycle after just 5 tasks
     """
-    from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+    from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
 
     pool = SandboxedWorkerPool(
         size=1,
@@ -121,7 +121,7 @@ async def single_worker_pool():
     Forces all requests to go through the same worker, useful for
     verifying PYTHONPATH switching per-request.
     """
-    from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+    from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
 
     pool = SandboxedWorkerPool(
         size=1,

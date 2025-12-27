@@ -24,18 +24,26 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import orjson
 from pydantic_core import to_json
 
 from tracecat import config
+from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.auth.types import AccessLevel
+from tracecat.auth.types import Role as AuthRole
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
     get_trust_mode,
 )
 from tracecat.expressions.eval import collect_expressions
+from tracecat.feature_flags import is_feature_enabled
+from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
+from tracecat.sandbox.types import ResourceLimits
 from tracecat.secrets import secrets_manager
 from tracecat.storage import blob
 
@@ -234,8 +242,6 @@ class ActionRunner:
 
     async def _download_file(self, url: str, output_path: Path) -> None:
         """Download a file from HTTP URL to local path."""
-        import httpx
-
         async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -404,9 +410,6 @@ class ActionRunner:
             trust_mode: 'trusted' (pass DB creds) or 'untrusted' (SDK mode)
             resolved_context: Pre-resolved secrets/variables for untrusted mode
         """
-        from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
-        from tracecat.sandbox.types import ResourceLimits
-
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Create temporary directory for file-based IPC
@@ -442,12 +445,6 @@ class ActionRunner:
                 sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
 
                 # Mint an executor token for SDK calls
-                from tracecat.auth.executor_tokens import mint_executor_token
-                from tracecat.auth.types import AccessLevel
-                from tracecat.auth.types import Role as AuthRole
-                from tracecat.feature_flags import is_feature_enabled
-                from tracecat.feature_flags.enums import FeatureFlag
-
                 if is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
                     executor_role = AuthRole(
                         type="service",

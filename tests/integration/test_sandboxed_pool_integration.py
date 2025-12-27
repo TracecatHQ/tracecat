@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -37,7 +37,12 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
-from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+from tracecat.executor.schemas import (
+    ExecutorResult,
+    ExecutorResultFailure,
+    ExecutorResultSuccess,
+)
 
 # =============================================================================
 # Test Class 1: Cold Start Behavior
@@ -103,7 +108,7 @@ class TestSandboxedPoolColdStart:
 
         # Cold start should be < 5s even with nsjail overhead
         assert elapsed_ms < 5000, f"Cold start too slow: {elapsed_ms}ms"
-        assert "success" in result, f"Execution should succeed: {result}"
+        assert result.type == "success", f"Execution should succeed: {result}"
 
     @pytest.mark.anyio
     async def test_warm_execution_faster_than_cold(
@@ -200,8 +205,8 @@ class TestMultiTenantExecution:
         )
 
         result_a, result_b = results
-        assert result_a.get("success"), f"Workspace A should succeed: {result_a}"
-        assert result_b.get("success"), f"Workspace B should succeed: {result_b}"
+        assert result_a.type == "success", f"Workspace A should succeed: {result_a}"
+        assert result_b.type == "success", f"Workspace B should succeed: {result_b}"
 
     @pytest.mark.anyio
     async def test_pythonpath_correctly_forwarded_to_worker(
@@ -233,7 +238,7 @@ class TestMultiTenantExecution:
         )
 
         # Success indicates the worker received and processed the request
-        assert "success" in result, f"Execution should complete: {result}"
+        assert result.type == "success", f"Execution should complete: {result}"
 
     @pytest.mark.anyio
     async def test_multiple_concurrent_same_workspace(
@@ -264,7 +269,7 @@ class TestMultiTenantExecution:
             ]
         )
 
-        successes = sum(1 for r in results if r.get("success"))
+        successes = sum(1 for r in results if r.type == "success")
         assert successes == 5, f"All 5 requests should succeed, got {successes}"
 
 
@@ -311,7 +316,7 @@ class TestWorkerRecycling:
                 role=role_workspace_a,
                 timeout=30.0,
             )
-            assert result.get("success"), f"Task {i} should succeed"
+            assert result.type == "success", f"Task {i} should succeed"
             # Small delay to allow recycle to complete
             await asyncio.sleep(0.1)
 
@@ -335,7 +340,7 @@ class TestWorkerRecycling:
             role=role_workspace_a,
             timeout=30.0,
         )
-        assert result.get("success"), "Recycled worker should be functional"
+        assert result.type == "success", "Recycled worker should be functional"
 
     @pytest.mark.anyio
     async def test_concurrent_tasks_during_recycle(
@@ -356,7 +361,7 @@ class TestWorkerRecycling:
         pool = small_recycle_pool
 
         # Launch many tasks concurrently to trigger recycle during execution
-        tasks = []
+        tasks: list[Awaitable[ExecutorResult]] = []
         for _ in range(10):
             input_data = run_action_input_factory()
             tasks.append(
@@ -370,7 +375,7 @@ class TestWorkerRecycling:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Count successes (some may execute before recycle, some after)
-        successes = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
+        successes = sum(1 for r in results if isinstance(r, ExecutorResultSuccess))
         errors = [r for r in results if isinstance(r, Exception)]
 
         assert successes == 10, (
@@ -502,7 +507,7 @@ class TestMultiTenantThrashing:
         task_count = 100
         launch_interval = 0.005  # 5ms between launches
 
-        tasks: list[asyncio.Task[dict]] = []
+        tasks: list[asyncio.Task[ExecutorResult]] = []
 
         for i in range(task_count):
             if i % 2 == 0:
@@ -525,7 +530,7 @@ class TestMultiTenantThrashing:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successes = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
+        successes = sum(1 for r in results if isinstance(r, ExecutorResultSuccess))
         errors = [r for r in results if isinstance(r, Exception)]
 
         assert successes == task_count, (
@@ -600,10 +605,10 @@ class TestMultiTenantThrashing:
         results_b = await asyncio.gather(*tasks_b, return_exceptions=True)
 
         successes_a = sum(
-            1 for r in results_a if isinstance(r, dict) and r.get("success")
+            1 for r in results_a if isinstance(r, dict) and r.get("type") == "success"
         )
         successes_b = sum(
-            1 for r in results_b if isinstance(r, dict) and r.get("success")
+            1 for r in results_b if isinstance(r, dict) and r.get("type") == "success"
         )
 
         assert successes_a == burst_size, (
@@ -660,7 +665,7 @@ class TestMultiTenantThrashing:
         all_results = await asyncio.gather(*tasks_a, *tasks_b, return_exceptions=True)
 
         successes = sum(
-            1 for r in all_results if isinstance(r, dict) and r.get("success")
+            1 for r in all_results if isinstance(r, dict) and r.get("type") == "success"
         )
         errors = [r for r in all_results if isinstance(r, Exception)]
 
@@ -714,7 +719,7 @@ class TestMultiTenantThrashing:
                     role=role,
                     timeout=30.0,
                 )
-                if result.get("success"):
+                if result.type == "success":
                     success_count += 1
                 else:
                     error_count += 1
@@ -773,7 +778,7 @@ class TestMultiTenantThrashing:
                 timeout=30.0,
             )
 
-            assert result.get("success"), f"Request {i} should succeed: {result}"
+            assert result.type == "success", f"Request {i} should succeed: {result}"
 
         # Worker should still be the same (not recycled for 10 tasks)
         assert pool._workers[0].pid == initial_pid, (
@@ -821,10 +826,16 @@ class TestErrorPropagation:
         )
 
         # Verify response structure includes all expected fields
-        assert "success" in result, "Response must include 'success' field"
-        assert "result" in result, "Response must include 'result' field"
-        assert "error" in result, "Response must include 'error' field"
-        assert "timing" in result, "Response must include 'timing' field"
+        assert hasattr(result, "type"), "Response must include 'type' field"
+        # ExecutorResultSuccess has 'result', ExecutorResultFailure has 'error'
+        if result.type == "success":
+            assert hasattr(result, "result"), (
+                "Success response must include 'result' field"
+            )
+        else:
+            assert hasattr(result, "error"), (
+                "Failure response must include 'error' field"
+            )
 
     @pytest.mark.anyio
     async def test_pool_continues_after_failed_task(
@@ -856,7 +867,7 @@ class TestErrorPropagation:
         # All should return responses (in test mode, all succeed)
         assert len(results) == 5, "Should get 5 responses"
         for i, result in enumerate(results):
-            assert "success" in result, f"Task {i} should return a response"
+            assert hasattr(result, "type"), f"Task {i} should return a response"
 
         # Workers should still be alive
         for worker in sandboxed_pool._workers:
@@ -895,8 +906,10 @@ class TestErrorPropagation:
 
         # All should have response structure
         for result in results:
-            assert isinstance(result, dict), "Result should be a dict"
-            assert "success" in result, "Result should have 'success' field"
+            assert isinstance(result, (ExecutorResultSuccess, ExecutorResultFailure)), (
+                f"Result should be ExecutorResult, got {type(result)}"
+            )
+            assert hasattr(result, "type"), "Result should have 'type' field"
 
 
 # =============================================================================
@@ -923,7 +936,7 @@ class TestWorkerCrashRecovery:
         - Worker process death is detectable via returncode
         - Pool continues operating with remaining workers
         """
-        from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+        from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
 
         pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=4)
         await pool.start()
@@ -979,7 +992,7 @@ class TestWorkerCrashRecovery:
             role=role_workspace_a,
             timeout=30.0,
         )
-        assert result.get("success"), "Initial task should succeed"
+        assert result.type == "success", "Initial task should succeed"
 
         # Kill the only worker
         worker = pool._workers[0]
@@ -1000,7 +1013,7 @@ class TestWorkerCrashRecovery:
                 timeout=5.0,  # Outer timeout to prevent test hang
             )
             # If we get a result, check if it indicates failure
-            if not result.get("success"):
+            if result.type != "success":
                 task_failed = True
         except (TimeoutError, Exception):
             # Expected - task should fail/timeout when worker is dead
@@ -1025,7 +1038,7 @@ class TestWorkerCrashRecovery:
         - Tasks succeed using surviving workers
         - Pool doesn't hang or crash
         """
-        from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+        from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
 
         pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=4)
         await pool.start()
@@ -1045,7 +1058,7 @@ class TestWorkerCrashRecovery:
                         role=role_workspace_a,
                         timeout=10.0,
                     )
-                    if result.get("success"):
+                    if result.type == "success":
                         successes += 1
                 except Exception:
                     pass
@@ -1097,7 +1110,7 @@ class TestTaskTimeoutHandling:
         )
         elapsed = time.monotonic() - start
 
-        assert result.get("success"), "Task should succeed"
+        assert result.type == "success", "Task should succeed"
         assert elapsed < 5.0, f"Task should complete well before timeout: {elapsed}s"
 
     @pytest.mark.anyio
@@ -1125,8 +1138,8 @@ class TestTaskTimeoutHandling:
         )
 
         # In test mode, should succeed. Real timeouts would have
-        # success=False and error containing timeout info.
-        assert "success" in result, "Should return result with success field"
+        # type="failure" and error containing timeout info.
+        assert hasattr(result, "type"), "Should return result with type field"
 
     @pytest.mark.anyio
     async def test_multiple_tasks_with_varying_timeouts(
@@ -1154,7 +1167,7 @@ class TestTaskTimeoutHandling:
 
         results = await asyncio.gather(*tasks)
 
-        successes = sum(1 for r in results if r.get("success"))
+        successes = sum(1 for r in results if r.type == "success")
         assert successes == 5, f"All tasks should succeed: {successes}/5"
 
 
@@ -1201,7 +1214,9 @@ class TestPoolExhaustion:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successes = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
+        successes = sum(
+            1 for r in results if isinstance(r, dict) and r.get("type") == "success"
+        )
         exceptions = [r for r in results if isinstance(r, Exception)]
 
         assert successes == capacity, (
@@ -1238,7 +1253,9 @@ class TestPoolExhaustion:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successes = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
+        successes = sum(
+            1 for r in results if isinstance(r, dict) and r.get("type") == "success"
+        )
         exceptions = [r for r in results if isinstance(r, Exception)]
 
         assert successes == request_count, (
@@ -1275,7 +1292,9 @@ class TestPoolExhaustion:
         burst_results = await asyncio.gather(*burst_tasks, return_exceptions=True)
 
         burst_successes = sum(
-            1 for r in burst_results if isinstance(r, dict) and r.get("success")
+            1
+            for r in burst_results
+            if isinstance(r, dict) and r.get("type") == "success"
         )
         assert burst_successes == 20, f"Burst should succeed: {burst_successes}/20"
 
@@ -1288,7 +1307,7 @@ class TestPoolExhaustion:
             role=role_workspace_a,
             timeout=30.0,
         )
-        assert result.get("success"), "Post-burst request should succeed"
+        assert result.get("type") == "success", "Post-burst request should succeed"
 
         # Workers should be healthy
         alive_workers = sum(
@@ -1336,10 +1355,12 @@ class TestPythonpathIsolation:
             timeout=30.0,
         )
 
-        assert result.get("success"), f"Task should succeed: {result}"
-        assert result.get("result", {}).get("pythonpath") == str(path_a), (
+        assert result.type == "success", f"Task should succeed: {result}"
+        assert isinstance(result, ExecutorResultSuccess)
+        result_data = result.result if isinstance(result.result, dict) else {}
+        assert result_data.get("pythonpath") == str(path_a), (
             f"PYTHONPATH should match: expected {path_a}, "
-            f"got {result.get('result', {}).get('pythonpath')}"
+            f"got {result_data.get('pythonpath')}"
         )
 
     @pytest.mark.anyio
@@ -1378,8 +1399,12 @@ class TestPythonpathIsolation:
         )
 
         # Verify each got correct path
-        pythonpath_a = result_a.get("result", {}).get("pythonpath")
-        pythonpath_b = result_b.get("result", {}).get("pythonpath")
+        assert isinstance(result_a, ExecutorResultSuccess)
+        assert isinstance(result_b, ExecutorResultSuccess)
+        result_a_data = result_a.result if isinstance(result_a.result, dict) else {}
+        result_b_data = result_b.result if isinstance(result_b.result, dict) else {}
+        pythonpath_a = result_a_data.get("pythonpath")
+        pythonpath_b = result_b_data.get("pythonpath")
 
         assert pythonpath_a == str(path_a), (
             f"Workspace A should receive path_a: {pythonpath_a}"
@@ -1418,8 +1443,12 @@ class TestPythonpathIsolation:
             timeout=30.0,
         )
 
-        workspace_id_a = result_a.get("result", {}).get("workspace_id")
-        workspace_id_b = result_b.get("result", {}).get("workspace_id")
+        assert isinstance(result_a, ExecutorResultSuccess)
+        assert isinstance(result_b, ExecutorResultSuccess)
+        result_a_data = result_a.result if isinstance(result_a.result, dict) else {}
+        result_b_data = result_b.result if isinstance(result_b.result, dict) else {}
+        workspace_id_a = result_a_data.get("workspace_id")
+        workspace_id_b = result_b_data.get("workspace_id")
 
         assert workspace_id_a is not None, "Workspace A should have workspace_id"
         assert workspace_id_b is not None, "Workspace B should have workspace_id"
@@ -1466,7 +1495,9 @@ class TestPythonpathIsolation:
                 timeout=30.0,
             )
 
-            received_path = result.get("result", {}).get("pythonpath")
+            assert isinstance(result, ExecutorResultSuccess)
+            result_data = result.result if isinstance(result.result, dict) else {}
+            received_path = result_data.get("pythonpath")
             received_paths.append((expected_path, received_path))
 
             assert received_path == expected_path, (
@@ -1496,7 +1527,7 @@ class TestPythonpathIsolation:
         - Concurrent requests don't mix up paths
         - Each request's response matches its input path
         """
-        from tracecat.executor.sandboxed_pool import SandboxedWorkerPool
+        from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
 
         pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=4)
         await pool.start()
@@ -1541,7 +1572,9 @@ class TestPythonpathIsolation:
             for i, (expected, result) in enumerate(
                 zip(expected_paths, results, strict=False)
             ):
-                received = result.get("result", {}).get("pythonpath")
+                assert isinstance(result, ExecutorResultSuccess)
+                result_data = result.result if isinstance(result.result, dict) else {}
+                received = result_data.get("pythonpath")
                 if received != expected:
                     mismatches.append(f"Task {i}: expected {expected}, got {received}")
 

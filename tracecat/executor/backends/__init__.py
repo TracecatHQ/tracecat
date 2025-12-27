@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 
 from tracecat import config
-from tracecat.executor.backend import ExecutorBackend
+from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.schemas import (
     ExecutorBackendType,
     _resolve_backend_type,
