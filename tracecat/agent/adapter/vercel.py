@@ -23,15 +23,12 @@ from typing import (
 )
 
 import pydantic
-from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import (
-    AgentStreamEvent,
     AudioUrl,
     BinaryContent,
     BuiltinToolCallPart,
     BuiltinToolReturnPart,
     DocumentUrl,
-    FunctionToolResultEvent,
     ImageUrl,
     ModelMessage,
     ModelRequest,
@@ -39,16 +36,11 @@ from pydantic_ai.messages import (
     ModelResponse,
     ModelResponsePart,
     MultiModalContent,
-    PartDeltaEvent,
-    PartStartEvent,
     RetryPromptPart,
     SystemPromptPart,
     TextPart,
-    TextPartDelta,
     ThinkingPart,
-    ThinkingPartDelta,
     ToolCallPart,
-    ToolCallPartDelta,
     ToolReturnPart,
     UserContent,
     UserPromptPart,
@@ -64,6 +56,7 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
 )
+from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
@@ -760,161 +753,171 @@ class VercelStreamContext:
         return events
 
     async def handle_event(
-        self, event: AgentStreamEvent
+        self, event: UnifiedStreamEvent
     ) -> AsyncIterator[VercelSSEPayload]:
-        """Processes a pydantic-ai agent event and yields Vercel SDK SSE events."""
+        """Processes a unified stream event and yields Vercel SDK SSE events."""
         for data_event in self.flush_data_events():
             yield data_event
 
-        # End the previous part if a new one is starting
-        if isinstance(event, PartStartEvent):
-            # Close any existing stream for this index so the next start begins cleanly.
-            for message in self.collect_current_part_end_events(index=event.index):
-                yield message
+        match event.type:
+            case StreamEventType.TEXT_START:
+                # Close any existing stream for this index
+                if event.part_id is not None:
+                    for message in self.collect_current_part_end_events(
+                        index=event.part_id
+                    ):
+                        yield message
+                state = self._create_part_state(event.part_id or 0, "text")
+                yield TextStartEventPayload(id=state.part_id)
+                if event.text:
+                    yield TextDeltaEventPayload(id=state.part_id, delta=event.text)
 
-        # Handle Model Response Stream Events
-        if isinstance(event, PartStartEvent):
-            part = event.part
-            if isinstance(part, TextPart):
-                state = self._create_part_state(event.index, "text")
-                yield TextStartEventPayload(id=state.part_id)
-                if part.content:
-                    yield TextDeltaEventPayload(id=state.part_id, delta=part.content)
-            elif isinstance(part, ThinkingPart):
-                state = self._create_part_state(event.index, "reasoning")
-                yield ReasoningStartEventPayload(id=state.part_id)
-                if part.content:
-                    yield ReasoningDeltaEventPayload(
-                        id=state.part_id, delta=part.content
-                    )
-            elif isinstance(part, ToolCallPart):
-                state = self._create_part_state(event.index, "tool", tool_call=part)
-                self.tool_finished.pop(part.tool_call_id, None)
-                self.tool_input_emitted[part.tool_call_id] = False
-                yield ToolInputStartEventPayload(
-                    toolCallId=part.tool_call_id, toolName=part.tool_name
-                )
-                if part.args:
-                    yield ToolInputDeltaEventPayload(
-                        toolCallId=part.tool_call_id,
-                        inputTextDelta=part.args_as_json_str(),
-                    )
-            else:
-                logger.warning(
-                    "Unhandled part type in Vercel stream",
-                    part_type=type(part).__name__,
-                )
-                state = self._create_part_state(event.index, "text")
-                yield TextStartEventPayload(id=state.part_id)
-                part_str = str(part) if part else ""
-                if part_str:
-                    yield TextDeltaEventPayload(id=state.part_id, delta=part_str)
-        elif isinstance(event, PartDeltaEvent):
-            delta = event.delta
-            state = self.part_states.get(event.index)
-            if state is None:
-                logger.warning(
-                    "Received delta for unknown part index",
-                    index=event.index,
-                    delta_type=type(delta).__name__,
-                )
-            elif isinstance(delta, TextPartDelta) and state.part_type == "text":
-                yield TextDeltaEventPayload(id=state.part_id, delta=delta.content_delta)
-            elif (
-                isinstance(delta, ThinkingPartDelta) and state.part_type == "reasoning"
-            ):
-                if delta.content_delta:
-                    yield ReasoningDeltaEventPayload(
-                        id=state.part_id, delta=delta.content_delta
-                    )
-            elif (
-                isinstance(delta, ToolCallPartDelta)
-                and state.part_type == "tool"
-                and state.tool_call is not None
-            ):
-                try:
-                    updated_tool_call = delta.apply(state.tool_call)
-                except (UnexpectedModelBehavior, ValueError) as e:
-                    logger.exception(
-                        "Failed to apply tool call delta",
-                        tool_call_id=state.tool_call.tool_call_id,
-                        error=str(e),
-                    )
-                else:
-                    state.tool_call = updated_tool_call
-                    if delta.args_delta:
-                        delta_str = (
-                            delta.args_delta
-                            if isinstance(delta.args_delta, str)
-                            else json.dumps(delta.args_delta)
+            case StreamEventType.TEXT_DELTA:
+                if event.part_id is not None:
+                    state = self.part_states.get(event.part_id)
+                    if state is None:
+                        logger.warning(
+                            "Received delta for unknown part index",
+                            index=event.part_id,
                         )
+                    elif event.text:
+                        yield TextDeltaEventPayload(id=state.part_id, delta=event.text)
+
+            case StreamEventType.TEXT_STOP:
+                if event.part_id is not None:
+                    for message in self._finalize_part(event.part_id):
+                        yield message
+
+            case StreamEventType.THINKING_START:
+                if event.part_id is not None:
+                    for message in self.collect_current_part_end_events(
+                        index=event.part_id
+                    ):
+                        yield message
+                state = self._create_part_state(event.part_id or 0, "reasoning")
+                yield ReasoningStartEventPayload(id=state.part_id)
+                if event.thinking:
+                    yield ReasoningDeltaEventPayload(
+                        id=state.part_id, delta=event.thinking
+                    )
+
+            case StreamEventType.THINKING_DELTA:
+                if event.part_id is not None:
+                    state = self.part_states.get(event.part_id)
+                    if state and event.thinking:
+                        yield ReasoningDeltaEventPayload(
+                            id=state.part_id, delta=event.thinking
+                        )
+
+            case StreamEventType.THINKING_STOP:
+                if event.part_id is not None:
+                    for message in self._finalize_part(event.part_id):
+                        yield message
+
+            case StreamEventType.TOOL_CALL_START:
+                if event.part_id is not None:
+                    for message in self.collect_current_part_end_events(
+                        index=event.part_id
+                    ):
+                        yield message
+                # Create a synthetic ToolCallPart for state tracking
+                tool_call_id = event.tool_call_id or str(uuid.uuid4())
+                tool_name = event.tool_name or "unknown"
+                tool_call = ToolCallPart(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    args=event.tool_input or {},
+                )
+                state = self._create_part_state(
+                    event.part_id or 0, "tool", tool_call=tool_call
+                )
+                self.tool_finished.pop(tool_call_id, None)
+                self.tool_input_emitted[tool_call_id] = False
+                yield ToolInputStartEventPayload(
+                    toolCallId=tool_call_id, toolName=tool_name
+                )
+
+            case StreamEventType.TOOL_CALL_DELTA:
+                if event.part_id is not None:
+                    state = self.part_states.get(event.part_id)
+                    if state and state.tool_call and event.text:
                         yield ToolInputDeltaEventPayload(
                             toolCallId=state.tool_call.tool_call_id,
-                            inputTextDelta=delta_str,
+                            inputTextDelta=event.text,
                         )
 
-        # Handle Tool Call and Result Events
-        elif isinstance(event, FunctionToolResultEvent):
-            tool_call_id: str | None = None
-            if isinstance(event.result, ToolReturnPart | RetryPromptPart):
-                tool_call_id = event.result.tool_call_id
+            case StreamEventType.TOOL_CALL_STOP:
+                if event.part_id is not None:
+                    state = self.part_states.get(event.part_id)
+                    if state and state.tool_call:
+                        tool_call_id = state.tool_call.tool_call_id
+                        if not self.tool_input_emitted.get(tool_call_id, False):
+                            # Emit final tool input
+                            tool_input = (
+                                event.tool_input or state.tool_call.args_as_dict()
+                            )
+                            yield ToolInputAvailableEventPayload(
+                                toolCallId=tool_call_id,
+                                toolName=event.tool_name or state.tool_call.tool_name,
+                                input=tool_input,
+                            )
+                            self.tool_input_emitted[tool_call_id] = True
+                    for message in self._finalize_part(event.part_id):
+                        yield message
 
-            # Close any open part for this tool, or all open parts if none match
-            if tool_call_id is not None and tool_call_id in self.tool_index:
-                index = self.tool_index[tool_call_id]
-                for message in self.collect_current_part_end_events(index=index):
-                    yield message
-            else:
-                for message in self.collect_current_part_end_events():
-                    yield message
+            case StreamEventType.TOOL_RESULT:
+                tool_call_id = event.tool_call_id or "unknown"
 
-            # Ensure the UI sees an input-available before any output for this tool.
-            if tool_call_id is not None and not self.tool_input_emitted.get(
-                tool_call_id, False
-            ):
-                # Use cached approval data if available, otherwise best-effort fallback
-                tool_name = self.approval_tool_name.get(
-                    tool_call_id, getattr(event.result, "tool_name", "tool")
-                )
-                input_payload: Any = self.approval_input.get(tool_call_id, {})
-                yield ToolInputAvailableEventPayload(
-                    toolCallId=tool_call_id,
-                    toolName=str(tool_name),
-                    input=input_payload,
-                )
-                self.tool_input_emitted[tool_call_id] = True
+                # Close any open part for this tool
+                if tool_call_id in self.tool_index:
+                    index = self.tool_index[tool_call_id]
+                    for message in self.collect_current_part_end_events(index=index):
+                        yield message
 
-            if isinstance(event.result, ToolReturnPart):
-                tool_call_id = event.result.tool_call_id
+                # Ensure input-available before output
+                if not self.tool_input_emitted.get(tool_call_id, False):
+                    tool_name = self.approval_tool_name.get(
+                        tool_call_id, event.tool_name or "tool"
+                    )
+                    input_payload: Any = self.approval_input.get(tool_call_id, {})
+                    yield ToolInputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        toolName=str(tool_name),
+                        input=input_payload,
+                    )
+                    self.tool_input_emitted[tool_call_id] = True
+
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
-                yield ToolOutputAvailableEventPayload(
-                    toolCallId=tool_call_id,
-                    output=event.result.model_response_str(),
-                )
-            elif isinstance(event.result, RetryPromptPart):
-                # Validation or runtime error from a tool call.
-                # Do NOT emit a top-level error frame which aborts the stream.
-                # Instead, surface the failure as the tool's output so the UI
-                # can render a completed tool block and the model can continue.
-                if event.result.tool_call_id:
-                    tool_call_id = event.result.tool_call_id
-                    self.tool_finished[tool_call_id] = True
-                    self.tool_input_emitted.pop(tool_call_id, None)
+
+                if event.is_error:
                     yield ToolOutputAvailableEventPayload(
                         toolCallId=tool_call_id,
                         output={
-                            "errorText": event.result.model_response(),
+                            "errorText": event.tool_output
+                            or event.error
+                            or "Unknown error"
                         },
                     )
                 else:
-                    # No tool_call_id to associate with — fall back to a text block
-                    text_id = f"msg_{uuid.uuid4().hex}"
-                    yield TextStartEventPayload(id=text_id)
-                    yield TextDeltaEventPayload(
-                        id=text_id, delta=event.result.model_response()
+                    yield ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output=event.tool_output,
                     )
-                    yield TextEndEventPayload(id=text_id)
+
+            case StreamEventType.ERROR:
+                yield ErrorEventPayload(errorText=event.error or "Unknown error")
+
+            case (
+                StreamEventType.MESSAGE_START
+                | StreamEventType.MESSAGE_STOP
+                | StreamEventType.DONE
+            ):
+                # Lifecycle events - no Vercel SSE emission needed
+                pass
+
+            case _:
+                logger.warning("Unhandled unified event type", event_type=event.type)
 
 
 # ==============================================================================
@@ -1028,10 +1031,10 @@ def _extract_approval_payload_from_message(
             return None
 
 
-def convert_model_messages_to_ui(
+def convert_chat_messages_to_ui(
     messages: list[ChatMessage],
 ) -> list[UIMessage]:
-    """Convert persisted ModelMessage format to Vercel UIMessage format.
+    """Convert persisted ChatMessage format to Vercel UIMessage format.
 
     Args:
         messages: List of ChatMessage objects from the database
@@ -1045,7 +1048,20 @@ def convert_model_messages_to_ui(
     for chat_message in messages:
         # Extract message data from the ChatMessage schema
         message_id = chat_message.id
-        message_data = chat_message.message
+
+        # Deserialize based on harness
+        if chat_message.harness == "pydantic-ai":
+            from tracecat.agent.types import ModelMessageTA
+
+            message_data = ModelMessageTA.validate_python(chat_message.data)
+        else:
+            # Skip messages from unsupported harnesses for now
+            logger.warning(
+                "Skipping message from unsupported harness",
+                harness=chat_message.harness,
+                message_id=message_id,
+            )
+            continue
 
         # Determine role from message kind
         role: Literal["system", "user", "assistant"] = (

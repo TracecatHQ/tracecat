@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from claude_agent_sdk.types import UserMessage as ClaudeUserMessage
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -11,6 +12,7 @@ from pydantic_ai.messages import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.stream.types import HarnessType
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ChatMessage
@@ -68,6 +70,7 @@ async def test_append_message(
     assert db_message is not None
     assert db_message.chat_id == chat.id
     assert db_message.kind == MessageKind.CHAT_MESSAGE.value
+    assert db_message.harness == HarnessType.PYDANTIC_AI.value
     assert db_message.workspace_id == svc_workspace.id
     assert "Hello, AI!" in str(db_message.data)
 
@@ -110,10 +113,10 @@ async def test_append_messages_batch(
     retrieved_messages = await chat_service.list_messages(chat.id)
 
     assert len(retrieved_messages) == 4
-    assert "First message" in str(retrieved_messages[0])
-    assert "First response" in str(retrieved_messages[1])
-    assert "Second message" in str(retrieved_messages[2])
-    assert "Second response" in str(retrieved_messages[3])
+    assert "First message" in str(retrieved_messages[0].data)
+    assert "First response" in str(retrieved_messages[1].data)
+    assert "Second message" in str(retrieved_messages[2].data)
+    assert "Second response" in str(retrieved_messages[3].data)
 
 
 @pytest.mark.anyio
@@ -186,58 +189,16 @@ async def test_list_messages(
 
     assert len(retrieved_messages) == 4
     # Verify messages are in correct order and content is preserved
-    assert isinstance(retrieved_messages[0], ModelRequest)
-    assert isinstance(retrieved_messages[1], ModelResponse)
-    assert isinstance(retrieved_messages[2], ModelRequest)
-    assert isinstance(retrieved_messages[3], ModelResponse)
-    assert "First message" in str(retrieved_messages[0])
-    assert "First response" in str(retrieved_messages[1])
-    assert "Second message" in str(retrieved_messages[2])
-    assert "Second response" in str(retrieved_messages[3])
-
-
-@pytest.mark.anyio
-async def test_get_chat_messages(
-    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
-):
-    """Test get_chat_messages returns ChatMessage objects with proper IDs."""
-    chat = Chat(
-        title="Test Chat",
-        user_id=test_user.id,
-        entity_type="case",
-        entity_id=uuid.uuid4(),
-        workspace_id=svc_workspace.id,
-        tools=[],
-    )
-    session.add(chat)
-    await session.commit()
-    await session.refresh(chat)
-
-    chat_service = ChatService(session, svc_role)
-
-    # Add messages
-    messages = [
-        ModelRequest(parts=[UserPromptPart(content="User message 1")]),
-        ModelResponse(parts=[TextPart(content="Assistant response 1")]),
-        ModelRequest(parts=[UserPromptPart(content="User message 2")]),
-    ]
-
-    await chat_service.append_messages(
-        chat_id=chat.id,
-        messages=messages,
-        kind=MessageKind.CHAT_MESSAGE,
-    )
-
-    # Get messages using get_chat_messages
-    chat_messages = await chat_service.get_chat_messages(chat)
-
-    assert len(chat_messages) == 3
-    # Verify each is a ChatMessage with ID
-    for idx, chat_msg in enumerate(chat_messages):
-        assert isinstance(chat_msg, ChatMessage)
-        assert chat_msg.id == str(idx)
-        assert chat_msg.message is not None
-        assert isinstance(chat_msg.message, ModelRequest | ModelResponse)
+    # list_messages returns ChatMessage objects with raw data
+    assert isinstance(retrieved_messages[0], ChatMessage)
+    assert retrieved_messages[0].data["kind"] == "request"
+    assert retrieved_messages[1].data["kind"] == "response"
+    assert retrieved_messages[2].data["kind"] == "request"
+    assert retrieved_messages[3].data["kind"] == "response"
+    assert "First message" in str(retrieved_messages[0].data)
+    assert "First response" in str(retrieved_messages[1].data)
+    assert "Second message" in str(retrieved_messages[2].data)
+    assert "Second response" in str(retrieved_messages[3].data)
 
 
 @pytest.mark.anyio
@@ -268,38 +229,14 @@ async def test_chat_message_from_db(
     )
 
     # Convert using from_db
-    chat_message = ChatMessage.from_db(db_message)
+    chat_message = ChatMessage(
+        id=str(db_message.id), harness=db_message.harness, data=db_message.data
+    )
 
     assert isinstance(chat_message, ChatMessage)
     assert chat_message.id == str(db_message.id)
-    assert isinstance(chat_message.message, ModelRequest)
-    assert "Test message" in str(chat_message.message)
-
-
-@pytest.mark.anyio
-async def test_get_chat_messages_empty_chat(
-    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
-):
-    """Test that get_chat_messages returns empty list for chat with no messages."""
-    chat = Chat(
-        title="Empty Chat",
-        user_id=test_user.id,
-        entity_type="case",
-        entity_id=uuid.uuid4(),
-        workspace_id=svc_workspace.id,
-        tools=[],
-    )
-    session.add(chat)
-    await session.commit()
-    await session.refresh(chat)
-
-    chat_service = ChatService(session, svc_role)
-
-    # Get messages from empty chat
-    messages = await chat_service.get_chat_messages(chat)
-
-    assert len(messages) == 0
-    assert isinstance(messages, list)
+    assert chat_message.harness == HarnessType.PYDANTIC_AI.value
+    assert "Test message" in str(chat_message.data)
 
 
 @pytest.mark.anyio
@@ -342,9 +279,9 @@ async def test_list_messages_ordering(
 
     # Verify order
     assert len(messages) == 3
-    assert "Message 1" in str(messages[0])
-    assert "Message 2" in str(messages[1])
-    assert "Message 3" in str(messages[2])
+    assert "Message 1" in str(messages[0].data)
+    assert "Message 2" in str(messages[1].data)
+    assert "Message 3" in str(messages[2].data)
 
 
 @pytest.mark.anyio
@@ -373,14 +310,16 @@ async def test_mixed_message_types(
     await chat_service.append_message(chat_id=chat.id, message=user_msg)
     await chat_service.append_message(chat_id=chat.id, message=assistant_msg)
 
-    # Retrieve and verify types are preserved
+    # Retrieve and verify types are preserved via data kind field
     messages = await chat_service.list_messages(chat.id)
 
     assert len(messages) == 2
-    assert isinstance(messages[0], ModelRequest)
-    assert isinstance(messages[1], ModelResponse)
-    assert "User question" in str(messages[0])
-    assert "Assistant answer" in str(messages[1])
+    assert isinstance(messages[0], ChatMessage)
+    assert isinstance(messages[1], ChatMessage)
+    assert messages[0].data["kind"] == "request"
+    assert messages[1].data["kind"] == "response"
+    assert "User question" in str(messages[0].data)
+    assert "Assistant answer" in str(messages[1].data)
 
 
 @pytest.mark.anyio
@@ -418,4 +357,91 @@ async def test_list_messages_filtered_by_kind(
     )
 
     assert len(filtered) == 1
-    assert isinstance(filtered[0], ModelRequest)
+    assert isinstance(filtered[0], ChatMessage)
+    assert filtered[0].data["kind"] == "request"
+
+
+# --- Claude SDK Message Tests ---
+
+
+@pytest.mark.anyio
+async def test_append_claude_sdk_message(
+    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
+):
+    """Test appending a Claude SDK message sets correct harness."""
+    chat = Chat(
+        title="Test Chat",
+        user_id=test_user.id,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        workspace_id=svc_workspace.id,
+        tools=[],
+    )
+    session.add(chat)
+    await session.commit()
+    await session.refresh(chat)
+
+    chat_service = ChatService(session, svc_role)
+
+    # Create a Claude SDK user message
+    claude_message = ClaudeUserMessage(content="Hello from Claude SDK")
+    db_message = await chat_service.append_message(
+        chat_id=chat.id,
+        message=claude_message,
+        kind=MessageKind.CHAT_MESSAGE,
+    )
+
+    assert db_message is not None
+    assert db_message.chat_id == chat.id
+    assert db_message.kind == MessageKind.CHAT_MESSAGE.value
+    assert db_message.harness == HarnessType.CLAUDE.value
+    assert db_message.workspace_id == svc_workspace.id
+    assert "Hello from Claude SDK" in str(db_message.data)
+
+
+@pytest.mark.anyio
+async def test_append_messages_mixed_harnesses(
+    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
+):
+    """Test batch appending messages from different harnesses."""
+    chat = Chat(
+        title="Test Chat",
+        user_id=test_user.id,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        workspace_id=svc_workspace.id,
+        tools=[],
+    )
+    session.add(chat)
+    await session.commit()
+    await session.refresh(chat)
+
+    chat_service = ChatService(session, svc_role)
+
+    # Mix pydantic-ai and Claude SDK messages
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="Pydantic AI message")]),
+        ClaudeUserMessage(content="Claude SDK message"),
+    ]
+
+    await chat_service.append_messages(
+        chat_id=chat.id,
+        messages=messages,
+        kind=MessageKind.CHAT_MESSAGE,
+    )
+
+    # Retrieve and verify harness is correctly set for each
+    retrieved_messages = await chat_service.list_messages(chat.id)
+
+    assert len(retrieved_messages) == 2
+    assert retrieved_messages[0].harness == HarnessType.PYDANTIC_AI.value
+    assert retrieved_messages[1].harness == HarnessType.CLAUDE.value
+    assert "Pydantic AI message" in str(retrieved_messages[0].data)
+    assert "Claude SDK message" in str(retrieved_messages[1].data)
+
+
+@pytest.mark.anyio
+async def test_harness_type_values():
+    """Test that HarnessType enum values are correct."""
+    assert HarnessType.PYDANTIC_AI.value == "pydantic-ai"
+    assert HarnessType.CLAUDE.value == "claude"

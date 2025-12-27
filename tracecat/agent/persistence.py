@@ -1,14 +1,14 @@
 import uuid
 
-from pydantic_ai.messages import ModelMessage
-
+from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.enums import MessageKind
+from tracecat.chat.schemas import ChatMessage
 from tracecat.chat.service import ChatService
 from tracecat.logger import logger
 
 
 class DBMessageStore:
-    async def load(self, session_id: uuid.UUID) -> list[ModelMessage]:
+    async def load(self, session_id: uuid.UUID) -> list[ChatMessage]:
         async with ChatService.with_session() as svc:
             try:
                 message_history = await svc.list_messages(
@@ -30,7 +30,7 @@ class DBMessageStore:
     async def store(
         self,
         session_id: uuid.UUID,
-        messages: list[ModelMessage],
+        messages: list[UnifiedMessage],
         *,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:

@@ -118,7 +118,10 @@ async def get_chat(
         created_at=chat.created_at,
         updated_at=chat.updated_at,
         last_stream_id=chat.last_stream_id,
-        messages=[ChatMessage.from_db(message) for message in chat.messages],
+        messages=[
+            ChatMessage(id=str(message.id), harness=message.harness, data=message.data)
+            for message in chat.messages
+        ],
     )
     logger.info("Chat read", chat_id=chat.id, messages=len(chat.messages))
     return res
@@ -143,8 +146,11 @@ async def get_chat_vercel(
         )
 
     # Convert messages to UIMessage format
-    messages = [ChatMessage.from_db(message) for message in chat.messages]
-    ui_messages = vercel.convert_model_messages_to_ui(messages)
+    messages = [
+        ChatMessage(id=str(message.id), harness=message.harness, data=message.data)
+        for message in chat.messages
+    ]
+    ui_messages = vercel.convert_chat_messages_to_ui(messages)
 
     # Return ChatReadVercel with converted messages
     return ChatReadVercel(

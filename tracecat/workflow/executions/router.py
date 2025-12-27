@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.runtime import AgentOutput
+from tracecat.agent.types import ModelMessageTA
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.chat.schemas import ChatMessage
@@ -166,11 +167,14 @@ async def get_workflow_execution_compact(
                 output = AgentOutput.model_validate(event.action_result)
                 if output.message_history:
                     messages = [
-                        ChatMessage(id=f"{output.session_id}-msg-{i}", message=msg)
+                        ChatMessage(
+                            id=f"{output.session_id}-msg-{i}",
+                            data=ModelMessageTA.dump_python(msg, mode="json"),
+                        )
                         for i, msg in enumerate(output.message_history)
                     ]
                     event.session.events = (
-                        tracecat.agent.adapter.vercel.convert_model_messages_to_ui(
+                        tracecat.agent.adapter.vercel.convert_chat_messages_to_ui(
                             messages
                         )
                     )
