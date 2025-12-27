@@ -182,6 +182,24 @@ async def update_chat(
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
+@router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat(
+    chat_id: uuid.UUID,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> None:
+    """Delete a chat."""
+    svc = ChatService(session, role)
+    chat = await svc.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    await svc.delete_chat(chat)
+
+
 @router.post("/{chat_id}/vercel")
 async def chat_with_vercel_streaming(
     chat_id: uuid.UUID,

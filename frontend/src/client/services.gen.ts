@@ -157,6 +157,8 @@ import type {
   ChatChatWithVercelStreamingResponse,
   ChatCreateChatData,
   ChatCreateChatResponse,
+  ChatDeleteChatData,
+  ChatDeleteChatResponse,
   ChatGetChatData,
   ChatGetChatResponse,
   ChatGetChatVercelData,
@@ -5757,6 +5759,33 @@ export const chatUpdateChat = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Chat
+ * Delete a chat.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const chatDeleteChat = (
+  data: ChatDeleteChatData
+): CancelablePromise<ChatDeleteChatResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
