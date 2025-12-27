@@ -4,11 +4,11 @@ from unittest.mock import patch
 import orjson
 import pytest
 from fastapi import HTTPException
+from tracecat.executor.router import run_action
 
 from tracecat.auth.types import Role
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.router import run_action
 from tracecat.identifiers.workflow import WorkflowUUID
 
 

@@ -3,9 +3,9 @@ from collections.abc import AsyncIterator
 import pytest
 from fastapi.testclient import TestClient
 from starlette.status import HTTP_200_OK, HTTP_429_TOO_MANY_REQUESTS
+from tracecat.api.executor import create_app
 
 from tracecat import config
-from tracecat.api.executor import create_app
 
 
 async def lifespan(*args, **kwargs) -> AsyncIterator[None]:
