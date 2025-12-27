@@ -18,8 +18,9 @@ from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
+from tracecat.agent.stream.types import HarnessType
 from tracecat.agent.stream.writers import event_stream_handler
-from tracecat.agent.types import StreamingAgentDeps
+from tracecat.agent.types import ModelMessageTA, StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
@@ -92,7 +93,14 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
         )
 
         if self.deps.message_store:
-            message_history = await self.deps.message_store.load(args.session_id)
+            loaded_history = await self.deps.message_store.load(args.session_id)
+            message_history = []
+            for chat_message in loaded_history:
+                if chat_message.harness != HarnessType.PYDANTIC_AI.value:
+                    continue
+                message_history.append(
+                    ModelMessageTA.validate_python(chat_message.data)
+                )
         else:
             message_history = None
 

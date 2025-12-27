@@ -10,7 +10,6 @@ import orjson
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.stream.events import (
-    AgentStreamEventTA,
     StreamConnected,
     StreamDelta,
     StreamEnd,
@@ -19,6 +18,7 @@ from tracecat.agent.stream.events import (
     StreamFormat,
     StreamKeepAlive,
     StreamMessage,
+    UnifiedStreamEventTA,
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
@@ -130,10 +130,12 @@ class AgentStream:
                                     case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
                                         logger.debug("End-of-stream marker")
                                         yield StreamEnd(id=msg_id)
-                                    case {"event_kind": event_kind}:
-                                        event = AgentStreamEventTA.validate_python(data)
+                                    case {"type": event_type}:
+                                        event = UnifiedStreamEventTA.validate_python(
+                                            data
+                                        )
                                         logger.debug(
-                                            "Stream event", kind=event_kind, event=event
+                                            "Stream event", type=event_type, event=event
                                         )
                                         yield StreamDelta(id=msg_id, event=event)
                                     case {"kind": "error", "error": error_message}:
@@ -214,7 +216,7 @@ class AgentStream:
                         yield event.sse()
                         break
                     case StreamDelta(event=delta):
-                        logger.debug("Stream event", event_kind=delta.event_kind)
+                        logger.debug("Stream event", event_type=delta.type)
                         yield event.sse()
                     case StreamMessage(message=message):
                         logger.debug("Model message", kind=message.kind)
