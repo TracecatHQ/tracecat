@@ -79,6 +79,7 @@ dependencies = [
     "claude-agent-sdk==0.1.18",
     "aiohttp==3.13.3",
     "pynacl==1.6.2",
+    "litellm[proxy]>=1.80.11",
 ]
 dynamic = ["version"]
 
@@ -95,6 +96,13 @@ tracecat-ee = { workspace = true }
 [tool.uv.workspace]
 members = ["packages/*"]
 
+[tool.uv]
+override-dependencies = [
+    "uvicorn==0.40.0",
+    "boto3>=1.40.61",
+    "python-multipart>=0.0.21",
+    "grpcio>=1.76.0",
+]
 [dependency-groups]
 dev = [
     "mypy==1.15.0",
