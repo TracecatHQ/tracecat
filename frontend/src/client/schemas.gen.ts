@@ -15902,6 +15902,40 @@ export const $WorkflowDefinitionReadMinimal = {
   title: "WorkflowDefinitionReadMinimal",
 } as const
 
+export const $WorkflowRelationRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+  },
+  type: "object",
+  required: ["id"],
+  title: "WorkflowRelationRead",
+} as const
+
 export const $WorkflowDirectoryItem = {
   properties: {
     id: {
@@ -15999,6 +16033,20 @@ export const $WorkflowDirectoryItem = {
         },
       ],
     },
+    parents: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/WorkflowRelationRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parents",
+    },
     folder_id: {
       anyOf: [
         {
@@ -16010,6 +16058,20 @@ export const $WorkflowDirectoryItem = {
         },
       ],
       title: "Folder Id",
+    },
+    subflows: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/WorkflowRelationRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Subflows",
     },
     type: {
       type: "string",
