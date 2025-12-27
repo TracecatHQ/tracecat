@@ -10,27 +10,9 @@ JSON data and harness tag - no conversion needed at the adapter level.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar
 
 from tracecat.agent.stream.types import HarnessType, UnifiedStreamEvent
-
-
-@runtime_checkable
-class HarnessAdapter(Protocol):
-    """Protocol for converting harness-native stream events to unified format."""
-
-    harness_name: HarnessType
-
-    def to_unified_event(self, native: Any) -> UnifiedStreamEvent:
-        """Convert a harness-native stream event to unified format.
-
-        Args:
-            native: The native event type (e.g., AgentStreamEvent)
-
-        Returns:
-            UnifiedStreamEvent representation
-        """
-        ...
 
 
 class BaseHarnessAdapter(ABC):
@@ -39,7 +21,7 @@ class BaseHarnessAdapter(ABC):
     Subclasses must implement the stream event conversion method.
     """
 
-    harness_name: HarnessType
+    harness_name: ClassVar[HarnessType]
 
     @abstractmethod
     def to_unified_event(self, native: Any) -> UnifiedStreamEvent:

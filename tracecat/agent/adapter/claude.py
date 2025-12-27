@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, TypedDict, cast
 
 from claude_agent_sdk.types import StreamEvent
 
@@ -23,7 +23,7 @@ from tracecat.agent.stream.types import (
 
 
 @dataclass(slots=True, kw_only=True)
-class _BlockState:
+class BlockState:
     """Tracks state for a content block between start and stop events."""
 
     block_type: str
@@ -32,42 +32,119 @@ class _BlockState:
     args_json: str = ""
 
 
+class TextContentBlock(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ThinkingContentBlock(TypedDict):
+    type: Literal["thinking"]
+    thinking: str
+    signature: str
+
+
+class ToolUseContentBlock(TypedDict):
+    type: Literal["tool_use"]
+    id: str
+    name: str
+    input: dict[str, Any]
+
+
+class UnknownContentBlock(TypedDict):
+    type: str
+
+
+ContentBlock = (
+    TextContentBlock | ThinkingContentBlock | ToolUseContentBlock | UnknownContentBlock
+)
+
+
+class ContentBlockStartEvent(TypedDict):
+    type: Literal["content_block_start"]
+    index: int
+    content_block: ContentBlock
+
+
+class TextDelta(TypedDict):
+    type: Literal["text_delta"]
+    text: str
+
+
+class ThinkingDelta(TypedDict):
+    type: Literal["thinking_delta"]
+    thinking: str
+
+
+class InputJsonDelta(TypedDict):
+    type: Literal["input_json_delta"]
+    partial_json: str
+
+
+class UnknownDelta(TypedDict):
+    type: str
+
+
+Delta = TextDelta | ThinkingDelta | InputJsonDelta | UnknownDelta
+
+
+class ContentBlockDeltaEvent(TypedDict):
+    type: Literal["content_block_delta"]
+    index: int
+    delta: Delta
+
+
+class ContentBlockStopEvent(TypedDict):
+    type: Literal["content_block_stop"]
+    index: int
+
+
 class ClaudeSDKAdapter(BaseHarnessAdapter):
     """Adapter for converting Claude SDK stream events to unified format."""
 
     harness_name = HarnessType.CLAUDE
 
     def __init__(self) -> None:
-        self.context: dict[int, _BlockState] = {}
+        self.context: dict[int, BlockState] = {}
 
     def to_unified_event(self, native: StreamEvent) -> UnifiedStreamEvent:
         """Convert a Claude SDK StreamEvent to UnifiedStreamEvent."""
-        # Handle dict-style events
-        if isinstance(native, dict):
-            event_data = native
-        else:
-            event_data = getattr(native, "event", native)
-
-        if not isinstance(event_data, dict):
-            return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
-
+        event_data = native.event
         event_type = event_data.get("type")
 
         if event_type == "content_block_start":
-            return self._convert_content_block_start(event_data)
+            return self._convert_content_block_start(
+                cast(ContentBlockStartEvent, event_data)
+            )
         elif event_type == "content_block_delta":
-            return self._convert_content_block_delta(event_data)
+            return self._convert_content_block_delta(
+                cast(ContentBlockDeltaEvent, event_data)
+            )
         elif event_type == "content_block_stop":
-            return self._convert_content_block_stop(event_data)
+            return self._convert_content_block_stop(
+                cast(ContentBlockStopEvent, event_data)
+            )
         elif event_type == "message_start":
             return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
+        elif event_type == "message_delta":
+            # Contains stop_reason and usage stats - no content to stream
+            return UnifiedStreamEvent(type=StreamEventType.MESSAGE_STOP)
         elif event_type == "message_stop":
             return UnifiedStreamEvent(type=StreamEventType.MESSAGE_STOP)
+        elif event_type == "error":
+            # Error event: {"type": "error", "error": {"type": "...", "message": "..."}}
+            error_info = event_data.get("error", {})
+            error_message = error_info.get("message", "Unknown error")
+            error_type = error_info.get("type", "unknown_error")
+            return UnifiedStreamEvent(
+                type=StreamEventType.ERROR,
+                error=f"{error_type}: {error_message}",
+                is_error=True,
+            )
         else:
-            return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
+            raise ValueError(f"Unknown event type: {event_type}")
 
     def _convert_content_block_start(
-        self, event_data: dict[str, Any]
+        self, event_data: ContentBlockStartEvent
     ) -> UnifiedStreamEvent:
         """Convert content_block_start event."""
         index: int = event_data.get("index", 0)
@@ -75,7 +152,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
         block_type = content_block.get("type")
 
         # Store block metadata in context for stop event
-        self.context[index] = _BlockState(
+        self.context[index] = BlockState(
             block_type=block_type or "unknown",
             tool_call_id=content_block.get("id"),
             tool_name=content_block.get("name"),
@@ -110,7 +187,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             )
 
     def _convert_content_block_delta(
-        self, event_data: dict[str, Any]
+        self, event_data: ContentBlockDeltaEvent
     ) -> UnifiedStreamEvent:
         """Convert content_block_delta event."""
         index: int = event_data.get("index", 0)
@@ -146,7 +223,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             )
 
     def _convert_content_block_stop(
-        self, event_data: dict[str, Any]
+        self, event_data: ContentBlockStopEvent
     ) -> UnifiedStreamEvent:
         """Convert content_block_stop event."""
         index: int = event_data.get("index", 0)
