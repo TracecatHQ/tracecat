@@ -686,11 +686,16 @@ class NsjailExecutor:
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
         # Set PYTHONPATH to include registry cache, tracecat app, and site-packages
+        # Note: .pth files (editable installs) in site-packages are NOT processed
+        # when added via PYTHONPATH, so we must explicitly add those paths
         pythonpath_parts = []
         if config.registry_cache_dir.exists():
             pythonpath_parts.append("/packages")
         if config.tracecat_app_dir.exists():
             pythonpath_parts.append("/app")
+            # Add editable-installed packages from /app/packages
+            pythonpath_parts.append("/app/packages/tracecat-registry")
+            pythonpath_parts.append("/app/packages/tracecat-ee")
         if config.site_packages_dir and config.site_packages_dir.exists():
             pythonpath_parts.append("/site-packages")
         if pythonpath_parts:
@@ -818,13 +823,13 @@ class NsjailExecutor:
             logger.error(
                 "Action sandbox execution failed",
                 returncode=process.returncode,
-                stderr=stderr[:500],
+                stderr=stderr[-2000:],
             )
             return SandboxResult(
                 success=False,
                 error="Action sandbox execution failed",
                 stdout=stdout,
-                stderr=stderr[:500],
+                stderr=stderr[:2000],
                 exit_code=process.returncode,
                 execution_time_ms=execution_time_ms,
             )
