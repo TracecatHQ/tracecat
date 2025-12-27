@@ -6,9 +6,8 @@ Message persistence is handled by ChatMessage with raw JSON - no conversion need
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic_ai.messages import (
+    AgentStreamEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     PartDeltaEvent,
@@ -34,27 +33,23 @@ from tracecat.agent.stream.types import (
 class PydanticAIAdapter(BaseHarnessAdapter):
     """Adapter for converting PydanticAI stream events to unified format."""
 
-    @classmethod
-    def harness_name(cls) -> HarnessType:
-        return HarnessType.PYDANTIC_AI
+    harness_name = HarnessType.PYDANTIC_AI
 
-    @classmethod
-    def to_unified_event(cls, native: Any) -> UnifiedStreamEvent:
+    def to_unified_event(self, native: AgentStreamEvent) -> UnifiedStreamEvent:
         """Convert a pydantic-ai AgentStreamEvent to UnifiedStreamEvent."""
         if isinstance(native, PartStartEvent):
-            return cls._convert_part_start(native)
+            return self._convert_part_start(native)
         elif isinstance(native, PartDeltaEvent):
-            return cls._convert_part_delta(native)
+            return self._convert_part_delta(native)
         elif isinstance(native, FunctionToolCallEvent):
-            return cls._convert_tool_call(native)
+            return self._convert_tool_call(native)
         elif isinstance(native, FunctionToolResultEvent):
-            return cls._convert_tool_result(native)
+            return self._convert_tool_result(native)
         else:
             # Unknown event type - return a generic event
             return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
 
-    @classmethod
-    def _convert_part_start(cls, event: PartStartEvent) -> UnifiedStreamEvent:
+    def _convert_part_start(self, event: PartStartEvent) -> UnifiedStreamEvent:
         """Convert PartStartEvent to UnifiedStreamEvent."""
         part = event.part
         part_id = event.index
@@ -85,8 +80,7 @@ class PydanticAIAdapter(BaseHarnessAdapter):
                 part_id=part_id,
             )
 
-    @classmethod
-    def _convert_part_delta(cls, event: PartDeltaEvent) -> UnifiedStreamEvent:
+    def _convert_part_delta(self, event: PartDeltaEvent) -> UnifiedStreamEvent:
         """Convert PartDeltaEvent to UnifiedStreamEvent."""
         delta = event.delta
         part_id = event.index
@@ -115,7 +109,7 @@ class PydanticAIAdapter(BaseHarnessAdapter):
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_DELTA,
                 part_id=part_id,
-                text=args_text,  # Use text field for delta content
+                text=args_text,
             )
         else:
             return UnifiedStreamEvent(
@@ -123,8 +117,7 @@ class PydanticAIAdapter(BaseHarnessAdapter):
                 part_id=part_id,
             )
 
-    @classmethod
-    def _convert_tool_call(cls, event: FunctionToolCallEvent) -> UnifiedStreamEvent:
+    def _convert_tool_call(self, event: FunctionToolCallEvent) -> UnifiedStreamEvent:
         """Convert FunctionToolCallEvent to UnifiedStreamEvent."""
         return UnifiedStreamEvent(
             type=StreamEventType.TOOL_CALL_STOP,
@@ -135,8 +128,9 @@ class PydanticAIAdapter(BaseHarnessAdapter):
             else {},
         )
 
-    @classmethod
-    def _convert_tool_result(cls, event: FunctionToolResultEvent) -> UnifiedStreamEvent:
+    def _convert_tool_result(
+        self, event: FunctionToolResultEvent
+    ) -> UnifiedStreamEvent:
         """Convert FunctionToolResultEvent to UnifiedStreamEvent."""
         result = event.result
         is_error = isinstance(result, RetryPromptPart)

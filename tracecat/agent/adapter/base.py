@@ -19,13 +19,9 @@ from tracecat.agent.stream.types import HarnessType, UnifiedStreamEvent
 class HarnessAdapter(Protocol):
     """Protocol for converting harness-native stream events to unified format."""
 
-    @classmethod
-    def harness_name(cls) -> HarnessType:
-        """Identifier for this harness."""
-        ...
+    harness_name: HarnessType
 
-    @classmethod
-    def to_unified_event(cls, native: Any) -> UnifiedStreamEvent:
+    def to_unified_event(self, native: Any) -> UnifiedStreamEvent:
         """Convert a harness-native stream event to unified format.
 
         Args:
@@ -43,14 +39,9 @@ class BaseHarnessAdapter(ABC):
     Subclasses must implement the stream event conversion method.
     """
 
-    @classmethod
-    @abstractmethod
-    def harness_name(cls) -> HarnessType:
-        """Identifier for this harness."""
-        ...
+    harness_name: HarnessType
 
-    @classmethod
     @abstractmethod
-    def to_unified_event(cls, native: Any) -> UnifiedStreamEvent:
+    def to_unified_event(self, native: Any) -> UnifiedStreamEvent:
         """Convert a harness-native stream event to unified format."""
         ...

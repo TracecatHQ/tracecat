@@ -9,7 +9,10 @@ Note: This adapter requires the claude-agent-sdk package to be installed.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
+
+from claude_agent_sdk.types import StreamEvent
 
 from tracecat.agent.adapter.base import BaseHarnessAdapter
 from tracecat.agent.stream.types import (
@@ -19,28 +22,26 @@ from tracecat.agent.stream.types import (
 )
 
 
+@dataclass(slots=True, kw_only=True)
+class _BlockState:
+    """Tracks state for a content block between start and stop events."""
+
+    block_type: str
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    args_json: str = ""
+
+
 class ClaudeSDKAdapter(BaseHarnessAdapter):
     """Adapter for converting Claude SDK stream events to unified format."""
 
-    @classmethod
-    def harness_name(cls) -> HarnessType:
-        return HarnessType.CLAUDE
+    harness_name = HarnessType.CLAUDE
 
-    @classmethod
-    def to_unified_event(
-        cls, native: Any, context: dict[int, Any] | None = None
-    ) -> UnifiedStreamEvent:
-        """Convert a Claude SDK StreamEvent to UnifiedStreamEvent.
+    def __init__(self) -> None:
+        self.context: dict[int, _BlockState] = {}
 
-        Args:
-            native: The Claude SDK stream event
-            context: Optional dict for tracking state across events in a single stream.
-                     Caller should create one dict per stream and pass it to all calls.
-                     Required for proper tool call handling - accumulates partial JSON.
-        """
-        # Use provided context or empty dict (stateless fallback)
-        ctx = context if context is not None else {}
-
+    def to_unified_event(self, native: StreamEvent) -> UnifiedStreamEvent:
+        """Convert a Claude SDK StreamEvent to UnifiedStreamEvent."""
         # Handle dict-style events
         if isinstance(native, dict):
             event_data = native
@@ -53,11 +54,11 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
         event_type = event_data.get("type")
 
         if event_type == "content_block_start":
-            return cls._convert_content_block_start(event_data, ctx)
+            return self._convert_content_block_start(event_data)
         elif event_type == "content_block_delta":
-            return cls._convert_content_block_delta(event_data, ctx)
+            return self._convert_content_block_delta(event_data)
         elif event_type == "content_block_stop":
-            return cls._convert_content_block_stop(event_data, ctx)
+            return self._convert_content_block_stop(event_data)
         elif event_type == "message_start":
             return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
         elif event_type == "message_stop":
@@ -65,9 +66,8 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
         else:
             return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
 
-    @classmethod
     def _convert_content_block_start(
-        cls, event_data: dict[str, Any], context: dict[int, Any]
+        self, event_data: dict[str, Any]
     ) -> UnifiedStreamEvent:
         """Convert content_block_start event."""
         index: int = event_data.get("index", 0)
@@ -75,12 +75,11 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
         block_type = content_block.get("type")
 
         # Store block metadata in context for stop event
-        context[index] = {
-            "block_type": block_type,
-            "tool_call_id": content_block.get("id"),
-            "tool_name": content_block.get("name"),
-            "args_json": "",
-        }
+        self.context[index] = _BlockState(
+            block_type=block_type or "unknown",
+            tool_call_id=content_block.get("id"),
+            tool_name=content_block.get("name"),
+        )
 
         if block_type == "text":
             return UnifiedStreamEvent(
@@ -110,9 +109,8 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 part_id=index,
             )
 
-    @classmethod
     def _convert_content_block_delta(
-        cls, event_data: dict[str, Any], context: dict[int, Any]
+        self, event_data: dict[str, Any]
     ) -> UnifiedStreamEvent:
         """Convert content_block_delta event."""
         index: int = event_data.get("index", 0)
@@ -134,12 +132,12 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
         elif delta_type == "input_json_delta":
             partial_json = delta.get("partial_json", "")
             # Accumulate partial JSON in context for stop event
-            if index in context:
-                context[index]["args_json"] += partial_json
+            if index in self.context:
+                self.context[index].args_json += partial_json
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_DELTA,
                 part_id=index,
-                text=partial_json,  # Use text field for delta content
+                text=partial_json,
             )
         else:
             return UnifiedStreamEvent(
@@ -147,16 +145,15 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 part_id=index,
             )
 
-    @classmethod
     def _convert_content_block_stop(
-        cls, event_data: dict[str, Any], context: dict[int, Any]
+        self, event_data: dict[str, Any]
     ) -> UnifiedStreamEvent:
         """Convert content_block_stop event."""
         index: int = event_data.get("index", 0)
 
         # Retrieve and remove block metadata from context
-        state = context.pop(index, {})
-        block_type = state.get("block_type", "text")
+        state = self.context.pop(index, None)
+        block_type = state.block_type if state else "text"
 
         if block_type == "thinking":
             return UnifiedStreamEvent(
@@ -165,14 +162,14 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             )
         elif block_type == "tool_use":
             # Parse accumulated JSON args
-            args_json = state.get("args_json", "")
+            args_json = state.args_json if state else ""
             try:
                 args = json.loads(args_json) if args_json else {}
             except json.JSONDecodeError:
                 args = {}
 
             # tool_call_id was stored from content_block_start - should always exist
-            tool_call_id = state.get("tool_call_id")
+            tool_call_id = state.tool_call_id if state else None
             if tool_call_id is None:
                 raise ValueError(
                     "Missing tool_call_id in context for tool_use stop event"
@@ -181,7 +178,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 type=StreamEventType.TOOL_CALL_STOP,
                 part_id=index,
                 tool_call_id=tool_call_id,
-                tool_name=state.get("tool_name") or "unknown",
+                tool_name=(state.tool_name if state else None) or "unknown",
                 tool_input=args,
             )
         else:

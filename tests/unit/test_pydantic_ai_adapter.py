@@ -29,7 +29,7 @@ from tracecat.agent.stream.types import HarnessType, StreamEventType
 
 def test_harness_name():
     """Test that adapter returns correct harness name."""
-    assert PydanticAIAdapter.harness_name() == HarnessType.PYDANTIC_AI
+    assert PydanticAIAdapter.harness_name == HarnessType.PYDANTIC_AI
 
 
 # ==============================================================================
@@ -40,7 +40,7 @@ def test_harness_name():
 def test_text_part_start_conversion():
     """Test TextPart start event conversion."""
     native = PartStartEvent(index=0, part=TextPart(content="hello world"))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TEXT_START
     assert unified.part_id == 0
@@ -50,7 +50,7 @@ def test_text_part_start_conversion():
 def test_text_part_start_with_empty_content():
     """Test TextPart start with empty content."""
     native = PartStartEvent(index=0, part=TextPart(content=""))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TEXT_START
     assert unified.part_id == 0
@@ -60,7 +60,7 @@ def test_text_part_start_with_empty_content():
 def test_text_part_delta_conversion():
     """Test TextPartDelta conversion."""
     native = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta=" world"))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TEXT_DELTA
     assert unified.part_id == 0
@@ -75,7 +75,7 @@ def test_text_part_delta_conversion():
 def test_thinking_part_start_conversion():
     """Test ThinkingPart start event conversion."""
     native = PartStartEvent(index=0, part=ThinkingPart(content="analyzing..."))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.THINKING_START
     assert unified.part_id == 0
@@ -85,7 +85,7 @@ def test_thinking_part_start_conversion():
 def test_thinking_part_start_with_empty_content():
     """Test ThinkingPart start with empty content."""
     native = PartStartEvent(index=0, part=ThinkingPart(content=""))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.THINKING_START
     assert unified.part_id == 0
@@ -95,7 +95,7 @@ def test_thinking_part_start_with_empty_content():
 def test_thinking_part_delta_conversion():
     """Test ThinkingPartDelta conversion."""
     native = PartDeltaEvent(index=0, delta=ThinkingPartDelta(content_delta=", step 2"))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.THINKING_DELTA
     assert unified.part_id == 0
@@ -105,7 +105,7 @@ def test_thinking_part_delta_conversion():
 def test_thinking_part_delta_with_none_content():
     """Test ThinkingPartDelta with None content delta."""
     native = PartDeltaEvent(index=0, delta=ThinkingPartDelta(content_delta=None))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.THINKING_DELTA
     assert unified.part_id == 0
@@ -127,7 +127,7 @@ def test_tool_call_start_conversion():
             args={"query": "test"},
         ),
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_CALL_START
     assert unified.part_id == 0
@@ -146,7 +146,7 @@ def test_tool_call_start_with_empty_args():
             args={},
         ),
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_CALL_START
     assert unified.part_id == 0
@@ -164,7 +164,7 @@ def test_tool_call_delta_conversion():
             args_delta='{"extra": "data"}',
         ),
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_CALL_DELTA
     assert unified.part_id == 0
@@ -181,7 +181,7 @@ def test_tool_call_delta_with_none_args():
             args_delta=None,
         ),
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_CALL_DELTA
     assert unified.part_id == 0
@@ -202,7 +202,7 @@ def test_function_tool_call_event_conversion():
             args={"query": "test", "limit": 10},
         )
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_CALL_STOP
     assert unified.tool_call_id == "call_123"
@@ -224,7 +224,7 @@ def test_tool_return_part_success():
             content={"results": ["item1", "item2"]},
         )
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_RESULT
     assert unified.tool_call_id == "call_123"
@@ -243,7 +243,7 @@ def test_tool_return_part_with_string_content():
             content="plain text result",
         )
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_RESULT
     assert unified.tool_output == "plain text result"
@@ -259,7 +259,7 @@ def test_retry_prompt_part_error():
             content="Validation error: query too short",
         )
     )
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
 
     assert unified.type == StreamEventType.TOOL_RESULT
     assert unified.tool_name == "search"
@@ -281,7 +281,7 @@ def test_unknown_event_type_fallback():
         pass
 
     native = UnknownEvent()
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)  # type: ignore[arg-type]
 
     assert unified.type == StreamEventType.MESSAGE_START
 
@@ -295,7 +295,7 @@ def test_unknown_event_type_fallback():
 def test_part_index_preserved_for_text(index: int):
     """Test that part_id is preserved across different indices."""
     native = PartStartEvent(index=index, part=TextPart(content="test"))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
     assert unified.part_id == index
 
 
@@ -303,7 +303,7 @@ def test_part_index_preserved_for_text(index: int):
 def test_part_index_preserved_for_thinking(index: int):
     """Test that part_id is preserved for thinking parts."""
     native = PartStartEvent(index=index, part=ThinkingPart(content="test"))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
     assert unified.part_id == index
 
 
@@ -311,5 +311,5 @@ def test_part_index_preserved_for_thinking(index: int):
 def test_part_index_preserved_for_delta(index: int):
     """Test that part_id is preserved for delta events."""
     native = PartDeltaEvent(index=index, delta=TextPartDelta(content_delta="delta"))
-    unified = PydanticAIAdapter.to_unified_event(native)
+    unified = PydanticAIAdapter().to_unified_event(native)
     assert unified.part_id == index
