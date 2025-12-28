@@ -44,6 +44,10 @@ class RunAgentArgs(BaseModel):
     """Results for deferred tool calls from a previous run (CE handshake)."""
     is_continuation: bool = False
     """If True, do not emit a new user message; continue prior run with deferred results."""
+    use_workspace_credentials: bool = False
+    """Credential scope for LiteLLM gateway. Used by RemoteAgentExecutor to determine
+    whether to fetch workspace-level or org-level credentials. Local executor
+    (AioStreamingAgentExecutor) doesn't need this as credentials are in env_sandbox context."""
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> RunAgentArgs:

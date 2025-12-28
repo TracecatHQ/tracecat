@@ -102,6 +102,7 @@ override-dependencies = [
     "boto3>=1.40.61",
     "python-multipart>=0.0.21",
     "grpcio>=1.76.0",
+    "polars>=1.31.0",
 ]
 [dependency-groups]
 dev = [
