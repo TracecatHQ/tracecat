@@ -15,6 +15,7 @@ members = [
 overrides = [
     { name = "boto3", specifier = ">=1.40.61" },
     { name = "grpcio", specifier = ">=1.76.0" },
+    { name = "polars", specifier = ">=1.31.0" },
     { name = "python-multipart", specifier = ">=0.0.21" },
     { name = "uvicorn", specifier = "==0.40.0" },
 ]
