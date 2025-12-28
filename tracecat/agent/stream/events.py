@@ -21,7 +21,7 @@ class StreamDelta:
     event: UnifiedStreamEvent
 
     def sse(self) -> str:
-        return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event.model_dump()).decode()}\n\n"
+        return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event.model_dump(mode='json')).decode()}\n\n"
 
 
 @dataclass(slots=True, kw_only=True)

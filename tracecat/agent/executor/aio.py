@@ -18,7 +18,7 @@ from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
-from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.stream.types import HarnessType, ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.types import ModelMessageTA, StreamingAgentDeps
 from tracecat.auth.types import Role
@@ -137,11 +137,24 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             match result.output:
                 # Immediately stream the approval request message to the client
                 case DeferredToolRequests(approvals=approvals) if approvals:
+                    # Build the ModelResponse for persistence (unchanged format)
                     approval_message = ModelResponse(
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
+                    # Emit unified event for streaming (harness-agnostic)
                     try:
-                        await self.deps.stream_writer.stream.append(approval_message)
+                        approval_items = [
+                            ToolCallContent(
+                                id=call.tool_call_id,
+                                name=call.tool_name,
+                                input=call.args_as_dict(),
+                            )
+                            for call in approvals
+                        ]
+                        approval_event = UnifiedStreamEvent.approval_request_event(
+                            approval_items
+                        )
+                        await self.deps.stream_writer.stream.append(approval_event)
                     except Exception as e:
                         logger.warning(
                             "Failed to stream approval request",

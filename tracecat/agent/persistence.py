@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 
 from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.enums import MessageKind
@@ -30,7 +31,7 @@ class DBMessageStore:
     async def store(
         self,
         session_id: uuid.UUID,
-        messages: list[UnifiedMessage],
+        messages: Sequence[UnifiedMessage],
         *,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:

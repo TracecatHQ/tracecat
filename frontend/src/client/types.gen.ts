@@ -1349,7 +1349,7 @@ export type ChatMessage = {
    */
   id: string
   /**
-   * The harness type that created this message (e.g., pydantic-ai, claude-sdk)
+   * The harness type that created this message (e.g., pydantic-ai, claude)
    */
   harness?: string
   /**

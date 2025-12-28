@@ -1,8 +1,25 @@
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+class ToolCallContent(BaseModel):
+    """Structured tool call for approval requests.
+
+    This is the harness-agnostic representation of a tool call
+    that requires approval before execution.
+    """
+
+    type: Literal["tool_call"] = "tool_call"
+    id: str = Field(..., description="Unique tool call ID")
+    name: str = Field(..., description="Fully-qualified tool name")
+    input: dict[str, Any] = Field(
+        default_factory=dict, description="Arguments for the tool call"
+    )
 
 
 class StreamEventType(str, Enum):
@@ -56,9 +73,23 @@ class UnifiedStreamEvent(BaseModel):
     tool_output: Any | None = None
     is_error: bool = False
     error: str | None = None
-    approval_items: list[dict[str, Any]] | None = None
+
+    # For APPROVAL_REQUEST events
+    approval_items: list[ToolCallContent] | None = None
 
     timestamp: datetime = Field(default_factory=datetime.now)
+
+    @classmethod
+    def approval_request_event(cls, items: list[ToolCallContent]) -> UnifiedStreamEvent:
+        """Factory method for creating approval request events.
+
+        Args:
+            items: List of tool calls that require approval.
+
+        Returns:
+            A UnifiedStreamEvent with type APPROVAL_REQUEST.
+        """
+        return cls(type=StreamEventType.APPROVAL_REQUEST, approval_items=items)
 
 
 class HarnessType(str, Enum):
