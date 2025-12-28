@@ -290,6 +290,12 @@ class ChatService(BaseWorkspaceService):
 
         # Build agent config using shared helper
         async with self._build_agent_config(chat) as config:
+            # Determine credential scope based on entity type
+            # AGENT_PRESET uses workspace credentials, all others use org credentials
+            use_workspace_credentials = (
+                ChatEntity(chat.entity_type) == ChatEntity.AGENT_PRESET
+            )
+
             # Prepare RunAgentArgs
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
@@ -297,6 +303,7 @@ class ChatService(BaseWorkspaceService):
                 config=config,
                 deferred_tool_results=deferred_tool_results,
                 is_continuation=is_continuation,
+                use_workspace_credentials=use_workspace_credentials,
             )
             await executor.start(args)
 
