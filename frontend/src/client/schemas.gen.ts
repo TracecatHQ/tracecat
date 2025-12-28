@@ -4717,7 +4717,7 @@ export const $ChatMessage = {
       type: "string",
       title: "Harness",
       description:
-        "The harness type that created this message (e.g., pydantic-ai, claude-sdk)",
+        "The harness type that created this message (e.g., pydantic-ai, claude)",
       default: "pydantic-ai",
     },
     data: {

@@ -154,7 +154,7 @@ class ChatMessage(BaseModel):
     id: str = Field(..., description="Unique message identifier")
     harness: str = Field(
         default="pydantic-ai",
-        description="The harness type that created this message (e.g., pydantic-ai, claude-sdk)",
+        description="The harness type that created this message (e.g., pydantic-ai, claude)",
     )
     data: dict[str, Any] = Field(
         ..., description="Raw message data in native harness format"

@@ -11,7 +11,7 @@ import dataclasses
 import json
 import re
 import uuid
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Iterator
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -23,14 +23,18 @@ from typing import (
 )
 
 import pydantic
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 from pydantic_ai.messages import (
     AudioUrl,
     BinaryContent,
     BuiltinToolCallPart,
-    BuiltinToolReturnPart,
     DocumentUrl,
     ImageUrl,
-    ModelMessage,
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
@@ -57,6 +61,11 @@ from tracecat.agent.stream.events import (
     StreamMessage,
 )
 from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.types import (
+    ClaudeSDKMessageTA,
+    ModelMessageTA,
+    UnifiedMessage,
+)
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
@@ -65,7 +74,6 @@ from tracecat.logger import logger
 
 if TYPE_CHECKING:
     from tracecat.chat.schemas import ChatMessage
-
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]
 AnyToolCallPart = ToolCallPart | BuiltinToolCallPart
@@ -908,6 +916,35 @@ class VercelStreamContext:
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
 
+            case StreamEventType.APPROVAL_REQUEST:
+                # Unified approval request from any harness (pydantic-ai or claude)
+                if event.approval_items:
+                    for item in event.approval_items:
+                        # Cache tool data for UI reconstruction on continuation
+                        self.approval_tool_name[item.id] = item.name
+                        self.approval_input[item.id] = item.input
+
+                        # Finalize any open tool parts so UI shows input-available
+                        if item.id in self.tool_index:
+                            index = self.tool_index[item.id]
+                            for end_evt in self.collect_current_part_end_events(
+                                index=index
+                            ):
+                                yield end_evt
+
+                    # Emit data-approval-request event for frontend
+                    yield DataEventPayload(
+                        type=APPROVAL_DATA_PART_TYPE,
+                        data=[
+                            {
+                                "tool_call_id": item.id,
+                                "tool_name": item.name,
+                                "args": item.input,
+                            }
+                            for item in event.approval_items
+                        ],
+                    )
+
             case (
                 StreamEventType.MESSAGE_START
                 | StreamEventType.MESSAGE_STOP
@@ -1010,25 +1047,81 @@ UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
 
 
 def _extract_approval_payload_from_message(
-    message: ModelMessage,
+    message: UnifiedMessage,
 ) -> list[ToolCallPart] | None:
-    match message:
-        case ModelResponse(parts=[TextPart(content=first), *parts]) if (
-            first == APPROVAL_REQUEST_HEADER and parts
-        ):
-            approvals: list[ToolCallPart] = []
-            for part in parts:
-                if isinstance(part, ToolCallPart | BuiltinToolCallPart):
-                    approvals.append(
-                        ToolCallPart(
-                            tool_name=part.tool_name,
-                            tool_call_id=part.tool_call_id,
-                            args=part.args_as_dict(),
+    """Extract approval payload from a message if it's an approval request.
+
+    Handles both pydantic-ai (ModelMessage) and Claude SDK messages.
+    """
+    approvals: list[ToolCallPart] = []
+    # --- Pydantic-AI path ---
+    if isinstance(message, ModelResponse):
+        match message:
+            case ModelResponse(parts=[TextPart(content=first), *parts]) if (
+                first == APPROVAL_REQUEST_HEADER and parts
+            ):
+                for part in parts:
+                    if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
+                        approvals.append(
+                            ToolCallPart(
+                                tool_name=part.tool_name,
+                                tool_call_id=part.tool_call_id,
+                                args=part.args_as_dict(),
+                            )
                         )
-                    )
-            return approvals
-        case _:
+                return approvals if approvals else None
+        return None
+
+    # --- Claude SDK path ---
+    if isinstance(message, AssistantMessage):
+        content = message.content
+        if not isinstance(content, list) or not content:
             return None
+
+        # Check for approval header as first text block
+        first_block = content[0]
+        if not isinstance(first_block, TextBlock):
+            return None
+        if first_block.text != APPROVAL_REQUEST_HEADER:
+            return None
+
+        # Extract tool calls from remaining blocks
+        for block in content[1:]:
+            if isinstance(block, ToolUseBlock):
+                approvals.append(
+                    ToolCallPart(
+                        tool_name=block.name,
+                        tool_call_id=block.id,
+                        args=block.input or {},
+                    )
+                )
+        return approvals if approvals else None
+
+    return None
+
+
+def _iter_message_parts(
+    message: UnifiedMessage,
+) -> Iterator[tuple[str, Any]]:
+    """Yield (part_type, part_data) tuples for message content.
+
+    Normalizes both harness formats into a common iteration pattern.
+    Returns tuples of (type_name, native_part) for each content block.
+    """
+    # --- Pydantic-AI path ---
+    if isinstance(message, (ModelRequest, ModelResponse)):
+        for part in message.parts:
+            yield (type(part).__name__, part)
+        return
+
+    # --- Claude SDK path ---
+    if isinstance(message, (AssistantMessage, UserMessage)):
+        content = message.content
+        if isinstance(content, str):
+            yield ("TextBlock", TextBlock(text=content))
+        elif isinstance(content, list):
+            for block in content:
+                yield (type(block).__name__, block)
 
 
 def convert_chat_messages_to_ui(
@@ -1049,139 +1142,149 @@ def convert_chat_messages_to_ui(
         # Extract message data from the ChatMessage schema
         message_id = chat_message.id
 
-        # Deserialize based on harness
-        if chat_message.harness == "pydantic-ai":
-            from tracecat.agent.types import ModelMessageTA
-
-            message_data = ModelMessageTA.validate_python(chat_message.data)
-        else:
-            # Skip messages from unsupported harnesses for now
-            logger.warning(
-                "Skipping message from unsupported harness",
-                harness=chat_message.harness,
-                message_id=message_id,
-            )
-            continue
-
-        # Determine role from message kind
-        role: Literal["system", "user", "assistant"] = (
-            "assistant" if message_data.kind == "response" else "user"
-        )
+        # Deserialize based on harness and determine role
+        message_data: UnifiedMessage
+        match chat_message.harness:
+            case "pydantic-ai":
+                message_data = ModelMessageTA.validate_python(chat_message.data)
+                role: Literal["system", "user", "assistant"] = (
+                    "assistant" if message_data.kind == "response" else "user"
+                )
+            case "claude":
+                message_data = ClaudeSDKMessageTA.validate_python(chat_message.data)
+                if isinstance(message_data, AssistantMessage):
+                    role = "assistant"
+                elif isinstance(message_data, UserMessage):
+                    role = "user"
+                else:
+                    continue
+            case _:
+                continue
 
         mutable_message = MutableMessage(id=message_id, role=role, parts=[])
-
         approval_payload = _extract_approval_payload_from_message(message_data)
 
-        for part in message_data.parts:
-            if approval_payload and isinstance(part, TextPart):
-                # Skip approval header text from UI parts
-                if part.content == APPROVAL_REQUEST_HEADER:
+        for part_type, part in _iter_message_parts(message_data):
+            # Skip approval header for both harness types
+            if approval_payload:
+                if part_type == "TextPart" and part.content == APPROVAL_REQUEST_HEADER:
+                    continue
+                if part_type == "TextBlock" and part.text == APPROVAL_REQUEST_HEADER:
                     continue
 
-            match part:
-                case ToolCallPart(tool_name=tool_name, tool_call_id=tool_call_id):
+            match part_type:
+                # --- Text parts ---
+                case "TextPart":
+                    mutable_message.parts.append(
+                        TextUIPart(type="text", text=part.content, state="done")
+                    )
+                case "TextBlock":
+                    mutable_message.parts.append(
+                        TextUIPart(type="text", text=part.text, state="done")
+                    )
+
+                # --- Thinking/Reasoning parts ---
+                case "ThinkingPart":
+                    mutable_message.parts.append(
+                        ReasoningUIPart(
+                            type="reasoning", text=part.content, state="done"
+                        )
+                    )
+                case "ThinkingBlock":
+                    mutable_message.parts.append(
+                        ReasoningUIPart(
+                            type="reasoning", text=part.thinking, state="done"
+                        )
+                    )
+
+                # --- Tool call parts (pydantic-ai) ---
+                case "ToolCallPart" | "BuiltinToolCallPart":
                     if approval_payload:
                         continue
-                    tool_input = part.args_as_dict()
                     tool_part = MutableToolPart(
-                        type=f"tool-{tool_name}",
-                        tool_call_id=tool_call_id,
+                        type=f"tool-{part.tool_name}",
+                        tool_call_id=part.tool_call_id,
                         state="input-available",
-                        input=tool_input,
+                        input=part.args_as_dict(),
                     )
                     mutable_message.parts.append(tool_part)
-                    tool_entries[tool_call_id] = tool_part
-                    continue
+                    tool_entries[part.tool_call_id] = tool_part
 
-                case BuiltinToolCallPart(
-                    tool_name=tool_name, tool_call_id=tool_call_id
-                ):
+                # --- Tool call parts (Claude SDK) ---
+                case "ToolUseBlock":
                     if approval_payload:
                         continue
-                    tool_input = part.args_as_dict()
                     tool_part = MutableToolPart(
-                        type=f"tool-{tool_name}",
-                        tool_call_id=tool_call_id,
+                        type=f"tool-{part.name}",
+                        tool_call_id=part.id,
                         state="input-available",
-                        input=tool_input,
+                        input=part.input or {},
                     )
                     mutable_message.parts.append(tool_part)
-                    tool_entries[tool_call_id] = tool_part
-                    continue
+                    tool_entries[part.id] = tool_part
 
-                case ToolReturnPart(
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    content=content,
-                ):
-                    existing_part = tool_entries.get(tool_call_id)
-                    input_payload = existing_part.input if existing_part else {}
-                    if existing_part is not None:
-                        existing_part.state = "output-available"
-                        existing_part.output = content
-                        existing_part.error_text = None
+                # --- Tool return parts (pydantic-ai) ---
+                case "ToolReturnPart" | "BuiltinToolReturnPart":
+                    existing = tool_entries.get(part.tool_call_id)
+                    if existing is not None:
+                        existing.state = "output-available"
+                        existing.output = part.content
+                        existing.error_text = None
                     else:
                         tool_part = MutableToolPart(
-                            type=f"tool-{tool_name}",
-                            tool_call_id=tool_call_id,
+                            type=f"tool-{part.tool_name}",
+                            tool_call_id=part.tool_call_id,
                             state="output-available",
-                            input=input_payload,
-                            output=content,
+                            input={},
+                            output=part.content,
                         )
                         mutable_message.parts.append(tool_part)
-                        tool_entries[tool_call_id] = tool_part
-                    continue
+                        tool_entries[part.tool_call_id] = tool_part
 
-                case BuiltinToolReturnPart(
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    content=content,
-                ):
-                    existing_part = tool_entries.get(tool_call_id)
-                    input_payload = existing_part.input if existing_part else {}
-                    if existing_part is not None:
-                        existing_part.state = "output-available"
-                        existing_part.output = content
-                        existing_part.error_text = None
-                    else:
-                        tool_part = MutableToolPart(
-                            type=f"tool-{tool_name}",
-                            tool_call_id=tool_call_id,
-                            state="output-available",
-                            input=input_payload,
-                            output=content,
+                # --- Tool result parts (Claude SDK) ---
+                case "ToolResultBlock":
+                    existing = tool_entries.get(part.tool_use_id)
+                    if existing is not None:
+                        if part.is_error:
+                            existing.state = "output-error"
+                            existing.error_text = (
+                                part.content
+                                if isinstance(part.content, str)
+                                else str(part.content)
+                            )
+                        else:
+                            existing.state = "output-available"
+                            existing.output = part.content
+
+                # --- Retry/Error parts (pydantic-ai) ---
+                case "RetryPromptPart":
+                    tool_call_id = getattr(part, "tool_call_id", None)
+                    tool_name = getattr(part, "tool_name", "unknown")
+                    if tool_call_id:
+                        existing = tool_entries.get(tool_call_id)
+                        error_text = (
+                            part.content
+                            if isinstance(part.content, str)
+                            else str(part.content)
                         )
-                        mutable_message.parts.append(tool_part)
-                        tool_entries[tool_call_id] = tool_part
-                    continue
+                        if existing is not None:
+                            existing.state = "output-error"
+                            existing.output = None
+                            existing.error_text = error_text
+                        else:
+                            tool_part = MutableToolPart(
+                                type=f"tool-{tool_name}",
+                                tool_call_id=tool_call_id,
+                                state="output-error",
+                                input={},
+                                error_text=error_text,
+                            )
+                            mutable_message.parts.append(tool_part)
+                            tool_entries[tool_call_id] = tool_part
 
-                case RetryPromptPart(
-                    tool_name=str(tool_name),
-                    tool_call_id=tool_call_id,
-                    content=content,
-                ):
-                    existing_part = tool_entries.get(tool_call_id)
-                    input_payload = existing_part.input if existing_part else {}
-                    error_text = content if isinstance(content, str) else str(content)
-                    if existing_part is not None:
-                        existing_part.state = "output-error"
-                        existing_part.output = None
-                        existing_part.error_text = error_text
-                    else:
-                        tool_part = MutableToolPart(
-                            type=f"tool-{tool_name}",
-                            tool_call_id=tool_call_id,
-                            state="output-error",
-                            input=input_payload,
-                            error_text=error_text,
-                        )
-                        mutable_message.parts.append(tool_part)
-                        tool_entries[tool_call_id] = tool_part
-                    continue
-
-            converted_part = _convert_model_message_part_to_ui_part(part)
-            if converted_part is not None:
-                mutable_message.parts.append(converted_part)
+                case _:
+                    # Skip unknown part types (SystemPromptPart, UserPromptPart, etc.)
+                    pass
 
         if approval_payload:
             mutable_message.parts.append(
