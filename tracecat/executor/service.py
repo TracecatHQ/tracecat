@@ -598,10 +598,6 @@ async def dispatch_action(input: RunActionInput) -> Any:
     return await _dispatch_action(input=input, ctx=ctx)
 
 
-# Alias for backward compatibility with HTTP executor router
-dispatch_action_on_cluster = dispatch_action
-
-
 async def _dispatch_action(
     input: RunActionInput,
     ctx: DispatchActionContext,

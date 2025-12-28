@@ -84,17 +84,6 @@ from tracecat.workflow.management.schemas import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
-def ray_cluster():
-    import ray
-
-    try:
-        ray.init()
-        yield
-    finally:
-        ray.shutdown()
-
-
-@pytest.fixture(scope="module")
 def hotfix_local_api_url(monkeysession: pytest.MonkeyPatch):
     """Hotfix to allow workflow tests to run locally.
 
@@ -1676,9 +1665,6 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "\n"
         "\n"
         "------------------------------\n"
-        # f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
-        # f"Function: {run_action_on_ray_cluster.__name__}\n"
-        # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
     "type": "ExecutorClientError",
     "expr_context": "ACTIONS",

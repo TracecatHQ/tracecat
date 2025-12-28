@@ -283,8 +283,6 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
     load_dotenv()
     logger.info("Setting up environment variables")
-    # Ensure executor URL points to the host-exposed port before config is used.
-    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
     monkeysession.setattr(
@@ -294,8 +292,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
-    # Need this for local unit tests
-    monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
         logger.info("Enabling compression for workflow context")
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
