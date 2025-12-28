@@ -24,6 +24,7 @@ from tracecat.agent.types import ModelMessageTA, StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
+from tracecat.config import ENABLE_REMOTE_AGENT_EXECUTOR
 from tracecat.logger import logger
 
 
@@ -111,7 +112,13 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             user_message = ModelRequest(
                 parts=[UserPromptPart(content=args.user_prompt)]
             )
-            await self.deps.stream_writer.stream.append(user_message)
+            if ENABLE_REMOTE_AGENT_EXECUTOR:
+                # Unified streaming: use UnifiedStreamEvent for all events
+                user_event = UnifiedStreamEvent.user_message_event(args.user_prompt)
+                await self.deps.stream_writer.stream.append(user_event)
+            else:
+                # Legacy streaming: append raw ModelRequest
+                await self.deps.stream_writer.stream.append(user_message)
 
         result: ExecutorResult = None
         new_messages: list[ModelRequest | ModelResponse] | None = None
@@ -141,20 +148,26 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                     approval_message = ModelResponse(
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
-                    # Emit unified event for streaming (harness-agnostic)
                     try:
-                        approval_items = [
-                            ToolCallContent(
-                                id=call.tool_call_id,
-                                name=call.tool_name,
-                                input=call.args_as_dict(),
+                        if ENABLE_REMOTE_AGENT_EXECUTOR:
+                            # Unified streaming: emit harness-agnostic event
+                            approval_items = [
+                                ToolCallContent(
+                                    id=call.tool_call_id,
+                                    name=call.tool_name,
+                                    input=call.args_as_dict(),
+                                )
+                                for call in approvals
+                            ]
+                            approval_event = UnifiedStreamEvent.approval_request_event(
+                                approval_items
                             )
-                            for call in approvals
-                        ]
-                        approval_event = UnifiedStreamEvent.approval_request_event(
-                            approval_items
-                        )
-                        await self.deps.stream_writer.stream.append(approval_event)
+                            await self.deps.stream_writer.stream.append(approval_event)
+                        else:
+                            # Legacy streaming: append raw ModelResponse
+                            await self.deps.stream_writer.stream.append(
+                                approval_message
+                            )
                     except Exception as e:
                         logger.warning(
                             "Failed to stream approval request",

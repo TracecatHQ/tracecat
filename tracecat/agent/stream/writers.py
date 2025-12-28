@@ -11,6 +11,7 @@ from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
 from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
+from tracecat.config import ENABLE_REMOTE_AGENT_EXECUTOR
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -135,9 +136,13 @@ class AgentStreamWriter:
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
         async for event in events:
-            # Convert pydantic-ai event to unified format before appending
-            unified_event = PydanticAIAdapter().to_unified_event(event)
-            await self.stream.append(unified_event.model_dump())
+            if ENABLE_REMOTE_AGENT_EXECUTOR:
+                # Unified streaming: convert to UnifiedStreamEvent
+                unified_event = PydanticAIAdapter().to_unified_event(event)
+                await self.stream.append(unified_event)
+            else:
+                # Legacy streaming: pass through raw AgentStreamEvent
+                await self.stream.append(event)
 
 
 class HttpStreamWriter(StreamWriter):

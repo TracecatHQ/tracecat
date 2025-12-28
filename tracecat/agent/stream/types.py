@@ -44,6 +44,7 @@ class StreamEventType(str, Enum):
     # Lifecycle events
     MESSAGE_START = "message_start"
     MESSAGE_STOP = "message_stop"
+    USER_MESSAGE = "user_message"
 
     # Control events
     ERROR = "error"
@@ -90,6 +91,18 @@ class UnifiedStreamEvent(BaseModel):
             A UnifiedStreamEvent with type APPROVAL_REQUEST.
         """
         return cls(type=StreamEventType.APPROVAL_REQUEST, approval_items=items)
+
+    @classmethod
+    def user_message_event(cls, content: str) -> UnifiedStreamEvent:
+        """Factory method for creating user message events.
+
+        Args:
+            content: The user's message text.
+
+        Returns:
+            A UnifiedStreamEvent with type USER_MESSAGE.
+        """
+        return cls(type=StreamEventType.USER_MESSAGE, text=content)
 
 
 class HarnessType(str, Enum):
