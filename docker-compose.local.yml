@@ -148,7 +148,7 @@ services:
       redis:
         condition: service_healthy
 
-  executor-worker:
+  executor:
     build:
       context: .
       dockerfile: Dockerfile

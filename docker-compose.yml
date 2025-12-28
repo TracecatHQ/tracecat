@@ -135,7 +135,7 @@ services:
       redis:
         condition: service_healthy
 
-  executor-worker:
+  executor:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.53.10}
     restart: unless-stopped
     networks:

@@ -116,7 +116,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT}
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Redis
@@ -138,7 +138,7 @@ services:
       redis:
         condition: service_healthy
 
-  executor-worker:
+  executor:
     build:
       context: .
       dockerfile: Dockerfile

@@ -1,10 +1,10 @@
 # Docker Compose for running integration tests
-# Usage: docker compose -f docker-compose.test.yml run --rm executor-worker-test
+# Usage: docker compose -f docker-compose.test.yml run --rm executor-test
 #
 # This extends docker-compose.dev.yml but uses the 'test' target which includes pytest.
 
 services:
-  executor-worker-test:
+  executor-test:
     build:
       context: .
       dockerfile: Dockerfile
