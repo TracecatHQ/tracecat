@@ -1,7 +1,7 @@
 """add registry_lock to workflow_definition
 
 Revision ID: 74a426bea776
-Revises: 4c6310af479d
+Revises: 8b00d38127c5
 Create Date: 2025-12-10 13:22:36.701920
 
 This migration:
