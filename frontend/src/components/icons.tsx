@@ -651,6 +651,19 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <GmailIcon className={cn("size-full", iconClassName)} {...rest} />
       </div>
     ),
+    "tools.google_secops_soar": ({
+      className,
+      iconClassName,
+      flairsize: _ignored,
+      ...rest
+    }: CustomIconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <GoogleSecOpsIcon
+          className={cn("size-full", iconClassName)}
+          {...rest}
+        />
+      </div>
+    ),
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
 
@@ -1657,6 +1670,23 @@ export function SecureAnnexIcon({ className, ...rest }: IconProps) {
         d="M39.0952 47.5685C42.3415 53.1474 50.0988 52.8835 54.41 51.0064C57.6636 48.7812 61.8374 47.7023 66.0031 48.3406C73.7329 49.5253 78.5032 56.1663 76.6579 63.1735C74.8122 70.181 67.0491 74.9014 59.319 73.7168C55.7896 73.1758 52.8782 71.4969 50.931 69.1654C45.2426 65.3145 37.7613 65.7082 32.068 67.1721L16 112H38.5607L45.9916 90.094H82.0084L89.3724 112H112L77.523 16H50.41L39.0952 47.5685Z"
         fill="#3C6E71"
       />
+    </svg>
+  )
+}
+
+export function GoogleSecOpsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className={className}
+      {...rest}
+    >
+      <path
+        fill="#4285F4"
+        d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
+      />
+      <path fill="#34A853" d="M12 2v9.82l6.9-3.82L12 4.18V2z" opacity="0.6" />
     </svg>
   )
 }
