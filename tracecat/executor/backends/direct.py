@@ -8,6 +8,7 @@ WARNING: Do not use in production with untrusted workloads.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from tracecat.executor.backends.base import ExecutorBackend
@@ -55,8 +56,25 @@ class DirectBackend(ExecutorBackend):
         )
 
         try:
-            result = await run_action_from_input(input, role)
+            result = await asyncio.wait_for(
+                run_action_from_input(input, role),
+                timeout=timeout,
+            )
             return ExecutorResultSuccess(result=result)
+        except TimeoutError:
+            logger.error(
+                "Direct execution timed out",
+                action=action_name,
+                timeout=timeout,
+            )
+            error_info = ExecutorActionErrorInfo(
+                action_name=action_name,
+                type="TimeoutError",
+                message=f"Action execution timed out after {timeout}s",
+                filename="direct.py",
+                function="execute",
+            )
+            return ExecutorResultFailure(error=error_info)
         except Exception as e:
             logger.error(
                 "Direct execution failed",

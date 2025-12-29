@@ -89,8 +89,12 @@ async def get_executor_backend() -> ExecutorBackend:
             config_value=config.TRACECAT__EXECUTOR_BACKEND,
         )
 
-        _backend = _create_backend(backend_type)
-        await _backend.start()
+        # Create and start in local variable first to avoid corrupted state if start() fails
+        backend = _create_backend(backend_type)
+        await backend.start()
+
+        # Only assign to global after successful start
+        _backend = backend
 
         logger.info(
             "Executor backend initialized",
