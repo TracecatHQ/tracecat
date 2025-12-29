@@ -127,11 +127,9 @@ class SandboxedWorkerPool:
         / "tracecat-sandboxed-workers"
     )
     _metrics_task: asyncio.Task[None] | None = field(default=None, repr=False)
-    _health_check_task: asyncio.Task[None] | None = field(default=None, repr=False)
     _metrics_interval: float = 10.0  # Emit metrics every 10 seconds
-    _health_check_interval: float = 30.0  # Check for stuck workers every 30 seconds
     _stuck_worker_timeout: float = (
-        120.0  # Consider worker stuck if active but no completion in 2 min
+        60.0  # Consider worker stuck if task running longer than this
     )
     _tasks_waiting: int = 0  # Number of tasks currently waiting for a worker slot
 
@@ -761,8 +759,8 @@ class SandboxedWorkerPool:
                 # Include task duration for workers with active tasks
                 if task_running_s is not None:
                     worker_stat["task_running_s"] = f"{task_running_s:.1f}"
-                    # Flag workers with tasks running > 60 seconds
-                    if task_running_s > 60:
+                    # Flag workers with tasks running longer than threshold
+                    if task_running_s > self._stuck_worker_timeout:
                         stuck_workers.append(
                             {
                                 "worker_id": worker.worker_id,
@@ -828,7 +826,7 @@ class SandboxedWorkerPool:
         # Emit warning for potentially stuck workers
         if stuck_workers:
             logger.warning(
-                "Potentially stuck workers detected (tasks running > 60s)",
+                f"Potentially stuck workers detected (tasks running > {self._stuck_worker_timeout}s)",
                 stuck_workers=stuck_workers,
                 total_stuck=len(stuck_workers),
             )
