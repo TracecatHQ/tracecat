@@ -361,7 +361,7 @@ When True, actions run in an nsjail sandbox with:
 When False (default), actions run in direct subprocesses without sandboxing.
 
 Requires:
-- TRACECAT__EXECUTOR_MODE=subprocess
+- TRACECAT__EXECUTOR_BACKEND=sandboxed_pool or ephemeral
 - nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
 - Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
 """

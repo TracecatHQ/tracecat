@@ -517,7 +517,7 @@ async def run_action_on_cluster(
 
     role = ctx.role
     action_name = input.task.action
-    timeout = 900.0  # Default timeout
+    timeout = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
     # Ensure registry environment is set up (for tarball extraction)
     await _get_registry_pythonpath(input, role)

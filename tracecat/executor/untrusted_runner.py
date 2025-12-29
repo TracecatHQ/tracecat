@@ -17,7 +17,13 @@ import os
 from typing import Any
 
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_role, ctx_run, ctx_session_id
+from tracecat.contexts import (
+    ctx_interaction,
+    ctx_logger,
+    ctx_role,
+    ctx_run,
+    ctx_session_id,
+)
 from tracecat.dsl.schemas import ExecutionContext, RunActionInput
 from tracecat.executor.schemas import ResolvedContext
 from tracecat.executor.service import evaluate_templated_args, run_single_action
@@ -66,6 +72,9 @@ async def run_action_untrusted(
     ctx_role.set(role)
     ctx_run.set(input.run_context)
     ctx_session_id.set(input.session_id)
+    # Set interaction context if provided (for interactive actions)
+    if input.interaction_context is not None:
+        ctx_interaction.set(input.interaction_context)
 
     # Initialize SDK context for any registry operations
     _setup_registry_sdk_context()
