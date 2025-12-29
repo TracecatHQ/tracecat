@@ -155,7 +155,8 @@ class ActionRunner:
         """Compute cache key from tarball URI."""
         if not tarball_uri:
             return "base"
-        content = tarball_uri.lower().strip()
+        # Don't lowercase - S3 keys are case-sensitive, lowercasing could cause collisions
+        content = tarball_uri.strip()
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
     async def ensure_registry_environment(self, tarball_uri: str | None) -> Path | None:
@@ -247,9 +248,14 @@ class ActionRunner:
             response.raise_for_status()
             output_path.write_bytes(response.content)
 
+        # Log only the path portion to avoid leaking presigned URL signatures
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        safe_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         logger.debug(
             "File downloaded",
-            url=url[:80],
+            url=safe_url[:80],
             size_bytes=output_path.stat().st_size,
         )
 
@@ -259,7 +265,8 @@ class ActionRunner:
         def _do_extract() -> None:
             with tarfile.open(tarball_path, "r:gz") as tar:
                 # Extract all contents to target directory
-                tar.extractall(path=target_dir)
+                # Use filter='data' to prevent path traversal attacks (CVE-2007-4559)
+                tar.extractall(path=target_dir, filter="data")
 
         await asyncio.to_thread(_do_extract)
         logger.debug("Tarball extracted", target=str(target_dir))
