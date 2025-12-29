@@ -209,35 +209,26 @@ class TestMultiTenantExecution:
         assert result_b.type == "success", f"Workspace B should succeed: {result_b}"
 
     @pytest.mark.anyio
-    async def test_pythonpath_correctly_forwarded_to_worker(
+    async def test_single_workspace_execution(
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         role_workspace_a: Role,
     ) -> None:
-        """Verify PYTHONPATH parameter reaches the worker execution.
-
-        This tests the current behavior where PYTHONPATH is forwarded
-        through the socket protocol to pool_worker.py.
-
-        Note: The PYTHONPATH application in pool_worker.py is out of scope.
-        This test verifies the parameter is passed correctly.
+        """Verify basic execution for a single workspace works correctly.
 
         Validates:
-        - pythonpath parameter is included in the socket request
-        - Execution succeeds with custom pythonpath specified
+        - Single workspace execution completes successfully
+        - Worker receives and processes the request
         """
-        _custom_path = "/custom/registry/path:/another/path"
         input_data = run_action_input_factory()
 
-        # The pool should forward pythonpath through the request
         result = await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
             timeout=30.0,
         )
 
-        # Success indicates the worker received and processed the request
         assert result.type == "success", f"Execution should complete: {result}"
 
     @pytest.mark.anyio

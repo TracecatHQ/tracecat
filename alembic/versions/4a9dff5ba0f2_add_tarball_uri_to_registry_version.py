@@ -48,6 +48,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove tarball_uri column and make wheel_uri non-nullable."""
+    # Delete rows with NULL wheel_uri before making column non-nullable
+    # (These rows would be invalid under the pre-migration schema)
+    op.execute("DELETE FROM registry_version WHERE wheel_uri IS NULL")
+
     # Make wheel_uri non-nullable again
     op.alter_column(
         "registry_version",
