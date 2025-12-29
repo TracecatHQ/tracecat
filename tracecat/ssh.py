@@ -232,11 +232,28 @@ def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
     key_with_newline = key_data if key_data.endswith("\n") else key_data + "\n"
 
     # Validate the key using paramiko (reads from string, no disk)
-    try:
-        paramiko.Ed25519Key.from_private_key(StringIO(key_with_newline))
-    except paramiko.SSHException as e:
-        logger.error(f"Invalid SSH key: {str(e)}")
-        raise
+    # Try multiple key types since we can't know which format it is
+    key_classes = [
+        paramiko.Ed25519Key,
+        paramiko.RSAKey,
+        paramiko.ECDSAKey,
+    ]
+    valid_key = False
+    last_error = None
+    for key_class in key_classes:
+        try:
+            key_class.from_private_key(StringIO(key_with_newline))
+            valid_key = True
+            break
+        except paramiko.SSHException as e:
+            last_error = e
+            continue
+
+    if not valid_key:
+        logger.error(f"Invalid SSH key: {str(last_error)}")
+        raise paramiko.SSHException(
+            f"Invalid SSH key: {str(last_error)}"
+        ) from last_error
 
     try:
         # Pass key via stdin using '-' flag - never touches disk
