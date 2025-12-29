@@ -54,10 +54,13 @@ class ExecutorBackendType(StrEnum):
 
 
 def _is_nsjail_available() -> bool:
-    """Check if nsjail is available in the current environment."""
+    """Check if nsjail is available in the current environment.
+
+    Validates that nsjail_path is an executable file and rootfs_path is a directory.
+    """
     nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
     rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
-    return nsjail_path.exists() and rootfs_path.exists()
+    return nsjail_path.is_file() and rootfs_path.is_dir()
 
 
 def _resolve_backend_type() -> ExecutorBackendType:
