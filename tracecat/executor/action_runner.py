@@ -23,6 +23,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import httpx
 import orjson
@@ -249,8 +250,6 @@ class ActionRunner:
             output_path.write_bytes(response.content)
 
         # Log only the path portion to avoid leaking presigned URL signatures
-        from urllib.parse import urlparse
-
         parsed = urlparse(url)
         safe_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         logger.debug(

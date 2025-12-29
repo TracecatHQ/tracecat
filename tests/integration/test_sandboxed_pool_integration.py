@@ -604,12 +604,8 @@ class TestMultiTenantThrashing:
         ]
         results_b = await asyncio.gather(*tasks_b, return_exceptions=True)
 
-        successes_a = sum(
-            1 for r in results_a if isinstance(r, dict) and r.get("type") == "success"
-        )
-        successes_b = sum(
-            1 for r in results_b if isinstance(r, dict) and r.get("type") == "success"
-        )
+        successes_a = sum(1 for r in results_a if isinstance(r, ExecutorResultSuccess))
+        successes_b = sum(1 for r in results_b if isinstance(r, ExecutorResultSuccess))
 
         assert successes_a == burst_size, (
             f"All A requests should succeed: {successes_a}/{burst_size}"
@@ -664,9 +660,7 @@ class TestMultiTenantThrashing:
         # Wait for all
         all_results = await asyncio.gather(*tasks_a, *tasks_b, return_exceptions=True)
 
-        successes = sum(
-            1 for r in all_results if isinstance(r, dict) and r.get("type") == "success"
-        )
+        successes = sum(1 for r in all_results if isinstance(r, ExecutorResultSuccess))
         errors = [r for r in all_results if isinstance(r, Exception)]
 
         assert successes == burst_size * 2, (
@@ -1214,9 +1208,7 @@ class TestPoolExhaustion:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successes = sum(
-            1 for r in results if isinstance(r, dict) and r.get("type") == "success"
-        )
+        successes = sum(1 for r in results if isinstance(r, ExecutorResultSuccess))
         exceptions = [r for r in results if isinstance(r, Exception)]
 
         assert successes == capacity, (
@@ -1253,9 +1245,7 @@ class TestPoolExhaustion:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successes = sum(
-            1 for r in results if isinstance(r, dict) and r.get("type") == "success"
-        )
+        successes = sum(1 for r in results if isinstance(r, ExecutorResultSuccess))
         exceptions = [r for r in results if isinstance(r, Exception)]
 
         assert successes == request_count, (
@@ -1292,9 +1282,7 @@ class TestPoolExhaustion:
         burst_results = await asyncio.gather(*burst_tasks, return_exceptions=True)
 
         burst_successes = sum(
-            1
-            for r in burst_results
-            if isinstance(r, dict) and r.get("type") == "success"
+            1 for r in burst_results if isinstance(r, ExecutorResultSuccess)
         )
         assert burst_successes == 20, f"Burst should succeed: {burst_successes}/20"
 
@@ -1307,7 +1295,7 @@ class TestPoolExhaustion:
             role=role_workspace_a,
             timeout=30.0,
         )
-        assert result.get("type") == "success", "Post-burst request should succeed"
+        assert result.type == "success", "Post-burst request should succeed"
 
         # Workers should be healthy
         alive_workers = sum(
