@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from concurrent.futures import ThreadPoolExecutor
 
 import uvloop
@@ -109,11 +110,22 @@ async def main() -> None:
         await shutdown_executor_backend()
 
 
+def _signal_handler(sig: int, _frame: object) -> None:
+    """Handle shutdown signals gracefully."""
+    logger.info("Received shutdown signal", signal=sig)
+    interrupt_event.set()
+
+
 if __name__ == "__main__":
+    # Install signal handlers before starting the event loop
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     loop = asyncio.new_event_loop()
     loop.set_task_factory(asyncio.eager_task_factory)
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         interrupt_event.set()
+    finally:
         loop.run_until_complete(loop.shutdown_asyncgens())

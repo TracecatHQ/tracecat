@@ -115,12 +115,14 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         timing["total_ms"] = (time.monotonic() - start_total) * 1000
 
+        # Log error summary at error level, full traceback only at debug
+        # to avoid leaking sensitive information in production logs
         logger.error(
             "Task failed",
             error=str(e),
             type=type(e).__name__,
-            traceback=traceback.format_exc(),
         )
+        logger.debug("Task failed traceback", traceback=traceback.format_exc())
 
         # Try to create structured error
         try:
