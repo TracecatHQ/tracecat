@@ -132,10 +132,10 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
             error_info = ExecutorActionErrorInfo.from_exc(e, action_name)
             error_dict = error_info.model_dump(mode="json")
         except Exception:
+            # Fallback: don't include traceback in response to avoid leaking sensitive data
             error_dict = {
                 "type": type(e).__name__,
                 "message": str(e),
-                "traceback": traceback.format_exc(),
             }
 
         return {
@@ -293,7 +293,10 @@ async def handle_connection(
             active_connections=_active_connections,
             error=str(e),
             error_type=type(e).__name__,
-            traceback=traceback.format_exc(),
+        )
+        # Log traceback at debug level to avoid leaking sensitive data in production
+        logger.debug(
+            "Connection handler error traceback", traceback=traceback.format_exc()
         )
         # Try to send error response
         try:

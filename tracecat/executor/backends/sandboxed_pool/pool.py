@@ -365,10 +365,14 @@ class SandboxedWorkerPool:
         import site
 
         site_packages = site.getsitepackages()[0] if site.getsitepackages() else ""
-        # Include /app, packages directories, and site-packages
+        # Include /app, packages directories, site-packages, and registry cache
         pythonpath_parts = ["/app", "/app/packages/tracecat-registry"]
         if site_packages:
             pythonpath_parts.append(site_packages)
+        # Add registry cache for custom registry modules distributed via tarball
+        registry_cache_dir = Path("/tmp/tracecat/registry-cache")
+        if registry_cache_dir.exists():
+            pythonpath_parts.append(str(registry_cache_dir))
         pythonpath = ":".join(pythonpath_parts)
 
         # Build nsjail command

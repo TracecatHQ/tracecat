@@ -23,7 +23,6 @@ from tracecat.executor.schemas import (
     ExecutorResult,
     ExecutorResultFailure,
     ExecutorResultSuccess,
-    get_trust_mode,
 )
 from tracecat.executor.service import (
     get_registry_artifacts_cached,
@@ -65,8 +64,12 @@ class EphemeralBackend(ExecutorBackend):
 
     @property
     def trust_mode(self) -> str:
-        """Get the trust mode for this backend (derived from backend type)."""
-        return get_trust_mode()
+        """Get the trust mode for this backend.
+
+        Ephemeral backend always uses 'untrusted' mode to preserve isolation
+        guarantees. This ensures DB credentials are never passed into the sandbox.
+        """
+        return "untrusted"
 
     async def execute(
         self,
