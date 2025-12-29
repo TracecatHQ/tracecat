@@ -492,6 +492,10 @@ class DSLRunArgs(BaseModel):
         default=ExecutionType.PUBLISHED,
         description="Execution type (draft or published). Draft executions use draft aliases for child workflows.",
     )
+    registry_lock: dict[str, str] | None = Field(
+        default=None,
+        description="Registry version lock for action execution. Maps action names to version hashes.",
+    )
 
     @field_validator("wf_id", mode="before")
     @classmethod

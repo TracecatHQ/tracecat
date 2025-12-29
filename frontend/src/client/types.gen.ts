@@ -1781,6 +1781,12 @@ export type DSLRunArgs = {
    * Execution type (draft or published). Draft executions use draft aliases for child workflows.
    */
   execution_type?: ExecutionType
+  /**
+   * Registry version lock for action execution. Maps action names to version hashes.
+   */
+  registry_lock?: {
+    [key: string]: string
+  } | null
 }
 
 /**

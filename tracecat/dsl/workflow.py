@@ -228,7 +228,8 @@ class DSLWorkflow:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
             self.dsl = args.dsl
-            self.registry_lock = None  # No lock when DSL is pushed directly
+            # Use registry_lock from args if provided (e.g., from parent workflow)
+            self.registry_lock = args.registry_lock
             self.dispatch_type = "push"
         else:
             # Otherwise, fetch the latest workflow definition
@@ -1087,6 +1088,7 @@ class DSLWorkflow:
             trigger_inputs=args.trigger_inputs,
             runtime_config=runtime_config,
             execution_type=self.execution_type,
+            registry_lock=self.registry_lock,
         )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
@@ -1302,6 +1304,7 @@ class DSLWorkflow:
             ),
             runtime_config=runtime_config,
             execution_type=self.execution_type,
+            registry_lock=self.registry_lock,
         )
 
     async def _run_error_handler_workflow(

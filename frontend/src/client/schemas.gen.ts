@@ -5731,6 +5731,22 @@ export const $DSLRunArgs = {
         "Execution type (draft or published). Draft executions use draft aliases for child workflows.",
       default: "published",
     },
+    registry_lock: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Registry Lock",
+      description:
+        "Registry version lock for action execution. Maps action names to version hashes.",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
