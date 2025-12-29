@@ -155,6 +155,7 @@ services:
       target: production
     restart: unless-stopped
     networks:
+      - core
       - core-db
       - temporal
     # Required for nsjail sandbox
@@ -210,6 +211,8 @@ services:
       temporal:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   ui:
