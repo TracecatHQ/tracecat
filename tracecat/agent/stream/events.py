@@ -5,11 +5,12 @@ from typing import Annotated, Literal
 
 import orjson
 from pydantic import Discriminator, TypeAdapter
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
 from tracecat.agent.stream.types import UnifiedStreamEvent
 
 UnifiedStreamEventTA: TypeAdapter[UnifiedStreamEvent] = TypeAdapter(UnifiedStreamEvent)
+AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
 
 
 @dataclass(slots=True, kw_only=True)
@@ -18,10 +19,13 @@ class StreamDelta:
 
     kind: Literal["event"] = "event"
     id: str
-    event: UnifiedStreamEvent
+    event: UnifiedStreamEvent | AgentStreamEvent
 
     def sse(self) -> str:
-        return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event.model_dump(mode='json')).decode()}\n\n"
+        if isinstance(self.event, UnifiedStreamEvent):
+            return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event.model_dump(mode='json')).decode()}\n\n"
+        else:
+            return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
 
 
 @dataclass(slots=True, kw_only=True)
