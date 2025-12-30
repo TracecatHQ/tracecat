@@ -701,7 +701,10 @@ class DSLScheduler:
                 case _:
                     raise
 
-        if not is_iterable(collection):
+        # Treat None as empty collection (will be handled by empty check below)
+        if collection is None:
+            collection = []
+        elif not is_iterable(collection):
             raise ApplicationError(
                 f"Collection is not iterable: {type(collection)}: {collection}",
                 non_retryable=True,
