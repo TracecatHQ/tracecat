@@ -4381,6 +4381,44 @@ async def test_scatter_with_child_workflow(
             },
             id="scatter-empty-collection",
         ),
+        # None collection scatter (treated as empty)
+        pytest.param(
+            DSLInput(
+                title="Scatter None collection",
+                description=(
+                    "Test that when a scatter's collection expression evaluates to None, "
+                    "it is treated as an empty collection. The scatter should not produce "
+                    "any execution streams, and the dependent gather action should return "
+                    "an empty list."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args={"collection": "${{ None }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "TRIGGER": {},
+            },
+            id="scatter-none-collection",
+        ),
         pytest.param(
             DSLInput(
                 title="Scatter empty collection with actions between",
