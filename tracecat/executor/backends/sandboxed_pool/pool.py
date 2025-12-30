@@ -531,7 +531,7 @@ class SandboxedWorkerPool:
         # Registry cache directory (for custom registry modules)
         # IMPORTANT: This must come AFTER the /tmp tmpfs mount above,
         # otherwise the tmpfs will overwrite this bind mount
-        registry_cache_dir = Path("/tmp/tracecat/registry-cache")
+        registry_cache_dir = Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
         if registry_cache_dir.exists():
             config_lines.extend(
                 [
