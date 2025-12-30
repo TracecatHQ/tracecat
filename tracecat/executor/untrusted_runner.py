@@ -72,9 +72,8 @@ async def run_action_untrusted(
     ctx_role.set(role)
     ctx_run.set(input.run_context)
     ctx_session_id.set(input.session_id)
-    # Set interaction context if provided (for interactive actions)
-    if input.interaction_context is not None:
-        ctx_interaction.set(input.interaction_context)
+    # Always set interaction context (even if None) to prevent stale context leakage
+    ctx_interaction.set(input.interaction_context)
 
     # Initialize SDK context for any registry operations
     _setup_registry_sdk_context()

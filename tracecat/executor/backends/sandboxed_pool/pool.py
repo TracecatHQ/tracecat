@@ -368,7 +368,7 @@ class SandboxedWorkerPool:
         if site_packages:
             pythonpath_parts.append(site_packages)
         # Add registry cache for custom registry modules distributed via tarball
-        registry_cache_dir = Path("/tmp/tracecat/registry-cache")
+        registry_cache_dir = Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
         if registry_cache_dir.exists():
             pythonpath_parts.append(str(registry_cache_dir))
         pythonpath = ":".join(pythonpath_parts)
