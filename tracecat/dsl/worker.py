@@ -87,6 +87,11 @@ def get_activities() -> list[Callable]:
 
 
 async def main() -> None:
+    # Enable workflow replay log filtering for this process
+    from tracecat.logger import _logger
+
+    _logger._is_worker_process = True
+
     client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
 
     interceptors = []
