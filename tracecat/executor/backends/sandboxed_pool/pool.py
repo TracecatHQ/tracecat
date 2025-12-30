@@ -93,7 +93,9 @@ class SandboxedWorkerInfo:
         False  # True when worker is being recycled (don't assign new tasks)
     )
     last_task_completed_at: float = 0.0  # Timestamp of last completed task
-    last_task_started_at: float = 0.0  # Timestamp of last started task
+    oldest_task_started_at: float = (
+        0.0  # Timestamp of oldest active task (for stuck detection)
+    )
 
 
 @dataclass
@@ -610,7 +612,10 @@ class SandboxedWorkerPool:
                         )
 
                         best_worker.active_tasks += 1
-                        best_worker.last_task_started_at = time.monotonic()
+                        # Only update oldest_task_started_at when transitioning 0→1 active tasks
+                        # This ensures stuck detection tracks the oldest running task, not the newest
+                        if best_worker.active_tasks == 1:
+                            best_worker.oldest_task_started_at = time.monotonic()
                         # Log worker selection with load info
                         worker_loads = [
                             f"w{w.worker_id}:{w.active_tasks}"
@@ -743,10 +748,10 @@ class SandboxedWorkerPool:
                 total_active += worker.active_tasks
                 total_completed += worker.tasks_completed
 
-                # Calculate time since last task started (for active workers)
+                # Calculate time since oldest task started (for active workers)
                 task_running_s: float | None = None
-                if worker.active_tasks > 0 and worker.last_task_started_at > 0:
-                    task_running_s = now - worker.last_task_started_at
+                if worker.active_tasks > 0 and worker.oldest_task_started_at > 0:
+                    task_running_s = now - worker.oldest_task_started_at
 
                 worker_stat: dict[str, Any] = {
                     "id": worker.worker_id,
@@ -843,6 +848,10 @@ class SandboxedWorkerPool:
             worker.active_tasks = max(0, worker.active_tasks - 1)
             worker.tasks_completed += 1
             worker.last_task_completed_at = time.monotonic()
+
+            # Reset oldest_task_started_at when worker becomes idle
+            if worker.active_tasks == 0:
+                worker.oldest_task_started_at = 0.0
 
             # Update lifetime metrics
             self._lifetime_tasks_completed += 1
@@ -1027,6 +1036,9 @@ class SandboxedWorkerPool:
                 # Force decrement without async lock
                 worker.active_tasks = max(0, worker.active_tasks - 1)
                 worker.tasks_completed += 1
+                # Reset oldest_task_started_at when worker becomes idle
+                if worker.active_tasks == 0:
+                    worker.oldest_task_started_at = 0.0
                 raise
 
     async def _execute_on_worker(
