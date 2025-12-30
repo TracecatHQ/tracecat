@@ -2,10 +2,11 @@ import contextlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
+from typing import Any
 
 from pydantic_ai.messages import (
-    ModelMessage,
     ModelRequest,
+    ModelResponse,
     UserPromptPart,
 )
 from pydantic_ai.tools import DeferredToolResults
@@ -19,7 +20,13 @@ from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.types import AgentConfig, ModelMessageTA
+from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.types import (
+    AgentConfig,
+    ClaudeSDKMessageTA,
+    ModelMessageTA,
+    UnifiedMessage,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
@@ -41,6 +48,26 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
+
+
+def _serialize_message(message: UnifiedMessage) -> tuple[str, dict[str, Any]]:
+    """Detect message type and serialize with appropriate TypeAdapter.
+
+    Args:
+        message: A UnifiedMessage (either pydantic-ai or Claude SDK message)
+
+    Returns:
+        Tuple of (harness_type, serialized_data)
+    """
+    if isinstance(message, (ModelRequest, ModelResponse)):
+        return HarnessType.PYDANTIC_AI.value, ModelMessageTA.dump_python(
+            message, mode="json"
+        )
+    else:
+        # Claude SDK message types
+        return HarnessType.CLAUDE.value, ClaudeSDKMessageTA.dump_python(
+            message, mode="json"
+        )
 
 
 class ChatService(BaseWorkspaceService):
@@ -436,15 +463,20 @@ class ChatService(BaseWorkspaceService):
     async def append_message(
         self,
         chat_id: uuid.UUID,
-        message: ModelMessage,
+        message: UnifiedMessage,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> DBChatMessage:
-        """Persist a message to the database."""
+        """Persist a message to the database.
+
+        Automatically detects the message type and sets the appropriate harness.
+        """
+        harness, data = _serialize_message(message)
         db_message = DBChatMessage(
             chat_id=chat_id,
             kind=kind.value,
+            harness=harness,
             workspace_id=self.workspace_id,
-            data=ModelMessageTA.dump_python(message, mode="json"),
+            data=data,
         )
 
         self.session.add(db_message)
@@ -456,6 +488,7 @@ class ChatService(BaseWorkspaceService):
             chat_id=chat_id,
             message_id=db_message.id,
             kind=kind.value,
+            harness=harness,
         )
 
         return db_message
@@ -463,23 +496,29 @@ class ChatService(BaseWorkspaceService):
     async def append_messages(
         self,
         chat_id: uuid.UUID,
-        messages: Sequence[ModelMessage],
+        messages: Sequence[UnifiedMessage],
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:
-        """Persist multiple messages to the database in a single transaction."""
+        """Persist multiple messages to the database in a single transaction.
+
+        Automatically detects each message type and sets the appropriate harness.
+        """
         if not messages:
             return
 
         # Create all DB message objects at once
-        db_messages = [
-            DBChatMessage(
-                chat_id=chat_id,
-                kind=kind.value,
-                workspace_id=self.workspace_id,
-                data=ModelMessageTA.dump_python(message, mode="json"),
+        db_messages = []
+        for message in messages:
+            harness, data = _serialize_message(message)
+            db_messages.append(
+                DBChatMessage(
+                    chat_id=chat_id,
+                    kind=kind.value,
+                    harness=harness,
+                    workspace_id=self.workspace_id,
+                    data=data,
+                )
             )
-            for message in messages
-        ]
 
         # Add all messages to session at once
         self.session.add_all(db_messages)
@@ -498,7 +537,7 @@ class ChatService(BaseWorkspaceService):
         chat_id: uuid.UUID,
         *,
         kinds: Sequence[MessageKind] | None = None,
-    ) -> list[ModelMessage]:
+    ) -> list[ChatMessage]:
         """Retrieve chat messages, optionally filtered by message kind."""
         stmt = (
             select(DBChatMessage)
@@ -515,21 +554,7 @@ class ChatService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         db_messages = result.scalars().all()
 
-        messages: list[ModelMessage] = []
-        for db_msg in db_messages:
-            validated_msg = ModelMessageTA.validate_python(db_msg.data)
-            messages.append(validated_msg)
-        return messages
-
-    async def get_chat_messages(self, chat: Chat) -> list[ChatMessage]:
-        """Get chat messages from database, with Redis backfill if needed."""
-        # First, try to get messages from the database
-        db_messages = await self.list_messages(chat.id)
-        # Convert to ChatMessage format for API compatibility
-        parsed_messages: list[ChatMessage] = []
-        for idx, msg in enumerate(db_messages):
-            # Use index as ID for now (or could use timestamp)
-            msg_with_id = ChatMessage(id=str(idx), message=msg)
-            parsed_messages.append(msg_with_id)
-
-        return parsed_messages
+        return [
+            ChatMessage(id=str(db_msg.id), harness=db_msg.harness, data=db_msg.data)
+            for db_msg in db_messages
+        ]

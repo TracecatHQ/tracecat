@@ -4,18 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, BaseModel, Discriminator, Field
-from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.types import ModelMessageTA
 from tracecat.chat.enums import ChatEntity
-
-if TYPE_CHECKING:
-    from tracecat.db import models
 
 
 class BasicChatRequest(BaseModel):
@@ -154,17 +149,16 @@ class ChatUpdate(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """Model for chat metadata with a single message."""
+    """Model for a chat message with harness metadata."""
 
-    id: str = Field(..., description="Unique chat identifier")
-    message: ModelMessage = Field(..., description="The message from the chat")
-
-    @classmethod
-    def from_db(cls, value: models.ChatMessage) -> ChatMessage:
-        return cls(
-            id=str(value.id),
-            message=ModelMessageTA.validate_python(value.data),
-        )
+    id: str = Field(..., description="Unique message identifier")
+    harness: str = Field(
+        default="pydantic-ai",
+        description="The harness type that created this message (e.g., pydantic-ai, claude)",
+    )
+    data: dict[str, Any] = Field(
+        ..., description="Raw message data in native harness format"
+    )
 
 
 # --- Approvals (CE Handshake) -------------------------------------------------

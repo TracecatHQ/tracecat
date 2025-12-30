@@ -4711,32 +4711,26 @@ export const $ChatMessage = {
     id: {
       type: "string",
       title: "Id",
-      description: "Unique chat identifier",
+      description: "Unique message identifier",
     },
-    message: {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/ModelRequest",
-        },
-        {
-          $ref: "#/components/schemas/ModelResponse",
-        },
-      ],
-      title: "Message",
-      description: "The message from the chat",
-      discriminator: {
-        propertyName: "kind",
-        mapping: {
-          request: "#/components/schemas/ModelRequest",
-          response: "#/components/schemas/ModelResponse",
-        },
-      },
+    harness: {
+      type: "string",
+      title: "Harness",
+      description:
+        "The harness type that created this message (e.g., pydantic-ai, claude)",
+      default: "pydantic-ai",
+    },
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+      description: "Raw message data in native harness format",
     },
   },
   type: "object",
-  required: ["id", "message"],
+  required: ["id", "data"],
   title: "ChatMessage",
-  description: "Model for chat metadata with a single message.",
+  description: "Model for a chat message with harness metadata.",
 } as const
 
 export const $ChatRead = {

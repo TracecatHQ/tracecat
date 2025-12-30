@@ -19,7 +19,9 @@ from tracecat.agent.stream.events import (
     StreamFormat,
     StreamKeepAlive,
     StreamMessage,
+    UnifiedStreamEventTA,
 )
+from tracecat.agent.stream.types import UnifiedStreamEvent
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
 from tracecat.chat.service import ChatService
@@ -131,11 +133,27 @@ class AgentStream:
                                         logger.debug("End-of-stream marker")
                                         yield StreamEnd(id=msg_id)
                                     case {"event_kind": event_kind}:
-                                        event = AgentStreamEventTA.validate_python(data)
-                                        logger.debug(
-                                            "Stream event", kind=event_kind, event=event
+                                        legacy_event = (
+                                            AgentStreamEventTA.validate_python(data)
                                         )
-                                        yield StreamDelta(id=msg_id, event=event)
+                                        logger.debug(
+                                            "Stream legacy event",
+                                            kind=event_kind,
+                                            event=legacy_event,
+                                        )
+                                        yield StreamDelta(id=msg_id, event=legacy_event)
+                                    case {"type": event_type}:
+                                        unified_event = (
+                                            UnifiedStreamEventTA.validate_python(data)
+                                        )
+                                        logger.debug(
+                                            "Stream event",
+                                            type=event_type,
+                                            event=unified_event,
+                                        )
+                                        yield StreamDelta(
+                                            id=msg_id, event=unified_event
+                                        )
                                     case {"kind": "error", "error": error_message}:
                                         logger.warning(
                                             "Stream error received",
@@ -214,7 +232,12 @@ class AgentStream:
                         yield event.sse()
                         break
                     case StreamDelta(event=delta):
-                        logger.debug("Stream event", event_kind=delta.event_kind)
+                        if isinstance(delta, UnifiedStreamEvent):
+                            logger.debug("Stream event", event_type=delta.type)
+                        else:
+                            logger.debug(
+                                "Legacy stream event", event_kind=delta.event_kind
+                            )
                         yield event.sse()
                     case StreamMessage(message=message):
                         logger.debug("Model message", kind=message.kind)

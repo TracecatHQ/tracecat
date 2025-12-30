@@ -530,10 +530,10 @@ for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
 
 
 # === Agent config === #
-ENABLE_REMOTE_AGENT_EXECUTOR = os.environ.get(
-    "ENABLE_REMOTE_AGENT_EXECUTOR", "false"
+ENABLE_UNIFIED_AGENT_STREAMING = os.environ.get(
+    "ENABLE_UNIFIED_AGENT_STREAMING", "false"
 ).lower() in ("true", "1")
-"""Whether to enable the remote agent executor."""
+"""Whether to enable unified streaming for agent execution."""
 
 TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 30))
 """The maximum number of tools that can be used in an agent."""

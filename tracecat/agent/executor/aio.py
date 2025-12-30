@@ -18,11 +18,13 @@ from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
+from tracecat.agent.stream.types import HarnessType, ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.writers import event_stream_handler
-from tracecat.agent.types import StreamingAgentDeps
+from tracecat.agent.types import ModelMessageTA, StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
+from tracecat.config import ENABLE_UNIFIED_AGENT_STREAMING
 from tracecat.logger import logger
 
 
@@ -92,7 +94,14 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
         )
 
         if self.deps.message_store:
-            message_history = await self.deps.message_store.load(args.session_id)
+            loaded_history = await self.deps.message_store.load(args.session_id)
+            message_history = []
+            for chat_message in loaded_history:
+                if chat_message.harness != HarnessType.PYDANTIC_AI.value:
+                    continue
+                message_history.append(
+                    ModelMessageTA.validate_python(chat_message.data)
+                )
         else:
             message_history = None
 
@@ -103,7 +112,13 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             user_message = ModelRequest(
                 parts=[UserPromptPart(content=args.user_prompt)]
             )
-            await self.deps.stream_writer.stream.append(user_message)
+            if ENABLE_UNIFIED_AGENT_STREAMING:
+                # Unified streaming: use UnifiedStreamEvent for all events
+                user_event = UnifiedStreamEvent.user_message_event(args.user_prompt)
+                await self.deps.stream_writer.stream.append(user_event)
+            else:
+                # Legacy streaming: append raw ModelRequest
+                await self.deps.stream_writer.stream.append(user_message)
 
         result: ExecutorResult = None
         new_messages: list[ModelRequest | ModelResponse] | None = None
@@ -129,11 +144,30 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             match result.output:
                 # Immediately stream the approval request message to the client
                 case DeferredToolRequests(approvals=approvals) if approvals:
+                    # Build the ModelResponse for persistence (unchanged format)
                     approval_message = ModelResponse(
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
                     try:
-                        await self.deps.stream_writer.stream.append(approval_message)
+                        if ENABLE_UNIFIED_AGENT_STREAMING:
+                            # Unified streaming: emit harness-agnostic event
+                            approval_items = [
+                                ToolCallContent(
+                                    id=call.tool_call_id,
+                                    name=call.tool_name,
+                                    input=call.args_as_dict(),
+                                )
+                                for call in approvals
+                            ]
+                            approval_event = UnifiedStreamEvent.approval_request_event(
+                                approval_items
+                            )
+                            await self.deps.stream_writer.stream.append(approval_event)
+                        else:
+                            # Legacy streaming: append raw ModelResponse
+                            await self.deps.stream_writer.stream.append(
+                                approval_message
+                            )
                     except Exception as e:
                         logger.warning(
                             "Failed to stream approval request",

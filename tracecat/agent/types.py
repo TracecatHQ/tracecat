@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, runtime_checkable
+from collections.abc import Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
 import pydantic
+from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import TypeAdapter
 from pydantic_ai import ModelResponse
 from pydantic_ai.messages import ModelMessage
@@ -15,6 +24,7 @@ if TYPE_CHECKING:
     from pydantic_ai.tools import Tool as _PATool
 
     from tracecat.agent.stream.writers import StreamWriter
+    from tracecat.chat.schemas import ChatMessage
 
     CustomToolList = list[_PATool[Any]]
 else:  # pragma: no cover - runtime type hint fallback to appease pydantic
@@ -44,16 +54,20 @@ class StreamKey(str):
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
+ClaudeSDKMessageTA: TypeAdapter[ClaudeSDKMessage] = TypeAdapter(ClaudeSDKMessage)
+
+# Union type for messages from either harness
+UnifiedMessage = ModelMessage | ClaudeSDKMessage
 
 
 @runtime_checkable
 class MessageStore(Protocol):
-    async def load(self, session_id: uuid.UUID) -> list[ModelMessage]: ...
+    async def load(self, session_id: uuid.UUID) -> list[ChatMessage]: ...
 
     async def store(
         self,
         session_id: uuid.UUID,
-        messages: list[ModelMessage],
+        messages: Sequence[UnifiedMessage],
         *,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None: ...
