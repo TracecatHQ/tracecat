@@ -849,24 +849,83 @@ def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
 
 
 def now(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
-    """Return the current datetime."""
-    dt = datetime.now()
+    """Return workflow time anchor (local, naive) or current time if outside workflow.
+
+    When called within a workflow context, returns the workflow's time_anchor
+    converted to the local timezone as a naive datetime. This ensures deterministic
+    behavior during workflow replay and reset.
+
+    Outside workflow context, falls back to wall clock time.
+    """
+    from tracecat.contexts import ctx_time_anchor
+
+    time_anchor = ctx_time_anchor.get()
+    if time_anchor is not None:
+        # Convert UTC time_anchor to local timezone, then make naive
+        dt = time_anchor.astimezone().replace(tzinfo=None)
+    else:
+        dt = datetime.now()
+
     if as_isoformat:
         return to_isoformat(dt, timespec)
     return dt
 
 
 def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
-    """Return the current timezone-aware datetime."""
-    dt = datetime.now(UTC)
+    """Return workflow time anchor (UTC, aware) or current UTC time if outside workflow.
+
+    When called within a workflow context, returns the workflow's time_anchor
+    as a UTC-aware datetime. This ensures deterministic behavior during workflow
+    replay and reset.
+
+    Outside workflow context, falls back to wall clock UTC time.
+    """
+    from tracecat.contexts import ctx_time_anchor
+
+    time_anchor = ctx_time_anchor.get()
+    if time_anchor is not None:
+        # Ensure time_anchor is UTC-aware
+        dt = time_anchor if time_anchor.tzinfo else time_anchor.replace(tzinfo=UTC)
+    else:
+        dt = datetime.now(UTC)
+
     if as_isoformat:
         return to_isoformat(dt, timespec)
     return dt
 
 
 def today() -> date:
-    """Return the current date."""
+    """Return workflow time anchor date (local) or current date if outside workflow.
+
+    When called within a workflow context, returns the date portion of the
+    workflow's time_anchor in local timezone. This ensures deterministic
+    behavior during workflow replay and reset.
+
+    Outside workflow context, falls back to current date.
+    """
+    from tracecat.contexts import ctx_time_anchor
+
+    time_anchor = ctx_time_anchor.get()
+    if time_anchor is not None:
+        # Convert to local timezone and get date
+        return time_anchor.astimezone().date()
     return date.today()
+
+
+def wall_clock(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
+    """Return actual current wall clock time (local, naive).
+
+    This function always returns the real current time, ignoring any workflow
+    time_anchor. Use this only when you need the actual wall clock time rather
+    than the workflow's logical time.
+
+    Note: Using wall_clock() in workflows may cause non-deterministic behavior
+    during replay. Prefer FN.now() for most use cases.
+    """
+    dt = datetime.now()
+    if as_isoformat:
+        return to_isoformat(dt, timespec)
+    return dt
 
 
 def set_timezone(x: datetime | str, timezone: str) -> datetime:
@@ -1101,6 +1160,7 @@ _FUNCTION_MAPPING = {
     "today": today,
     "unset_timezone": unset_timezone,
     "utcnow": utcnow,
+    "wall_clock": wall_clock,
     "weeks_between": weeks_between,
     "weeks": create_weeks,
     "windows_filetime": windows_filetime,

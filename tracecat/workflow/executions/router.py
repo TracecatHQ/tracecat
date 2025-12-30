@@ -228,7 +228,10 @@ async def create_workflow_execution(
     dsl_input = DSLInput(**defn.content)
     try:
         response = service.create_workflow_execution_nowait(
-            dsl=dsl_input, wf_id=wf_id, payload=params.inputs
+            dsl=dsl_input,
+            wf_id=wf_id,
+            payload=params.inputs,
+            time_anchor=params.time_anchor,
         )
         return response
     except TracecatValidationError as e:
@@ -288,7 +291,10 @@ async def create_draft_workflow_execution(
 
     try:
         response = service.create_draft_workflow_execution_nowait(
-            dsl=dsl_input, wf_id=wf_id, payload=params.inputs
+            dsl=dsl_input,
+            wf_id=wf_id,
+            payload=params.inputs,
+            time_anchor=params.time_anchor,
         )
         return response
     except TracecatValidationError as e:

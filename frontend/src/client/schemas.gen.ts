@@ -5731,6 +5731,20 @@ export const $DSLRunArgs = {
         "Execution type (draft or published). Draft executions use draft aliases for child workflows.",
       default: "published",
     },
+    time_anchor: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Time Anchor",
+      description:
+        "The workflow's logical time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers). Stored as UTC.",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -16145,6 +16159,20 @@ export const $WorkflowExecutionCreate = {
         },
       ],
       title: "Inputs",
+    },
+    time_anchor: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Time Anchor",
+      description:
+        "Override the workflow's time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers).",
     },
   },
   type: "object",

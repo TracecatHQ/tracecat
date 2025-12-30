@@ -1781,6 +1781,10 @@ export type DSLRunArgs = {
    * Execution type (draft or published). Draft executions use draft aliases for child workflows.
    */
   execution_type?: ExecutionType
+  /**
+   * The workflow's logical time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers). Stored as UTC.
+   */
+  time_anchor?: string | null
 }
 
 /**
@@ -5109,6 +5113,10 @@ export type WorkflowEventType =
 export type WorkflowExecutionCreate = {
   workflow_id: string
   inputs?: unknown | null
+  /**
+   * Override the workflow's time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers).
+   */
+  time_anchor?: string | null
 }
 
 export type WorkflowExecutionCreateResponse = {

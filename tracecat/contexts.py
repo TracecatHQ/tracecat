@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from datetime import datetime
 
 import loguru
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ __all__ = [
     "ctx_stream_id",
     "ctx_session",
     "ctx_client_ip",
+    "ctx_time_anchor",
     "get_env",
 ]
 
@@ -34,6 +36,9 @@ ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)
 ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=None)
 """ID for a streamable session, if any."""
+
+ctx_time_anchor: ContextVar[datetime | None] = ContextVar("time-anchor", default=None)
+"""Workflow time anchor for deterministic FN.now() during replay/reset."""
 
 
 @asynccontextmanager

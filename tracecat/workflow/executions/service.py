@@ -676,6 +676,7 @@ class WorkflowExecutionsService:
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
+        time_anchor: datetime.datetime | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
@@ -688,6 +689,7 @@ class WorkflowExecutionsService:
             payload=payload,
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
+            time_anchor=time_anchor,
         )
         _ = asyncio.ensure_future(coro)
         return WorkflowExecutionCreateResponse(
@@ -703,6 +705,7 @@ class WorkflowExecutionsService:
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
+        time_anchor: datetime.datetime | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -716,6 +719,7 @@ class WorkflowExecutionsService:
             payload=payload,
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
+            time_anchor=time_anchor,
         )
         _ = asyncio.ensure_future(coro)
         return WorkflowExecutionCreateResponse(
@@ -733,6 +737,7 @@ class WorkflowExecutionsService:
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         wf_exec_id: WorkflowExecutionID | None = None,
+        time_anchor: datetime.datetime | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new draft workflow execution.
 
@@ -748,6 +753,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             trigger_type=trigger_type,
             execution_type=ExecutionType.DRAFT,
+            time_anchor=time_anchor,
         )
 
     @audit_log(resource_type="workflow_execution", action="create")
@@ -759,6 +765,7 @@ class WorkflowExecutionsService:
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         wf_exec_id: WorkflowExecutionID | None = None,
+        time_anchor: datetime.datetime | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -773,6 +780,7 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
             trigger_inputs=payload,
             trigger_type=trigger_type,
+            time_anchor=time_anchor,
         )
 
     async def _dispatch_workflow(
@@ -783,6 +791,7 @@ class WorkflowExecutionsService:
         trigger_inputs: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
+        time_anchor: datetime.datetime | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -796,6 +805,15 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+
+        # Mint time_anchor for webhook/manual triggers if not explicitly provided.
+        # This ensures the time_anchor is baked into workflow input and survives resets.
+        # Scheduled workflows resolve time_anchor via local activity using TemporalScheduledStartTime.
+        if time_anchor is None and trigger_type in (
+            TriggerType.WEBHOOK,
+            TriggerType.MANUAL,
+        ):
+            time_anchor = datetime.datetime.now(datetime.UTC)
 
         logger.info(
             f"Executing DSL workflow: {dsl.title}",
@@ -830,6 +848,7 @@ class WorkflowExecutionsService:
                     wf_id=wf_id,
                     trigger_inputs=trigger_inputs,
                     execution_type=execution_type,
+                    time_anchor=time_anchor,
                 ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,

@@ -84,9 +84,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import (
         NormalizeTriggerInputsActivityInputs,
+        ResolveTimeAnchorActivityInputs,
         ValidateTriggerInputsActivityInputs,
         format_input_schema_validation_error,
         normalize_trigger_inputs_activity,
+        resolve_time_anchor_activity,
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -403,6 +405,23 @@ class DSLWorkflow:
                             type=e.__class__.__name__,
                         ) from cause
 
+        # Resolve time anchor - recorded in history for replay/reset determinism
+        if args.time_anchor is not None:
+            # Use explicitly provided time anchor (e.g., from parent workflow or API override)
+            self.time_anchor = args.time_anchor
+        else:
+            # Compute time anchor via local activity (recorded in history)
+            self.time_anchor = await workflow.execute_local_activity(
+                resolve_time_anchor_activity,
+                arg=ResolveTimeAnchorActivityInputs(
+                    trigger_type=get_trigger_type(wf_info),
+                    start_time=wf_info.start_time,
+                    scheduled_start_time=self._get_scheduled_start_time(wf_info),
+                ),
+                start_to_close_timeout=timedelta(seconds=5),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
         # Prepare user facing context
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
@@ -410,6 +429,7 @@ class DSLWorkflow:
             ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
+                    "time_anchor": self.time_anchor,
                     "dispatch_type": self.dispatch_type,
                     "execution_id": self.wf_exec_id,
                     "run_id": self.wf_run_id,
@@ -1026,6 +1046,20 @@ class DSLWorkflow:
         )
         return schedule_read.inputs
 
+    def _get_scheduled_start_time(self, wf_info: workflow.Info) -> datetime | None:
+        """Extract TemporalScheduledStartTime from search attributes if available.
+
+        This is the intended schedule time for scheduled workflows, which may differ
+        from the actual start time if the worker was delayed.
+        """
+        from temporalio.common import SearchAttributeKey
+
+        try:
+            key = SearchAttributeKey.for_datetime("TemporalScheduledStartTime")
+            return wf_info.typed_search_attributes.get(key)
+        except Exception:
+            return None
+
     async def _validate_action(self, task: ActionStatement) -> None:
         result = await workflow.execute_activity(
             DSLActivities.validate_action_activity,
@@ -1074,6 +1108,11 @@ class DSLWorkflow:
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
+        # Propagate time_anchor: use child's override if set, otherwise inherit from parent
+        child_time_anchor = (
+            args.time_anchor if args.time_anchor is not None else self.time_anchor
+        )
+
         return DSLRunArgs(
             role=self.role,
             dsl=dsl,
@@ -1082,6 +1121,7 @@ class DSLWorkflow:
             trigger_inputs=args.trigger_inputs,
             runtime_config=runtime_config,
             execution_type=self.execution_type,
+            time_anchor=child_time_anchor,
         )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:

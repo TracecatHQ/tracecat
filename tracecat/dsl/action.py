@@ -15,7 +15,7 @@ from tenacity import (
 )
 
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_run
+from tracecat.contexts import ctx_logger, ctx_run, ctx_time_anchor
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.schemas import ActionStatement, RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
@@ -115,6 +115,12 @@ class DSLActivities:
             environment=environment,
         )
         ctx_logger.set(log)
+
+        # Set time anchor context for deterministic FN.now() etc.
+        env_context = input.exec_context.get(ExprContext.ENV) or {}
+        workflow_context = env_context.get("workflow") or {}
+        if time_anchor := workflow_context.get("time_anchor"):
+            ctx_time_anchor.set(time_anchor)
 
         act_info = activity.info()
         act_attempt = act_info.attempt
