@@ -175,7 +175,10 @@ class TestActionRunner:
             patch.object(runner, "_download_file", mock_download),
             patch.object(runner, "_extract_tarball", mock_extract),
             patch.object(
-                runner, "_tarball_uri_to_http_url", return_value="http://test"
+                runner,
+                "_tarball_uri_to_http_url",
+                new_callable=AsyncMock,
+                return_value="http://test",
             ),
         ):
             # Start multiple concurrent requests
