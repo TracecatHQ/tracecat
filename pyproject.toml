@@ -78,6 +78,7 @@ dependencies = [
     "urllib3==2.6.0",
     "claude-agent-sdk==0.1.18",
     "litellm[proxy]>=1.80.11",
+    "fastmcp>=2.14.1",
 ]
 dynamic = ["version"]
 
@@ -101,6 +102,8 @@ override-dependencies = [
     "python-multipart>=0.0.21",
     "grpcio>=1.76.0",
     "polars>=1.31.0",
+    "rich>=13.9.4",
+    "cloudpickle>=3.1.1",
 ]
 [dependency-groups]
 dev = [
