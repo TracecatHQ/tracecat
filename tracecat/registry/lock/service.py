@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import aliased
+from sqlalchemy import select
 
 from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
@@ -25,41 +24,30 @@ class RegistryLockService(BaseService):
         """Get lock mapping each repository origin to its latest version.
 
         Queries all RegistryRepositories and finds the most recent
-        RegistryVersion for each (by created_at).
+        RegistryVersion for each (by created_at, with id as tiebreaker).
 
         Returns:
             RegistryLock: Maps origin -> version string.
             Example: {"tracecat_registry": "2024.12.10.123456", "git+ssh://...": "abc1234"}
             Returns empty dict if no versions exist.
         """
-        # Subquery to get the max created_at for each repository
-        subq = (
-            select(
-                RegistryVersion.repository_id,
-                func.max(RegistryVersion.created_at).label("max_created_at"),
-            )
-            .where(RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID)
-            .group_by(RegistryVersion.repository_id)
-            .subquery()
-        )
-
-        # Alias for joining
-        rv_alias = aliased(RegistryVersion)
-
-        # Main query: join to get the actual version records
+        # Use PostgreSQL DISTINCT ON to get exactly one row per repository,
+        # ordered by created_at DESC, id DESC for deterministic tiebreaking
         statement = (
-            select(RegistryRepository.origin, rv_alias.version)
+            select(RegistryRepository.origin, RegistryVersion.version)
             .join(
-                subq,
-                RegistryRepository.id == subq.c.repository_id,
-            )
-            .join(
-                rv_alias,
-                (rv_alias.repository_id == subq.c.repository_id)
-                & (rv_alias.created_at == subq.c.max_created_at),
+                RegistryVersion,
+                RegistryVersion.repository_id == RegistryRepository.id,
             )
             .where(
-                RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID
+                RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+                RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            )
+            .distinct(RegistryVersion.repository_id)
+            .order_by(
+                RegistryVersion.repository_id,
+                RegistryVersion.created_at.desc(),
+                RegistryVersion.id.desc(),
             )
         )
 
@@ -68,11 +56,7 @@ class RegistryLockService(BaseService):
 
         lock: RegistryLock = {str(origin): str(version) for origin, version in rows}
 
-        self.logger.info(
-            "Computed latest versions lock",
-            num_repos=len(lock),
-            lock=lock,
-        )
+        self.logger.debug("Computed latest versions lock", num_repos=len(lock))
 
         return lock
 
@@ -91,32 +75,23 @@ class RegistryLockService(BaseService):
         if not repository_ids:
             return {}
 
-        # Subquery to get the max created_at for each specified repository
-        subq = (
-            select(
-                RegistryVersion.repository_id,
-                func.max(RegistryVersion.created_at).label("max_created_at"),
+        # Use PostgreSQL DISTINCT ON to get exactly one row per repository,
+        # ordered by created_at DESC, id DESC for deterministic tiebreaking
+        statement = (
+            select(RegistryRepository.origin, RegistryVersion.version)
+            .join(
+                RegistryVersion,
+                RegistryVersion.repository_id == RegistryRepository.id,
             )
             .where(
                 RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
                 RegistryVersion.repository_id.in_(repository_ids),
             )
-            .group_by(RegistryVersion.repository_id)
-            .subquery()
-        )
-
-        rv_alias = aliased(RegistryVersion)
-
-        statement = (
-            select(RegistryRepository.origin, rv_alias.version)
-            .join(
-                subq,
-                RegistryRepository.id == subq.c.repository_id,
-            )
-            .join(
-                rv_alias,
-                (rv_alias.repository_id == subq.c.repository_id)
-                & (rv_alias.created_at == subq.c.max_created_at),
+            .distinct(RegistryVersion.repository_id)
+            .order_by(
+                RegistryVersion.repository_id,
+                RegistryVersion.created_at.desc(),
+                RegistryVersion.id.desc(),
             )
         )
 

@@ -384,7 +384,8 @@ async def upload_tarball_venv(
     if not tarball_path.exists():
         raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
 
-    content = tarball_path.read_bytes()
+    # Use asyncio.to_thread to avoid blocking the event loop for large files
+    content = await asyncio.to_thread(tarball_path.read_bytes)
 
     await blob.upload_file(
         content=content,
@@ -422,7 +423,8 @@ async def download_tarball_venv(
     content = await blob.download_file(key=key, bucket=bucket)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_bytes(content)
+    # Use asyncio.to_thread to avoid blocking the event loop for large files
+    await asyncio.to_thread(output_path.write_bytes, content)
 
     logger.info(
         "Tarball venv downloaded successfully",
