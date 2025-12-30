@@ -209,6 +209,41 @@ services:
       minio:
         condition: service_healthy
 
+  llm-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    restart: unless-stopped
+    ports:
+      - ${LLM_GATEWAY_PORT:-4000}:4000
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+    volumes:
+      - ./tracecat:/app/tracecat
+      - ./packages:/app/packages
+    command:
+      [
+        "litellm",
+        "--config",
+        "/app/tracecat/llm_gateway/litellm_config.yaml",
+        "--port",
+        "4000",
+        "--detailed_debug",
+      ]
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   ui:
     # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.6}
     # container_name: ui

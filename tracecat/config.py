@@ -23,6 +23,23 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
 )
 
 
+TRACECAT__EXECUTOR_URL = os.environ.get(
+    "TRACECAT__EXECUTOR_URL", "http://executor:8000"
+)
+TRACECAT__LLM_GATEWAY_URL = os.environ.get(
+    "TRACECAT__LLM_GATEWAY_URL", "http://llm-gateway:4000"
+)
+"""URL for the LiteLLM gateway proxy service."""
+
+TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 900.0
+)
+"""Timeout for the executor client in seconds (default 900s).
+
+The `httpx.Client` default is 5s, which doesn't work for long-running actions.
+This value is also used when waiting for Ray task execution so the outbound
+client timeout and Ray task await timeout remain aligned.
+"""
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
 
@@ -40,6 +57,7 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",
     "tracecat-cli",
+    "tracecat-llm-gateway",
     "tracecat-runner",
     "tracecat-schedule-runner",
     "tracecat-ui",
