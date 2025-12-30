@@ -9,6 +9,7 @@ from __future__ import annotations
 import secrets as stdlib_secrets
 import uuid
 
+import orjson
 from fastapi import Request
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.proxy_server import ProxyException
@@ -84,6 +85,14 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         == "true"
     )
 
+    # Extract model settings from header (non-sensitive config like temperature, reasoning_effort)
+    model_settings: dict = {}
+    if model_settings_header := request.headers.get("x-tracecat-model-settings"):
+        try:
+            model_settings = orjson.loads(model_settings_header)
+        except orjson.JSONDecodeError:
+            pass  # Ignore malformed settings
+
     return UserAPIKeyAuth(
         api_key=api_key,
         team_id=workspace_id,
@@ -91,6 +100,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         metadata={
             "workspace_id": workspace_id,
             "use_workspace_credentials": use_workspace_creds,
+            "model_settings": model_settings,
         },
     )
 
@@ -143,6 +153,10 @@ async def async_pre_call_hook(
 
     # Inject credentials based on provider type
     _inject_provider_credentials(data, provider, creds)
+
+    # Inject model settings (temperature, reasoning_effort, response_format, etc.)
+    model_settings = user_api_key_dict.metadata.get("model_settings", {})
+    data.update(model_settings)
 
     logger.info(
         "Injected credentials for LLM call",
