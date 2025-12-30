@@ -99,9 +99,19 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             for chat_message in loaded_history:
                 if chat_message.harness != HarnessType.PYDANTIC_AI.value:
                     continue
-                message_history.append(
-                    ModelMessageTA.validate_python(chat_message.data)
-                )
+                try:
+                    message_history.append(
+                        ModelMessageTA.validate_python(chat_message.data)
+                    )
+                except Exception as e:
+                    # Skip malformed messages to preserve "start fresh on bad data" behavior
+                    logger.warning(
+                        "Skipping malformed message in history",
+                        message_id=chat_message.id,
+                        error=str(e),
+                        session_id=args.session_id,
+                    )
+                    continue
         else:
             message_history = None
 

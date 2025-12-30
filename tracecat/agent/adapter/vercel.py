@@ -1437,6 +1437,30 @@ def convert_chat_messages_to_ui(
                         else:
                             existing.state = "output-available"
                             existing.output = part.content
+                    else:
+                        # Create fallback part when no existing tool entry is found
+                        if part.is_error:
+                            tool_part = MutableToolPart(
+                                type="tool-unknown",
+                                tool_call_id=part.tool_use_id,
+                                state="output-error",
+                                input={},
+                                error_text=(
+                                    part.content
+                                    if isinstance(part.content, str)
+                                    else str(part.content)
+                                ),
+                            )
+                        else:
+                            tool_part = MutableToolPart(
+                                type="tool-unknown",
+                                tool_call_id=part.tool_use_id,
+                                state="output-available",
+                                input={},
+                                output=part.content,
+                            )
+                        mutable_message.parts.append(tool_part)
+                        tool_entries[part.tool_use_id] = tool_part
 
                 # --- Retry/Error parts (pydantic-ai) ---
                 case "RetryPromptPart":
