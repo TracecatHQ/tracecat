@@ -24,7 +24,7 @@ from tracecat.agent.types import ModelMessageTA, StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
-from tracecat.config import ENABLE_REMOTE_AGENT_EXECUTOR
+from tracecat.config import ENABLE_UNIFIED_AGENT_STREAMING
 from tracecat.logger import logger
 
 
@@ -112,7 +112,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             user_message = ModelRequest(
                 parts=[UserPromptPart(content=args.user_prompt)]
             )
-            if ENABLE_REMOTE_AGENT_EXECUTOR:
+            if ENABLE_UNIFIED_AGENT_STREAMING:
                 # Unified streaming: use UnifiedStreamEvent for all events
                 user_event = UnifiedStreamEvent.user_message_event(args.user_prompt)
                 await self.deps.stream_writer.stream.append(user_event)
@@ -149,7 +149,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
                     try:
-                        if ENABLE_REMOTE_AGENT_EXECUTOR:
+                        if ENABLE_UNIFIED_AGENT_STREAMING:
                             # Unified streaming: emit harness-agnostic event
                             approval_items = [
                                 ToolCallContent(

@@ -29,22 +29,30 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
     UserMessage,
 )
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import (
+    AgentStreamEvent,
     AudioUrl,
     BinaryContent,
     BuiltinToolCallPart,
     DocumentUrl,
+    FunctionToolResultEvent,
     ImageUrl,
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
     ModelResponsePart,
     MultiModalContent,
+    PartDeltaEvent,
+    PartStartEvent,
     RetryPromptPart,
     SystemPromptPart,
     TextPart,
+    TextPartDelta,
     ThinkingPart,
+    ThinkingPartDelta,
     ToolCallPart,
+    ToolCallPartDelta,
     ToolReturnPart,
     UserContent,
     UserPromptPart,
@@ -761,12 +769,28 @@ class VercelStreamContext:
         return events
 
     async def handle_event(
-        self, event: UnifiedStreamEvent
+        self, event: UnifiedStreamEvent | AgentStreamEvent
     ) -> AsyncIterator[VercelSSEPayload]:
-        """Processes a unified stream event and yields Vercel SDK SSE events."""
+        """Processes a stream event and yields Vercel SDK SSE events.
+
+        Handles both unified stream events (when ENABLE_UNIFIED_AGENT_STREAMING=true)
+        and legacy pydantic-ai AgentStreamEvent (when ENABLE_UNIFIED_AGENT_STREAMING=false).
+        """
         for data_event in self.flush_data_events():
             yield data_event
 
+        # Route based on event type
+        if isinstance(event, UnifiedStreamEvent):
+            async for payload in self._handle_unified_event(event):
+                yield payload
+        else:
+            async for payload in self._handle_legacy_event(event):
+                yield payload
+
+    async def _handle_unified_event(
+        self, event: UnifiedStreamEvent
+    ) -> AsyncIterator[VercelSSEPayload]:
+        """Processes a unified stream event and yields Vercel SDK SSE events."""
         match event.type:
             case StreamEventType.TEXT_START:
                 # Close any existing stream for this index
@@ -955,6 +979,164 @@ class VercelStreamContext:
 
             case _:
                 logger.warning("Unhandled unified event type", event_type=event.type)
+
+    async def _handle_legacy_event(
+        self, event: AgentStreamEvent
+    ) -> AsyncIterator[VercelSSEPayload]:
+        """Processes a legacy pydantic-ai AgentStreamEvent and yields Vercel SDK SSE events.
+
+        This is the original handler for pydantic-ai native events, used when
+        ENABLE_UNIFIED_AGENT_STREAMING is False.
+        """
+        # End the previous part if a new one is starting
+        if isinstance(event, PartStartEvent):
+            # Close any existing stream for this index so the next start begins cleanly.
+            for message in self.collect_current_part_end_events(index=event.index):
+                yield message
+
+        # Handle Model Response Stream Events
+        if isinstance(event, PartStartEvent):
+            part = event.part
+            if isinstance(part, TextPart):
+                state = self._create_part_state(event.index, "text")
+                yield TextStartEventPayload(id=state.part_id)
+                if part.content:
+                    yield TextDeltaEventPayload(id=state.part_id, delta=part.content)
+            elif isinstance(part, ThinkingPart):
+                state = self._create_part_state(event.index, "reasoning")
+                yield ReasoningStartEventPayload(id=state.part_id)
+                if part.content:
+                    yield ReasoningDeltaEventPayload(
+                        id=state.part_id, delta=part.content
+                    )
+            elif isinstance(part, ToolCallPart):
+                state = self._create_part_state(event.index, "tool", tool_call=part)
+                self.tool_finished.pop(part.tool_call_id, None)
+                self.tool_input_emitted[part.tool_call_id] = False
+                yield ToolInputStartEventPayload(
+                    toolCallId=part.tool_call_id, toolName=part.tool_name
+                )
+                if part.args:
+                    yield ToolInputDeltaEventPayload(
+                        toolCallId=part.tool_call_id,
+                        inputTextDelta=part.args_as_json_str(),
+                    )
+            else:
+                logger.warning(
+                    "Unhandled part type in Vercel stream",
+                    part_type=type(part).__name__,
+                )
+                state = self._create_part_state(event.index, "text")
+                yield TextStartEventPayload(id=state.part_id)
+                part_str = str(part) if part else ""
+                if part_str:
+                    yield TextDeltaEventPayload(id=state.part_id, delta=part_str)
+        elif isinstance(event, PartDeltaEvent):
+            delta = event.delta
+            state = self.part_states.get(event.index)
+            if state is None:
+                logger.warning(
+                    "Received delta for unknown part index",
+                    index=event.index,
+                    delta_type=type(delta).__name__,
+                )
+            elif isinstance(delta, TextPartDelta) and state.part_type == "text":
+                yield TextDeltaEventPayload(id=state.part_id, delta=delta.content_delta)
+            elif (
+                isinstance(delta, ThinkingPartDelta) and state.part_type == "reasoning"
+            ):
+                if delta.content_delta:
+                    yield ReasoningDeltaEventPayload(
+                        id=state.part_id, delta=delta.content_delta
+                    )
+            elif (
+                isinstance(delta, ToolCallPartDelta)
+                and state.part_type == "tool"
+                and state.tool_call is not None
+            ):
+                try:
+                    updated_tool_call = delta.apply(state.tool_call)
+                except (UnexpectedModelBehavior, ValueError) as e:
+                    logger.exception(
+                        "Failed to apply tool call delta",
+                        tool_call_id=state.tool_call.tool_call_id,
+                        error=str(e),
+                    )
+                else:
+                    state.tool_call = updated_tool_call
+                    if delta.args_delta:
+                        delta_str = (
+                            delta.args_delta
+                            if isinstance(delta.args_delta, str)
+                            else json.dumps(delta.args_delta)
+                        )
+                        yield ToolInputDeltaEventPayload(
+                            toolCallId=state.tool_call.tool_call_id,
+                            inputTextDelta=delta_str,
+                        )
+
+        # Handle Tool Call and Result Events
+        elif isinstance(event, FunctionToolResultEvent):
+            tool_call_id: str | None = None
+            if isinstance(event.result, ToolReturnPart | RetryPromptPart):
+                tool_call_id = event.result.tool_call_id
+
+            # Close any open part for this tool, or all open parts if none match
+            if tool_call_id is not None and tool_call_id in self.tool_index:
+                index = self.tool_index[tool_call_id]
+                for message in self.collect_current_part_end_events(index=index):
+                    yield message
+            else:
+                for message in self.collect_current_part_end_events():
+                    yield message
+
+            # Ensure the UI sees an input-available before any output for this tool.
+            if tool_call_id is not None and not self.tool_input_emitted.get(
+                tool_call_id, False
+            ):
+                # Use cached approval data if available, otherwise best-effort fallback
+                tool_name = self.approval_tool_name.get(
+                    tool_call_id, getattr(event.result, "tool_name", "tool")
+                )
+                input_payload: Any = self.approval_input.get(tool_call_id, {})
+                yield ToolInputAvailableEventPayload(
+                    toolCallId=tool_call_id,
+                    toolName=str(tool_name),
+                    input=input_payload,
+                )
+                self.tool_input_emitted[tool_call_id] = True
+
+            if isinstance(event.result, ToolReturnPart):
+                tool_call_id = event.result.tool_call_id
+                self.tool_finished[tool_call_id] = True
+                self.tool_input_emitted.pop(tool_call_id, None)
+                yield ToolOutputAvailableEventPayload(
+                    toolCallId=tool_call_id,
+                    output=event.result.model_response_str(),
+                )
+            elif isinstance(event.result, RetryPromptPart):
+                # Validation or runtime error from a tool call.
+                # Do NOT emit a top-level error frame which aborts the stream.
+                # Instead, surface the failure as the tool's output so the UI
+                # can render a completed tool block and the model can continue.
+                if event.result.tool_call_id:
+                    tool_call_id = event.result.tool_call_id
+                    self.tool_finished[tool_call_id] = True
+                    self.tool_input_emitted.pop(tool_call_id, None)
+                    yield ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output={
+                            "errorText": event.result.model_response(),
+                        },
+                    )
+                else:
+                    # No tool_call_id to associate with — fall back to a text block
+                    text_id = f"msg_{uuid.uuid4().hex}"
+                    yield TextStartEventPayload(id=text_id)
+                    yield TextDeltaEventPayload(
+                        id=text_id, delta=event.result.model_response()
+                    )
+                    yield TextEndEventPayload(id=text_id)
 
 
 # ==============================================================================

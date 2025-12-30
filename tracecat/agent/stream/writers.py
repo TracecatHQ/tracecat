@@ -11,7 +11,8 @@ from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
 from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
-from tracecat.config import ENABLE_REMOTE_AGENT_EXECUTOR
+from tracecat.agent.stream.events import AgentStreamEventTA
+from tracecat.config import ENABLE_UNIFIED_AGENT_STREAMING
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -136,7 +137,7 @@ class AgentStreamWriter:
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
         async for event in events:
-            if ENABLE_REMOTE_AGENT_EXECUTOR:
+            if ENABLE_UNIFIED_AGENT_STREAMING:
                 # Unified streaming: convert to UnifiedStreamEvent
                 unified_event = PydanticAIAdapter().to_unified_event(event)
                 await self.stream.append(unified_event)
@@ -159,12 +160,17 @@ class HttpStreamWriter(StreamWriter):
         self._ensure_secure_url()
         async with aiohttp.ClientSession() as session:
             async for event in events:
-                # Convert pydantic-ai event to unified format
-                unified_event = PydanticAIAdapter().to_unified_event(event)
-                logger.warning("STREAM EVENT", event=unified_event)
+                if ENABLE_UNIFIED_AGENT_STREAMING:
+                    # Unified streaming: convert to UnifiedStreamEvent
+                    unified_event = PydanticAIAdapter().to_unified_event(event)
+                    logger.warning("STREAM EVENT", event=unified_event)
+                    json_payload = {"event": unified_event.model_dump_json()}
+                else:
+                    # Legacy streaming: pass through raw AgentStreamEvent
+                    logger.warning("STREAM EVENT", event=event)
+                    json_payload = {
+                        "event": AgentStreamEventTA.dump_json(event).decode()
+                    }
                 # Make a post request to the API to stream the event
-                async with session.post(
-                    self.url,
-                    json={"event": unified_event.model_dump_json()},
-                ) as response:
+                async with session.post(self.url, json=json_payload) as response:
                     logger.warning("STREAM RESPONSE", response=response.status)
