@@ -884,8 +884,11 @@ def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str
 
     time_anchor = ctx_time_anchor.get()
     if time_anchor is not None:
-        # Ensure time_anchor is UTC-aware
-        dt = time_anchor if time_anchor.tzinfo else time_anchor.replace(tzinfo=UTC)
+        # Ensure time_anchor is UTC-aware; convert if it has a different timezone
+        if time_anchor.tzinfo is None:
+            dt = time_anchor.replace(tzinfo=UTC)
+        else:
+            dt = time_anchor.astimezone(UTC)
     else:
         dt = datetime.now(UTC)
 

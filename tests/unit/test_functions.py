@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import orjson
 import pytest
@@ -1702,6 +1703,23 @@ class TestTimeAnchorFunctions:
             assert isinstance(result, str)
             # Should contain timezone info
             assert "+" in result or "Z" in result or result.endswith("+00:00")
+        finally:
+            ctx_time_anchor.reset(token)
+
+    def test_utcnow_with_non_utc_timezone(self) -> None:
+        """Test that utcnow() converts non-UTC timezones to UTC."""
+        # Create a time_anchor in a non-UTC timezone (US/Eastern = UTC-5 or UTC-4 DST)
+        eastern = ZoneInfo("America/New_York")
+        # June 15 2024 10:30 AM Eastern (during DST, so UTC-4)
+        time_anchor = datetime(2024, 6, 15, 10, 30, 0, tzinfo=eastern)
+        token = ctx_time_anchor.set(time_anchor)
+        try:
+            result = utcnow()
+            assert isinstance(result, datetime)
+            # Result should be in UTC
+            assert result.tzinfo == UTC
+            # 10:30 AM Eastern (UTC-4 in June) should be 14:30 UTC
+            assert result == datetime(2024, 6, 15, 14, 30, 0, tzinfo=UTC)
         finally:
             ctx_time_anchor.reset(token)
 

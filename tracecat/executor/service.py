@@ -25,6 +25,7 @@ from tracecat.contexts import (
     ctx_role,
     ctx_run,
     ctx_session_id,
+    ctx_time_anchor,
     with_session,
 )
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
@@ -376,6 +377,12 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     context = input.exec_context.copy()
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = workspace_variables
+
+    # Set time anchor context for deterministic FN.now() etc.
+    env_context = context.get(ExprContext.ENV) or {}
+    workflow_context = env_context.get("workflow") or {}
+    if time_anchor := workflow_context.get("time_anchor"):
+        ctx_time_anchor.set(time_anchor)
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
 

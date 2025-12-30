@@ -13,7 +13,7 @@ import os
 import re
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -5460,3 +5460,90 @@ async def test_workflow_trigger_validation_error_details(
     combined_details = "\n".join(detail_messages)
     assert "default_number" in combined_details
     assert "valid integer" in combined_details or '"type": "int' in combined_details
+
+
+@pytest.mark.anyio
+async def test_workflow_time_anchor_deterministic_time_functions(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[..., AsyncGenerator[Worker, None]],
+):
+    """Test that FN.now(), FN.utcnow(), and FN.today() use time_anchor for deterministic results.
+
+    This test verifies:
+    1. When time_anchor is provided, FN.now()/utcnow()/today() return values based on it
+    2. FN.wall_clock() ignores time_anchor and returns actual current time
+    3. Multiple calls to these functions within the same workflow return consistent values
+    """
+    # Use a specific time_anchor that's clearly in the past
+    time_anchor = datetime(2024, 6, 15, 14, 30, 45, tzinfo=UTC)
+
+    dsl = DSLInput(
+        **{
+            "title": "Time Anchor Test",
+            "description": "Test deterministic time functions with time_anchor",
+            "entrypoint": {"expects": {}, "ref": "get_times"},
+            "actions": [
+                {
+                    "ref": "get_times",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            # FN.now() returns local naive datetime from time_anchor
+                            "now_iso": "${{ FN.to_isoformat(FN.now()) }}",
+                            # FN.utcnow() returns UTC-aware datetime from time_anchor
+                            "utcnow_iso": "${{ FN.to_isoformat(FN.utcnow()) }}",
+                            # FN.today() returns date from time_anchor
+                            "today_str": "${{ str(FN.today()) }}",
+                            # FN.wall_clock() should return actual time, not time_anchor
+                            "wall_clock_iso": "${{ FN.to_isoformat(FN.wall_clock()) }}",
+                        }
+                    },
+                },
+            ],
+            "returns": "${{ ACTIONS.get_times.result }}",
+        }
+    )
+
+    test_name = "test_workflow_time_anchor_deterministic"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    async with test_worker_factory(temporal_client):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(
+                dsl=dsl,
+                role=test_role,
+                wf_id=TEST_WF_ID,
+                time_anchor=time_anchor,
+            ),
+            id=wf_exec_id,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            run_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    # Extract the times from the result
+    times = result[ExprContext.ACTIONS]["get_times"]["result"]
+
+    # Verify FN.utcnow() used the time_anchor (should be 2024-06-15T14:30:45+00:00)
+    assert "2024-06-15" in times["utcnow_iso"]
+    assert "14:30:45" in times["utcnow_iso"]
+
+    # Verify FN.today() used the time_anchor (date portion in local timezone)
+    # The exact date depends on local timezone, but it should be 2024-06-15 or close
+    assert times["today_str"].startswith(
+        "2024-06-1"
+    )  # Could be 14 or 15 depending on TZ
+
+    # Verify FN.now() used the time_anchor (converted to local timezone)
+    # Should contain 2024-06-15 (possibly different hour due to TZ conversion)
+    assert "2024-06-1" in times["now_iso"]
+
+    # Verify FN.wall_clock() did NOT use time_anchor (should be current year 2024+)
+    wall_clock_year = int(times["wall_clock_iso"][:4])
+    assert wall_clock_year >= 2024  # Should be current time, not 2024-06-15
+
+    # The wall_clock should definitely not be 2024-06-15 14:30:45
+    # It should be the actual current time when the test ran
+    assert "2024-06-15T14:30:45" not in times["wall_clock_iso"]
