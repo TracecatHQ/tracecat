@@ -134,10 +134,9 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
 
 def _normalize_error_message(msg: str) -> str:
     """Normalize an error message string for comparison."""
-    # Normalize line numbers
-    msg = re.sub(r"Line: \d+", "Line: <NUM>", msg)
-    # Normalize file paths (different between local and container runs)
-    msg = re.sub(r"File: [^\n]+", "File: <PATH>", msg)
+    # Remove the entire debug info section (File/Function/Line) which is only present in dev mode
+    # This section starts with dashes and includes file path, function name, and line number
+    msg = re.sub(r"\n*-{20,}\n.*", "", msg, flags=re.DOTALL)
     # Normalize newlines (collapse multiple newlines, normalize line endings)
     msg = re.sub(r"\r\n", "\n", msg)
     msg = re.sub(r"\n{2,}", "\n\n", msg)
@@ -5210,6 +5209,8 @@ async def test_workflow_environment_override(
     # Set return strategy to context so we can verify the result
     monkeypatch.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
     monkeypatch.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    # Disable secret masking so we can verify the actual secret value
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
 
     test_name = f"{test_workflow_environment_override.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
