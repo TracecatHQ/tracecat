@@ -5466,42 +5466,71 @@ async def test_workflow_trigger_validation_error_details(
 async def test_workflow_time_anchor_deterministic_time_functions(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[..., AsyncGenerator[Worker, None]],
+    test_worker_factory: Callable[..., Worker],
 ):
-    """Test that FN.now(), FN.utcnow(), and FN.today() use time_anchor for deterministic results.
+    """Test that FN.now()/utcnow()/today() return logical time = time_anchor + elapsed.
 
     This test verifies:
-    1. When time_anchor is provided, FN.now()/utcnow()/today() return values based on it
-    2. FN.wall_clock() ignores time_anchor and returns actual current time
-    3. Multiple calls to these functions within the same workflow return consistent values
+    1. Time functions return values based on time_anchor (not wall clock)
+    2. Time advances between sequential actions (logical time = time_anchor + elapsed)
+    3. FN.wall_clock() ignores time_anchor and returns actual current time
     """
     # Use a specific time_anchor that's clearly in the past
     time_anchor = datetime(2024, 6, 15, 14, 30, 45, tzinfo=UTC)
 
+    # Create a workflow with sequential actions to verify time advances
     dsl = DSLInput(
         **{
             "title": "Time Anchor Test",
             "description": "Test deterministic time functions with time_anchor",
-            "entrypoint": {"expects": {}, "ref": "get_times"},
+            "entrypoint": {"expects": {}, "ref": "action_1"},
             "actions": [
                 {
-                    "ref": "get_times",
+                    "ref": "action_1",
                     "action": "core.transform.reshape",
                     "args": {
                         "value": {
-                            # FN.now() returns local naive datetime from time_anchor
-                            "now_iso": "${{ FN.to_isoformat(FN.now()) }}",
-                            # FN.utcnow() returns UTC-aware datetime from time_anchor
                             "utcnow_iso": "${{ FN.to_isoformat(FN.utcnow()) }}",
-                            # FN.today() returns date from time_anchor
+                            "now_iso": "${{ FN.to_isoformat(FN.now()) }}",
                             "today_str": "${{ str(FN.today()) }}",
-                            # FN.wall_clock() should return actual time, not time_anchor
                             "wall_clock_iso": "${{ FN.to_isoformat(FN.wall_clock()) }}",
                         }
                     },
                 },
+                {
+                    "ref": "action_2",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "utcnow_iso": "${{ FN.to_isoformat(FN.utcnow()) }}",
+                        }
+                    },
+                    "depends_on": ["action_1"],
+                },
+                {
+                    "ref": "action_3",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "utcnow_iso": "${{ FN.to_isoformat(FN.utcnow()) }}",
+                        }
+                    },
+                    "depends_on": ["action_2"],
+                },
+                {
+                    "ref": "combine",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "action_1": "${{ ACTIONS.action_1.result }}",
+                            "action_2": "${{ ACTIONS.action_2.result }}",
+                            "action_3": "${{ ACTIONS.action_3.result }}",
+                        }
+                    },
+                    "depends_on": ["action_3"],
+                },
             ],
-            "returns": "${{ ACTIONS.get_times.result }}",
+            "returns": "${{ ACTIONS.combine.result }}",
         }
     )
 
@@ -5523,44 +5552,57 @@ async def test_workflow_time_anchor_deterministic_time_functions(
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    # With `returns` set, the result is directly the evaluated value
-    times = result
+    # Extract times from each action
+    action_1 = result["action_1"]
+    action_2 = result["action_2"]
+    action_3 = result["action_3"]
 
-    # Verify FN.utcnow() used the time_anchor (should be 2024-06-15T14:30:45+00:00)
-    assert "2024-06-15" in times["utcnow_iso"]
-    assert "14:30:45" in times["utcnow_iso"]
+    time_1 = datetime.fromisoformat(action_1["utcnow_iso"])
+    time_2 = datetime.fromisoformat(action_2["utcnow_iso"])
+    time_3 = datetime.fromisoformat(action_3["utcnow_iso"])
 
-    # Verify FN.today() used the time_anchor (date portion in local timezone)
-    # The exact date depends on local timezone, but it should be 2024-06-15 or close
-    assert times["today_str"].startswith(
+    # Verify all times are based on time_anchor (same date, starting from 14:30:45)
+    assert "2024-06-15" in action_1["utcnow_iso"]
+    assert "14:30:45" in action_1["utcnow_iso"]
+    assert "2024-06-15" in action_2["utcnow_iso"]
+    assert "2024-06-15" in action_3["utcnow_iso"]
+
+    # Verify time advances between sequential actions
+    # (logical time = time_anchor + elapsed workflow time)
+    assert time_2 >= time_1, (
+        f"action_2 time {time_2} should be >= action_1 time {time_1}"
+    )
+    assert time_3 >= time_2, (
+        f"action_3 time {time_3} should be >= action_2 time {time_2}"
+    )
+
+    # Verify FN.today() used the time_anchor date
+    assert action_1["today_str"].startswith(
         "2024-06-1"
     )  # Could be 14 or 15 depending on TZ
 
     # Verify FN.now() used the time_anchor (converted to local timezone)
-    # Should contain 2024-06-15 (possibly different hour due to TZ conversion)
-    assert "2024-06-1" in times["now_iso"]
+    assert "2024-06-1" in action_1["now_iso"]
 
-    # Verify FN.wall_clock() did NOT use time_anchor (should be current year 2024+)
-    wall_clock_year = int(times["wall_clock_iso"][:4])
-    assert wall_clock_year >= 2024  # Should be current time, not 2024-06-15
-
-    # The wall_clock should definitely not be 2024-06-15 14:30:45
-    # It should be the actual current time when the test ran
-    assert "2024-06-15T14:30:45" not in times["wall_clock_iso"]
+    # Verify FN.wall_clock() did NOT use time_anchor
+    wall_clock_year = int(action_1["wall_clock_iso"][:4])
+    assert wall_clock_year >= 2024
+    assert "2024-06-15T14:30:45" not in action_1["wall_clock_iso"]
 
 
 @pytest.mark.anyio
 async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[..., AsyncGenerator[Worker, None]],
+    test_worker_factory: Callable[..., Worker],
 ):
-    """Test that child workflows inherit the time_anchor from their parent.
+    """Test that child workflows continue logical time from parent's current position.
 
     This test verifies:
-    1. When a parent workflow has a time_anchor, child workflows receive it
-    2. FN.utcnow() in the child workflow returns the same anchored time as the parent
-    3. The time_anchor propagates correctly through core.workflow.execute
+    1. Child workflows receive parent's current logical time (not raw time_anchor)
+    2. Child's FN.utcnow() returns time >= parent's, since child starts after parent
+    3. Both parent and child times are based on the same original time_anchor
+    4. Time progresses continuously across parent -> child workflow boundary
     """
     # Use a specific time_anchor that's clearly in the past
     time_anchor = datetime(2024, 6, 15, 14, 30, 45, tzinfo=UTC)
@@ -5569,18 +5611,18 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     child_dsl = DSLInput(
         title="Time Anchor Child",
         description="Child workflow that returns anchored time",
-        entrypoint={"expects": {}, "ref": "get_time"},
+        entrypoint=DSLEntrypoint(expects={}, ref="get_time"),
         actions=[
-            {
-                "ref": "get_time",
-                "action": "core.transform.reshape",
-                "args": {
+            ActionStatement(
+                ref="get_time",
+                action="core.transform.reshape",
+                args={
                     "value": {
                         "utcnow_iso": "${{ FN.to_isoformat(FN.utcnow()) }}",
                         "today_str": "${{ str(FN.today()) }}",
                     }
                 },
-            },
+            ),
         ],
         returns="${{ ACTIONS.get_time.result }}",
     )
@@ -5591,38 +5633,38 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     parent_dsl = DSLInput(
         title="Time Anchor Parent",
         description="Parent workflow that calls child and compares times",
-        entrypoint={"ref": "parent_time"},
+        entrypoint=DSLEntrypoint(ref="parent_time"),
         actions=[
-            {
-                "ref": "parent_time",
-                "action": "core.transform.reshape",
-                "args": {
+            ActionStatement(
+                ref="parent_time",
+                action="core.transform.reshape",
+                args={
                     "value": {
                         "utcnow_iso": "${{ FN.to_isoformat(FN.utcnow()) }}",
                     }
                 },
-            },
-            {
-                "ref": "call_child",
-                "action": "core.workflow.execute",
-                "args": {
+            ),
+            ActionStatement(
+                ref="call_child",
+                action="core.workflow.execute",
+                args={
                     "workflow_id": child_workflow.id,
                     "trigger_inputs": {},
                 },
-                "depends_on": ["parent_time"],
-            },
-            {
-                "ref": "combine_results",
-                "action": "core.transform.reshape",
-                "args": {
+                depends_on=["parent_time"],
+            ),
+            ActionStatement(
+                ref="combine_results",
+                action="core.transform.reshape",
+                args={
                     "value": {
                         "parent_utcnow": "${{ ACTIONS.parent_time.result.utcnow_iso }}",
                         "child_utcnow": "${{ ACTIONS.call_child.result.utcnow_iso }}",
                         "child_today": "${{ ACTIONS.call_child.result.today_str }}",
                     }
                 },
-                "depends_on": ["call_child"],
-            },
+                depends_on=["call_child"],
+            ),
         ],
         returns="${{ ACTIONS.combine_results.result }}",
     )
@@ -5630,7 +5672,8 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_name = "test_workflow_time_anchor_inherited_by_child"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    async with test_worker_factory(temporal_client):
+    worker = test_worker_factory(temporal_client)
+    async with worker:
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -5645,15 +5688,20 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    # Both parent and child should have the same anchored time
+    # Both parent and child times should be based on the same time_anchor
     assert "2024-06-15" in result["parent_utcnow"]
     assert "14:30:45" in result["parent_utcnow"]
 
     assert "2024-06-15" in result["child_utcnow"]
     assert "14:30:45" in result["child_utcnow"]
 
-    # The parent and child utcnow should be identical since they use the same anchor
-    assert result["parent_utcnow"] == result["child_utcnow"]
+    # Child time should be >= parent time since child continues from parent's position
+    # (child starts after some workflow time has elapsed from when parent evaluated its time)
+    parent_time = datetime.fromisoformat(result["parent_utcnow"])
+    child_time = datetime.fromisoformat(result["child_utcnow"])
+    assert child_time >= parent_time, (
+        f"Child time {child_time} should be >= parent time {parent_time}"
+    )
 
     # Child's today should also be based on the time_anchor
     assert result["child_today"].startswith("2024-06-1")

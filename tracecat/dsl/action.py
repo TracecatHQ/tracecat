@@ -16,7 +16,7 @@ from tenacity import (
 )
 
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_run, ctx_time_anchor
+from tracecat.contexts import ctx_logger, ctx_logical_time, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.schemas import ActionStatement, RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
@@ -117,14 +117,15 @@ class DSLActivities:
         )
         ctx_logger.set(log)
 
-        # Set time anchor context for deterministic FN.now() etc.
+        # Set logical_time for deterministic FN.now() etc.
+        # logical_time = time_anchor + elapsed workflow time
         env_context = input.exec_context.get(ExprContext.ENV) or {}
         workflow_context = env_context.get("workflow") or {}
-        if time_anchor := workflow_context.get("time_anchor"):
-            # time_anchor may be serialized as ISO string through Temporal
-            if isinstance(time_anchor, str):
-                time_anchor = datetime.fromisoformat(time_anchor)
-            ctx_time_anchor.set(time_anchor)
+        if logical_time := workflow_context.get("logical_time"):
+            # logical_time may be serialized as ISO string through Temporal
+            if isinstance(logical_time, str):
+                logical_time = datetime.fromisoformat(logical_time)
+            ctx_logical_time.set(logical_time)
 
         act_info = activity.info()
         act_attempt = act_info.attempt

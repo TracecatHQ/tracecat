@@ -23,10 +23,10 @@ from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logger,
+    ctx_logical_time,
     ctx_role,
     ctx_run,
     ctx_session_id,
-    ctx_time_anchor,
     with_session,
 )
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
@@ -379,14 +379,15 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = workspace_variables
 
-    # Set time anchor context for deterministic FN.now() etc.
+    # Set logical_time for deterministic FN.now() etc.
+    # logical_time = time_anchor + elapsed workflow time
     env_context = context.get(ExprContext.ENV) or {}
     workflow_context = env_context.get("workflow") or {}
-    if time_anchor := workflow_context.get("time_anchor"):
-        # time_anchor may be serialized as ISO string through Temporal
-        if isinstance(time_anchor, str):
-            time_anchor = datetime.fromisoformat(time_anchor)
-        ctx_time_anchor.set(time_anchor)
+    if logical_time := workflow_context.get("logical_time"):
+        # logical_time may be serialized as ISO string through Temporal
+        if isinstance(logical_time, str):
+            logical_time = datetime.fromisoformat(logical_time)
+        ctx_logical_time.set(logical_time)
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
 

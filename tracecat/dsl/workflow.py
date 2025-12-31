@@ -405,6 +405,9 @@ class DSLWorkflow:
                             type=e.__class__.__name__,
                         ) from cause
 
+        # Store workflow start time for computing elapsed time
+        self.wf_start_time = wf_info.start_time
+
         # Resolve time anchor - recorded in history for replay/reset determinism
         if args.time_anchor is not None:
             # Use explicitly provided time anchor (e.g., from parent workflow or API override)
@@ -1108,9 +1111,12 @@ class DSLWorkflow:
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
-        # Propagate time_anchor: use child's override if set, otherwise inherit from parent
+        # Propagate time_anchor: use child's override if set, otherwise use parent's
+        # current logical time so child continues from parent's elapsed position
         child_time_anchor = (
-            args.time_anchor if args.time_anchor is not None else self.time_anchor
+            args.time_anchor
+            if args.time_anchor is not None
+            else self._compute_logical_time()
         )
 
         return DSLRunArgs(
@@ -1157,11 +1163,25 @@ class DSLWorkflow:
         """Construct the execution context for an action with resolved dependencies."""
         return self.scheduler.build_stream_aware_context(task, stream_id)
 
+    def _compute_logical_time(self) -> datetime:
+        """Compute the current logical time = time_anchor + elapsed workflow time.
+
+        This provides deterministic time during workflow replay since workflow.now()
+        is recorded in history and replayed identically.
+        """
+        elapsed = workflow.now() - self.wf_start_time
+        return self.time_anchor + elapsed
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
         new_context = self._build_action_context(task, stream_id)
+
+        # Inject current logical_time into the workflow context for FN.now() etc.
+        if env_context := new_context.get(ExprContext.ENV):
+            if workflow_ctx := env_context.get("workflow"):
+                workflow_ctx["logical_time"] = self._compute_logical_time()
 
         # Check if action has environment override
         run_context = self.run_context

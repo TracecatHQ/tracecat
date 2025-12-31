@@ -20,7 +20,7 @@ __all__ = [
     "ctx_stream_id",
     "ctx_session",
     "ctx_client_ip",
-    "ctx_time_anchor",
+    "ctx_logical_time",
     "get_env",
 ]
 
@@ -37,8 +37,8 @@ ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=Non
 ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=None)
 """ID for a streamable session, if any."""
 
-ctx_time_anchor: ContextVar[datetime | None] = ContextVar("time-anchor", default=None)
-"""Workflow time anchor for deterministic FN.now() during replay/reset."""
+ctx_logical_time: ContextVar[datetime | None] = ContextVar("logical-time", default=None)
+"""Current logical time = time_anchor + elapsed workflow time. Used by FN.now()."""
 
 
 @asynccontextmanager

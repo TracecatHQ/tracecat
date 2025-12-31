@@ -22,7 +22,7 @@ import yaml
 from slugify import slugify
 
 from tracecat.common import is_iterable
-from tracecat.contexts import ctx_interaction
+from tracecat.contexts import ctx_interaction, ctx_logical_time
 from tracecat.expressions.formatters import (
     tabulate,
     to_markdown_list,
@@ -849,20 +849,19 @@ def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
 
 
 def now(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
-    """Return workflow time anchor (local, naive) or current time if outside workflow.
+    """Return workflow logical time (local, naive) or current time if outside workflow.
 
-    When called within a workflow context, returns the workflow's time_anchor
-    converted to the local timezone as a naive datetime. This ensures deterministic
-    behavior during workflow replay and reset.
+    When called within a workflow context, returns the workflow's logical time
+    (time_anchor + elapsed workflow time) converted to the local timezone as a
+    naive datetime. This ensures deterministic behavior during workflow replay
+    and reset while allowing time to progress as the workflow executes.
 
     Outside workflow context, falls back to wall clock time.
     """
-    from tracecat.contexts import ctx_time_anchor
-
-    time_anchor = ctx_time_anchor.get()
-    if time_anchor is not None:
-        # Convert UTC time_anchor to local timezone, then make naive
-        dt = time_anchor.astimezone().replace(tzinfo=None)
+    logical_time = ctx_logical_time.get()
+    if logical_time is not None:
+        # Convert UTC logical_time to local timezone, then make naive
+        dt = logical_time.astimezone().replace(tzinfo=None)
     else:
         dt = datetime.now()
 
@@ -872,23 +871,22 @@ def now(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
 
 
 def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
-    """Return workflow time anchor (UTC, aware) or current UTC time if outside workflow.
+    """Return workflow logical time (UTC, aware) or current UTC time if outside workflow.
 
-    When called within a workflow context, returns the workflow's time_anchor
-    as a UTC-aware datetime. This ensures deterministic behavior during workflow
-    replay and reset.
+    When called within a workflow context, returns the workflow's logical time
+    (time_anchor + elapsed workflow time) as a UTC-aware datetime. This ensures
+    deterministic behavior during workflow replay and reset while allowing time
+    to progress as the workflow executes.
 
     Outside workflow context, falls back to wall clock UTC time.
     """
-    from tracecat.contexts import ctx_time_anchor
-
-    time_anchor = ctx_time_anchor.get()
-    if time_anchor is not None:
-        # Ensure time_anchor is UTC-aware; convert if it has a different timezone
-        if time_anchor.tzinfo is None:
-            dt = time_anchor.replace(tzinfo=UTC)
+    logical_time = ctx_logical_time.get()
+    if logical_time is not None:
+        # Ensure logical_time is UTC-aware; convert if it has a different timezone
+        if logical_time.tzinfo is None:
+            dt = logical_time.replace(tzinfo=UTC)
         else:
-            dt = time_anchor.astimezone(UTC)
+            dt = logical_time.astimezone(UTC)
     else:
         dt = datetime.now(UTC)
 
@@ -898,20 +896,18 @@ def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str
 
 
 def today() -> date:
-    """Return workflow time anchor date (local) or current date if outside workflow.
+    """Return workflow logical time date (local) or current date if outside workflow.
 
     When called within a workflow context, returns the date portion of the
-    workflow's time_anchor in local timezone. This ensures deterministic
-    behavior during workflow replay and reset.
+    workflow's logical time (time_anchor + elapsed workflow time) in local
+    timezone. This ensures deterministic behavior during workflow replay and reset.
 
     Outside workflow context, falls back to current date.
     """
-    from tracecat.contexts import ctx_time_anchor
-
-    time_anchor = ctx_time_anchor.get()
-    if time_anchor is not None:
+    logical_time = ctx_logical_time.get()
+    if logical_time is not None:
         # Convert to local timezone and get date
-        return time_anchor.astimezone().date()
+        return logical_time.astimezone().date()
     return date.today()
 
 
