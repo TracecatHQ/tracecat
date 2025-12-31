@@ -255,6 +255,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__API_URL", "http://localhost:8000")
     # Needed for local unit tests
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    # Use DirectBackend for in-process executor (no sandbox overhead)
+    monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
@@ -600,6 +603,43 @@ async def test_worker_factory(
             activities=activities,
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
+            activity_executor=threadpool,
+        )
+
+    yield create_worker
+
+
+@pytest.fixture(scope="function")
+async def reset_executor_backend():
+    """Reset executor backend singleton between tests for isolation."""
+    from tracecat.executor.backends import shutdown_executor_backend
+
+    yield
+    await shutdown_executor_backend()
+
+
+@pytest.fixture(scope="function")
+async def test_executor_worker_factory(
+    threadpool: ThreadPoolExecutor,
+    reset_executor_backend: None,
+) -> AsyncGenerator[Callable[..., Worker], Any]:
+    """Factory fixture to create executor workers with DirectBackend.
+
+    This worker listens on the shared-action-queue and handles execute_action_activity.
+    Uses DirectBackend for in-process execution without sandbox overhead.
+    """
+    from tracecat.executor.activities import ExecutorActivities
+
+    def create_worker(
+        client: Client,
+        *,
+        task_queue: str | None = None,
+    ) -> Worker:
+        """Create an executor worker for testing."""
+        return Worker(
+            client=client,
+            task_queue=task_queue or config.TRACECAT__EXECUTOR_QUEUE,
+            activities=ExecutorActivities.get_activities(),
             activity_executor=threadpool,
         )
 
