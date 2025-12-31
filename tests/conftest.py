@@ -60,6 +60,11 @@ MINIO_SECRET_KEY = "minioadmin"
 # Redis runs on standard port via docker-compose
 REDIS_PORT = 6379
 
+# Worker-specific Redis database number for pytest-xdist isolation
+# Each xdist worker uses a different database (0-15) to avoid conflicts
+# when multiple workers run tests in parallel
+REDIS_DB = WORKER_OFFSET % 16
+
 
 # ---------------------------------------------------------------------------
 # Redis fixtures
@@ -73,15 +78,22 @@ def redis_server():
     Redis should be started externally via:
     - CI: docker-compose in workflow
     - Local: `just dev` or `docker-compose up`
+
+    Each pytest-xdist worker uses a different Redis database number
+    to ensure test isolation during parallel execution.
     """
     import redis as redis_sync
 
-    client = redis_sync.Redis(host="localhost", port=REDIS_PORT)
+    client = redis_sync.Redis(host="localhost", port=REDIS_PORT, db=REDIS_DB)
     for _ in range(30):
         try:
             if client.ping():
-                logger.info(f"Redis available on port {REDIS_PORT}")
-                os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}"
+                logger.info(
+                    f"Redis available on port {REDIS_PORT}, db={REDIS_DB} "
+                    f"(worker={WORKER_ID})"
+                )
+                # Include database number in REDIS_URL for worker isolation
+                os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}/{REDIS_DB}"
                 yield
                 return
         except Exception:
@@ -95,10 +107,13 @@ def redis_server():
 
 @pytest.fixture(autouse=True, scope="function")
 def clean_redis_db(redis_server):
-    """Flush Redis before every test function to guarantee isolation."""
+    """Flush Redis before every test function to guarantee isolation.
+
+    Uses worker-specific database to avoid affecting other xdist workers.
+    """
     import redis as redis_sync
 
-    client = redis_sync.Redis(host="localhost", port=REDIS_PORT)
+    client = redis_sync.Redis(host="localhost", port=REDIS_PORT, db=REDIS_DB)
     client.flushdb()
     yield
     client.flushdb()
