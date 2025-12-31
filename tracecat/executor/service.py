@@ -38,7 +38,6 @@ from tracecat.exceptions import (
     TracecatException,
 )
 from tracecat.executor.action_runner import get_action_runner
-from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.schemas import ExecutorActionErrorInfo, ExecutorResultSuccess
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
@@ -499,6 +498,9 @@ async def run_action_on_cluster(
     - 'direct': In-process execution (development only)
     - 'auto': Auto-select based on environment
     """
+    # Lazy import to avoid circular dependency:
+    # workflow.py -> service.py -> backends/__init__.py -> direct.py -> service.py
+    from tracecat.executor.backends import get_executor_backend
 
     role = ctx.role
     action_name = input.task.action
