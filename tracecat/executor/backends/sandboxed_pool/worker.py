@@ -59,7 +59,9 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
         request: Dict with keys: input, role
 
     Returns:
-        Dict with keys: success, result, error, timing
+        Dict matching ExecutorResult schema:
+        - Success: {"type": "success", "result": ...}
+        - Failure: {"type": "failure", "error": ...}
     """
     timing: dict[str, float] = {}
     start_total = time.monotonic()
@@ -80,16 +82,15 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
                 timing=timing,
             )
             return {
-                "success": True,
+                "type": "success",
                 "result": {
                     "test_mode": True,
                     "action": input_obj.task.action,
                     "workspace_id": str(role.workspace_id)
                     if role.workspace_id
                     else None,
+                    "timing": timing,
                 },
-                "error": None,
-                "timing": timing,
             }
 
         # Execute action
@@ -106,10 +107,8 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
         )
 
         return {
-            "success": True,
+            "type": "success",
             "result": result,
-            "error": None,
-            "timing": timing,
         }
 
     except Exception as e:
@@ -130,19 +129,19 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
                 request.get("input", {}).get("task", {}).get("action", "unknown")
             )
             error_info = ExecutorActionErrorInfo.from_exc(e, action_name)
-            error_dict = error_info.model_dump(mode="json")
         except Exception:
-            # Fallback: don't include traceback in response to avoid leaking sensitive data
-            error_dict = {
-                "type": type(e).__name__,
-                "message": str(e),
-            }
+            # Fallback: create minimal error info
+            error_info = ExecutorActionErrorInfo(
+                action_name="unknown",
+                type=type(e).__name__,
+                message=str(e),
+                filename="unknown",
+                function="unknown",
+            )
 
         return {
-            "success": False,
-            "result": None,
-            "error": error_dict,
-            "timing": timing,
+            "type": "failure",
+            "error": error_info.model_dump(mode="json"),
         }
 
 
@@ -222,14 +221,16 @@ async def handle_connection(
                 elapsed_s=f"{elapsed:.1f}",
                 active_connections=_active_connections,
             )
+            error_info = ExecutorActionErrorInfo(
+                action_name=action_name,
+                type="TaskTimeout",
+                message=f"Task timed out after {task_timeout}s in pool worker",
+                filename="worker.py",
+                function="handle_connection",
+            )
             result = {
-                "success": False,
-                "result": None,
-                "error": {
-                    "type": "TaskTimeout",
-                    "message": f"Task timed out after {task_timeout}s in pool worker",
-                },
-                "timing": {"total_ms": task_timeout * 1000},
+                "type": "failure",
+                "error": error_info.model_dump(mode="json"),
             }
 
         task_elapsed = time.monotonic() - task_start
@@ -239,7 +240,7 @@ async def handle_connection(
             conn_id=conn_id,
             action=action_name,
             task_ref=task_ref,
-            success=result.get("success"),
+            success=result.get("type") == "success",
             elapsed_ms=f"{task_elapsed * 1000:.1f}",
             active_connections=_active_connections,
         )
@@ -300,11 +301,17 @@ async def handle_connection(
         )
         # Try to send error response
         try:
+            error_info = ExecutorActionErrorInfo(
+                action_name=action_name,
+                type="WorkerError",
+                message=str(e),
+                filename="worker.py",
+                function="handle_connection",
+            )
             error_response = orjson.dumps(
                 {
-                    "success": False,
-                    "result": None,
-                    "error": {"type": "WorkerError", "message": str(e)},
+                    "type": "failure",
+                    "error": error_info.model_dump(mode="json"),
                 },
                 default=to_jsonable_python,
             )
