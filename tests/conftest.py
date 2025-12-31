@@ -280,6 +280,8 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     # If the worker is running inside a container, use host.docker.internal
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
+    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
+    monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
 
     yield
     logger.info("Environment variables cleaned up")
