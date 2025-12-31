@@ -22,10 +22,7 @@ class StreamDelta:
     event: UnifiedStreamEvent | AgentStreamEvent
 
     def sse(self) -> str:
-        if isinstance(self.event, UnifiedStreamEvent):
-            return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event.model_dump(mode='json')).decode()}\n\n"
-        else:
-            return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
+        return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
 
 
 @dataclass(slots=True, kw_only=True)

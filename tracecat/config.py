@@ -524,8 +524,8 @@ for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
 
 
 # === Agent config === #
-TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING = os.environ.get(
-    "TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING", "false"
+TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = os.environ.get(
+    "TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED", "false"
 ).lower() in ("true", "1")
 """Whether to enable unified streaming for agent execution."""
 

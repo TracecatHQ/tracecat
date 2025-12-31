@@ -1,6 +1,9 @@
 """PydanticAI harness adapter.
 
 Converts pydantic-ai stream events to unified stream events.
+Also provides conversion functions between Tracecat's harness-agnostic
+deferred tool types and pydantic-ai's internal types.
+
 Message persistence is handled by ChatMessage with raw JSON - no conversion needed.
 """
 
@@ -21,12 +24,27 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
     ToolReturnPart,
 )
+from pydantic_ai.tools import (
+    DeferredToolRequests as PADeferredToolRequests,
+)
+from pydantic_ai.tools import (
+    DeferredToolResults as PADeferredToolResults,
+)
+from pydantic_ai.tools import ToolApproved as PAToolApproved
+from pydantic_ai.tools import ToolDenied as PAToolDenied
 
 from tracecat.agent.adapter.base import BaseHarnessAdapter
 from tracecat.agent.stream.types import (
     HarnessType,
     StreamEventType,
+    ToolCallContent,
     UnifiedStreamEvent,
+)
+from tracecat.agent.types import (
+    DeferredToolRequests,
+    DeferredToolResults,
+    ToolApproved,
+    ToolDenied,
 )
 
 
@@ -157,3 +175,55 @@ class PydanticAIAdapter(BaseHarnessAdapter):
                 tool_output=str(result),
                 is_error=is_error,
             )
+
+
+# --- Deferred Tool Type Conversion Functions ---
+
+
+def from_pydantic_ai_deferred_requests(
+    pa_requests: PADeferredToolRequests,
+) -> DeferredToolRequests:
+    """Convert pydantic-ai DeferredToolRequests to Tracecat's harness-agnostic type."""
+    return DeferredToolRequests(
+        approvals=[
+            ToolCallContent(
+                id=call.tool_call_id,
+                name=call.tool_name,
+                input=call.args_as_dict(),
+            )
+            for call in pa_requests.approvals
+        ],
+        calls=[
+            ToolCallContent(
+                id=call.tool_call_id,
+                name=call.tool_name,
+                input=call.args_as_dict(),
+            )
+            for call in pa_requests.calls
+        ],
+        metadata=pa_requests.metadata,
+    )
+
+
+def to_pydantic_ai_deferred_results(
+    results: DeferredToolResults,
+) -> PADeferredToolResults:
+    """Convert Tracecat's DeferredToolResults to pydantic-ai's type for agent.run()."""
+    pa_approvals: dict[str, bool | PAToolApproved | PAToolDenied] = {}
+    for tool_call_id, approval in results.approvals.items():
+        if isinstance(approval, bool):
+            pa_approvals[tool_call_id] = approval
+        elif isinstance(approval, ToolApproved):
+            pa_approvals[tool_call_id] = PAToolApproved(
+                override_args=approval.override_args
+            )
+        elif isinstance(approval, ToolDenied):
+            pa_approvals[tool_call_id] = PAToolDenied(message=approval.message)
+        else:
+            # Fallback for raw dict or unexpected types
+            pa_approvals[tool_call_id] = approval  # type: ignore[assignment]
+
+    return PADeferredToolResults(
+        approvals=pa_approvals,
+        calls=results.calls,
+    )

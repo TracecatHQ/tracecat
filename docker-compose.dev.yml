@@ -67,6 +67,8 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
+      # Agent
+      TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED: ${TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED}
 
     volumes:
       - ./tracecat:/app/tracecat

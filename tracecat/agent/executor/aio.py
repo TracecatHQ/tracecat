@@ -25,7 +25,7 @@ from tracecat.agent.types import StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
-from tracecat.config import TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING
+from tracecat.config import TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
 from tracecat.logger import logger
 
 
@@ -99,7 +99,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             message_history: list[ModelMessage] | None = []
             for chat_message in loaded_history:
                 # Only include pydantic-ai messages in the history
-                if isinstance(chat_message.message, (ModelRequest, ModelResponse)):
+                if isinstance(chat_message.message, (ModelRequest | ModelResponse)):
                     message_history.append(chat_message.message)
         else:
             message_history = None
@@ -111,7 +111,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             user_message = ModelRequest(
                 parts=[UserPromptPart(content=args.user_prompt)]
             )
-            if TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING:
+            if TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED:
                 # Unified streaming: use UnifiedStreamEvent for all events
                 user_event = UnifiedStreamEvent.user_message_event(args.user_prompt)
                 await self.deps.stream_writer.stream.append(user_event)
@@ -148,7 +148,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
                     try:
-                        if TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING:
+                        if TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED:
                             # Unified streaming: emit harness-agnostic event
                             approval_items = [
                                 ToolCallContent(
