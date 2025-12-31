@@ -36,6 +36,18 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
 from tracecat.workspaces.service import WorkspaceService
 
+# Worker-specific configuration for pytest-xdist parallel execution
+# Get xdist worker ID, defaults to "master" if not using xdist
+WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
+
+# Generate worker-specific port offsets
+# master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
+if WORKER_ID == "master":
+    WORKER_OFFSET = 0
+else:
+    # Extract number from "gwN" format
+    WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
+
 # MinIO test configuration - uses docker-compose service on port 9000
 MINIO_PORT = 9000
 MINIO_ACCESS_KEY = "minioadmin"

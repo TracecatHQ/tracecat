@@ -404,6 +404,8 @@ async def test_deduplicate_persistence(
     second_call: list[dict[str, Any]],
     expected_first: list[dict[str, Any]],
     expected_second: list[dict[str, Any]],
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test that deduplication persists across multiple calls."""
     try:
@@ -474,6 +476,8 @@ async def test_deduplicate_special_values(
     items: list[dict[str, Any]],
     keys: list[str],
     description: str,
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test deduplication with special values and edge cases."""
     try:
@@ -721,7 +725,9 @@ async def test_deduplicate_redis_operation_error(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_deduplicate_skip_persistence_vs_redis() -> None:
+async def test_deduplicate_skip_persistence_vs_redis(
+    redis_server, clean_redis_db
+) -> None:
     """Test that persist=True persists across calls, but persist=False doesn't."""
     items_persist = [{"id": 998, "data": "test_persist"}]
     items_no_persist = [{"id": 997, "data": "test_no_persist"}]
