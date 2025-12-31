@@ -12,7 +12,7 @@ from pydantic_ai.tools import RunContext
 
 from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
 from tracecat.agent.stream.events import AgentStreamEventTA
-from tracecat.config import ENABLE_UNIFIED_AGENT_STREAMING
+from tracecat.config import TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -137,7 +137,7 @@ class AgentStreamWriter:
 
     async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
         async for event in events:
-            if ENABLE_UNIFIED_AGENT_STREAMING:
+            if TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING:
                 # Unified streaming: convert to UnifiedStreamEvent
                 unified_event = PydanticAIAdapter().to_unified_event(event)
                 await self.stream.append(unified_event)
@@ -160,7 +160,7 @@ class HttpStreamWriter(StreamWriter):
         self._ensure_secure_url()
         async with aiohttp.ClientSession() as session:
             async for event in events:
-                if ENABLE_UNIFIED_AGENT_STREAMING:
+                if TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING:
                     # Unified streaming: convert to UnifiedStreamEvent
                     unified_event = PydanticAIAdapter().to_unified_event(event)
                     logger.warning("STREAM EVENT", event=unified_event)

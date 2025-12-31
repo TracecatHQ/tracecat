@@ -6,6 +6,7 @@ from typing import Any, Final
 from pydantic_ai import UsageLimits
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -18,13 +19,13 @@ from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
-from tracecat.agent.stream.types import HarnessType, ToolCallContent, UnifiedStreamEvent
+from tracecat.agent.stream.types import ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.writers import event_stream_handler
-from tracecat.agent.types import ModelMessageTA, StreamingAgentDeps
+from tracecat.agent.types import StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
-from tracecat.config import ENABLE_UNIFIED_AGENT_STREAMING
+from tracecat.config import TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING
 from tracecat.logger import logger
 
 
@@ -95,23 +96,11 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
 
         if self.deps.message_store:
             loaded_history = await self.deps.message_store.load(args.session_id)
-            message_history = []
+            message_history: list[ModelMessage] | None = []
             for chat_message in loaded_history:
-                if chat_message.harness != HarnessType.PYDANTIC_AI.value:
-                    continue
-                try:
-                    message_history.append(
-                        ModelMessageTA.validate_python(chat_message.data)
-                    )
-                except Exception as e:
-                    # Skip malformed messages to preserve "start fresh on bad data" behavior
-                    logger.warning(
-                        "Skipping malformed message in history",
-                        message_id=chat_message.id,
-                        error=str(e),
-                        session_id=args.session_id,
-                    )
-                    continue
+                # Only include pydantic-ai messages in the history
+                if isinstance(chat_message.message, (ModelRequest, ModelResponse)):
+                    message_history.append(chat_message.message)
         else:
             message_history = None
 
@@ -122,7 +111,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             user_message = ModelRequest(
                 parts=[UserPromptPart(content=args.user_prompt)]
             )
-            if ENABLE_UNIFIED_AGENT_STREAMING:
+            if TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING:
                 # Unified streaming: use UnifiedStreamEvent for all events
                 user_event = UnifiedStreamEvent.user_message_event(args.user_prompt)
                 await self.deps.stream_writer.stream.append(user_event)
@@ -131,7 +120,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                 await self.deps.stream_writer.stream.append(user_message)
 
         result: ExecutorResult = None
-        new_messages: list[ModelRequest | ModelResponse] | None = None
+        new_messages: list[ModelMessage] | None = None
         approval_message: ModelResponse | None = None
 
         try:
@@ -159,7 +148,7 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
                     try:
-                        if ENABLE_UNIFIED_AGENT_STREAMING:
+                        if TRACECAT__ENABLE_UNIFIED_AGENT_STREAMING:
                             # Unified streaming: emit harness-agnostic event
                             approval_items = [
                                 ToolCallContent(

@@ -482,6 +482,20 @@ export type AssigneeChangedEventRead = {
   created_at: string
 }
 
+export type AssistantMessage = {
+  content: Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  model: string
+  parent_tool_use_id?: string | null
+  error?:
+    | "authentication_failed"
+    | "billing_error"
+    | "rate_limit"
+    | "invalid_request"
+    | "server_error"
+    | "unknown"
+    | null
+}
+
 /**
  * Event for when an attachment is created for a case.
  */
@@ -1341,7 +1355,7 @@ export type ChatEntity =
   | "copilot"
 
 /**
- * Model for a chat message with harness metadata.
+ * Model for a chat message with typed message payload.
  */
 export type ChatMessage = {
   /**
@@ -1349,15 +1363,16 @@ export type ChatMessage = {
    */
   id: string
   /**
-   * The harness type that created this message (e.g., pydantic-ai, claude)
+   * The deserialized message
    */
-  harness?: string
-  /**
-   * Raw message data in native harness format
-   */
-  data: {
-    [key: string]: unknown
-  }
+  message:
+    | ModelRequest
+    | ModelResponse
+    | UserMessage
+    | AssistantMessage
+    | SystemMessage
+    | ResultMessage
+    | StreamEvent
 }
 
 /**
@@ -3555,6 +3570,21 @@ export type ResponseInteraction = {
   timeout?: number | null
 }
 
+export type ResultMessage = {
+  subtype: string
+  duration_ms: number
+  duration_api_ms: number
+  is_error: boolean
+  num_turns: number
+  session_id: string
+  total_cost_usd?: number | null
+  usage?: {
+    [key: string]: unknown
+  } | null
+  result?: string | null
+  structured_output?: unknown
+}
+
 export type RetryPromptPart = {
   content: Array<ErrorDetails> | string
   tool_name?: string | null
@@ -3990,11 +4020,27 @@ export type StepStartUIPart = {
   type: "step-start"
 }
 
+export type StreamEvent = {
+  uuid: string
+  session_id: string
+  event: {
+    [key: string]: unknown
+  }
+  parent_tool_use_id?: string | null
+}
+
 export type SyntaxToken = {
   type: string
   value: string
   start: number
   end: number
+}
+
+export type SystemMessage = {
+  subtype: string
+  data: {
+    [key: string]: unknown
+  }
 }
 
 export type SystemPromptPart = {
@@ -4525,6 +4571,10 @@ export type TextArea = {
   placeholder?: string
 }
 
+export type TextBlock = {
+  text: string
+}
+
 export type TextPart = {
   content: string
   id?: string | null
@@ -4554,6 +4604,11 @@ export type TextUIPart = {
       [key: string]: unknown
     }
   }
+}
+
+export type ThinkingBlock = {
+  thinking: string
+  signature: string
 }
 
 export type ThinkingPart = {
@@ -4624,6 +4679,17 @@ export type ToolCallPartDelta = {
 export type ToolDenied = {
   message?: string
   kind?: "tool-denied"
+}
+
+export type ToolResultBlock = {
+  tool_use_id: string
+  content?:
+    | string
+    | Array<{
+        [key: string]: unknown
+      }>
+    | null
+  is_error?: boolean | null
 }
 
 export type ToolReturn = {
@@ -4710,6 +4776,14 @@ export type ToolUIPartOutputError = {
   }
 }
 
+export type ToolUseBlock = {
+  id: string
+  name: string
+  input: {
+    [key: string]: unknown
+  }
+}
+
 export type Trigger = {
   type: "schedule" | "webhook"
   ref: string
@@ -4784,6 +4858,14 @@ export type UserCreate = {
   is_verified?: boolean | null
   first_name?: string | null
   last_name?: string | null
+}
+
+export type UserMessage = {
+  content:
+    | string
+    | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  uuid?: string | null
+  parent_tool_use_id?: string | null
 }
 
 export type UserPromptPart = {

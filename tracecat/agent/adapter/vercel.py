@@ -69,11 +69,7 @@ from tracecat.agent.stream.events import (
     StreamMessage,
 )
 from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.types import (
-    ClaudeSDKMessageTA,
-    ModelMessageTA,
-    UnifiedMessage,
-)
+from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
@@ -1323,25 +1319,18 @@ def convert_chat_messages_to_ui(
     for chat_message in messages:
         # Extract message data from the ChatMessage schema
         message_id = chat_message.id
+        message_data = chat_message.message
 
-        # Deserialize based on harness and determine role
-        message_data: UnifiedMessage
-        match chat_message.harness:
-            case "pydantic-ai":
-                message_data = ModelMessageTA.validate_python(chat_message.data)
-                role: Literal["system", "user", "assistant"] = (
-                    "assistant" if message_data.kind == "response" else "user"
-                )
-            case "claude":
-                message_data = ClaudeSDKMessageTA.validate_python(chat_message.data)
-                if isinstance(message_data, AssistantMessage):
-                    role = "assistant"
-                elif isinstance(message_data, UserMessage):
-                    role = "user"
-                else:
-                    continue
-            case _:
-                continue
+        # Determine role based on message type
+        role: Literal["system", "user", "assistant"]
+        if isinstance(message_data, (ModelRequest, ModelResponse)):
+            role = "assistant" if message_data.kind == "response" else "user"
+        elif isinstance(message_data, AssistantMessage):
+            role = "assistant"
+        elif isinstance(message_data, UserMessage):
+            role = "user"
+        else:
+            continue
 
         mutable_message = MutableMessage(id=message_id, role=role, parts=[])
         approval_payload = _extract_approval_payload_from_message(message_data)

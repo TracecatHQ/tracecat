@@ -547,11 +547,4 @@ class ChatService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         db_messages = result.scalars().all()
 
-        return [
-            ChatMessage(
-                id=str(db_msg.id),
-                harness=db_msg.harness or "pydantic-ai",
-                data=db_msg.data,
-            )
-            for db_msg in db_messages
-        ]
+        return [ChatMessage.from_db(db_msg) for db_msg in db_messages]

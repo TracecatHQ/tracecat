@@ -2029,6 +2029,68 @@ export const $AssigneeChangedEventRead = {
   description: "Event for when a case assignee is changed.",
 } as const
 
+export const $AssistantMessage = {
+  properties: {
+    content: {
+      items: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/TextBlock",
+          },
+          {
+            $ref: "#/components/schemas/ThinkingBlock",
+          },
+          {
+            $ref: "#/components/schemas/ToolUseBlock",
+          },
+          {
+            $ref: "#/components/schemas/ToolResultBlock",
+          },
+        ],
+      },
+      type: "array",
+      title: "Content",
+    },
+    model: {
+      type: "string",
+      title: "Model",
+    },
+    parent_tool_use_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Tool Use Id",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "authentication_failed",
+            "billing_error",
+            "rate_limit",
+            "invalid_request",
+            "server_error",
+            "unknown",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["content", "model"],
+  title: "AssistantMessage",
+} as const
+
 export const $AttachmentCreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -4713,24 +4775,49 @@ export const $ChatMessage = {
       title: "Id",
       description: "Unique message identifier",
     },
-    harness: {
-      type: "string",
-      title: "Harness",
-      description:
-        "The harness type that created this message (e.g., pydantic-ai, claude)",
-      default: "pydantic-ai",
-    },
-    data: {
-      additionalProperties: true,
-      type: "object",
-      title: "Data",
-      description: "Raw message data in native harness format",
+    message: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/ModelRequest",
+            },
+            {
+              $ref: "#/components/schemas/ModelResponse",
+            },
+          ],
+          discriminator: {
+            propertyName: "kind",
+            mapping: {
+              request: "#/components/schemas/ModelRequest",
+              response: "#/components/schemas/ModelResponse",
+            },
+          },
+        },
+        {
+          $ref: "#/components/schemas/UserMessage",
+        },
+        {
+          $ref: "#/components/schemas/AssistantMessage",
+        },
+        {
+          $ref: "#/components/schemas/SystemMessage",
+        },
+        {
+          $ref: "#/components/schemas/ResultMessage",
+        },
+        {
+          $ref: "#/components/schemas/StreamEvent",
+        },
+      ],
+      title: "Message",
+      description: "The deserialized message",
     },
   },
   type: "object",
-  required: ["id", "data"],
+  required: ["id", "message"],
   title: "ChatMessage",
-  description: "Model for a chat message with harness metadata.",
+  description: "Model for a chat message with typed message payload.",
 } as const
 
 export const $ChatRead = {
@@ -10909,6 +10996,82 @@ export const $ResponseInteraction = {
   description: "Configuration for a response interaction.",
 } as const
 
+export const $ResultMessage = {
+  properties: {
+    subtype: {
+      type: "string",
+      title: "Subtype",
+    },
+    duration_ms: {
+      type: "integer",
+      title: "Duration Ms",
+    },
+    duration_api_ms: {
+      type: "integer",
+      title: "Duration Api Ms",
+    },
+    is_error: {
+      type: "boolean",
+      title: "Is Error",
+    },
+    num_turns: {
+      type: "integer",
+      title: "Num Turns",
+    },
+    session_id: {
+      type: "string",
+      title: "Session Id",
+    },
+    total_cost_usd: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Cost Usd",
+    },
+    usage: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Usage",
+    },
+    result: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Result",
+    },
+    structured_output: {
+      title: "Structured Output",
+    },
+  },
+  type: "object",
+  required: [
+    "subtype",
+    "duration_ms",
+    "duration_api_ms",
+    "is_error",
+    "num_turns",
+    "session_id",
+  ],
+  title: "ResultMessage",
+} as const
+
 export const $RetryPromptPart = {
   properties: {
     content: {
@@ -12336,6 +12499,38 @@ export const $StepStartUIPart = {
   description: "A step boundary part of a message.",
 } as const
 
+export const $StreamEvent = {
+  properties: {
+    uuid: {
+      type: "string",
+      title: "Uuid",
+    },
+    session_id: {
+      type: "string",
+      title: "Session Id",
+    },
+    event: {
+      additionalProperties: true,
+      type: "object",
+      title: "Event",
+    },
+    parent_tool_use_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Tool Use Id",
+    },
+  },
+  type: "object",
+  required: ["uuid", "session_id", "event"],
+  title: "StreamEvent",
+} as const
+
 export const $SyntaxToken = {
   properties: {
     type: {
@@ -12358,6 +12553,23 @@ export const $SyntaxToken = {
   type: "object",
   required: ["type", "value", "start", "end"],
   title: "SyntaxToken",
+} as const
+
+export const $SystemMessage = {
+  properties: {
+    subtype: {
+      type: "string",
+      title: "Subtype",
+    },
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["subtype", "data"],
+  title: "SystemMessage",
 } as const
 
 export const $SystemPromptPart = {
@@ -13828,6 +14040,18 @@ export const $TextArea = {
   title: "TextArea",
 } as const
 
+export const $TextBlock = {
+  properties: {
+    text: {
+      type: "string",
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["text"],
+  title: "TextBlock",
+} as const
+
 export const $TextPart = {
   properties: {
     content: {
@@ -13929,6 +14153,22 @@ export const $TextUIPart = {
   required: ["type", "text"],
   title: "TextUIPart",
   description: "A text part of a message.",
+} as const
+
+export const $ThinkingBlock = {
+  properties: {
+    thinking: {
+      type: "string",
+      title: "Thinking",
+    },
+    signature: {
+      type: "string",
+      title: "Signature",
+    },
+  },
+  type: "object",
+  required: ["thinking", "signature"],
+  title: "ThinkingBlock",
 } as const
 
 export const $ThinkingPart = {
@@ -14240,6 +14480,47 @@ export const $ToolDenied = {
   title: "ToolDenied",
 } as const
 
+export const $ToolResultBlock = {
+  properties: {
+    tool_use_id: {
+      type: "string",
+      title: "Tool Use Id",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            additionalProperties: true,
+            type: "object",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+    is_error: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Error",
+    },
+  },
+  type: "object",
+  required: ["tool_use_id"],
+  title: "ToolResultBlock",
+} as const
+
 export const $ToolReturn = {
   properties: {
     return_value: {
@@ -14510,6 +14791,27 @@ export const $ToolUIPartOutputError = {
   title: "ToolUIPartOutputError",
 } as const
 
+export const $ToolUseBlock = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    input: {
+      additionalProperties: true,
+      type: "object",
+      title: "Input",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "input"],
+  title: "ToolUseBlock",
+} as const
+
 export const $Trigger = {
   properties: {
     type: {
@@ -14768,6 +15070,63 @@ export const $UserCreate = {
   type: "object",
   required: ["email", "password"],
   title: "UserCreate",
+} as const
+
+export const $UserMessage = {
+  properties: {
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                $ref: "#/components/schemas/TextBlock",
+              },
+              {
+                $ref: "#/components/schemas/ThinkingBlock",
+              },
+              {
+                $ref: "#/components/schemas/ToolUseBlock",
+              },
+              {
+                $ref: "#/components/schemas/ToolResultBlock",
+              },
+            ],
+          },
+          type: "array",
+        },
+      ],
+      title: "Content",
+    },
+    uuid: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Uuid",
+    },
+    parent_tool_use_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Tool Use Id",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "UserMessage",
 } as const
 
 export const $UserPromptPart = {
