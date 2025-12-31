@@ -113,7 +113,7 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
           TRACECAT__EXECUTOR_BACKEND: "direct"
         run: |
-          docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy
+          docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy minio
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
@@ -131,6 +131,11 @@ jobs:
 
           # Show final service status
           docker compose -f docker-compose.local.yml ps
+
+          # Verify postgres is accessible from host
+          echo "Verifying PostgreSQL is accessible from host..."
+          timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
+          echo "PostgreSQL is ready"
 
       - name: Run integration tests
         env:
@@ -153,6 +158,13 @@ jobs:
 
           echo "=== Executor Logs ==="
           docker compose -f docker-compose.local.yml logs executor --tail=200
+
+          echo "=== MinIO Logs ==="
+          docker compose -f docker-compose.local.yml logs minio --tail=200
+
+          echo "=== PostgreSQL Logs ==="
+          docker compose -f docker-compose.local.yml logs postgres_db --tail=200
+
       - name: Clean up
         if: always()
         run: |
