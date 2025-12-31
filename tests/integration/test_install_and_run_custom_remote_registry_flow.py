@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import timedelta
 
 import pytest
 import requests
@@ -246,7 +247,10 @@ async def test_remote_custom_registry_repo() -> None:
     # Get Temporal client and execute workflow
     # The worker service running in Docker will handle the execution
     client = await get_temporal_client()
-    task_queue = os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
+    # Use the default task queue that matches the Docker worker
+    # (conftest sets config.TEMPORAL__CLUSTER_QUEUE to "test-tracecat-task-queue" for unit tests,
+    # but this integration test runs against the Docker worker which uses the default queue)
+    task_queue = "tracecat-task-queue"
 
     try:
         result = await client.execute_workflow(
@@ -255,6 +259,7 @@ async def test_remote_custom_registry_repo() -> None:
             id=wf_exec_id,
             task_queue=task_queue,
             retry_policy=RetryPolicy(maximum_attempts=1),
+            execution_timeout=timedelta(seconds=60),  # Prevent indefinite hangs
         )
         # The workflow returns the action result via the returns expression
         assert result == 301, f"Result should be 301, got {result}"
