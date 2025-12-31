@@ -38,7 +38,7 @@ class ExecutorBackendType(StrEnum):
 
     - SANDBOXED_POOL: Warm nsjail workers (single-tenant, trusted, high throughput)
     - EPHEMERAL: Cold nsjail subprocess per action (multitenant, untrusted, full isolation)
-    - DIRECT: In-process execution (development only, trusted)
+    - DIRECT: In-process execution (TESTING ONLY - no isolation, no subprocess overhead)
     - AUTO: Auto-select based on environment
     """
 
