@@ -58,6 +58,8 @@ MINIO_SECRET_KEY = "minioadmin"
 # ---------------------------------------------------------------------------
 
 # Redis runs on standard port via docker-compose
+# REDIS_HOST is configurable for running tests inside containers (e.g., executor)
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = 6379
 
 # Worker-specific Redis database number for pytest-xdist isolation
@@ -84,23 +86,25 @@ def redis_server():
     """
     import redis as redis_sync
 
-    client = redis_sync.Redis(host="localhost", port=REDIS_PORT, db=REDIS_DB)
+    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
     for _ in range(30):
         try:
             if client.ping():
                 logger.info(
-                    f"Redis available on port {REDIS_PORT}, db={REDIS_DB} "
+                    f"Redis available at {REDIS_HOST}:{REDIS_PORT}, db={REDIS_DB} "
                     f"(worker={WORKER_ID})"
                 )
                 # Include database number in REDIS_URL for worker isolation
-                os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}/{REDIS_DB}"
+                os.environ["REDIS_URL"] = (
+                    f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+                )
                 yield
                 return
         except Exception:
             time.sleep(1)
 
     pytest.fail(
-        f"Redis not available on port {REDIS_PORT}. "
+        f"Redis not available at {REDIS_HOST}:{REDIS_PORT}. "
         "Start it with: docker-compose -f docker-compose.dev.yml up -d redis"
     )
 
@@ -113,7 +117,7 @@ def clean_redis_db(redis_server):
     """
     import redis as redis_sync
 
-    client = redis_sync.Redis(host="localhost", port=REDIS_PORT, db=REDIS_DB)
+    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
     client.flushdb()
     yield
     client.flushdb()
