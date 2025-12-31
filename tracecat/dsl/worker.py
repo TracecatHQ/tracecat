@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import os
+import signal
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
@@ -145,11 +146,26 @@ async def main() -> None:
             logger.info("Shutting down")
 
 
+def _signal_handler(sig: int, _frame: object) -> None:
+    """Handle shutdown signals gracefully.
+
+    This mirrors the executor Temporal worker so the DSL worker can shut down
+    cleanly on SIGINT/SIGTERM (e.g. `docker stop`, Kubernetes termination).
+    """
+    logger.info("Received shutdown signal", signal=sig)
+    interrupt_event.set()
+
+
 if __name__ == "__main__":
+    # Install signal handlers before starting the event loop.
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     loop = asyncio.new_event_loop()
     loop.set_task_factory(asyncio.eager_task_factory)
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         interrupt_event.set()
+    finally:
         loop.run_until_complete(loop.shutdown_asyncgens())

@@ -30,6 +30,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.executor.backends import ExecutorBackend
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -630,18 +631,9 @@ async def test_worker_factory(
 
 
 @pytest.fixture(scope="function")
-async def reset_executor_backend():
-    """Reset executor backend singleton between tests for isolation."""
-    from tracecat.executor.backends import shutdown_executor_backend
-
-    yield
-    await shutdown_executor_backend()
-
-
-@pytest.fixture(scope="function")
 async def test_executor_worker_factory(
     threadpool: ThreadPoolExecutor,
-    reset_executor_backend: None,
+    executor_backend: ExecutorBackend,
 ) -> AsyncGenerator[Callable[..., Worker], Any]:
     """Factory fixture to create executor workers with DirectBackend.
 

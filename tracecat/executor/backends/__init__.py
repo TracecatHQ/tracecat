@@ -19,6 +19,9 @@ from __future__ import annotations
 
 from tracecat import config
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.backends.sandboxed_pool import SandboxedPoolBackend
 from tracecat.executor.schemas import (
     ExecutorBackendType,
     _resolve_backend_type,
@@ -46,16 +49,10 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
     """
     match backend_type:
         case ExecutorBackendType.SANDBOXED_POOL:
-            from tracecat.executor.backends.sandboxed_pool import SandboxedPoolBackend
-
             return SandboxedPoolBackend()
         case ExecutorBackendType.EPHEMERAL:
-            from tracecat.executor.backends.ephemeral import EphemeralBackend
-
             return EphemeralBackend()
         case ExecutorBackendType.DIRECT:
-            from tracecat.executor.backends.direct import DirectBackend
-
             return DirectBackend()
         case _:
             raise ValueError(f"Unknown executor backend: {backend_type!r}")
