@@ -132,7 +132,7 @@ jobs:
           # Show final service status
           docker compose -f docker-compose.local.yml ps
 
-          # Verify postgres is accessible from host
+          # Verify postgres is accessible from host (core-db network is not internal)
           echo "Verifying PostgreSQL is accessible from host..."
           timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready"

@@ -358,7 +358,7 @@ volumes:
 networks:
   core:
   core-db:
-    internal: true
+    # Not internal - allows host access for integration tests
   temporal:
   temporal-db:
     internal: true
