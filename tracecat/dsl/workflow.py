@@ -43,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.contexts import (
         ctx_interaction,
         ctx_logger,
+        ctx_logical_time,
         ctx_role,
         ctx_run,
         ctx_stream_id,
@@ -575,6 +576,7 @@ class DSLWorkflow:
             # NOTE: This only works with successful results
             result = await self._execute_task(task)
             ctx[ExprContext.ACTIONS][task.ref] = result
+            self._set_logical_time_context()
             retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
             if not isinstance(retry_until_result, bool):
                 try:
@@ -633,6 +635,7 @@ class DSLWorkflow:
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
                     evaluated_args = eval_templated_object(
                         task.args, operand=agent_operand
                     )
@@ -681,6 +684,7 @@ class DSLWorkflow:
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
                     evaluated_args = eval_templated_object(
                         task.args, operand=agent_operand
                     )
@@ -955,10 +959,12 @@ class DSLWorkflow:
                     return None
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
+        self._set_logical_time_context()
         return eval_templated_object(self.dsl.returns, operand=self.context)
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
         # Evaluate the workflow alias as a templated expression
+        self._set_logical_time_context()
         evaluated_alias = eval_templated_object(wf_alias, operand=self.get_context())
         if not isinstance(evaluated_alias, str):
             raise TypeError(
@@ -1172,6 +1178,10 @@ class DSLWorkflow:
         elapsed = workflow.now() - self.wf_start_time
         return self.time_anchor + elapsed
 
+    def _set_logical_time_context(self) -> None:
+        """Set ctx_logical_time for deterministic FN.now() in template evaluations."""
+        ctx_logical_time.set(self._compute_logical_time())
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
@@ -1187,6 +1197,7 @@ class DSLWorkflow:
         run_context = self.run_context
         if task.environment is not None:
             # Evaluate the environment expression
+            self._set_logical_time_context()
             evaluated_env = eval_templated_object(task.environment, operand=new_context)
             # Create a new run context with the overridden environment
             run_context = self.run_context.model_copy(

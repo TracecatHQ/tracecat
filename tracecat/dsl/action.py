@@ -119,13 +119,15 @@ class DSLActivities:
 
         # Set logical_time for deterministic FN.now() etc.
         # logical_time = time_anchor + elapsed workflow time
+        # Always set unconditionally to avoid stale context leakage
         env_context = input.exec_context.get(ExprContext.ENV) or {}
         workflow_context = env_context.get("workflow") or {}
-        if logical_time := workflow_context.get("logical_time"):
+        logical_time = workflow_context.get("logical_time")
+        if logical_time is not None:
             # logical_time may be serialized as ISO string through Temporal
             if isinstance(logical_time, str):
                 logical_time = datetime.fromisoformat(logical_time)
-            ctx_logical_time.set(logical_time)
+        ctx_logical_time.set(logical_time)
 
         act_info = activity.info()
         act_attempt = act_info.attempt
