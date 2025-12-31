@@ -104,11 +104,8 @@ jobs:
         env:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-          # Enable compression for codec test (must be set before docker-compose starts)
-          TRACECAT__CONTEXT_COMPRESSION_ENABLED: "true"
-          TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: "0"
         run: |
-          docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+          docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
@@ -134,8 +131,8 @@ jobs:
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
           # Enable compression (also set above for docker services)
-          TRACECAT__CONTEXT_COMPRESSION_ENABLED: "true"
-          TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: "0"
+          TRACECAT__CONTEXT_COMPRESSION_ENABLED: true
+          TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: 0
         run: uv run pytest tests/unit/test_workflows.py -ra
 
       - name: Show Docker logs on failure
@@ -149,12 +146,6 @@ jobs:
 
           echo "=== API Logs ==="
           docker compose -f docker-compose.dev.yml logs api --tail=200
-
-          echo "=== Worker Logs ==="
-          docker compose -f docker-compose.dev.yml logs worker --tail=200
-
-          echo "=== Executor Logs ==="
-          docker compose -f docker-compose.dev.yml logs executor --tail=200
 
           echo "=== Postgres Logs ==="
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
