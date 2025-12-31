@@ -33,14 +33,13 @@ permissions:
   contents: read
   packages: write
 
-
 jobs:
   # ──────────────────────────────────────────────────────────────────
   # 1.  LIGHTWEIGHT SSH / INSTALL SMOKE-TEST
   # ──────────────────────────────────────────────────────────────────
   ssh-sanity:
     runs-on: ubuntu-latest
-    timeout-minutes: 5            # short fail-fast window
+    timeout-minutes: 5 # short fail-fast window
     steps:
       - uses: actions/checkout@v4
 
@@ -77,7 +76,7 @@ jobs:
   # 2.  FULL INTEGRATION TESTS  (unchanged, now depends on ssh-sanity)
   # ──────────────────────────────────────────────────────────────────
   test-integration:
-    needs: ssh-sanity             # only start if key check passed
+    needs: ssh-sanity # only start if key check passed
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 30
     steps:
@@ -142,7 +141,7 @@ jobs:
           # Expect a base64 encoded key
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
         run: |
-           uv run pytest tests/integration -ra
+          uv run pytest tests/integration -ra -vvs --log-cli-level=INFO
 
       - name: Show Docker logs on failure
         if: failure()
