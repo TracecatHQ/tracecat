@@ -49,8 +49,9 @@ if TYPE_CHECKING:
 # Test Configuration
 # =============================================================================
 
-# MinIO test configuration (matches conftest.py)
-MINIO_ENDPOINT = "localhost:9002"
+# MinIO test configuration - uses docker-compose services (port 9000)
+# These match the docker-compose.local.yml configuration
+MINIO_ENDPOINT = "localhost:9000"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
 TEST_BUCKET = "test-tracecat-registry"
@@ -65,6 +66,48 @@ TEST_BUCKET = "test-tracecat-registry"
 def anyio_backend():
     """Module-scoped anyio backend."""
     return "asyncio"
+
+
+@pytest.fixture(scope="module")
+def minio_server():
+    """Use docker-compose MinIO service instead of starting a new container.
+
+    This fixture assumes MinIO is already running via docker-compose on port 9000.
+    It's module-scoped to match the session-scoped conftest fixture behavior.
+    """
+    # Verify MinIO is accessible
+    import time
+
+    max_retries = 30
+    for i in range(max_retries):
+        try:
+            client = Minio(
+                MINIO_ENDPOINT,
+                access_key=MINIO_ACCESS_KEY,
+                secret_key=MINIO_SECRET_KEY,
+                secure=False,
+            )
+            list(client.list_buckets())
+            break
+        except Exception as e:
+            if i == max_retries - 1:
+                raise RuntimeError(
+                    f"MinIO not accessible at {MINIO_ENDPOINT} after {max_retries} retries: {e}"
+                ) from e
+            time.sleep(1)
+
+    yield  # No cleanup needed - docker-compose manages the container
+
+
+@pytest.fixture
+def minio_client(minio_server) -> Minio:
+    """Create MinIO client using docker-compose service endpoint."""
+    return Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False,
+    )
 
 
 @pytest.fixture(autouse=True)

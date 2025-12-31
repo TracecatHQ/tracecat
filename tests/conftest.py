@@ -1,7 +1,6 @@
 import asyncio
 import importlib
 import os
-import subprocess
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
@@ -37,36 +36,17 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
 from tracecat.workspaces.service import WorkspaceService
 
-# Worker-specific configuration for pytest-xdist parallel execution
-# Get xdist worker ID, defaults to "master" if not using xdist
-WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
-
-# Generate worker-specific port offsets
-# master = 0, gw0 = 0, gw1 = 1, gw2 = 2, etc.
-if WORKER_ID == "master":
-    WORKER_OFFSET = 0
-else:
-    # Extract number from "gwN" format
-    WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
-
-# MinIO test configuration - worker-specific
-MINIO_BASE_PORT = 9002
-MINIO_CONSOLE_BASE_PORT = 9003
-MINIO_PORT = MINIO_BASE_PORT + (WORKER_OFFSET * 2)  # Each worker gets 2 ports
-MINIO_CONSOLE_PORT = MINIO_CONSOLE_BASE_PORT + (WORKER_OFFSET * 2)
-MINIO_ENDPOINT = f"localhost:{MINIO_PORT}"
+# MinIO test configuration - uses docker-compose service on port 9000
+MINIO_PORT = 9000
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
-MINIO_CONTAINER_NAME = f"test-minio-{WORKER_ID}"
 
 # ---------------------------------------------------------------------------
-# Redis test configuration - worker-specific
+# Redis test configuration
 # ---------------------------------------------------------------------------
 
-REDIS_BASE_PORT = 6380
-REDIS_PORT = str(REDIS_BASE_PORT + WORKER_OFFSET)
-REDIS_CONTAINER_NAME = f"test-redis-{WORKER_ID}"
-DOCKER_RUN_TIMEOUT_SECONDS = int(os.getenv("TRACECAT_TEST_DOCKER_RUN_TIMEOUT", "60"))
+# Redis runs on standard port via docker-compose
+REDIS_PORT = 6379
 
 
 # ---------------------------------------------------------------------------
@@ -76,95 +56,39 @@ DOCKER_RUN_TIMEOUT_SECONDS = int(os.getenv("TRACECAT_TEST_DOCKER_RUN_TIMEOUT", "
 
 @pytest.fixture(scope="session")
 def redis_server():
-    """Start Redis server in Docker for the test session."""
+    """Verify Redis is available via docker-compose.
 
+    Redis should be started externally via:
+    - CI: docker-compose in workflow
+    - Local: `just dev` or `docker-compose up`
+    """
     import redis as redis_sync
 
-    # Stop any existing container with the same name
-    subprocess.run(
-        [
-            "docker",
-            "stop",
-            REDIS_CONTAINER_NAME,
-        ],
-        check=False,
-        capture_output=True,
-    )
-    subprocess.run(
-        [
-            "docker",
-            "rm",
-            REDIS_CONTAINER_NAME,
-        ],
-        check=False,
-        capture_output=True,
-    )
-
-    # Launch Redis container
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            REDIS_CONTAINER_NAME,
-            "-p",
-            f"{REDIS_PORT}:6379",
-            "redis:7-alpine",
-        ],
-        check=True,
-        capture_output=True,
-        timeout=DOCKER_RUN_TIMEOUT_SECONDS,
-    )
-
-    # Wait until Redis is ready
-    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    client = redis_sync.Redis(host="localhost", port=REDIS_PORT)
     for _ in range(30):
         try:
             if client.ping():
-                break
+                logger.info(f"Redis available on port {REDIS_PORT}")
+                os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}"
+                yield
+                return
         except Exception:
             time.sleep(1)
-    else:
-        raise RuntimeError("Redis server failed to start in time")
 
-    # Ensure library code picks up the correct URL
-    os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}"
-
-    try:
-        yield
-    finally:
-        subprocess.run(
-            [
-                "docker",
-                "stop",
-                REDIS_CONTAINER_NAME,
-            ],
-            check=False,
-            capture_output=True,
-        )
-        subprocess.run(
-            [
-                "docker",
-                "rm",
-                REDIS_CONTAINER_NAME,
-            ],
-            check=False,
-            capture_output=True,
-        )
+    pytest.fail(
+        f"Redis not available on port {REDIS_PORT}. "
+        "Start it with: docker-compose -f docker-compose.dev.yml up -d redis"
+    )
 
 
 @pytest.fixture(autouse=True, scope="function")
 def clean_redis_db(redis_server):
     """Flush Redis before every test function to guarantee isolation."""
-
     import redis as redis_sync
 
-    # Use sync redis client to avoid event loop issues
-    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    client = redis_sync.Redis(host="localhost", port=REDIS_PORT)
     client.flushdb()
     yield
-    # Optionally flush again after test
     client.flushdb()
 
 
@@ -535,94 +459,39 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
 # MinIO and S3 testing fixtures
 @pytest.fixture(scope="session")
 def minio_server():
-    """Start MinIO server in Docker for the test session."""
-    # First, clean up any existing container
-    try:
-        subprocess.run(
-            ["docker", "stop", MINIO_CONTAINER_NAME], check=False, capture_output=True
-        )
-        subprocess.run(
-            ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
-        )
-    except subprocess.CalledProcessError:
-        pass
+    """Verify MinIO is available via docker-compose.
 
-    # Start MinIO container with correct environment variables
-    try:
-        subprocess.run(
-            [
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                MINIO_CONTAINER_NAME,
-                "-p",
-                f"{MINIO_PORT}:9000",
-                "-p",
-                f"{MINIO_CONSOLE_PORT}:9001",
-                "-e",
-                f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
-                "-e",
-                f"MINIO_ROOT_PASSWORD={MINIO_SECRET_KEY}",
-                "minio/minio:latest",
-                "server",
-                "/data",
-                "--console-address",
-                ":9001",
-            ],
-            check=True,
-            capture_output=True,
-            # Add timeout
-            timeout=DOCKER_RUN_TIMEOUT_SECONDS,
-        )
-
-        # Wait for MinIO to be ready
-        max_retries = 30
-        for i in range(max_retries):
-            try:
-                client = Minio(
-                    MINIO_ENDPOINT,
-                    access_key=MINIO_ACCESS_KEY,
-                    secret_key=MINIO_SECRET_KEY,
-                    secure=False,
-                )
-                # Try to list buckets to check if MinIO is ready
-                list(client.list_buckets())
-                logger.info(f"MinIO server started in container {MINIO_CONTAINER_NAME}")
-                break
-            except Exception as e:
-                if i == max_retries - 1:
-                    logger.error(
-                        f"MinIO failed to start after {max_retries} retries: {e}"
-                    )
-                    raise RuntimeError(
-                        "MinIO server failed to start within timeout"
-                    ) from e
-                time.sleep(1)
-
-        yield
-
-    finally:
-        # Cleanup: stop and remove container
+    MinIO should be started externally via:
+    - CI: docker-compose in workflow
+    - Local: `just dev` or `docker-compose up`
+    """
+    endpoint = f"localhost:{MINIO_PORT}"
+    for _ in range(30):
         try:
-            subprocess.run(
-                ["docker", "stop", MINIO_CONTAINER_NAME],
-                check=False,
-                capture_output=True,
+            client = Minio(
+                endpoint,
+                access_key=MINIO_ACCESS_KEY,
+                secret_key=MINIO_SECRET_KEY,
+                secure=False,
             )
-            subprocess.run(
-                ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
-            )
-            logger.info(f"MinIO container {MINIO_CONTAINER_NAME} cleaned up")
-        except subprocess.CalledProcessError:
-            pass
+            list(client.list_buckets())
+            logger.info(f"MinIO available on port {MINIO_PORT}")
+            yield
+            return
+        except Exception:
+            time.sleep(1)
+
+    pytest.fail(
+        f"MinIO not available on port {MINIO_PORT}. "
+        "Start it with: docker-compose -f docker-compose.dev.yml up -d minio"
+    )
 
 
 @pytest.fixture
 async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
     """Create MinIO client for testing."""
     client = Minio(
-        MINIO_ENDPOINT,
+        f"localhost:{MINIO_PORT}",
         access_key=MINIO_ACCESS_KEY,
         secret_key=MINIO_SECRET_KEY,
         secure=False,
@@ -682,7 +551,7 @@ async def aioboto3_minio_client(monkeypatch):
 
     def mock_client(self, service_name, **kwargs):
         if service_name == "s3":
-            kwargs["endpoint_url"] = f"http://{MINIO_ENDPOINT}"
+            kwargs["endpoint_url"] = f"http://localhost:{MINIO_PORT}"
         return original_client(self, service_name, **kwargs)
 
     # Apply mocks using monkeypatch
