@@ -15,6 +15,7 @@ from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
+from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ChatCreate,
     ChatMessage,
@@ -84,10 +85,9 @@ async def list_chats(
         limit=limit,
     )
 
-    chats = [
+    return [
         ChatReadMinimal.model_validate(chat, from_attributes=True) for chat in chats
     ]
-    return chats
 
 
 @router.get("/{chat_id}")
@@ -145,10 +145,11 @@ async def get_chat_vercel(
             detail="Chat not found",
         )
 
-    # Convert messages to UIMessage format
+    # Convert messages to UIMessage format, excluding INTERNAL messages
     messages = [
         ChatMessage(id=str(message.id), harness=message.harness, data=message.data)
         for message in chat.messages
+        if message.kind != MessageKind.INTERNAL
     ]
     ui_messages = vercel.convert_chat_messages_to_ui(messages)
 
@@ -217,6 +218,7 @@ async def chat_with_vercel_streaming(
         deps = await PersistableStreamingAgentDeps.new(
             chat_id, workspace_id, persistent=True, namespace="chat"
         )
+
         executor = AioStreamingAgentExecutor(deps=deps)
 
         # Run chat turn (handles both start and continue cases)

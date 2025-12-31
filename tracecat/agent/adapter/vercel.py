@@ -973,6 +973,7 @@ class VercelStreamContext:
                 StreamEventType.MESSAGE_START
                 | StreamEventType.MESSAGE_STOP
                 | StreamEventType.DONE
+                | StreamEventType.USER_MESSAGE
             ):
                 # Lifecycle events - no Vercel SSE emission needed
                 pass
@@ -1396,11 +1397,20 @@ def convert_chat_messages_to_ui(
                 case "ToolUseBlock":
                     if approval_payload:
                         continue
+                    # Extract underlying tool name for execute_tool wrapper
+                    tool_name = part.name
+                    tool_input = part.input or {}
+                    if (
+                        part.name == "mcp__tracecat-registry__execute_tool"
+                        and isinstance(tool_input, dict)
+                    ):
+                        tool_name = tool_input.get("tool_name", part.name)
+                        tool_input = tool_input.get("args", tool_input)
                     tool_part = MutableToolPart(
-                        type=f"tool-{part.name}",
+                        type=f"tool-{tool_name}",
                         tool_call_id=part.id,
                         state="input-available",
-                        input=part.input or {},
+                        input=tool_input,
                     )
                     mutable_message.parts.append(tool_part)
                     tool_entries[part.id] = tool_part

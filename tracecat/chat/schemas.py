@@ -146,6 +146,14 @@ class ChatUpdate(BaseModel):
         default=None,
         description="Agent preset to use for the chat session (set to null for default instructions)",
     )
+    sdk_session_id: str | None = Field(
+        default=None,
+        description="Claude SDK session ID for resumption",
+    )
+    sdk_session_data: str | None = Field(
+        default=None,
+        description="Claude SDK session JSONL content for resumption",
+    )
 
 
 class ChatMessage(BaseModel):

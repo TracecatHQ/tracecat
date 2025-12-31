@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import (
     TYPE_CHECKING,
@@ -115,3 +116,18 @@ class AgentConfig:
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
+
+
+class AgentRuntime(ABC):
+    """Abstract base class for agent runtimes.
+
+    Agent runtimes are responsible for executing agent turns. Different implementations
+    may have different I/O mechanisms:
+    - ClaudeAgentRuntime: Stateless, sandboxed, uses Unix sockets for I/O
+    - Legacy runtimes: May use PersistableStreamingAgentDeps for Redis/DB access
+    """
+
+    @abstractmethod
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        """Run an agent. Must be implemented by subclasses."""
+        ...
