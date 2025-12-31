@@ -52,8 +52,8 @@ if TYPE_CHECKING:
 # MinIO test configuration - uses docker-compose services (port 9000)
 # These match the docker-compose.local.yml configuration
 MINIO_ENDPOINT = "localhost:9000"
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
+MINIO_ACCESS_KEY = "minio"
+MINIO_SECRET_KEY = "password"
 TEST_BUCKET = "test-tracecat-registry"
 
 
