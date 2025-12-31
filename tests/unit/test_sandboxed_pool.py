@@ -417,4 +417,4 @@ class TestSandboxedWorkerInfo:
         assert info.tasks_completed == 0
         assert info.recycling is False
         assert info.last_task_completed_at == 0.0
-        assert info.last_task_started_at == 0.0
+        assert info.oldest_task_started_at == 0.0

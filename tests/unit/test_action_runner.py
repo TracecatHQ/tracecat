@@ -103,14 +103,15 @@ class TestActionRunner:
         assert key1 == key2
         assert len(key1) == 16  # SHA256[:16]
 
-    def test_compute_tarball_cache_key_case_insensitive(self, temp_cache_dir):
-        """Test that cache key is case-insensitive."""
+    def test_compute_tarball_cache_key_case_sensitive(self, temp_cache_dir):
+        """Test that cache key is case-sensitive (S3 keys are case-sensitive)."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
         key1 = runner.compute_tarball_cache_key("s3://BUCKET/PATH/FILE.tar.gz")
         key2 = runner.compute_tarball_cache_key("s3://bucket/path/file.tar.gz")
 
-        assert key1 == key2
+        # S3 keys are case-sensitive, so different cases should produce different keys
+        assert key1 != key2
 
     def test_compute_tarball_cache_key_different_uris(self, temp_cache_dir):
         """Test that different URIs produce different cache keys."""
