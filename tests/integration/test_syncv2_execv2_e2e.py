@@ -580,3 +580,352 @@ class TestFailureScenarios:
 
         # Should return empty list (version not found)
         assert len(artifacts) == 0
+
+
+# =============================================================================
+# Test Class: Multitenant Workloads
+# =============================================================================
+
+
+@pytest.mark.integration
+class TestMultitenantWorkloads:
+    """Tests for multitenant workload handling.
+
+    These tests verify that the executor correctly isolates workloads
+    between different workspaces/tenants when using the EphemeralBackend.
+    """
+
+    @pytest.fixture
+    def create_workspace_role(self):
+        """Factory for creating roles with different workspace IDs."""
+
+        def _create(workspace_id: uuid.UUID | None = None) -> Role:
+            return Role(
+                type="service",
+                service_id="tracecat-runner",
+                workspace_id=workspace_id or uuid.uuid4(),
+                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                user_id=uuid.UUID("00000000-0000-4444-aaaa-000000000000"),
+            )
+
+        return _create
+
+    @pytest.fixture
+    def create_run_input(self):
+        """Factory for creating RunActionInput with workspace-specific values."""
+
+        def _create(
+            workspace_id: uuid.UUID,
+            value: dict,
+            registry_lock: dict[str, str] | None = None,
+        ) -> RunActionInput:
+            wf_id = WorkflowUUID.new_uuid4()
+            return RunActionInput(
+                task=ActionStatement(
+                    action="core.transform.reshape",
+                    args={"value": value},
+                    ref="test_action",
+                ),
+                exec_context={},
+                run_context=RunContext(
+                    wf_id=wf_id,
+                    wf_exec_id=f"{wf_id.short()}/exec_test",
+                    wf_run_id=uuid.uuid4(),
+                    environment="default",
+                ),
+                registry_lock=registry_lock,
+            )
+
+        return _create
+
+    @pytest.mark.anyio
+    async def test_concurrent_execution_different_workspaces(
+        self,
+        session: AsyncSession,
+        test_role: Role,
+        minio_server,
+        test_bucket: str,
+        builtin_repo,
+        create_workspace_role,
+        create_run_input,
+        temp_cache_dir: Path,
+    ):
+        """Verify concurrent execution from different workspaces is isolated.
+
+        This test:
+        1. Creates two different workspace roles
+        2. Syncs registry to create shared tarball in MinIO
+        3. Executes actions concurrently from both workspaces
+        4. Verifies each workspace gets correct results without cross-contamination
+        """
+        import asyncio
+
+        # Sync registry to create tarball in MinIO
+        async with RegistrySyncService.with_session(
+            session=session, role=test_role
+        ) as sync_service:
+            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+
+        # Create two different workspace roles
+        workspace_a_id = uuid.uuid4()
+        workspace_b_id = uuid.uuid4()
+        role_a = create_workspace_role(workspace_a_id)
+        role_b = create_workspace_role(workspace_b_id)
+
+        # Create inputs with workspace-specific values
+        input_a = create_run_input(
+            workspace_id=workspace_a_id,
+            value={"workspace": "A", "tenant_id": str(workspace_a_id)},
+        )
+        input_b = create_run_input(
+            workspace_id=workspace_b_id,
+            value={"workspace": "B", "tenant_id": str(workspace_b_id)},
+        )
+
+        # Create mock artifacts for both workspaces
+        mock_artifacts = [
+            RegistryArtifactsContext(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                version=sync_result.version.version,
+                tarball_uri=sync_result.tarball_uri,
+            )
+        ]
+
+        # Execute via EphemeralBackend
+        backend = EphemeralBackend()
+
+        # Create test runner
+        test_runner = ActionRunner(cache_dir=temp_cache_dir)
+
+        # Wrap execute_action to disable force_sandbox for testing
+        original_execute = test_runner.execute_action
+
+        async def execute_without_nsjail(**kwargs):
+            kwargs["force_sandbox"] = False
+            return await original_execute(**kwargs)
+
+        # Execute both workspaces concurrently
+        with (
+            patch(
+                "tracecat.executor.backends.ephemeral.get_action_runner",
+                return_value=test_runner,
+            ),
+            patch.object(
+                test_runner,
+                "execute_action",
+                side_effect=execute_without_nsjail,
+            ),
+            patch(
+                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
+                new_callable=AsyncMock,
+                return_value=mock_artifacts,
+            ),
+        ):
+            # Run both executions concurrently
+            result_a, result_b = await asyncio.gather(
+                backend.execute(input_a, role_a, timeout=60.0),
+                backend.execute(input_b, role_b, timeout=60.0),
+            )
+
+        # Verify both succeeded
+        assert isinstance(result_a, ExecutorResultSuccess), (
+            f"Workspace A failed: {result_a}"
+        )
+        assert isinstance(result_b, ExecutorResultSuccess), (
+            f"Workspace B failed: {result_b}"
+        )
+
+        # Verify each workspace got its own result (no cross-contamination)
+        assert result_a.result["workspace"] == "A"
+        assert result_a.result["tenant_id"] == str(workspace_a_id)
+        assert result_b.result["workspace"] == "B"
+        assert result_b.result["tenant_id"] == str(workspace_b_id)
+
+    @pytest.mark.anyio
+    async def test_multiple_concurrent_requests_same_workspace(
+        self,
+        session: AsyncSession,
+        test_role: Role,
+        minio_server,
+        test_bucket: str,
+        builtin_repo,
+        create_run_input,
+        temp_cache_dir: Path,
+    ):
+        """Verify multiple concurrent requests from same workspace work correctly.
+
+        This tests the scenario where a single tenant has multiple workflows
+        running in parallel, ensuring they all complete without interference.
+        """
+        import asyncio
+
+        # Sync registry to create tarball in MinIO
+        async with RegistrySyncService.with_session(
+            session=session, role=test_role
+        ) as sync_service:
+            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+
+        # Create multiple inputs for the same workspace
+        workspace_id = test_role.workspace_id
+        inputs = [
+            create_run_input(
+                workspace_id=workspace_id,
+                value={"request_id": i, "workspace": str(workspace_id)},
+            )
+            for i in range(5)
+        ]
+
+        # Create mock artifacts
+        mock_artifacts = [
+            RegistryArtifactsContext(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                version=sync_result.version.version,
+                tarball_uri=sync_result.tarball_uri,
+            )
+        ]
+
+        # Execute via EphemeralBackend
+        backend = EphemeralBackend()
+
+        # Create test runner
+        test_runner = ActionRunner(cache_dir=temp_cache_dir)
+
+        # Wrap execute_action to disable force_sandbox for testing
+        original_execute = test_runner.execute_action
+
+        async def execute_without_nsjail(**kwargs):
+            kwargs["force_sandbox"] = False
+            return await original_execute(**kwargs)
+
+        # Execute all requests concurrently
+        with (
+            patch(
+                "tracecat.executor.backends.ephemeral.get_action_runner",
+                return_value=test_runner,
+            ),
+            patch.object(
+                test_runner,
+                "execute_action",
+                side_effect=execute_without_nsjail,
+            ),
+            patch(
+                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
+                new_callable=AsyncMock,
+                return_value=mock_artifacts,
+            ),
+        ):
+            results = await asyncio.gather(
+                *[backend.execute(inp, test_role, timeout=60.0) for inp in inputs]
+            )
+
+        # Verify all succeeded
+        for i, result in enumerate(results):
+            assert isinstance(result, ExecutorResultSuccess), (
+                f"Request {i} failed: {result}"
+            )
+            assert result.result["request_id"] == i
+            assert result.result["workspace"] == str(workspace_id)
+
+    @pytest.mark.anyio
+    async def test_workspace_specific_registry_locks(
+        self,
+        session: AsyncSession,
+        test_role: Role,
+        minio_server,
+        test_bucket: str,
+        builtin_repo,
+        create_workspace_role,
+        create_run_input,
+        temp_cache_dir: Path,
+    ):
+        """Verify different workspaces can use different registry versions via locks.
+
+        This tests that registry_lock properly pins versions per workflow,
+        allowing different tenants to use different registry versions.
+        """
+        import asyncio
+
+        # Sync registry to create tarball in MinIO
+        async with RegistrySyncService.with_session(
+            session=session, role=test_role
+        ) as sync_service:
+            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+
+        # Create two different workspace roles
+        workspace_a_id = uuid.uuid4()
+        workspace_b_id = uuid.uuid4()
+        role_a = create_workspace_role(workspace_a_id)
+        role_b = create_workspace_role(workspace_b_id)
+
+        # Both use the same version via registry lock (simulating pinned deployments)
+        registry_lock = {"tracecat_registry": sync_result.version.version}
+
+        # Create inputs with registry locks
+        input_a = create_run_input(
+            workspace_id=workspace_a_id,
+            value={"workspace": "A", "locked_version": sync_result.version.version},
+            registry_lock=registry_lock,
+        )
+        input_b = create_run_input(
+            workspace_id=workspace_b_id,
+            value={"workspace": "B", "locked_version": sync_result.version.version},
+            registry_lock=registry_lock,
+        )
+
+        # Create mock artifacts for locked version
+        mock_artifacts = [
+            RegistryArtifactsContext(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                version=sync_result.version.version,
+                tarball_uri=sync_result.tarball_uri,
+            )
+        ]
+
+        # Execute via EphemeralBackend
+        backend = EphemeralBackend()
+
+        # Create test runner
+        test_runner = ActionRunner(cache_dir=temp_cache_dir)
+
+        # Wrap execute_action to disable force_sandbox for testing
+        original_execute = test_runner.execute_action
+
+        async def execute_without_nsjail(**kwargs):
+            kwargs["force_sandbox"] = False
+            return await original_execute(**kwargs)
+
+        # Execute both workspaces concurrently with locked versions
+        with (
+            patch(
+                "tracecat.executor.backends.ephemeral.get_action_runner",
+                return_value=test_runner,
+            ),
+            patch.object(
+                test_runner,
+                "execute_action",
+                side_effect=execute_without_nsjail,
+            ),
+            patch(
+                "tracecat.executor.backends.ephemeral.get_registry_artifacts_for_lock",
+                new_callable=AsyncMock,
+                return_value=mock_artifacts,
+            ),
+        ):
+            result_a, result_b = await asyncio.gather(
+                backend.execute(input_a, role_a, timeout=60.0),
+                backend.execute(input_b, role_b, timeout=60.0),
+            )
+
+        # Verify both succeeded with locked version
+        assert isinstance(result_a, ExecutorResultSuccess), (
+            f"Workspace A failed: {result_a}"
+        )
+        assert isinstance(result_b, ExecutorResultSuccess), (
+            f"Workspace B failed: {result_b}"
+        )
+
+        # Verify each got correct result with locked version info
+        assert result_a.result["workspace"] == "A"
+        assert result_a.result["locked_version"] == sync_result.version.version
+        assert result_b.result["workspace"] == "B"
+        assert result_b.result["locked_version"] == sync_result.version.version
