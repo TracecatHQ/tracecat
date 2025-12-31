@@ -1,6 +1,9 @@
 """Tests for workflow timer and retry functionality.
 
 Tests both timer control flow (wait_until, start_delay) and retry_until behavior.
+
+Note: These tests use the time-skipping test environment and mock out the
+execute_action_activity to avoid needing a real executor worker.
 """
 
 import asyncio
@@ -15,20 +18,28 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
-from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionInput
 from tracecat.dsl.worker import get_activities
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.executor.activities import ExecutorActivities
 from tracecat.logger import logger
+
+# Test queue name used for timer tests
+TIMER_TEST_QUEUE = "timer-test-queue"
 
 
 @pytest.fixture
 async def env(
     monkeysession: pytest.MonkeyPatch,
 ) -> AsyncGenerator[WorkflowEnvironment, None]:
+    # Override executor queue to use the same queue as the test worker
+    # This allows the mock activity to be picked up by the same worker
+    monkeysession.setattr(config, "TRACECAT__EXECUTOR_QUEUE", TIMER_TEST_QUEUE)
+
     async with await WorkflowEnvironment.start_time_skipping(
         data_converter=get_data_converter(compression_enabled=False)
     ) as env:
@@ -65,28 +76,26 @@ async def test_workflow_wait_until_future(
 
     num_activity_executions = 0
 
-    # Mock out the activity to count executions
-    @activity.defn(name="run_action_activity")
-    async def run_action_activity_mock(input: RunActionInput, role: Role) -> str:
+    # Mock out the execute_action_activity (replaces run_action_activity)
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(input: RunActionInput, role: Role) -> str:
         nonlocal num_activity_executions
         num_activity_executions += 1
         return input.task.args["value"]
 
-    # Mock out the activity to count executions
+    # Get base activities and add the mock
     activities = get_activities()
-    activities.remove(DSLActivities.run_action_activity)
-    activities.append(run_action_activity_mock)
+    activities.append(execute_action_activity_mock)
 
-    task_queue = "test-queue"
     async with test_worker_factory(
-        env.client, activities=activities, task_queue=task_queue
+        env.client, activities=activities, task_queue=TIMER_TEST_QUEUE
     ):
         start_time = await env.get_current_time()
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_wait_until_future"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
         # Time skip 2 minutes
         await env.sleep(timedelta(hours=2))
@@ -127,9 +136,9 @@ async def test_workflow_retry_until_condition(
 
     num_activity_executions = 0
 
-    # Mock out the activity to count executions
-    @activity.defn(name="run_action_activity")
-    async def run_action_activity_mock(
+    # Mock out the execute_action_activity (replaces run_action_activity)
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
         input: RunActionInput, role: Role
     ) -> dict[str, str]:
         nonlocal num_activity_executions
@@ -138,20 +147,18 @@ async def test_workflow_retry_until_condition(
             return {"status": "loading"}
         return {"status": "success"}
 
-    # Mock out the activity to count executions
+    # Get base activities and add the mock
     activities = get_activities()
-    activities.remove(DSLActivities.run_action_activity)
-    activities.append(run_action_activity_mock)
+    activities.append(execute_action_activity_mock)
 
-    task_queue = "test-queue"
     async with test_worker_factory(
-        env.client, activities=activities, task_queue=task_queue
+        env.client, activities=activities, task_queue=TIMER_TEST_QUEUE
     ):
         result = await env.client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
 
         # Expect 3 activity executions
@@ -188,9 +195,9 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
 
     num_activity_executions = 0
 
-    # Mock out the activity to count executions
-    @activity.defn(name="run_action_activity")
-    async def run_action_activity_mock(
+    # Mock out the execute_action_activity (replaces run_action_activity)
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
         input: RunActionInput, role: Role
     ) -> dict[str, str]:
         nonlocal num_activity_executions
@@ -199,20 +206,18 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
             return {"status": "loading"}
         return {"status": "success"}
 
-    # Mock out the activity to count executions
+    # Get base activities and add the mock
     activities = get_activities()
-    activities.remove(DSLActivities.run_action_activity)
-    activities.append(run_action_activity_mock)
+    activities.append(execute_action_activity_mock)
 
-    task_queue = "test-queue"
     async with test_worker_factory(
-        env.client, activities=activities, task_queue=task_queue
+        env.client, activities=activities, task_queue=TIMER_TEST_QUEUE
     ):
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
         start_time = await env.get_current_time()
         # Duration until 9am tomorrow
@@ -289,30 +294,28 @@ async def test_workflow_waits_until_tomorrow_9am(
 
     num_activity_executions = 0
 
-    # Mock out the activity to count executions
-    @activity.defn(name="run_action_activity")
-    async def run_action_activity_mock(
+    # Mock out the execute_action_activity (replaces run_action_activity)
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
         input: RunActionInput, role: Role
     ) -> dict[str, str]:
         nonlocal num_activity_executions
         num_activity_executions += 1
         return {"status": "success"}
 
-    # Mock out the activity to count executions
+    # Get base activities and add the mock
     activities = get_activities()
-    activities.remove(DSLActivities.run_action_activity)
-    activities.append(run_action_activity_mock)
+    activities.append(execute_action_activity_mock)
 
-    task_queue = "test-queue"
     async with test_worker_factory(
-        env.client, activities=activities, task_queue=task_queue
+        env.client, activities=activities, task_queue=TIMER_TEST_QUEUE
     ):
         start_time = await env.get_current_time()
         _ = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
         # Duration until 9am tomorrow
         t = dateparser.parse(
@@ -372,9 +375,9 @@ async def test_workflow_retry_until_condition_with_wait_until(
 
     num_activity_executions = 0
 
-    # Mock out the activity to count executions
-    @activity.defn(name="run_action_activity")
-    async def run_action_activity_mock(
+    # Mock out the execute_action_activity (replaces run_action_activity)
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
         input: RunActionInput, role: Role
     ) -> dict[str, str]:
         nonlocal num_activity_executions
@@ -383,21 +386,19 @@ async def test_workflow_retry_until_condition_with_wait_until(
             return {"status": "loading"}
         return {"status": "success"}
 
-    # Mock out the activity to count executions
+    # Get base activities and add the mock
     activities = get_activities()
-    activities.remove(DSLActivities.run_action_activity)
-    activities.append(run_action_activity_mock)
+    activities.append(execute_action_activity_mock)
 
-    task_queue = "test-queue"
     async with test_worker_factory(
-        env.client, activities=activities, task_queue=task_queue
+        env.client, activities=activities, task_queue=TIMER_TEST_QUEUE
     ):
         start_time = await env.get_current_time()
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
         # Time skip expected delay plus 1 min buffer
         await env.sleep(expected_delay + timedelta(minutes=1))
@@ -464,13 +465,12 @@ async def test_workflow_wait_until_past(
         ],
     )
 
-    task_queue = "test-queue"
-    async with test_worker_factory(env.client, task_queue=task_queue):
+    async with test_worker_factory(env.client, task_queue=TIMER_TEST_QUEUE):
         await env.client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_wait_until_past"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
         # Assert that no sleeps occurred
         assert num_sleeps == 0
@@ -499,28 +499,26 @@ async def test_workflow_start_delay(
 
     num_activity_executions = 0
 
-    # Mock out the activity to count executions
-    @activity.defn(name="run_action_activity")
-    async def run_action_activity_mock(input: RunActionInput, role: Role) -> str:
+    # Mock out the execute_action_activity (replaces run_action_activity)
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(input: RunActionInput, role: Role) -> str:
         nonlocal num_activity_executions
         num_activity_executions += 1
         return "test"
 
-    # Mock out the activity to count executions
+    # Get base activities and add the mock
     activities = get_activities()
-    activities.remove(DSLActivities.run_action_activity)
-    activities.append(run_action_activity_mock)
+    activities.append(execute_action_activity_mock)
 
-    task_queue = "test-queue"
     async with test_worker_factory(
-        env.client, activities=activities, task_queue=task_queue
+        env.client, activities=activities, task_queue=TIMER_TEST_QUEUE
     ):
         start_time = await env.get_current_time()
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_start_delay"),
-            task_queue=task_queue,
+            task_queue=TIMER_TEST_QUEUE,
         )
         # Time skip 1 hour
         await env.sleep(timedelta(hours=2))
@@ -562,7 +560,7 @@ async def test_workflow_wait_until_precedence(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         start_time = datetime.now(UTC)
         result = await client.execute_workflow(
@@ -599,7 +597,7 @@ async def test_workflow_invalid_wait_until(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Invalid wait until date"):
             await client.execute_workflow(
@@ -635,7 +633,7 @@ async def test_workflow_retry_until_max_attempts(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Maximum attempts exceeded"):
             await client.execute_workflow(
@@ -671,7 +669,7 @@ async def test_workflow_retry_until_timeout(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Activity timeout"):
             await client.execute_workflow(
@@ -723,7 +721,7 @@ async def test_workflow_multiple_timed_actions(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         start_time = datetime.now(UTC)
         result = await client.execute_workflow(
@@ -768,7 +766,7 @@ async def test_workflow_retry_until_time_condition(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         result = await client.execute_workflow(
             DSLWorkflow.run,
@@ -807,7 +805,7 @@ async def test_workflow_invalid_retry_until_expression(
     )
 
     client = env.client
-    task_queue = "test-queue"
+    task_queue = TIMER_TEST_QUEUE
     async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Invalid retry_until expression"):
             await client.execute_workflow(
