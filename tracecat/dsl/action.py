@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import dateparser
@@ -120,6 +121,9 @@ class DSLActivities:
         env_context = input.exec_context.get(ExprContext.ENV) or {}
         workflow_context = env_context.get("workflow") or {}
         if time_anchor := workflow_context.get("time_anchor"):
+            # time_anchor may be serialized as ISO string through Temporal
+            if isinstance(time_anchor, str):
+                time_anchor = datetime.fromisoformat(time_anchor)
             ctx_time_anchor.set(time_anchor)
 
         act_info = activity.info()

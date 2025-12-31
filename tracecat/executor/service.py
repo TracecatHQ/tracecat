@@ -6,6 +6,7 @@ import time
 import traceback
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -382,6 +383,9 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     env_context = context.get(ExprContext.ENV) or {}
     workflow_context = env_context.get("workflow") or {}
     if time_anchor := workflow_context.get("time_anchor"):
+        # time_anchor may be serialized as ISO string through Temporal
+        if isinstance(time_anchor, str):
+            time_anchor = datetime.fromisoformat(time_anchor)
         ctx_time_anchor.set(time_anchor)
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
