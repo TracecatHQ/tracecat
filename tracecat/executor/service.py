@@ -84,86 +84,71 @@ class RegistryArtifactsContext:
     tarball_uri: str
 
 
-_registry_artifacts_lock = asyncio.Lock()
 _registry_artifacts_cache: dict[str, tuple[float, list[RegistryArtifactsContext]]] = {}
 
 
 async def get_registry_artifacts_cached(role: Role) -> list[RegistryArtifactsContext]:
-    """Get latest registry tarball URIs, cached per workspace."""
+    """Get latest registry tarball URIs, cached per workspace.
+
+    Uses a simple TTL cache. No locking - if multiple concurrent requests
+    hit an expired cache, they'll all query the DB (harmless duplicate work).
+    """
     cache_key = str(role.workspace_id)
-    logger.debug("Checking registry artifacts cache", cache_key=cache_key)
     if cached := _registry_artifacts_cache.get(cache_key):
         expire_time, artifacts = cached
         if time.time() < expire_time:
-            logger.debug("Cache hit for registry artifacts", cache_key=cache_key)
             return artifacts
 
-    async with _registry_artifacts_lock:
-        logger.debug("Acquired registry artifacts lock", cache_key=cache_key)
-        if cached := _registry_artifacts_cache.get(cache_key):
-            expire_time, artifacts = cached
-            if time.time() < expire_time:
-                logger.debug(
-                    "Cache hit for registry artifacts (post-lock)", cache_key=cache_key
-                )
-                return artifacts
-
-        logger.info("Querying latest registry artifacts from DB", cache_key=cache_key)
-        async with (
-            get_async_session_context_manager() as session,
-            with_session(session=session),
-        ):
-            subq = (
-                select(
-                    RegistryVersion.repository_id,
-                    func.max(RegistryVersion.created_at).label("max_created_at"),
-                )
-                .where(
-                    RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID
-                )
-                .group_by(RegistryVersion.repository_id)
-                .subquery()
+    # Cache miss or expired - fetch from DB
+    logger.info("Querying latest registry artifacts from DB", cache_key=cache_key)
+    async with (
+        get_async_session_context_manager() as session,
+        with_session(session=session),
+    ):
+        subq = (
+            select(
+                RegistryVersion.repository_id,
+                func.max(RegistryVersion.created_at).label("max_created_at"),
             )
-            rv_alias = aliased(RegistryVersion)
-            statement = (
-                select(
-                    RegistryRepository.origin,
-                    rv_alias.version,
-                    rv_alias.tarball_uri,
-                )
-                .join(subq, RegistryRepository.id == subq.c.repository_id)
-                .join(
-                    rv_alias,
-                    (rv_alias.repository_id == subq.c.repository_id)
-                    & (rv_alias.created_at == subq.c.max_created_at),
-                )
-                .where(
-                    RegistryRepository.organization_id
-                    == config.TRACECAT__DEFAULT_ORG_ID
-                )
-            )
-            logger.debug(
-                "Executing SQL to fetch registry artifacts", sql=str(statement)
-            )
-            result = await session.execute(statement)
-            # Only include artifacts that have a tarball_uri (required after migration)
-            artifacts = [
-                RegistryArtifactsContext(
-                    origin=str(origin),
-                    version=str(version),
-                    tarball_uri=str(tarball_uri),
-                )
-                for origin, version, tarball_uri in result.all()
-                if tarball_uri is not None
-            ]
-
-        logger.info(
-            "Fetched registry artifacts and updating cache",
-            count=len(artifacts),
-            cache_key=cache_key,
+            .where(RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID)
+            .group_by(RegistryVersion.repository_id)
+            .subquery()
         )
-        _registry_artifacts_cache[cache_key] = (time.time() + 60, artifacts)
-        return artifacts
+        rv_alias = aliased(RegistryVersion)
+        statement = (
+            select(
+                RegistryRepository.origin,
+                rv_alias.version,
+                rv_alias.tarball_uri,
+            )
+            .join(subq, RegistryRepository.id == subq.c.repository_id)
+            .join(
+                rv_alias,
+                (rv_alias.repository_id == subq.c.repository_id)
+                & (rv_alias.created_at == subq.c.max_created_at),
+            )
+            .where(
+                RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID
+            )
+        )
+        result = await session.execute(statement)
+        artifacts = [
+            RegistryArtifactsContext(
+                origin=str(origin),
+                version=str(version),
+                tarball_uri=str(tarball_uri),
+            )
+            for origin, version, tarball_uri in result.all()
+            if tarball_uri is not None
+        ]
+
+    logger.info(
+        "Fetched registry artifacts and updating cache",
+        count=len(artifacts),
+        cache_key=cache_key,
+    )
+    _registry_artifacts_cache[cache_key] = (time.time() + 60, artifacts)
+    return artifacts
 
 
 async def get_registry_artifacts_for_lock(
@@ -522,7 +507,7 @@ async def run_action_on_cluster(
     # Ensure registry environment is set up (for tarball extraction)
     await _get_registry_pythonpath(input, role)
 
-    backend = await get_executor_backend()
+    backend = get_executor_backend()
 
     try:
         result = await backend.execute(input=input, role=role, timeout=timeout)

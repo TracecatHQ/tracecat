@@ -36,6 +36,10 @@ from temporalio.worker import Worker
 from tracecat import config
 from tracecat.dsl.client import get_temporal_client
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.executor.backends import (
+    initialize_executor_backend,
+    shutdown_executor_backend,
+)
 from tracecat.logger import logger
 
 interrupt_event = asyncio.Event()
@@ -63,17 +67,7 @@ async def main() -> None:
     )
 
     # Initialize the executor backend before accepting tasks
-    from tracecat.executor.backends import get_executor_backend
-
-    logger.info(
-        "Initializing executor backend",
-        backend=config.TRACECAT__EXECUTOR_BACKEND,
-    )
-    backend = await get_executor_backend()
-    logger.info(
-        "Executor backend ready",
-        backend_class=type(backend).__name__,
-    )
+    await initialize_executor_backend()
 
     try:
         client = await get_temporal_client()
@@ -103,9 +97,6 @@ async def main() -> None:
                 await interrupt_event.wait()
                 logger.info("Shutting down ExecutorWorker")
     finally:
-        # Clean up the executor backend
-        from tracecat.executor.backends import shutdown_executor_backend
-
         logger.info("Shutting down executor backend")
         await shutdown_executor_backend()
 

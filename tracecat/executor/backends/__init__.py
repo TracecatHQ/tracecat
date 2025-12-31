@@ -1,18 +1,21 @@
 """Executor backend implementations.
 
-This module provides the factory function for getting the configured
-executor backend, as well as exports for all backend implementations.
+This module provides functions for managing the executor backend lifecycle.
+The backend must be initialized at worker startup before any activities run.
 
 Usage:
-    from tracecat.executor.backends import get_executor_backend
+    # At worker startup
+    await initialize_executor_backend()
 
-    backend = await get_executor_backend()
+    # In activities
+    backend = get_executor_backend()
     result = await backend.execute(input, role, timeout)
+
+    # At worker shutdown
+    await shutdown_executor_backend()
 """
 
 from __future__ import annotations
-
-import asyncio
 
 from tracecat import config
 from tracecat.executor.backends.base import ExecutorBackend
@@ -28,12 +31,12 @@ __all__ = [
     "ExecutorBackendType",
     "get_executor_backend",
     "get_trust_mode",
+    "initialize_executor_backend",
     "shutdown_executor_backend",
 ]
 
-# Global singleton backend instance
+# Global backend instance - set once at worker startup
 _backend: ExecutorBackend | None = None
-_backend_lock = asyncio.Lock()
 
 
 def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
@@ -55,65 +58,75 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
 
             return DirectBackend()
         case _:
-            # This shouldn't be reachable due to enum validation
             raise ValueError(f"Unknown executor backend: {backend_type!r}")
 
 
-async def get_executor_backend() -> ExecutorBackend:
-    """Get the configured executor backend (singleton).
+async def initialize_executor_backend() -> ExecutorBackend:
+    """Initialize the executor backend at worker startup.
 
-    The backend is lazily initialized on first call and reused for
-    subsequent calls. Thread-safe via asyncio lock.
+    Must be called once before any activities run. Not thread-safe -
+    should only be called from the main worker coroutine.
 
     Returns:
-        The configured ExecutorBackend instance.
+        The initialized ExecutorBackend instance.
 
     Raises:
+        RuntimeError: If backend is already initialized.
         ValueError: If the configured backend type is unknown.
     """
     global _backend
 
-    # Fast path: backend already initialized
     if _backend is not None:
-        return _backend
+        raise RuntimeError("Executor backend already initialized")
 
-    async with _backend_lock:
-        # Double-check after acquiring lock
-        if _backend is not None:
-            return _backend
+    backend_type = _resolve_backend_type()
+    logger.info(
+        "Initializing executor backend",
+        backend_type=backend_type,
+        config_value=config.TRACECAT__EXECUTOR_BACKEND,
+    )
 
-        backend_type = _resolve_backend_type()
-        logger.info(
-            "Initializing executor backend",
-            backend_type=backend_type,
-            config_value=config.TRACECAT__EXECUTOR_BACKEND,
+    backend = _create_backend(backend_type)
+    await backend.start()
+    _backend = backend
+
+    logger.info(
+        "Executor backend initialized",
+        backend_type=backend_type,
+        backend_class=type(_backend).__name__,
+    )
+
+    return _backend
+
+
+def get_executor_backend() -> ExecutorBackend:
+    """Get the executor backend.
+
+    The backend must have been initialized via initialize_executor_backend()
+    at worker startup.
+
+    Returns:
+        The ExecutorBackend instance.
+
+    Raises:
+        RuntimeError: If backend has not been initialized.
+    """
+    if _backend is None:
+        raise RuntimeError(
+            "Executor backend not initialized. "
+            "Call initialize_executor_backend() at worker startup."
         )
-
-        # Create and start in local variable first to avoid corrupted state if start() fails
-        backend = _create_backend(backend_type)
-        await backend.start()
-
-        # Only assign to global after successful start
-        _backend = backend
-
-        logger.info(
-            "Executor backend initialized",
-            backend_type=backend_type,
-            backend_class=type(_backend).__name__,
-        )
-
-        return _backend
+    return _backend
 
 
 async def shutdown_executor_backend() -> None:
     """Shutdown the executor backend and release resources."""
     global _backend
 
-    async with _backend_lock:
-        if _backend is not None:
-            logger.info(
-                "Shutting down executor backend",
-                backend_class=type(_backend).__name__,
-            )
-            await _backend.shutdown()
-            _backend = None
+    if _backend is not None:
+        logger.info(
+            "Shutting down executor backend",
+            backend_class=type(_backend).__name__,
+        )
+        await _backend.shutdown()
+        _backend = None

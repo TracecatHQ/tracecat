@@ -131,14 +131,7 @@ class ActionRunner:
 
     def __init__(self, cache_dir: Path | None = None):
         self.cache_dir = cache_dir or Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
-        self._install_locks: dict[str, asyncio.Lock] = {}
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
-
-    def _get_install_lock(self, cache_key: str) -> asyncio.Lock:
-        """Get or create a lock for a specific cache key."""
-        if cache_key not in self._install_locks:
-            self._install_locks[cache_key] = asyncio.Lock()
-        return self._install_locks[cache_key]
 
     async def _tarball_uri_to_http_url(self, s3_uri: str) -> str:
         """Convert S3 URI to presigned HTTP URL for tarball download."""
@@ -179,48 +172,45 @@ class ActionRunner:
     async def ensure_tarball_extracted(self, cache_key: str, tarball_uri: str) -> Path:
         """Ensure tarball is extracted to a target directory.
 
-        Uses atomic rename pattern to prevent race conditions.
-        Downloads and extracts tarball only if not cached.
+        Uses atomic rename pattern - no locking needed. If multiple processes
+        try to extract simultaneously, one wins the rename and others detect
+        the target already exists.
+
         Returns the path to the extracted directory (add to PYTHONPATH).
         """
         target_dir = self.cache_dir / f"tarball-{cache_key}"
 
-        # Fast path: already extracted - no S3 calls needed
+        # Fast path: already extracted
         if target_dir.exists():
             logger.debug("Using cached tarball extraction", cache_key=cache_key)
             return target_dir
 
-        # Slow path: download and extract under lock
-        async with self._get_install_lock(cache_key):
-            if target_dir.exists():
-                return target_dir
+        logger.info("Downloading and extracting tarball", cache_key=cache_key)
+        start_time = time.monotonic()
 
-            logger.info("Downloading and extracting tarball", cache_key=cache_key)
-            start_time = time.monotonic()
+        # Use PID in temp names to avoid conflicts between processes
+        temp_tarball = self.cache_dir / f"{cache_key}.{os.getpid()}.tar.gz"
+        temp_dir = self.cache_dir / f"{cache_key}.{os.getpid()}.tmp"
 
-            # Download tarball to a temporary file
-            temp_tarball = self.cache_dir / f"{cache_key}.{os.getpid()}.tar.gz"
-            temp_dir = self.cache_dir / f"{cache_key}.{os.getpid()}.tmp"
+        try:
+            # Create cache dir if needed
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+            # Download tarball
+            download_start = time.monotonic()
+            http_url = await self._tarball_uri_to_http_url(tarball_uri)
+            await self._download_file(http_url, temp_tarball)
+            download_elapsed = (time.monotonic() - download_start) * 1000
+
+            # Extract tarball
+            extract_start = time.monotonic()
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            await self._extract_tarball(temp_tarball, temp_dir)
+            extract_elapsed = (time.monotonic() - extract_start) * 1000
+
+            # Atomic rename - if another process won the race, this fails
             try:
-                # Create cache dir if needed
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
-
-                # Download tarball
-                download_start = time.monotonic()
-                http_url = await self._tarball_uri_to_http_url(tarball_uri)
-                await self._download_file(http_url, temp_tarball)
-                download_elapsed = (time.monotonic() - download_start) * 1000
-
-                # Extract tarball
-                extract_start = time.monotonic()
-                temp_dir.mkdir(parents=True, exist_ok=True)
-                await self._extract_tarball(temp_tarball, temp_dir)
-                extract_elapsed = (time.monotonic() - extract_start) * 1000
-
-                # Atomic rename
                 temp_dir.rename(target_dir)
-
                 total_elapsed = (time.monotonic() - start_time) * 1000
                 logger.info(
                     "Tarball extracted and cached",
@@ -229,18 +219,23 @@ class ActionRunner:
                     extract_ms=f"{extract_elapsed:.1f}",
                     total_ms=f"{total_elapsed:.1f}",
                 )
-            except Exception:
-                if temp_dir.exists():
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                if temp_tarball.exists():
-                    temp_tarball.unlink(missing_ok=True)
-                raise
-            finally:
-                # Clean up temp tarball
-                if temp_tarball.exists():
-                    temp_tarball.unlink(missing_ok=True)
+            except OSError:
+                # Another process already created target_dir - that's fine
+                if target_dir.exists():
+                    logger.debug(
+                        "Tarball already extracted by another process",
+                        cache_key=cache_key,
+                    )
+                else:
+                    raise
+        finally:
+            # Clean up temp files
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            if temp_tarball.exists():
+                temp_tarball.unlink(missing_ok=True)
 
-            return target_dir
+        return target_dir
 
     async def _download_file(self, url: str, output_path: Path) -> None:
         """Download a file from HTTP URL to local path."""
