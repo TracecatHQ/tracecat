@@ -5523,8 +5523,8 @@ async def test_workflow_time_anchor_deterministic_time_functions(
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    # Extract the times from the result
-    times = result[ExprContext.ACTIONS]["get_times"]["result"]
+    # With `returns` set, the result is directly the evaluated value
+    times = result
 
     # Verify FN.utcnow() used the time_anchor (should be 2024-06-15T14:30:45+00:00)
     assert "2024-06-15" in times["utcnow_iso"]
