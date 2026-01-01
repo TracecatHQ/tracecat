@@ -3261,7 +3261,8 @@ async def test_workflow_detached_child_workflow(
         wf_id=TEST_WF_ID,
     )
     worker = test_worker_factory(temporal_client)
-    async with worker:
+    executor_worker = test_executor_worker_factory(temporal_client)
+    async with worker, executor_worker:
         parent_handle = await temporal_client.start_workflow(
             DSLWorkflow.run,
             run_args,
