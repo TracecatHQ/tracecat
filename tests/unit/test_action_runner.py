@@ -370,20 +370,22 @@ class TestActionRunner:
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "ProtocolError"
 
-    def test_get_install_lock_same_key(self, temp_cache_dir):
+    @pytest.mark.anyio
+    async def test_get_extraction_lock_same_key(self, temp_cache_dir):
         """Test that same cache key returns same lock."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        lock1 = runner._get_install_lock("key1")
-        lock2 = runner._get_install_lock("key1")
+        lock1 = await runner._get_extraction_lock("key1")
+        lock2 = await runner._get_extraction_lock("key1")
 
         assert lock1 is lock2
 
-    def test_get_install_lock_different_keys(self, temp_cache_dir):
+    @pytest.mark.anyio
+    async def test_get_extraction_lock_different_keys(self, temp_cache_dir):
         """Test that different cache keys return different locks."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        lock1 = runner._get_install_lock("key1")
-        lock2 = runner._get_install_lock("key2")
+        lock1 = await runner._get_extraction_lock("key1")
+        lock2 = await runner._get_extraction_lock("key2")
 
         assert lock1 is not lock2

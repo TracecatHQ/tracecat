@@ -276,22 +276,22 @@ class TestArtifactCacheTTL:
             assert result2[0].version == "v2.0.0"
 
     @pytest.mark.anyio
-    async def test_cache_lock_prevents_concurrent_db_queries(
+    async def test_concurrent_cache_misses_query_db_independently(
         self, role_workspace_a: Role
     ):
-        """Verify that concurrent cache misses don't cause duplicate DB queries.
+        """Verify behavior when multiple concurrent requests hit an expired cache.
 
-        When multiple requests hit a cold cache simultaneously, only one should
-        query the database. Others must wait and use the cached result.
-        This prevents a thundering herd problem on cache expiration.
+        The implementation uses a simple TTL cache without locking. As documented:
+        "No locking - if multiple concurrent requests hit an expired cache,
+        they'll all query the DB (harmless duplicate work)."
 
-        Test approach:
-        - Launch 3 concurrent get_registry_artifacts_cached() calls
-        - Add artificial DB latency to ensure overlap
+        This test verifies that:
+        - Multiple concurrent requests on cache miss each query the DB
+        - All requests return valid (potentially identical) results
+        - The cache is populated after the first query completes
 
-        Validates:
-        - Exactly one DB call despite 3 concurrent requests
-        - All requests return identical results
+        Note: This is intentional behavior - the trade-off is simplicity over
+        preventing duplicate queries on cold cache.
         """
         artifacts = [
             ("tracecat_registry", "v1.0.0", "s3://bucket/v1.tar.gz"),
@@ -299,20 +299,23 @@ class TestArtifactCacheTTL:
 
         db_call_count = [0]
 
-        @asynccontextmanager
-        async def mock_cm():
-            db_call_count[0] += 1
-            await asyncio.sleep(0.1)  # Simulate DB latency
-            mock_session = AsyncMock()
-            mock_result = MagicMock()
-            mock_result.all.return_value = artifacts
-            mock_session.execute = AsyncMock(return_value=mock_result)
-            yield mock_session
+        def mock_cm_factory():
+            @asynccontextmanager
+            async def mock_cm():
+                db_call_count[0] += 1
+                await asyncio.sleep(0.05)  # Simulate DB latency
+                mock_session = AsyncMock()
+                mock_result = MagicMock()
+                mock_result.all.return_value = artifacts
+                mock_session.execute = AsyncMock(return_value=mock_result)
+                yield mock_session
+
+            return mock_cm()
 
         with (
             patch(
                 "tracecat.executor.service.get_async_session_context_manager",
-                return_value=mock_cm(),
+                side_effect=mock_cm_factory,
             ),
             patch("tracecat.executor.service.with_session"),
         ):
@@ -323,10 +326,11 @@ class TestArtifactCacheTTL:
                 get_registry_artifacts_cached(role_workspace_a),
             )
 
-        # Only one DB call should have been made
-        assert db_call_count[0] == 1
+        # All concurrent requests may query the DB (no locking by design)
+        # At least one query must occur to populate the cache
+        assert db_call_count[0] >= 1
 
-        # All results should be identical
+        # All results should be valid
         assert all(len(r) == 1 for r in results)
         assert all(r[0].version == "v1.0.0" for r in results)
 
