@@ -103,7 +103,6 @@ jobs:
       - name: Start core Docker services
         env:
           COMPOSE_BAKE: "true"
-          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: |
           docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy
 
@@ -133,6 +132,7 @@ jobs:
           # Enable compression (also set above for docker services)
           TRACECAT__CONTEXT_COMPRESSION_ENABLED: true
           TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: 0
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true" # Executor runs in-process
         run: uv run pytest tests/unit/test_workflows.py -ra
 
       - name: Show Docker logs on failure
