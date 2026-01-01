@@ -15,6 +15,8 @@ This backend exists solely for:
 from __future__ import annotations
 
 import asyncio
+import sys
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from tracecat.executor.backends.base import ExecutorBackend
@@ -28,8 +30,37 @@ from tracecat.executor.service import run_action_from_input
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
+
+
+@contextmanager
+def _temporary_sys_path(paths: list[str]) -> Iterator[None]:
+    """Temporarily add paths to sys.path for module imports.
+
+    This is used by DirectBackend to make custom registry modules
+    available during in-process execution.
+    """
+    if not paths:
+        yield
+        return
+
+    # Add paths to the front of sys.path
+    for path in reversed(paths):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+            logger.debug("Added path to sys.path", path=path)
+
+    try:
+        yield
+    finally:
+        # Remove the paths we added
+        for path in paths:
+            if path in sys.path:
+                sys.path.remove(path)
+                logger.debug("Removed path from sys.path", path=path)
 
 
 class DirectBackend(ExecutorBackend):
@@ -54,6 +85,8 @@ class DirectBackend(ExecutorBackend):
         timeout: float = 300.0,
     ) -> ExecutorResult:
         """Execute action directly in-process."""
+        # Import here to avoid circular dependency
+        from tracecat.executor.action_runner import get_action_runner
 
         action_name = input.task.action
         logger.debug(
@@ -62,11 +95,29 @@ class DirectBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        try:
-            result = await asyncio.wait_for(
-                run_action_from_input(input, role),
-                timeout=timeout,
+        # Get tarball paths from the action runner's cache
+        # These were extracted by _get_registry_pythonpath in run_action_on_cluster
+        tarball_paths: list[str] = []
+        runner = get_action_runner()
+        cache_dir = runner.cache_dir
+        if cache_dir.exists():
+            # Find all extracted tarball directories
+            for path in cache_dir.iterdir():
+                if path.is_dir() and path.name.startswith("tarball-"):
+                    tarball_paths.append(str(path))
+
+        if tarball_paths:
+            logger.debug(
+                "Adding tarball paths to sys.path for direct execution",
+                paths=tarball_paths,
             )
+
+        try:
+            with _temporary_sys_path(tarball_paths):
+                result = await asyncio.wait_for(
+                    run_action_from_input(input, role),
+                    timeout=timeout,
+                )
             return ExecutorResultSuccess(result=result)
         except TimeoutError:
             logger.error(
