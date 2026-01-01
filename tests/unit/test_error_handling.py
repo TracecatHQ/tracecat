@@ -13,12 +13,14 @@ from tracecat.logger import logger
 
 
 @pytest.mark.anyio
-async def test_execution_fails_fatal(test_role, test_worker_factory):
+async def test_execution_fails_fatal(
+    test_role, test_worker_factory, test_executor_worker_factory
+):
     dsl = DSLInput.from_yaml("tests/data/workflows/unit_error_fatal.yml")
     test_name = f"test_fatal_execution-{dsl.title}"
     wf_exec_id = shared.generate_test_exec_id(test_name)
     client = await get_temporal_client()
-    async with test_worker_factory(client):
+    async with test_worker_factory(client), test_executor_worker_factory(client):
         with pytest.raises(WorkflowFailureError) as e:
             await client.execute_workflow(
                 DSLWorkflow.run,
@@ -71,7 +73,11 @@ async def test_execution_fails_fatal(test_role, test_worker_factory):
 @pytest.mark.anyio
 @pytest.mark.skip
 async def test_execution_fails_invalid_expressions(
-    expression, expected_error, test_role, test_worker_factory
+    expression,
+    expected_error,
+    test_role,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     dsl = DSLInput(
         title="Testing invalid expressions: " + expected_error,
@@ -96,7 +102,7 @@ async def test_execution_fails_invalid_expressions(
     test_name = f"test_execution_fails_invalid_expressions-{dsl.title}"
     wf_exec_id = shared.generate_test_exec_id(test_name)
     client = await get_temporal_client()
-    async with test_worker_factory(client):
+    async with test_worker_factory(client), test_executor_worker_factory(client):
         with pytest.raises(WorkflowFailureError):
             result = await client.execute_workflow(
                 DSLWorkflow.run,

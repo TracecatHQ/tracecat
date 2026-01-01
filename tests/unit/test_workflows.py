@@ -2740,6 +2740,7 @@ async def test_workflow_error_handler_success(
     error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
     failing_dsl: DSLInput,
     test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that the error handler can capture errors.
@@ -2781,7 +2782,8 @@ async def test_workflow_error_handler_success(
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
         worker = test_worker_factory(temporal_client)
-        _ = await _run_workflow(wf_exec_id, run_args, worker)
+        executor_worker = test_executor_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert str(exc_info.value) == "Workflow execution failed"
 
     # Check temporal event history
@@ -2845,6 +2847,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     id_or_alias: str,
     expected_err_msg: str,
     test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that the error handler fails with an invalid error handler that has no matching workflow
@@ -2868,7 +2871,8 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
         worker = test_worker_factory(temporal_client)
-        _ = await _run_workflow(wf_exec_id, run_args, worker)
+        executor_worker = test_executor_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert str(exc_info.value) == "Workflow execution failed"
     cause0 = exc_info.value.cause
     assert isinstance(cause0, ActivityError)

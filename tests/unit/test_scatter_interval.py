@@ -26,6 +26,7 @@ async def test_scatter_with_interval_basic(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that scatter with interval staggers task execution.
 
@@ -78,7 +79,10 @@ async def test_scatter_with_interval_basic(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -110,6 +114,7 @@ async def test_scatter_without_interval(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that scatter without interval (None) behaves normally without delays."""
     test_name = f"{test_scatter_without_interval.__name__}"
@@ -148,7 +153,10 @@ async def test_scatter_without_interval(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -175,6 +183,7 @@ async def test_scatter_with_zero_interval(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that scatter with interval=0 has no delays."""
     test_name = f"{test_scatter_with_zero_interval.__name__}"
@@ -213,7 +222,10 @@ async def test_scatter_with_zero_interval(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -238,6 +250,7 @@ async def test_scatter_interval_with_downstream_tasks(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that interval delays propagate to downstream tasks in scatter region."""
     test_name = f"{test_scatter_interval_with_downstream_tasks.__name__}"
@@ -285,7 +298,10 @@ async def test_scatter_interval_with_downstream_tasks(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -311,6 +327,7 @@ async def test_nested_scatter_with_intervals(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test nested scatter operations with intervals.
 
@@ -371,7 +388,10 @@ async def test_nested_scatter_with_intervals(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -400,6 +420,7 @@ async def test_scatter_interval_with_empty_collection(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that scatter with interval and empty collection doesn't hang."""
     test_name = f"{test_scatter_interval_with_empty_collection.__name__}"
@@ -438,7 +459,10 @@ async def test_scatter_interval_with_empty_collection(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -463,6 +487,7 @@ async def test_scatter_interval_rate_limiting_use_case(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test realistic rate-limiting use case with scatter interval.
 
@@ -516,7 +541,10 @@ async def test_scatter_interval_rate_limiting_use_case(
 
     start_time = time.time()
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,

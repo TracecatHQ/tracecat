@@ -70,7 +70,10 @@ def test_interaction_context() -> None:
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_interaction(
-    svc_role: Role, temporal_client: Client, test_worker_factory
+    svc_role: Role,
+    temporal_client: Client,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     role = svc_role
     test_name = test_workflow_interaction.__name__
@@ -104,7 +107,10 @@ async def test_workflow_interaction(
 
     wf_handle: Any = None
     try:
-        async with test_worker_factory(temporal_client, task_queue=queue):
+        async with (
+            test_worker_factory(temporal_client, task_queue=queue),
+            test_executor_worker_factory(temporal_client),
+        ):
             wf_handle = await temporal_client.start_workflow(
                 DSLWorkflow.run,
                 run_args,
