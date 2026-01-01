@@ -95,19 +95,6 @@ def hotfix_local_api_url(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
 
 
-@pytest.fixture(scope="function")
-async def executor_backend():
-    """Initialize executor backend once per module."""
-    from tracecat.executor.backends import (
-        initialize_executor_backend,
-        shutdown_executor_backend,
-    )
-
-    await initialize_executor_backend()
-    yield
-    await shutdown_executor_backend()
-
-
 @pytest.fixture
 def dsl(request: pytest.FixtureRequest) -> DSLInput:
     test_name = request.param

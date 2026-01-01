@@ -604,6 +604,19 @@ def threadpool() -> Iterator[ThreadPoolExecutor]:
 
 
 @pytest.fixture(scope="function")
+async def executor_backend():
+    """Initialize executor backend once per test function."""
+    from tracecat.executor.backends import (
+        initialize_executor_backend,
+        shutdown_executor_backend,
+    )
+
+    await initialize_executor_backend()
+    yield
+    await shutdown_executor_backend()
+
+
+@pytest.fixture(scope="function")
 async def test_worker_factory(
     threadpool: ThreadPoolExecutor,
 ) -> AsyncGenerator[Callable[..., Worker], Any]:
