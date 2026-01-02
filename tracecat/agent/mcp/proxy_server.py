@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-import orjson
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 from fastmcp import Client
 
@@ -55,7 +54,7 @@ async def create_proxy_mcp_server(
 
                 try:
                     async with Client(captured_socket_path) as client:
-                        result = await client.call_tool(
+                        call_result = await client.call_tool(
                             "execute_action_tool",
                             {
                                 "action_name": captured_action_name,
@@ -64,11 +63,13 @@ async def create_proxy_mcp_server(
                             },
                         )
 
-                    # Format result for MCP response
-                    if isinstance(result, (dict, list)):
-                        result_text = orjson.dumps(result, default=str).decode()
+                    # Extract text from CallToolResult content blocks
+                    if call_result.content and len(call_result.content) > 0:
+                        first_block = call_result.content[0]
+                        # TextContent has a .text attribute
+                        result_text = getattr(first_block, "text", str(first_block))
                     else:
-                        result_text = str(result)
+                        result_text = ""
 
                     return {"content": [{"type": "text", "text": result_text}]}
 

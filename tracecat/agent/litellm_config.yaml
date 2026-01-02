@@ -43,9 +43,9 @@ model_list:
       model: openai/placeholder
 
 general_settings:
-  custom_auth: tracecat.llm_gateway.custom_auth.user_api_key_auth
+  custom_auth: tracecat.agent.gateway.user_api_key_auth
   database_url: null
 
 litellm_settings:
-  callbacks: tracecat.llm_gateway.custom_auth
+  callbacks: tracecat.agent.gateway.callback_handler
   drop_params: true

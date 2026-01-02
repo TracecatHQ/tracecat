@@ -26,7 +26,7 @@ dependencies = [
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
-    "cloudpickle==3.0.0",
+    "cloudpickle==3.1.1",
     "cramjam==2.11.0",
     "cryptography==44.0.1",
     "dateparser>=1.2.1,<1.3.0",
@@ -67,7 +67,7 @@ dependencies = [
     "tracecat-ee",
     "tracecat-registry",
     "uv==0.9.15",
-    "uvicorn>=0.33.0,<0.34",
+    "uvicorn>=0.35.0",
     "virtualenv==20.27.0",
     # This is required until https://github.com/ray-project/ray/issues/54134 is released.
     "pip>=25.3,<26.0",
@@ -76,8 +76,8 @@ dependencies = [
     # Security: CVE-2025-66471 - urllib3 streaming API vulnerability
     "urllib3==2.6.0",
     "claude-agent-sdk==0.1.18",
-    "litellm[proxy]>=1.80.11",
-    "fastmcp>=2.14.1",
+    "litellm[proxy]==1.80.11",
+    "fastmcp==2.14.1",
 ]
 dynamic = ["version"]
 
@@ -95,15 +95,20 @@ tracecat-ee = { workspace = true }
 members = ["packages/*"]
 
 [tool.uv]
+# litellm[proxy] has overly restrictive dependency pins that conflict with other packages:
+# - uvicorn>=0.31.1,<0.32.0 conflicts with fastmcp which requires uvicorn>=0.35
+# - boto3==1.36.0 conflicts with tracecat-registry which requires boto3>=1.39.0
+# - python-multipart>=0.0.18,<0.0.19 conflicts with fastapi-users which requires 0.0.21
+# - rich==13.7.1 conflicts with fastmcp which requires rich>=13.9.4
+# - grpcio>=1.62.3,<1.68.0 conflicts with tracecat-registry which requires grpcio==1.75.1
 override-dependencies = [
-    "uvicorn==0.40.0",
-    "boto3>=1.40.61",
+    "uvicorn>=0.35.0",
+    "boto3>=1.39.0",
     "python-multipart>=0.0.21",
-    "grpcio>=1.76.0",
-    "polars>=1.31.0",
     "rich>=13.9.4",
-    "cloudpickle>=3.1.1",
+    "grpcio>=1.75.1",
 ]
+
 [dependency-groups]
 dev = [
     "mypy==1.15.0",

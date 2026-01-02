@@ -16,7 +16,7 @@ from typing import Any
 import orjson
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.mcp.tokens import MCPTokenClaims
+from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 
@@ -80,7 +80,7 @@ async def execute_action(
         input_path = Path(tmpdir) / "input.json"
         output_path = Path(tmpdir) / "output.json"
 
-        # Write input payload to file
+        # Write input payload to file (offload to thread to avoid blocking)
         payload = orjson.dumps(
             {
                 "action_name": action_name,
@@ -89,7 +89,7 @@ async def execute_action(
             },
             default=to_jsonable_python,
         )
-        input_path.write_bytes(payload)
+        await asyncio.to_thread(input_path.write_bytes, payload)
 
         # Run the subprocess
         proc = await asyncio.create_subprocess_exec(
@@ -153,7 +153,8 @@ async def execute_action(
             ) from None
 
         try:
-            result = orjson.loads(output_path.read_bytes())
+            output_bytes = await asyncio.to_thread(output_path.read_bytes)
+            result = orjson.loads(output_bytes)
         except orjson.JSONDecodeError as err:
             logger.error(
                 "Failed to parse subprocess output",

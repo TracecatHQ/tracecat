@@ -26,10 +26,8 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
-TRACECAT__LLM_GATEWAY_URL = os.environ.get(
-    "TRACECAT__LLM_GATEWAY_URL", "http://llm-gateway:4000"
-)
-"""URL for the LiteLLM gateway proxy service."""
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT", "4000"))
+"""Port for the embedded LiteLLM proxy subprocess."""
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 900.0

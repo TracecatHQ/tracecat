@@ -12,21 +12,14 @@ from tracecat.agent.mcp.http_executor import (
 )
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.schemas import fetch_tool_definitions
-from tracecat.agent.mcp.tokens import (
-    MCPTokenClaims,
-    mint_mcp_token,
-    verify_mcp_token,
-)
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.tokens import MCPTokenClaims
 
 __all__ = [
     # Types
     "MCPToolDefinition",
     "MCPTokenClaims",
-    # Token functions
-    "mint_mcp_token",
-    "verify_mcp_token",
     # Schema utilities
     "fetch_tool_definitions",
     # Proxy server (inside nsjail)
