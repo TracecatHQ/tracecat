@@ -43,7 +43,7 @@ export function createColumns(
       header: ({ table }) => (
         <div className="flex w-full justify-center">
           <Checkbox
-            className="border-foreground/50"
+            className="border-primary/50 shadow-none hover:border-primary"
             checked={
               table.getIsAllPageRowsSelected() ||
               (table.getIsSomePageRowsSelected() && "indeterminate")
@@ -64,7 +64,7 @@ export function createColumns(
           }}
         >
           <Checkbox
-            className="border-foreground/50"
+            className="border-transparent shadow-none group-hover:border-primary/50 data-[state=checked]:border-primary"
             checked={row.getIsSelected()}
             onCheckedChange={(value) => row.toggleSelected(!!value)}
             aria-label="Select row"
@@ -74,8 +74,8 @@ export function createColumns(
       enableSorting: false,
       enableHiding: false,
       meta: {
-        headerClassName: "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
-        cellClassName: "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+        headerClassName: "w-8 min-w-8 max-w-8 px-1 text-center",
+        cellClassName: "w-8 min-w-8 max-w-8 px-1 text-center",
       },
     },
 
