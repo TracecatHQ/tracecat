@@ -3,7 +3,6 @@
 from typing import ClassVar
 
 from tracecat.integrations.providers.microsoft.common import (
-    MICROSOFT_SETUP_STEPS,
     MicrosoftAuthorizationCodeOAuthProvider,
     MicrosoftClientCredentialsOAuthProvider,
     get_ac_description,
@@ -27,7 +26,6 @@ def get_graph_ac_metadata(
         id=id,
         name=f"{name} (Delegated)",
         description=get_ac_description(name),
-        setup_steps=MICROSOFT_SETUP_STEPS,
         requires_config=True,
         enabled=True,
         api_docs_url=api_docs_url,
@@ -47,7 +45,6 @@ def get_graph_cc_metadata(
         id=id,
         name=f"{name} (Service account)",
         description=get_cc_description(name),
-        setup_steps=MICROSOFT_SETUP_STEPS,
         requires_config=True,
         enabled=True,
         api_docs_url=api_docs_url,

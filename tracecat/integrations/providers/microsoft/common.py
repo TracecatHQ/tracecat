@@ -29,14 +29,6 @@ MICROSOFT_SOVEREIGN_TOKEN_HELP: list[str] = [
     "- US Gov (GCC/GCC High/DoD): https://login.microsoftonline.us/{tenant}/oauth2/v2.0/token",
 ]
 
-MICROSOFT_SETUP_STEPS: list[str] = [
-    "Create an Entra ID application in Azure Portal",
-    "Add the redirect URI shown above to 'Redirect URIs'",
-    "Configure required API permissions and scopes in the application registration",
-    "Copy the application ID and client secret",
-    "Configure the authorization and token endpoints for your tenant in Tracecat",
-]
-
 
 GUID_PATTERN = re.compile(r"(?i)\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b")
 

@@ -36,11 +36,5 @@ class NotionMCPProvider(MCPAuthProvider):
             "Connect to Notion MCP to enable AI tools to interact with your Notion workspace. "
             "Full read and write access to pages, databases, and comments based on your permissions."
         ),
-        setup_steps=[
-            "Click 'Connect' to begin OAuth authorization",
-            "Select your Notion workspace",
-            "Review and approve the permissions",
-            "Complete authorization to enable MCP integration",
-        ],
         api_docs_url="https://developers.notion.com/docs/mcp",
     )

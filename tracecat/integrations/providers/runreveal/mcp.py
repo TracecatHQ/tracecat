@@ -37,11 +37,5 @@ class RunRevealMCPProvider(MCPAuthProvider):
             "Connect to RunReveal MCP to access queries, detections, and table schemas. "
             "Permissions are automatically determined based on your workspace role."
         ),
-        setup_steps=[
-            "Click 'Connect' to begin OAuth authorization",
-            "Select your RunReveal workspace",
-            "Review and approve the OAuth client permissions",
-            "Complete authorization to enable MCP integration",
-        ],
         api_docs_url="https://docs.runreveal.com/ai-chat/model-context-protocol",
     )

@@ -671,8 +671,8 @@ export type Body_auth_reset_reset_password = {
 }
 
 export type Body_auth_sso_acs = {
-  saml_response: string
-  relay_state: string
+  SAMLResponse: string
+  RelayState: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -3006,10 +3006,6 @@ export type ProviderMetadata = {
    * Whether this provider requires additional configuration
    */
   requires_config?: boolean
-  /**
-   * Step-by-step instructions for setting up the provider
-   */
-  setup_steps?: Array<string>
   /**
    * Whether this provider is available for use
    */

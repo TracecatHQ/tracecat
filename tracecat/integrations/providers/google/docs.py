@@ -3,7 +3,6 @@
 from typing import ClassVar
 
 from tracecat.integrations.providers.google.service_account import (
-    GOOGLE_API_SETUP_STEPS,
     GoogleServiceAccountOAuthProvider,
 )
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
@@ -27,7 +26,6 @@ class GoogleDocsOAuthProvider(GoogleServiceAccountOAuthProvider):
         ),
         requires_config=True,
         enabled=True,
-        setup_steps=GOOGLE_API_SETUP_STEPS,
         api_docs_url="https://developers.google.com/workspace/docs/api/reference/rest",
         setup_guide_url="https://developers.google.com/identity/protocols/oauth2/service-account",
         troubleshooting_url="https://developers.google.com/docs/api/troubleshooting",

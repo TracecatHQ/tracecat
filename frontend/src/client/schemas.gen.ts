@@ -2526,17 +2526,17 @@ export const $Body_auth_reset_reset_password = {
 
 export const $Body_auth_sso_acs = {
   properties: {
-    saml_response: {
+    SAMLResponse: {
       type: "string",
-      title: "Saml Response",
+      title: "Samlresponse",
     },
-    relay_state: {
+    RelayState: {
       type: "string",
-      title: "Relay State",
+      title: "Relaystate",
     },
   },
   type: "object",
-  required: ["saml_response", "relay_state"],
+  required: ["SAMLResponse", "RelayState"],
   title: "Body_auth-sso_acs",
 } as const
 
@@ -9335,14 +9335,6 @@ export const $ProviderMetadata = {
       title: "Requires Config",
       description: "Whether this provider requires additional configuration",
       default: false,
-    },
-    setup_steps: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Setup Steps",
-      description: "Step-by-step instructions for setting up the provider",
     },
     enabled: {
       type: "boolean",

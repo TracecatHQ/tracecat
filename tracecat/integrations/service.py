@@ -143,7 +143,6 @@ class IntegrationService(BaseWorkspaceService):
             logo_url=None,
             setup_instructions=None,
             requires_config=True,
-            setup_steps=[],
             enabled=True,
             api_docs_url=None,
             setup_guide_url=None,
