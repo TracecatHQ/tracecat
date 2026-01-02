@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import importlib
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from minio import Minio
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
+from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -41,10 +44,6 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.storage import blob
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
 
 # =============================================================================
 # Test Configuration
@@ -67,6 +66,43 @@ TEST_BUCKET = "test-tracecat-registry"
 def anyio_backend():
     """Module-scoped anyio backend."""
     return "asyncio"
+
+
+@pytest.fixture
+async def committing_session(db) -> AsyncGenerator[AsyncSession, None]:
+    """Create a session that makes real commits (not savepoints).
+
+    This fixture is needed for tests that spawn subprocesses that need to
+    read data from the database. The standard `session` fixture uses savepoint
+    mode which prevents subprocesses from seeing the data.
+
+    IMPORTANT: This fixture makes real commits to the test database.
+    Data cleanup is handled by the test database fixture at session end.
+    """
+    async_engine = create_async_engine(
+        TEST_DB_CONFIG.test_url,
+        poolclass=NullPool,
+    )
+
+    async with AsyncSession(async_engine, expire_on_commit=False) as session:
+        yield session
+
+    await async_engine.dispose()
+
+
+@pytest.fixture
+def subprocess_db_env(monkeypatch):
+    """Configure environment for subprocesses to connect to test database.
+
+    The subprocess inherits environment variables, so we need to set
+    TRACECAT__DB_URI to point to the test database instead of the main
+    postgres database.
+    """
+    # Convert asyncpg URL to psycopg URL for subprocess
+    test_db_url = TEST_DB_CONFIG.test_url.replace("+asyncpg", "+psycopg")
+    monkeypatch.setenv("TRACECAT__DB_URI", test_db_url)
+    monkeypatch.setattr(config, "TRACECAT__DB_URI", test_db_url)
+    yield
 
 
 @pytest.fixture(scope="module")
@@ -166,6 +202,27 @@ async def builtin_repo(db, session: AsyncSession, test_role: Role):
         repo = await svc.create_repository(
             RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
         )
+    yield repo
+
+
+@pytest.fixture
+async def committing_builtin_repo(
+    db, committing_session: AsyncSession, test_role: Role
+):
+    """Create builtin registry repository with committing session.
+
+    This fixture is for tests that spawn subprocesses that need to see
+    the repository data. It uses committing_session to make real commits
+    that the subprocess can read.
+    """
+    svc = RegistryReposService(committing_session, role=test_role)
+    # Get existing or create new builtin repository
+    repo = await svc.get_repository(DEFAULT_REGISTRY_ORIGIN)
+    if repo is None:
+        repo = await svc.create_repository(
+            RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
+        )
+    await committing_session.commit()
     yield repo
 
 
@@ -374,11 +431,12 @@ class TestExecuteWithSyncedRegistry:
     @pytest.mark.anyio
     async def test_execute_action_with_ephemeral_backend(
         self,
-        session: AsyncSession,
+        committing_session: AsyncSession,
+        subprocess_db_env,
         test_role: Role,
         minio_server,
         test_bucket: str,
-        builtin_repo,
+        committing_builtin_repo,
         run_action_input_factory,
         temp_cache_dir: Path,
         monkeypatch,
@@ -388,20 +446,26 @@ class TestExecuteWithSyncedRegistry:
         Note: This test runs with TRACECAT__DISABLE_NSJAIL=true to use subprocess
         mode instead of real nsjail, making it runnable on macOS/CI.
         We mock the ActionRunner's execute_action to use force_sandbox=False.
+
+        Uses committing_session and subprocess_db_env fixtures to ensure
+        subprocess can read committed data from the test database.
         """
         # Sync registry to create tarball in MinIO
         async with RegistrySyncService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as actions_service:
             await actions_service.upsert_actions_from_list(
-                sync_result.actions, builtin_repo, commit=True
+                sync_result.actions, committing_builtin_repo, commit=True
             )
+
+        # Commit the data so subprocess can see it
+        await committing_session.commit()
 
         # Create mock artifacts from sync result
         mock_artifacts = [
@@ -429,9 +493,6 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
-            # Skip _prepare_resolved_context which creates new DB session
-            # that can't see test data due to transaction isolation
-            kwargs["trust_mode"] = "trusted"
             return await original_execute(**kwargs)
 
         # Mock both the action runner and artifact resolution
@@ -463,28 +524,36 @@ class TestExecuteWithSyncedRegistry:
     @pytest.mark.anyio
     async def test_execute_action_with_registry_lock(
         self,
-        session: AsyncSession,
+        committing_session: AsyncSession,
+        subprocess_db_env,
         test_role: Role,
         minio_server,
         test_bucket: str,
-        builtin_repo,
+        committing_builtin_repo,
         run_action_input_factory,
         temp_cache_dir: Path,
     ):
-        """Verify action execution respects registry_lock for version pinning."""
+        """Verify action execution respects registry_lock for version pinning.
+
+        Uses committing_session and subprocess_db_env fixtures to ensure
+        subprocess can read committed data from the test database.
+        """
         # Sync registry to create version
         async with RegistrySyncService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as actions_service:
             await actions_service.upsert_actions_from_list(
-                sync_result.actions, builtin_repo, commit=True
+                sync_result.actions, committing_builtin_repo, commit=True
             )
+
+        # Commit the data so subprocess can see it
+        await committing_session.commit()
 
         # Create mock artifacts for the locked version
         mock_artifacts = [
@@ -513,10 +582,7 @@ class TestExecuteWithSyncedRegistry:
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False
-            # Skip _prepare_resolved_context which creates new DB session
-            # that can't see test data due to transaction isolation
-            kwargs["trust_mode"] = "trusted"
+            kwargs["force_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         with (
@@ -707,11 +773,12 @@ class TestMultitenantWorkloads:
     @pytest.mark.anyio
     async def test_concurrent_execution_different_workspaces(
         self,
-        session: AsyncSession,
+        committing_session: AsyncSession,
+        subprocess_db_env,
         test_role: Role,
         minio_server,
         test_bucket: str,
-        builtin_repo,
+        committing_builtin_repo,
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
@@ -723,22 +790,28 @@ class TestMultitenantWorkloads:
         2. Syncs registry to create shared tarball in MinIO
         3. Executes actions concurrently from both workspaces
         4. Verifies each workspace gets correct results without cross-contamination
+
+        Uses committing_session and subprocess_db_env fixtures to ensure
+        subprocess can read committed data from the test database.
         """
         import asyncio
 
         # Sync registry to create tarball in MinIO
         async with RegistrySyncService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as actions_service:
             await actions_service.upsert_actions_from_list(
-                sync_result.actions, builtin_repo, commit=True
+                sync_result.actions, committing_builtin_repo, commit=True
             )
+
+        # Commit the data so subprocess can see it
+        await committing_session.commit()
 
         # Create two different workspace roles
         workspace_a_id = uuid.uuid4()
@@ -775,10 +848,7 @@ class TestMultitenantWorkloads:
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False
-            # Skip _prepare_resolved_context which creates new DB session
-            # that can't see test data due to transaction isolation
-            kwargs["trust_mode"] = "trusted"
+            kwargs["force_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently
@@ -821,11 +891,12 @@ class TestMultitenantWorkloads:
     @pytest.mark.anyio
     async def test_multiple_concurrent_requests_same_workspace(
         self,
-        session: AsyncSession,
+        committing_session: AsyncSession,
+        subprocess_db_env,
         test_role: Role,
         minio_server,
         test_bucket: str,
-        builtin_repo,
+        committing_builtin_repo,
         create_run_input,
         temp_cache_dir: Path,
     ):
@@ -833,22 +904,28 @@ class TestMultitenantWorkloads:
 
         This tests the scenario where a single tenant has multiple workflows
         running in parallel, ensuring they all complete without interference.
+
+        Uses committing_session and subprocess_db_env fixtures to ensure
+        subprocess can read committed data from the test database.
         """
         import asyncio
 
         # Sync registry to create tarball in MinIO
         async with RegistrySyncService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as actions_service:
             await actions_service.upsert_actions_from_list(
-                sync_result.actions, builtin_repo, commit=True
+                sync_result.actions, committing_builtin_repo, commit=True
             )
+
+        # Commit the data so subprocess can see it
+        await committing_session.commit()
 
         # Create multiple inputs for the same workspace
         workspace_id = test_role.workspace_id
@@ -879,10 +956,7 @@ class TestMultitenantWorkloads:
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False
-            # Skip _prepare_resolved_context which creates new DB session
-            # that can't see test data due to transaction isolation
-            kwargs["trust_mode"] = "trusted"
+            kwargs["force_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Execute all requests concurrently
@@ -917,11 +991,12 @@ class TestMultitenantWorkloads:
     @pytest.mark.anyio
     async def test_workspace_specific_registry_locks(
         self,
-        session: AsyncSession,
+        committing_session: AsyncSession,
+        subprocess_db_env,
         test_role: Role,
         minio_server,
         test_bucket: str,
-        builtin_repo,
+        committing_builtin_repo,
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
@@ -930,22 +1005,28 @@ class TestMultitenantWorkloads:
 
         This tests that registry_lock properly pins versions per workflow,
         allowing different tenants to use different registry versions.
+
+        Uses committing_session and subprocess_db_env fixtures to ensure
+        subprocess can read committed data from the test database.
         """
         import asyncio
 
         # Sync registry to create tarball in MinIO
         async with RegistrySyncService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as actions_service:
             await actions_service.upsert_actions_from_list(
-                sync_result.actions, builtin_repo, commit=True
+                sync_result.actions, committing_builtin_repo, commit=True
             )
+
+        # Commit the data so subprocess can see it
+        await committing_session.commit()
 
         # Create two different workspace roles
         workspace_a_id = uuid.uuid4()
@@ -987,10 +1068,7 @@ class TestMultitenantWorkloads:
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False
-            # Skip _prepare_resolved_context which creates new DB session
-            # that can't see test data due to transaction isolation
-            kwargs["trust_mode"] = "trusted"
+            kwargs["force_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently with locked versions
