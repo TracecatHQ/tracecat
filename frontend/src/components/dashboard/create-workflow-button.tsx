@@ -326,6 +326,7 @@ export function CreateWorkflowButton({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          align="end"
           className="
             [&_[data-radix-collection-item]]:flex
             [&_[data-radix-collection-item]]:items-center

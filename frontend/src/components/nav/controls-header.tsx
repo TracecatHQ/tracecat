@@ -8,9 +8,11 @@ import {
   FileUpIcon,
   Flag,
   Flame,
+  Key,
   PanelRight,
   PenLine,
   Plus,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -257,11 +259,57 @@ function TablesActions() {
 }
 
 function IntegrationsActions() {
+  const [activeDialog, setActiveDialog] = useState<"oauth" | "mcp" | null>(null)
+
   return (
-    <div className="flex items-center gap-2">
-      <CreateCustomProviderDialog />
-      <MCPIntegrationDialog />
-    </div>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add integration
+            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuItem onSelect={() => setActiveDialog("oauth")}>
+            <Key className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>OAuth provider</span>
+              <span className="text-xs text-muted-foreground">
+                Add a custom OAuth 2.0 provider
+              </span>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("mcp")}>
+            <Sparkles className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>MCP integration</span>
+              <span className="text-xs text-muted-foreground">
+                Connect to an MCP server
+              </span>
+            </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreateCustomProviderDialog
+        open={activeDialog === "oauth"}
+        onOpenChange={(open) => setActiveDialog(open ? "oauth" : null)}
+        hideTrigger
+      />
+      <MCPIntegrationDialog
+        open={activeDialog === "mcp"}
+        onOpenChange={(open) => setActiveDialog(open ? "mcp" : null)}
+        hideTrigger
+      />
+    </>
   )
 }
 

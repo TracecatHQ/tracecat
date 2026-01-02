@@ -107,13 +107,20 @@ const GRANT_OPTIONS = [
 
 export function CreateCustomProviderDialog({
   triggerProps,
+  onOpenChange,
+  open: controlledOpen,
+  hideTrigger = false,
 }: {
   triggerProps?: ButtonProps
+  onOpenChange?: (open: boolean) => void
+  open?: boolean
+  hideTrigger?: boolean
 }) {
   const workspaceId = useWorkspaceId()
   const { createCustomProvider, createCustomProviderIsPending } =
     useCreateCustomProvider(workspaceId)
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
   const { className: triggerClassName, ...restTriggerProps } =
     triggerProps ?? {}
 
@@ -129,7 +136,10 @@ export function CreateCustomProviderDialog({
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
-    setOpen(nextOpen)
+    if (controlledOpen === undefined) {
+      setInternalOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
     if (!nextOpen) {
       resetForm()
     }
@@ -151,17 +161,19 @@ export function CreateCustomProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className={cn("h-7 bg-white", triggerClassName)}
-          {...restTriggerProps}
-        >
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add OAuth provider
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            className={cn("h-7 bg-white", triggerClassName)}
+            {...restTriggerProps}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add OAuth provider
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add custom OAuth provider</DialogTitle>
