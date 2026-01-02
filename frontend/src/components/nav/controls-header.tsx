@@ -87,6 +87,7 @@ import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
@@ -261,6 +262,19 @@ function IntegrationsActions() {
       <CreateCustomProviderDialog />
       <MCPIntegrationDialog />
     </div>
+  )
+}
+
+function AgentsActions() {
+  const workspaceId = useWorkspaceId()
+
+  return (
+    <Button variant="outline" size="sm" className="h-7 bg-white" asChild>
+      <Link href={`/workspaces/${workspaceId}/agents/new`}>
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        New agent
+      </Link>
+    </Button>
   )
 }
 
@@ -835,6 +849,36 @@ function IntegrationBreadcrumb({
   )
 }
 
+function AgentPresetBreadcrumb({
+  presetId,
+  workspaceId,
+}: {
+  presetId: string
+  workspaceId: string
+}) {
+  const { preset } = useAgentPreset(workspaceId, presetId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/agents`}>Agents</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {preset?.name || presetId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -865,8 +909,27 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/agents")) {
+    // Check if this is an agent preset detail page
+    const agentPresetMatch = pagePath.match(/^\/agents\/([^/]+)$/)
+    if (agentPresetMatch) {
+      const presetId = agentPresetMatch[1]
+      // Don't show breadcrumb for "new" preset - it's the create page
+      if (presetId === "new") {
+        return {
+          title: "Agents",
+          actions: <AgentsActions />,
+        }
+      }
+      return {
+        title: (
+          <AgentPresetBreadcrumb presetId={presetId} workspaceId={workspaceId} />
+        ),
+      }
+    }
+
     return {
       title: "Agents",
+      actions: <AgentsActions />,
     }
   }
 
