@@ -154,6 +154,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Dict with 'success', 'result', and optionally 'error'
     """
+    action_impl: dict[str, Any] | None = None
     try:
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
@@ -175,13 +176,30 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         import traceback
 
+        # Extract traceback info for ExecutorActionErrorInfo compatibility
+        tb = traceback.extract_tb(e.__traceback__)
+        last_frame = tb[-1] if tb else None
+
+        # Build action name from impl if available
+        action_name = "<unknown>"
+        if action_impl:
+            module = action_impl.get("module", "")
+            name = action_impl.get("name", "")
+            if module and name:
+                action_name = f"{module}.{name}"
+            elif name:
+                action_name = name
+
         return {
             "success": False,
             "result": None,
             "error": {
                 "type": type(e).__name__,
                 "message": str(e),
-                "traceback": traceback.format_exc(),
+                "action_name": action_name,
+                "filename": last_frame.filename if last_frame else "<unknown>",
+                "function": last_frame.name if last_frame else "<unknown>",
+                "lineno": last_frame.lineno if last_frame else None,
             },
         }
 
