@@ -144,7 +144,7 @@ async def get_chat_vercel(
 
     # Convert messages to UIMessage format
     messages = [ChatMessage.from_db(message) for message in chat.messages]
-    ui_messages = vercel.convert_model_messages_to_ui(messages)
+    ui_messages = vercel.convert_chat_messages_to_ui(messages)
 
     # Return ChatReadVercel with converted messages
     return ChatReadVercel(

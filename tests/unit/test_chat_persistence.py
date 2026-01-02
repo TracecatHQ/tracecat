@@ -110,10 +110,10 @@ async def test_append_messages_batch(
     retrieved_messages = await chat_service.list_messages(chat.id)
 
     assert len(retrieved_messages) == 4
-    assert "First message" in str(retrieved_messages[0])
-    assert "First response" in str(retrieved_messages[1])
-    assert "Second message" in str(retrieved_messages[2])
-    assert "Second response" in str(retrieved_messages[3])
+    assert "First message" in str(retrieved_messages[0].message)
+    assert "First response" in str(retrieved_messages[1].message)
+    assert "Second message" in str(retrieved_messages[2].message)
+    assert "Second response" in str(retrieved_messages[3].message)
 
 
 @pytest.mark.anyio
@@ -186,58 +186,14 @@ async def test_list_messages(
 
     assert len(retrieved_messages) == 4
     # Verify messages are in correct order and content is preserved
-    assert isinstance(retrieved_messages[0], ModelRequest)
-    assert isinstance(retrieved_messages[1], ModelResponse)
-    assert isinstance(retrieved_messages[2], ModelRequest)
-    assert isinstance(retrieved_messages[3], ModelResponse)
-    assert "First message" in str(retrieved_messages[0])
-    assert "First response" in str(retrieved_messages[1])
-    assert "Second message" in str(retrieved_messages[2])
-    assert "Second response" in str(retrieved_messages[3])
-
-
-@pytest.mark.anyio
-async def test_get_chat_messages(
-    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
-):
-    """Test get_chat_messages returns ChatMessage objects with proper IDs."""
-    chat = Chat(
-        title="Test Chat",
-        user_id=test_user.id,
-        entity_type="case",
-        entity_id=uuid.uuid4(),
-        workspace_id=svc_workspace.id,
-        tools=[],
-    )
-    session.add(chat)
-    await session.commit()
-    await session.refresh(chat)
-
-    chat_service = ChatService(session, svc_role)
-
-    # Add messages
-    messages = [
-        ModelRequest(parts=[UserPromptPart(content="User message 1")]),
-        ModelResponse(parts=[TextPart(content="Assistant response 1")]),
-        ModelRequest(parts=[UserPromptPart(content="User message 2")]),
-    ]
-
-    await chat_service.append_messages(
-        chat_id=chat.id,
-        messages=messages,
-        kind=MessageKind.CHAT_MESSAGE,
-    )
-
-    # Get messages using get_chat_messages
-    chat_messages = await chat_service.get_chat_messages(chat)
-
-    assert len(chat_messages) == 3
-    # Verify each is a ChatMessage with ID
-    for idx, chat_msg in enumerate(chat_messages):
-        assert isinstance(chat_msg, ChatMessage)
-        assert chat_msg.id == str(idx)
-        assert chat_msg.message is not None
-        assert isinstance(chat_msg.message, ModelRequest | ModelResponse)
+    assert isinstance(retrieved_messages[0].message, ModelRequest)
+    assert isinstance(retrieved_messages[1].message, ModelResponse)
+    assert isinstance(retrieved_messages[2].message, ModelRequest)
+    assert isinstance(retrieved_messages[3].message, ModelResponse)
+    assert "First message" in str(retrieved_messages[0].message)
+    assert "First response" in str(retrieved_messages[1].message)
+    assert "Second message" in str(retrieved_messages[2].message)
+    assert "Second response" in str(retrieved_messages[3].message)
 
 
 @pytest.mark.anyio
@@ -274,32 +230,6 @@ async def test_chat_message_from_db(
     assert chat_message.id == str(db_message.id)
     assert isinstance(chat_message.message, ModelRequest)
     assert "Test message" in str(chat_message.message)
-
-
-@pytest.mark.anyio
-async def test_get_chat_messages_empty_chat(
-    session: AsyncSession, svc_workspace: Workspace, svc_role: Role, test_user: User
-):
-    """Test that get_chat_messages returns empty list for chat with no messages."""
-    chat = Chat(
-        title="Empty Chat",
-        user_id=test_user.id,
-        entity_type="case",
-        entity_id=uuid.uuid4(),
-        workspace_id=svc_workspace.id,
-        tools=[],
-    )
-    session.add(chat)
-    await session.commit()
-    await session.refresh(chat)
-
-    chat_service = ChatService(session, svc_role)
-
-    # Get messages from empty chat
-    messages = await chat_service.get_chat_messages(chat)
-
-    assert len(messages) == 0
-    assert isinstance(messages, list)
 
 
 @pytest.mark.anyio
@@ -342,9 +272,9 @@ async def test_list_messages_ordering(
 
     # Verify order
     assert len(messages) == 3
-    assert "Message 1" in str(messages[0])
-    assert "Message 2" in str(messages[1])
-    assert "Message 3" in str(messages[2])
+    assert "Message 1" in str(messages[0].message)
+    assert "Message 2" in str(messages[1].message)
+    assert "Message 3" in str(messages[2].message)
 
 
 @pytest.mark.anyio
@@ -377,10 +307,10 @@ async def test_mixed_message_types(
     messages = await chat_service.list_messages(chat.id)
 
     assert len(messages) == 2
-    assert isinstance(messages[0], ModelRequest)
-    assert isinstance(messages[1], ModelResponse)
-    assert "User question" in str(messages[0])
-    assert "Assistant answer" in str(messages[1])
+    assert isinstance(messages[0].message, ModelRequest)
+    assert isinstance(messages[1].message, ModelResponse)
+    assert "User question" in str(messages[0].message)
+    assert "Assistant answer" in str(messages[1].message)
 
 
 @pytest.mark.anyio
@@ -418,4 +348,4 @@ async def test_list_messages_filtered_by_kind(
     )
 
     assert len(filtered) == 1
-    assert isinstance(filtered[0], ModelRequest)
+    assert isinstance(filtered[0].message, ModelRequest)

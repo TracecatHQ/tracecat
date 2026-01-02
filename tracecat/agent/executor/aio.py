@@ -6,6 +6,7 @@ from typing import Any, Final
 from pydantic_ai import UsageLimits
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -18,11 +19,13 @@ from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
+from tracecat.agent.stream.types import ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.types import StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
 from tracecat.chat.enums import MessageKind
+from tracecat.config import TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
 from tracecat.logger import logger
 
 
@@ -92,7 +95,12 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
         )
 
         if self.deps.message_store:
-            message_history = await self.deps.message_store.load(args.session_id)
+            loaded_history = await self.deps.message_store.load(args.session_id)
+            message_history: list[ModelMessage] | None = []
+            for chat_message in loaded_history:
+                # Only include pydantic-ai messages in the history
+                if isinstance(chat_message.message, (ModelRequest | ModelResponse)):
+                    message_history.append(chat_message.message)
         else:
             message_history = None
 
@@ -103,10 +111,16 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             user_message = ModelRequest(
                 parts=[UserPromptPart(content=args.user_prompt)]
             )
-            await self.deps.stream_writer.stream.append(user_message)
+            if TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED:
+                # Unified streaming: use UnifiedStreamEvent for all events
+                user_event = UnifiedStreamEvent.user_message_event(args.user_prompt)
+                await self.deps.stream_writer.stream.append(user_event)
+            else:
+                # Legacy streaming: append raw ModelRequest
+                await self.deps.stream_writer.stream.append(user_message)
 
         result: ExecutorResult = None
-        new_messages: list[ModelRequest | ModelResponse] | None = None
+        new_messages: list[ModelMessage] | None = None
         approval_message: ModelResponse | None = None
 
         try:
@@ -129,11 +143,30 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             match result.output:
                 # Immediately stream the approval request message to the client
                 case DeferredToolRequests(approvals=approvals) if approvals:
+                    # Build the ModelResponse for persistence (unchanged format)
                     approval_message = ModelResponse(
                         parts=[TextPart(content=APPROVAL_REQUEST_HEADER), *approvals]
                     )
                     try:
-                        await self.deps.stream_writer.stream.append(approval_message)
+                        if TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED:
+                            # Unified streaming: emit harness-agnostic event
+                            approval_items = [
+                                ToolCallContent(
+                                    id=call.tool_call_id,
+                                    name=call.tool_name,
+                                    input=call.args_as_dict(),
+                                )
+                                for call in approvals
+                            ]
+                            approval_event = UnifiedStreamEvent.approval_request_event(
+                                approval_items
+                            )
+                            await self.deps.stream_writer.stream.append(approval_event)
+                        else:
+                            # Legacy streaming: append raw ModelResponse
+                            await self.deps.stream_writer.stream.append(
+                                approval_message
+                            )
                     except Exception as e:
                         logger.warning(
                             "Failed to stream approval request",

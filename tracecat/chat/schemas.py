@@ -7,11 +7,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import UUID4, BaseModel, Discriminator, Field
-from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.types import ModelMessageTA
+from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
 from tracecat.chat.enums import ChatEntity
 
 if TYPE_CHECKING:
@@ -154,17 +154,19 @@ class ChatUpdate(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """Model for chat metadata with a single message."""
+    """Model for a chat message with typed message payload."""
 
-    id: str = Field(..., description="Unique chat identifier")
-    message: ModelMessage = Field(..., description="The message from the chat")
+    id: str = Field(..., description="Unique message identifier")
+    message: UnifiedMessage = Field(..., description="The deserialized message")
 
     @classmethod
-    def from_db(cls, value: models.ChatMessage) -> ChatMessage:
-        return cls(
-            id=str(value.id),
-            message=ModelMessageTA.validate_python(value.data),
-        )
+    def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
+        """Deserialize a database message into a typed ChatMessage."""
+        if db_msg.harness == HarnessType.CLAUDE.value:
+            message = ClaudeSDKMessageTA.validate_python(db_msg.data)
+        else:
+            message = ModelMessageTA.validate_python(db_msg.data)
+        return cls(id=str(db_msg.id), message=message)
 
 
 # --- Approvals (CE Handshake) -------------------------------------------------
