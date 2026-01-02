@@ -2647,6 +2647,15 @@ bcrypt = [
 ]
 
 [[package]]
+name = "py-cpuinfo"
+version = "9.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/a8/d832f7293ebb21690860d2e01d8115e5ff6f2ae8bbdc953f0eb0fa4bd2c7/py-cpuinfo-9.0.0.tar.gz", hash = "sha256:3cdbbf3fac90dc6f118bfd64384f309edeadd902d7c8fb17f02ffa1fc3f49690", size = 104716, upload-time = "2022-10-25T20:38:06.303Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/a9/023730ba63db1e494a271cb018dcd361bd2c917ba7004c3e49d5daf795a2/py_cpuinfo-9.0.0-py3-none-any.whl", hash = "sha256:859625bc251f64e21f077d099d4162689c762b5d6a4c3c97553d56241c9674d5", size = 22335, upload-time = "2022-10-25T20:38:27.636Z" },
+]
+
+[[package]]
 name = "pyarrow"
 version = "16.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3041,6 +3050,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b4/8c/9862305bdcd6020bc7b45b1b5e7397a6caf1a33d3025b9a003b39075ffb2/pytest-8.3.2.tar.gz", hash = "sha256:c132345d12ce551242c87269de812483f5bcc87cdbb4722e48487ba194f9fdce", size = 1439314, upload-time = "2024-07-25T10:40:00.159Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/f9/cf155cf32ca7d6fa3601bc4c5dd19086af4b320b706919d48a4c79081cf9/pytest-8.3.2-py3-none-any.whl", hash = "sha256:4ba08f9ae7dcf84ded419494d229b48d0903ea6407b030eaec46df5e6a73bba5", size = 341802, upload-time = "2024-07-25T10:39:57.834Z" },
+]
+
+[[package]]
+name = "pytest-benchmark"
+version = "5.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "py-cpuinfo" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/34/9f732b76456d64faffbef6232f1f9dbec7a7c4999ff46282fa418bd1af66/pytest_benchmark-5.2.3.tar.gz", hash = "sha256:deb7317998a23c650fd4ff76e1230066a76cb45dcece0aca5607143c619e7779", size = 341340, upload-time = "2025-11-09T18:48:43.215Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/29/e756e715a48959f1c0045342088d7ca9762a2f509b945f362a316e9412b7/pytest_benchmark-5.2.3-py3-none-any.whl", hash = "sha256:bc839726ad20e99aaa0d11a127445457b4219bdb9e80a1afc4b51da7f96b0803", size = 45255, upload-time = "2025-11-09T18:48:39.765Z" },
 ]
 
 [[package]]
@@ -3918,6 +3940,7 @@ dev = [
     { name = "pre-commit" },
     { name = "psycopg" },
     { name = "pytest" },
+    { name = "pytest-benchmark" },
     { name = "pytest-mock" },
     { name = "pytest-repeat" },
     { name = "pytest-xdist" },
@@ -3989,6 +4012,7 @@ dev = [
     { name = "pre-commit", specifier = "==4.1.0" },
     { name = "psycopg", specifier = "==3.1.19" },
     { name = "pytest", specifier = "==8.3.2" },
+    { name = "pytest-benchmark", specifier = ">=4.0.0" },
     { name = "pytest-mock", specifier = "==3.14.0" },
     { name = "pytest-repeat", specifier = "==0.9.3" },
     { name = "pytest-xdist", specifier = "==3.8.0" },
@@ -4015,9 +4039,12 @@ dependencies = [
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "hatchling" },
+    { name = "httpx" },
     { name = "ldap3" },
     { name = "marshmallow" },
     { name = "nh3" },
+    { name = "orjson" },
+    { name = "pydantic" },
     { name = "pymongo" },
     { name = "slack-sdk" },
     { name = "tavily-python" },
@@ -4042,9 +4069,12 @@ requires-dist = [
     { name = "grpcio", specifier = "==1.75.1" },
     { name = "grpcio-tools", specifier = "==1.75.1" },
     { name = "hatchling", specifier = "==1.27.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "ldap3", specifier = "==2.9.1" },
     { name = "marshmallow", specifier = "==3.26.2" },
     { name = "nh3", specifier = "==0.2.18" },
+    { name = "orjson", specifier = ">=3.10.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pymongo", specifier = "==4.8.0" },
     { name = "slack-sdk", specifier = "==3.28.0" },
     { name = "tavily-python", specifier = "==0.7.6" },

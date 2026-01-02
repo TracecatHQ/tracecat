@@ -5,6 +5,22 @@ default:
   @just --list
 test:
 	pytest --cache-clear tests/registry tests/unit tests/playbooks -x
+
+# Run backend benchmarks inside Docker (required for nsjail on macOS)
+bench *args:
+	docker run --rm \
+		--network tracecat-0_default \
+		--cap-add SYS_ADMIN \
+		--security-opt seccomp=unconfined \
+		--env-file .env \
+		-e REDIS_HOST=redis \
+		-e TRACECAT__BLOB_STORAGE_ENDPOINT=http://minio:9000 \
+		-e TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres \
+		-v "$(pwd)/tests:/app/tests:ro" \
+		--entrypoint sh \
+		tracecat-0-executor \
+		-c "pip install pytest pytest-anyio anyio -q && python -m pytest tests/backends/test_backend_benchmarks.py -v -s {{args}}"
+
 down:
 	docker compose down --remove-orphans
 clean:

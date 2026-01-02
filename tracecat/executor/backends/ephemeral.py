@@ -13,6 +13,8 @@ Trust Modes:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
@@ -63,7 +65,7 @@ class EphemeralBackend(ExecutorBackend):
     """
 
     @property
-    def trust_mode(self) -> str:
+    def trust_mode(self) -> Literal["trusted", "untrusted"]:
         """Get the trust mode for this backend.
 
         Ephemeral backend always uses 'untrusted' mode to preserve isolation

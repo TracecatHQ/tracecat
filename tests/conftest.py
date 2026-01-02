@@ -241,12 +241,19 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     logger.info("Setting up environment variables")
     importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
+
+    # Use docker hostnames when running inside Docker (REDIS_HOST=redis indicates Docker)
+    # Otherwise use localhost for host-side tests
+    in_docker = os.getenv("REDIS_HOST") == "redis"
+    db_host = "postgres_db" if in_docker else "localhost"
+    temporal_host = "temporal" if in_docker else "localhost"
+    api_host = "api" if in_docker else "localhost"
+
+    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:5432/postgres"
+    monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
-        config,
-        "TRACECAT__DB_URI",
-        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
+        config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233"
     )
-    monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
         logger.info("Enabling compression for workflow context")
@@ -265,25 +272,22 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
     )
 
-    monkeysession.setenv(
-        "TRACECAT__DB_URI",
-        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
-    )
+    monkeysession.setenv("TRACECAT__DB_URI", db_uri)
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
-    # Point API URL to host-exposed port for host-side tests.
-    monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost:8000")
-    monkeysession.setenv("TRACECAT__API_URL", "http://localhost:8000")
-    # Needed for local unit tests
-    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
-    # Use DirectBackend for in-process executor (no sandbox overhead)
-    monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
-    monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
-    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
+    # Point API URL to appropriate host
+    api_url = f"http://{api_host}:8000"
+    executor_url = f"http://{'executor' if in_docker else 'localhost'}:8001"
+    monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__EXECUTOR_URL", executor_url)
+    # Use DirectBackend for in-process executor (no sandbox overhead) unless overridden
+    if not in_docker:
+        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
-    # When launching the worker directly in a test, use localhost
-    # If the worker is running inside a container, use host.docker.internal
-    monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
+    monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")

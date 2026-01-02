@@ -162,12 +162,33 @@ async def build_tarball_venv_from_path(
         else:
             raise TarballBuildError(f"Could not find site-packages in {venv_dir}")
 
-    # Step 4: Calculate uncompressed size
+    # Step 4: Pre-compile Python bytecode for faster imports in sandbox
+    # This avoids runtime compilation overhead when the tarball is extracted
+    logger.info("Pre-compiling Python bytecode", site_packages=str(site_packages))
+    compile_cmd = [
+        str(venv_dir / "bin" / "python"),
+        "-m",
+        "compileall",
+        "-q",  # Quiet mode
+        "-f",  # Force recompile
+        "-j",
+        "0",  # Use all CPU cores
+        str(site_packages),
+    ]
+    process = await asyncio.create_subprocess_exec(
+        *compile_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await process.communicate()
+    # Ignore errors - bytecode compilation is optional optimization
+
+    # Step 5: Calculate uncompressed size
     uncompressed_size = sum(
         f.stat().st_size for f in site_packages.rglob("*") if f.is_file()
     )
 
-    # Step 5: Create compressed tarball of site-packages
+    # Step 6: Create compressed tarball of site-packages
     # Use gzip compression (zstd would be faster but less portable)
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
@@ -188,8 +209,8 @@ async def build_tarball_venv_from_path(
 
     await asyncio.to_thread(_create_tarball)
 
-    # Step 6: Compute content hash
-    content_hash = _compute_file_hash(tarball_path)
+    # Step 7: Compute content hash
+    content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
 
     logger.info(

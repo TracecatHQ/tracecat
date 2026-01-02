@@ -32,6 +32,7 @@ class ActionSandboxConfig:
         env_vars: Environment variables to inject (DB creds, S3 config, secrets).
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
+        trust_mode: 'trusted' (full runner with DB access) or 'untrusted' (minimal runner, no DB).
     """
 
     registry_cache_dir: Path
@@ -40,6 +41,7 @@ class ActionSandboxConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
+    trust_mode: Literal["trusted", "untrusted"] = "untrusted"
 
 
 # Valid environment variable name pattern (POSIX compliant)
@@ -640,14 +642,19 @@ class NsjailExecutor:
                 f'mount {{ src: "{config.registry_cache_dir}" dst: "/packages" is_bind: true rw: false }}'
             )
 
-        # Mount tracecat app directory
-        if config.tracecat_app_dir.exists():
+        # Mount tracecat app directory - only needed for trusted mode
+        # Untrusted mode uses minimal_runner.py copied to /work, no tracecat imports
+        if config.trust_mode != "untrusted" and config.tracecat_app_dir.exists():
             lines.append(
                 f'mount {{ src: "{config.tracecat_app_dir}" dst: "/app" is_bind: true rw: false }}'
             )
 
-        # Mount site-packages directory for Python dependencies
-        if config.site_packages_dir and config.site_packages_dir.exists():
+        # Mount site-packages directory for Python dependencies - only for trusted mode
+        if (
+            config.trust_mode != "untrusted"
+            and config.site_packages_dir
+            and config.site_packages_dir.exists()
+        ):
             lines.append(
                 f'mount {{ src: "{config.site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}'
             )
@@ -666,15 +673,28 @@ class NsjailExecutor:
             ]
         )
 
-        # Execution settings - run subprocess_entrypoint as a module
-        lines.extend(
-            [
-                "",
-                "# Execution",
-                'cwd: "/work"',
-                'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.executor.subprocess_entrypoint" }',
-            ]
-        )
+        # Execution settings - choose entrypoint based on trust mode
+        # - untrusted: minimal_runner.py copied to /work (no /app mount needed)
+        # - trusted: subprocess_entrypoint (full tracecat with DB access)
+        if config.trust_mode == "untrusted":
+            # Run standalone script - doesn't need tracecat package
+            lines.extend(
+                [
+                    "",
+                    "# Execution",
+                    'cwd: "/work"',
+                    'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "# Execution",
+                    'cwd: "/work"',
+                    'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.executor.subprocess_entrypoint" }',
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -685,19 +705,25 @@ class NsjailExecutor:
         """Construct environment for action sandbox execution."""
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
-        # Set PYTHONPATH to include registry cache, tracecat app, and site-packages
-        # Note: .pth files (editable installs) in site-packages are NOT processed
-        # when added via PYTHONPATH, so we must explicitly add those paths
+        # Set PYTHONPATH based on trust mode
+        # - untrusted: only /packages (tarball with tracecat_registry)
+        # - trusted: /packages, /app, /app/packages/*, /site-packages
         pythonpath_parts = []
         if config.registry_cache_dir.exists():
             pythonpath_parts.append("/packages")
-        if config.tracecat_app_dir.exists():
-            pythonpath_parts.append("/app")
-            # Add editable-installed packages from /app/packages
-            pythonpath_parts.append("/app/packages/tracecat-registry")
-            pythonpath_parts.append("/app/packages/tracecat-ee")
-        if config.site_packages_dir and config.site_packages_dir.exists():
-            pythonpath_parts.append("/site-packages")
+
+        if config.trust_mode != "untrusted":
+            # Trusted mode needs full tracecat and dependencies
+            # Note: .pth files (editable installs) in site-packages are NOT processed
+            # when added via PYTHONPATH, so we must explicitly add those paths
+            if config.tracecat_app_dir.exists():
+                pythonpath_parts.append("/app")
+                # Add editable-installed packages from /app/packages
+                pythonpath_parts.append("/app/packages/tracecat-registry")
+                pythonpath_parts.append("/app/packages/tracecat-ee")
+            if config.site_packages_dir and config.site_packages_dir.exists():
+                pythonpath_parts.append("/site-packages")
+
         if pythonpath_parts:
             env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
 

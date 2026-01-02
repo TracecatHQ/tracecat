@@ -22,7 +22,7 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -34,6 +34,7 @@ from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import AccessLevel
 from tracecat.auth.types import Role as AuthRole
 from tracecat.executor.schemas import (
+    ActionImplementation,
     ExecutorActionErrorInfo,
     ResolvedContext,
     get_trust_mode,
@@ -302,7 +303,7 @@ class ActionRunner:
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         force_sandbox: bool = False,
-        trust_mode: str | None = None,
+        trust_mode: Literal["trusted", "untrusted"] | None = None,
     ) -> ExecutionResult:
         """Execute an action in a subprocess.
 
@@ -313,7 +314,7 @@ class ActionRunner:
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
             force_sandbox: If True, always use nsjail sandbox regardless of config
-            trust_mode: Override trust mode ('trusted' or 'untrusted').
+            trust_mode: Override trust mode ('trusted' or 'untrusted', default: 'untrusted').
                 If None, derives from executor backend type.
 
         Returns:
@@ -379,21 +380,46 @@ class ActionRunner:
         input: RunActionInput,
         role: Role,
     ) -> ResolvedContext:
-        """Pre-resolve secrets and variables for untrusted mode.
+        """Pre-resolve all context needed for untrusted mode execution.
 
         In untrusted mode, the sandbox doesn't have DB access, so we
-        resolve secrets and variables here and pass them separately.
+        resolve everything here:
+        - Secrets and variables
+        - Action implementation metadata (module path, function name, or template definition)
+        - Evaluated args with all template expressions resolved
         """
         # Lazy import to avoid circular dependency with service.py
-        from tracecat.executor.service import get_workspace_variables
+        from tracecat.executor.service import (
+            evaluate_templated_args,
+            get_workspace_variables,
+        )
+        from tracecat.expressions.common import ExprContext
+        from tracecat.registry.actions.schemas import RegistryActionImplValidator
 
         task = input.task
         action_name = task.action
 
-        # Get action secrets configuration
+        # Get action and its secrets configuration
         async with RegistryActionsService.with_session() as service:
             reg_action = await service.get_action(action_name)
             action_secrets = await service.fetch_all_action_secrets(reg_action)
+
+        # Extract action implementation metadata for sandbox execution
+        impl = RegistryActionImplValidator.validate_python(reg_action.implementation)
+        if impl.type == "udf":
+            action_impl = ActionImplementation(
+                type="udf",
+                module=impl.module,
+                name=impl.name,
+            )
+        else:
+            # Template action - pass the full definition
+            action_impl = ActionImplementation(
+                type="template",
+                template_definition=impl.template_action.model_dump(mode="json")
+                if impl.template_action
+                else None,
+            )
 
         # Collect expression references from task args
         collected = collect_expressions(task.args)
@@ -410,14 +436,28 @@ class ActionRunner:
             role=role,
         )
 
+        # Build execution context and evaluate template expressions in args
+        exec_context = input.exec_context.copy()
+        exec_context[ExprContext.SECRETS] = secrets
+        exec_context[ExprContext.VARS] = workspace_variables
+
+        # Evaluate templated args with resolved context
+        evaluated_args = dict(evaluate_templated_args(task, exec_context))
+
         logger.debug(
-            "Pre-resolved secrets and variables for untrusted mode",
+            "Pre-resolved context for untrusted mode",
             action=action_name,
+            impl_type=impl.type,
             num_secrets=len(secrets),
             num_variables=len(workspace_variables),
         )
 
-        return ResolvedContext(secrets=secrets, variables=workspace_variables)
+        return ResolvedContext(
+            secrets=secrets,
+            variables=workspace_variables,
+            action_impl=action_impl,
+            evaluated_args=evaluated_args,
+        )
 
     async def _execute_sandboxed(
         self,
@@ -426,7 +466,7 @@ class ActionRunner:
         registry_cache_dir: Path,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
-        trust_mode: str = "trusted",
+        trust_mode: Literal["trusted", "untrusted"] = "untrusted",
         resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
         """Execute an action in an nsjail sandbox.
@@ -455,6 +495,15 @@ class ActionRunner:
             input_json = to_json(payload)
             input_path = job_dir / "input.json"
             input_path.write_bytes(input_json)
+
+            # For untrusted mode, copy minimal_runner.py to job directory
+            # This avoids needing to mount /app in the sandbox
+            if trust_mode == "untrusted":
+                from tracecat.executor import minimal_runner as minimal_runner_module
+
+                minimal_runner_src = Path(minimal_runner_module.__file__)
+                minimal_runner_dst = job_dir / "minimal_runner.py"
+                shutil.copy2(minimal_runner_src, minimal_runner_dst)
 
             # Build environment variables for sandbox based on trust mode
             sandbox_env: dict[str, str] = {}
@@ -526,6 +575,7 @@ class ActionRunner:
                     timeout_seconds=int(timeout),
                 ),
                 timeout_seconds=timeout,
+                trust_mode=trust_mode,
             )
 
             logger.debug(

@@ -96,7 +96,7 @@ def _resolve_backend_type() -> ExecutorBackendType:
     return backend_type
 
 
-def get_trust_mode() -> str:
+def get_trust_mode() -> Literal["trusted", "untrusted"]:
     """Get the trust mode derived from the backend type.
 
     Returns:
@@ -111,11 +111,30 @@ class ExecutorSyncInput(BaseModel):
     repository_id: UUID4
 
 
-class ResolvedContext(BaseModel):
-    """Pre-resolved secrets and variables for untrusted execution mode.
+class ActionImplementation(BaseModel):
+    """Action implementation metadata for sandbox execution.
 
-    In untrusted mode, the sandbox doesn't have DB access, so secrets and
-    variables are resolved by the caller and passed in this object.
+    Contains everything needed to execute an action without DB access.
+    """
+
+    type: str
+    """Action type: 'udf' or 'template'."""
+
+    module: str | None = None
+    """Module path for UDF actions (e.g., 'tracecat_registry.integrations.core.transform')."""
+
+    name: str | None = None
+    """Function name for UDF actions (e.g., 'reshape')."""
+
+    template_definition: dict[str, Any] | None = None
+    """Template action definition for template actions."""
+
+
+class ResolvedContext(BaseModel):
+    """Pre-resolved context for untrusted execution mode.
+
+    In untrusted mode, the sandbox doesn't have DB access, so all context
+    needed to execute the action is resolved by the caller and passed here.
     """
 
     secrets: dict[str, Any] = {}
@@ -123,6 +142,12 @@ class ResolvedContext(BaseModel):
 
     variables: dict[str, Any] = {}
     """Pre-resolved workspace variables keyed by variable name."""
+
+    action_impl: ActionImplementation | None = None
+    """Action implementation metadata for direct execution without DB."""
+
+    evaluated_args: dict[str, Any] | None = None
+    """Pre-evaluated action arguments with all template expressions resolved."""
 
 
 class ExecutorActionErrorInfo(BaseModel):
