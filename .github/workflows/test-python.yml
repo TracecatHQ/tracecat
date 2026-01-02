@@ -158,6 +158,9 @@ jobs:
           echo "=== Temporal Logs ==="
           docker compose -f docker-compose.dev.yml logs temporal --tail=200
 
+          echo "=== API Logs ==="
+          docker compose -f docker-compose.dev.yml logs api --tail=200
+
           echo "=== Postgres Logs ==="
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
 
