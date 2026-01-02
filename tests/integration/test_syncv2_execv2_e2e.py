@@ -35,6 +35,7 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -394,6 +395,14 @@ class TestExecuteWithSyncedRegistry:
         ) as sync_service:
             sync_result = await sync_service.sync_repository_v2(builtin_repo)
 
+        # Also upsert actions to RegistryAction table (required for subprocess execution)
+        async with RegistryActionsService.with_session(
+            session=session, role=test_role
+        ) as actions_service:
+            await actions_service.upsert_actions_from_list(
+                sync_result.actions, builtin_repo, commit=True
+            )
+
         # Create mock artifacts from sync result
         mock_artifacts = [
             RegistryArtifactsContext(
@@ -420,6 +429,9 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            # Skip _prepare_resolved_context which creates new DB session
+            # that can't see test data due to transaction isolation
+            kwargs["trust_mode"] = "trusted"
             return await original_execute(**kwargs)
 
         # Mock both the action runner and artifact resolution
@@ -466,6 +478,14 @@ class TestExecuteWithSyncedRegistry:
         ) as sync_service:
             sync_result = await sync_service.sync_repository_v2(builtin_repo)
 
+        # Also upsert actions to RegistryAction table (required for subprocess execution)
+        async with RegistryActionsService.with_session(
+            session=session, role=test_role
+        ) as actions_service:
+            await actions_service.upsert_actions_from_list(
+                sync_result.actions, builtin_repo, commit=True
+            )
+
         # Create mock artifacts for the locked version
         mock_artifacts = [
             RegistryArtifactsContext(
@@ -494,6 +514,9 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False
+            # Skip _prepare_resolved_context which creates new DB session
+            # that can't see test data due to transaction isolation
+            kwargs["trust_mode"] = "trusted"
             return await original_execute(**kwargs)
 
         with (
@@ -709,6 +732,14 @@ class TestMultitenantWorkloads:
         ) as sync_service:
             sync_result = await sync_service.sync_repository_v2(builtin_repo)
 
+        # Also upsert actions to RegistryAction table (required for subprocess execution)
+        async with RegistryActionsService.with_session(
+            session=session, role=test_role
+        ) as actions_service:
+            await actions_service.upsert_actions_from_list(
+                sync_result.actions, builtin_repo, commit=True
+            )
+
         # Create two different workspace roles
         workspace_a_id = uuid.uuid4()
         workspace_b_id = uuid.uuid4()
@@ -745,6 +776,9 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False
+            # Skip _prepare_resolved_context which creates new DB session
+            # that can't see test data due to transaction isolation
+            kwargs["trust_mode"] = "trusted"
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently
@@ -808,6 +842,14 @@ class TestMultitenantWorkloads:
         ) as sync_service:
             sync_result = await sync_service.sync_repository_v2(builtin_repo)
 
+        # Also upsert actions to RegistryAction table (required for subprocess execution)
+        async with RegistryActionsService.with_session(
+            session=session, role=test_role
+        ) as actions_service:
+            await actions_service.upsert_actions_from_list(
+                sync_result.actions, builtin_repo, commit=True
+            )
+
         # Create multiple inputs for the same workspace
         workspace_id = test_role.workspace_id
         inputs = [
@@ -838,6 +880,9 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False
+            # Skip _prepare_resolved_context which creates new DB session
+            # that can't see test data due to transaction isolation
+            kwargs["trust_mode"] = "trusted"
             return await original_execute(**kwargs)
 
         # Execute all requests concurrently
@@ -894,6 +939,14 @@ class TestMultitenantWorkloads:
         ) as sync_service:
             sync_result = await sync_service.sync_repository_v2(builtin_repo)
 
+        # Also upsert actions to RegistryAction table (required for subprocess execution)
+        async with RegistryActionsService.with_session(
+            session=session, role=test_role
+        ) as actions_service:
+            await actions_service.upsert_actions_from_list(
+                sync_result.actions, builtin_repo, commit=True
+            )
+
         # Create two different workspace roles
         workspace_a_id = uuid.uuid4()
         workspace_b_id = uuid.uuid4()
@@ -935,6 +988,9 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False
+            # Skip _prepare_resolved_context which creates new DB session
+            # that can't see test data due to transaction isolation
+            kwargs["trust_mode"] = "trusted"
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently with locked versions
