@@ -493,6 +493,9 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["trust_mode"] = (
+                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
+            )
             return await original_execute(**kwargs)
 
         # Mock both the action runner and artifact resolution
@@ -583,6 +586,9 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["trust_mode"] = (
+                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
+            )
             return await original_execute(**kwargs)
 
         with (
@@ -849,6 +855,9 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["trust_mode"] = (
+                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
+            )
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently
@@ -957,6 +966,9 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["trust_mode"] = (
+                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
+            )
             return await original_execute(**kwargs)
 
         # Execute all requests concurrently
@@ -1069,6 +1081,9 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["trust_mode"] = (
+                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
+            )
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently with locked versions
