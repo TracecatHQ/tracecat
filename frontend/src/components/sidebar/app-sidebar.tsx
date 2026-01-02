@@ -3,16 +3,18 @@
 import {
   ChevronDown,
   type LucideIcon,
+  KeyRoundIcon,
   MoreHorizontal,
   PencilIcon,
+  PlugIcon,
   Plus,
-  Settings2Icon,
   SquarePlus,
   SquareStackIcon,
   Table2Icon,
   TrashIcon,
   UserCheckIcon,
   UsersIcon,
+  VariableIcon,
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -285,25 +287,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
-      title: "Configs",
-      icon: Settings2Icon,
-      items: [
-        {
-          title: "Variables",
-          url: `${basePath}/variables`,
-          isActive: pathname?.startsWith(`${basePath}/variables`),
-        },
-        {
-          title: "Credentials",
-          url: `${basePath}/credentials`,
-          isActive: pathname?.startsWith(`${basePath}/credentials`),
-        },
-        {
-          title: "Integrations",
-          url: `${basePath}/integrations`,
-          isActive: pathname?.startsWith(`${basePath}/integrations`),
-        },
-      ],
+      title: "Variables",
+      url: `${basePath}/variables`,
+      icon: VariableIcon,
+      isActive: pathname?.startsWith(`${basePath}/variables`),
+    },
+    {
+      title: "Credentials",
+      url: `${basePath}/credentials`,
+      icon: KeyRoundIcon,
+      isActive: pathname?.startsWith(`${basePath}/credentials`),
+    },
+    {
+      title: "Integrations",
+      url: `${basePath}/integrations`,
+      icon: PlugIcon,
+      isActive: pathname?.startsWith(`${basePath}/integrations`),
     },
     {
       title: "Members",
