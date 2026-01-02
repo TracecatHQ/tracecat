@@ -3,11 +3,11 @@
 import {
   BlocksIcon,
   ChevronDown,
+  LockKeyholeIcon,
   type LucideIcon,
   MessageSquare,
-  SquareStackIcon,
-  LockKeyholeIcon,
   SquareMousePointerIcon,
+  SquareStackIcon,
   Table2Icon,
   UserCheckIcon,
   UsersIcon,
@@ -207,39 +207,39 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   {navWorkspace
                     .filter((item) => item.visible !== false)
                     .map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      {item.items ? (
-                        <SidebarMenuItem>
-                          <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
-                            <item.icon className="size-4 shrink-0" />
-                            <span className="font-medium">{item.title}</span>
-                          </div>
-                          <SidebarMenuSub>
-                            {item.items.map((subItem) => (
-                              <SidebarMenuSubItem key={subItem.title}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  isActive={subItem.isActive}
-                                  className="text-[13px]"
-                                >
-                                  <Link href={subItem.url}>
-                                    <span>{subItem.title}</span>
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            ))}
-                          </SidebarMenuSub>
-                        </SidebarMenuItem>
-                      ) : (
-                        <SidebarMenuButton asChild isActive={item.isActive}>
-                          <Link href={item.url!}>
-                            <item.icon />
-                            <span>{item.title}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      )}
-                    </SidebarMenuItem>
-                  ))}
+                      <SidebarMenuItem key={item.title}>
+                        {item.items ? (
+                          <SidebarMenuItem>
+                            <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
+                              <item.icon className="size-4 shrink-0" />
+                              <span className="font-medium">{item.title}</span>
+                            </div>
+                            <SidebarMenuSub>
+                              {item.items.map((subItem) => (
+                                <SidebarMenuSubItem key={subItem.title}>
+                                  <SidebarMenuSubButton
+                                    asChild
+                                    isActive={subItem.isActive}
+                                    className="text-[13px]"
+                                  >
+                                    <Link href={subItem.url}>
+                                      <span>{subItem.title}</span>
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))}
+                            </SidebarMenuSub>
+                          </SidebarMenuItem>
+                        ) : (
+                          <SidebarMenuButton asChild isActive={item.isActive}>
+                            <Link href={item.url!}>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        )}
+                      </SidebarMenuItem>
+                    ))}
                 </SidebarMenu>
               </SidebarGroupContent>
             </CollapsibleContent>

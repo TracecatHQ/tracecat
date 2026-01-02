@@ -2,8 +2,8 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
-import type { VariableReadMinimal } from "@/client"
 import { stringify } from "yaml"
+import type { VariableReadMinimal } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,

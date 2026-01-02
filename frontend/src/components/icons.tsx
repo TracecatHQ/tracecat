@@ -240,13 +240,13 @@ function createIconRenderer(
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
-    "trigger": ({ className, ...rest }) => (
+    trigger: ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-indigo-100", className)}>
         <ZapIcon {...rest} />
       </div>
     ),
     // Core namespace
-    "core": ({ className, ...rest }) => (
+    core: ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-slate-200/50", className)}>
         <Cpu {...rest} />
       </div>

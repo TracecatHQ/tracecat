@@ -970,7 +970,10 @@ function getPageConfig(
       }
       return {
         title: (
-          <AgentPresetBreadcrumb presetId={presetId} workspaceId={workspaceId} />
+          <AgentPresetBreadcrumb
+            presetId={presetId}
+            workspaceId={workspaceId}
+          />
         ),
       }
     }

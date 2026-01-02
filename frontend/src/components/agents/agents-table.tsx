@@ -1,8 +1,8 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import type { ColumnDef } from "@tanstack/react-table"
 import { useQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
 import { format } from "date-fns"
 import { Copy, Trash2 } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
@@ -43,11 +43,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
 import { useDeleteAgentPreset } from "@/hooks/use-agent-presets"
-import { useListMcpIntegrations } from "@/lib/hooks"
+import { useAuth } from "@/hooks/use-auth"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
-import { capitalizeFirst, reconstructActionType, shortTimeAgo } from "@/lib/utils"
+import { useListMcpIntegrations } from "@/lib/hooks"
+import {
+  capitalizeFirst,
+  reconstructActionType,
+  shortTimeAgo,
+} from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type AgentPresetTableRow = AgentPresetReadMinimal & Partial<AgentPresetRead>
@@ -151,7 +155,7 @@ const buildMcpBadges = (
       const meta = mcpIntegrationMap.get(integration)
       const name = meta?.name
       const providerId = meta?.slug
-        ? getMcpProviderId(meta.slug) ?? "custom"
+        ? (getMcpProviderId(meta.slug) ?? "custom")
         : "custom"
       addTool({
         id: integration,
@@ -166,7 +170,6 @@ const buildMcpBadges = (
 
 const hasToolsConfig = (preset: AgentPresetTableRow) =>
   preset.actions !== undefined || preset.namespaces !== undefined
-
 
 const renderRelativeDate = (value?: string) => {
   if (!value) {
@@ -217,10 +220,7 @@ function AgentActionsMenu({
         className="min-w-0 w-fit"
         onClick={(event) => event.stopPropagation()}
       >
-        <DropdownMenuItem
-          className="text-xs"
-          onClick={() => onCopy(preset)}
-        >
+        <DropdownMenuItem className="text-xs" onClick={() => onCopy(preset)}>
           <Copy className="mr-2 size-3.5" />
           Copy agent ID
         </DropdownMenuItem>
@@ -316,8 +316,7 @@ export function AgentsTable() {
         description: (
           <div className="flex flex-col space-y-2">
             <span>
-              Agent ID copied for{" "}
-              <b className="inline-block">{preset.name}</b>
+              Agent ID copied for <b className="inline-block">{preset.name}</b>
             </span>
             <span className="text-muted-foreground">ID: {preset.id}</span>
           </div>
@@ -408,20 +407,22 @@ export function AgentsTable() {
           return (
             <div className="flex flex-wrap items-center gap-1 text-xs">
               {toolList.map((tool) => (
-                <Badge key={tool.id} variant="secondary" className="font-medium">
+                <Badge
+                  key={tool.id}
+                  variant="secondary"
+                  className="font-medium"
+                >
                   <span className="flex items-center gap-1.5">
-                    {tool.iconKey
-                      ? getIcon(tool.iconKey, {
-                          className: "size-5 shrink-0",
-                        })
-                      : tool.providerId
-                        ? (
-                            <ProviderIcon
-                              providerId={tool.providerId ?? "custom"}
-                              className="size-5 shrink-0"
-                            />
-                          )
-                        : null}
+                    {tool.iconKey ? (
+                      getIcon(tool.iconKey, {
+                        className: "size-5 shrink-0",
+                      })
+                    ) : tool.providerId ? (
+                      <ProviderIcon
+                        providerId={tool.providerId ?? "custom"}
+                        className="size-5 shrink-0"
+                      />
+                    ) : null}
                     <span>{tool.label}</span>
                   </span>
                 </Badge>
@@ -441,10 +442,7 @@ export function AgentsTable() {
         ),
         enableSorting: false,
         cell: ({ row }) => {
-          const mcpBadges = buildMcpBadges(
-            row.original,
-            mcpIntegrationMap
-          )
+          const mcpBadges = buildMcpBadges(row.original, mcpIntegrationMap)
 
           if (mcpBadges.length === 0) {
             return <span className="text-xs text-muted-foreground">-</span>
@@ -453,7 +451,11 @@ export function AgentsTable() {
           return (
             <div className="flex flex-wrap items-center gap-1 text-xs">
               {mcpBadges.map((tool) => (
-                <Badge key={tool.id} variant="secondary" className="font-medium">
+                <Badge
+                  key={tool.id}
+                  variant="secondary"
+                  className="font-medium"
+                >
                   <span className="flex items-center gap-1.5">
                     {tool.providerId ? (
                       <ProviderIcon
@@ -483,9 +485,10 @@ export function AgentsTable() {
           />
         ),
         cell: ({ row }) => {
-          const provider = row.getValue<
-            AgentPresetTableRow["model_provider"]
-          >("model_provider")
+          const provider =
+            row.getValue<AgentPresetTableRow["model_provider"]>(
+              "model_provider"
+            )
 
           if (!provider) {
             return <span className="text-xs text-muted-foreground">-</span>
@@ -514,9 +517,8 @@ export function AgentsTable() {
           />
         ),
         cell: ({ row }) => {
-          const model = row.getValue<AgentPresetTableRow["model_name"]>(
-            "model_name"
-          )
+          const model =
+            row.getValue<AgentPresetTableRow["model_name"]>("model_name")
           return model ? (
             <span className="block truncate text-xs text-foreground/80">
               {model}
