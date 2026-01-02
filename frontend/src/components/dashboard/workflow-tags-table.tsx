@@ -189,13 +189,13 @@ export function WorkflowsTagsTable() {
               enableSorting: true,
             },
             {
-              id: "Last saved",
+              id: "Last published",
               accessorKey: "latest_definition.created_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last saved"
+                  title="Last published"
                 />
               ),
               cell: ({ getValue }) => {

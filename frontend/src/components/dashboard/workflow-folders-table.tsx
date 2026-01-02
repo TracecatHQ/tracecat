@@ -302,7 +302,7 @@ export function WorkflowsDashboardTable({
               enableSorting: true,
             },
             {
-              id: "Last saved",
+              id: "Last published",
               accessorFn: (row: DirectoryItem) =>
                 row.type === "workflow"
                   ? row.latest_definition?.created_at
@@ -311,7 +311,7 @@ export function WorkflowsDashboardTable({
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last saved"
+                  title="Last published"
                 />
               ),
               cell: ({ getValue, row }) => {
