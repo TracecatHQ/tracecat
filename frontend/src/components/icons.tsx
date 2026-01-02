@@ -1,6 +1,5 @@
 import {
   Blend,
-  BoxesIcon,
   BoxIcon,
   Building2Icon,
   Code,
