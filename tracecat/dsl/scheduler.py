@@ -88,8 +88,6 @@ class DSLScheduler:
         self.logger = logger
         self.tasks: dict[str, ActionStatement] = {}
         """Task definitions"""
-        self.adj: dict[str, set[AdjDst]] = defaultdict(set)
-        """Adjacency list of task dependencies"""
 
         # Dynamic: Handle instances
         # Mut: Queue is used to schedule tasks
@@ -106,13 +104,23 @@ class DSLScheduler:
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
         self.stream_exceptions: dict[StreamID, TaskExceptionInfo] = {}
 
+        # Build adjacency list with sets for efficient construction
+        adj_temp: dict[str, set[AdjDst]] = defaultdict(set)
         for task in dsl.actions:
             self.tasks[task.ref] = task
             # This remains the same regardless of error paths, as each error path counts as an indegree
             self.indegrees[Task(task.ref, ROOT_STREAM)] = len(task.depends_on)
             for dep_ref in task.depends_on:
                 src_ref, edge_type = self._get_edge_components(dep_ref)
-                self.adj[src_ref].add((task.ref, edge_type))
+                adj_temp[src_ref].add((task.ref, edge_type))
+
+        # Convert to sorted tuples for deterministic iteration
+
+        self.adj = {
+            ref: tuple(sorted(adj_temp.get(ref, set()), key=self._adj_sort_key))
+            for ref in self.tasks
+        }
+        """Adjacency list of task dependencies (sorted for determinism)"""
 
         # Scope management
         self._root_context = context
@@ -133,6 +141,11 @@ class DSLScheduler:
             indegrees=self.indegrees,
             task_count=len(self.tasks),
         )
+
+    @staticmethod
+    def _adj_sort_key(adj: AdjDst) -> tuple[str, str]:
+        dst_ref, edge_type = adj
+        return dst_ref, edge_type.value
 
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
@@ -347,36 +360,33 @@ class DSLScheduler:
         # but at the join point, if any parent was not skipped, then the child can still be executed.
         ref = task.ref
         stream_id = task.stream_id
-        next_tasks = self.adj[ref]
+        next_tasks = self.adj.get(ref, ())
         self.logger.debug(
             "Queueing tasks",
             task=task,
             next_tasks=next_tasks,
         )
-        async with asyncio.TaskGroup() as tg:
-            for next_ref, edge_type in next_tasks:
-                self.logger.debug("Processing next task", ref=ref, next_ref=next_ref)
-                edge = DSLEdge(
-                    src=ref, dst=next_ref, type=edge_type, stream_id=stream_id
+        for next_ref, edge_type in next_tasks:
+            self.logger.debug("Processing next task", ref=ref, next_ref=next_ref)
+            edge = DSLEdge(src=ref, dst=next_ref, type=edge_type, stream_id=stream_id)
+            if unreachable and edge in unreachable:
+                self._mark_edge(edge, EdgeMarker.SKIPPED)
+            else:
+                self._mark_edge(edge, EdgeMarker.VISITED)
+            # Mark the edge as processed
+            # Task inherits the current stream
+            # Inherit the delay if it exists. We need this to stagger tasks for scatter.
+            next_task = Task(ref=next_ref, stream_id=stream_id, delay=task.delay)
+            # We dynamically add the indegree of the next task to the indegrees dict
+            if next_task not in self.indegrees:
+                self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
+            self.indegrees[next_task] -= 1
+            if self.indegrees[next_task] == 0:
+                # Schedule the next task
+                self.logger.debug(
+                    "Adding task to queue; mark visited", next_ref=next_ref
                 )
-                if unreachable and edge in unreachable:
-                    self._mark_edge(edge, EdgeMarker.SKIPPED)
-                else:
-                    self._mark_edge(edge, EdgeMarker.VISITED)
-                # Mark the edge as processed
-                # Task inherits the current stream
-                # Inherit the delay if it exists. We need this to stagger tasks for scatter.
-                next_task = Task(ref=next_ref, stream_id=stream_id, delay=task.delay)
-                # We dynamically add the indegree of the next task to the indegrees dict
-                if next_task not in self.indegrees:
-                    self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
-                self.indegrees[next_task] -= 1
-                if self.indegrees[next_task] == 0:
-                    # Schedule the next task
-                    self.logger.debug(
-                        "Adding task to queue; mark visited", next_ref=next_ref
-                    )
-                    tg.create_task(self.queue.put(next_task))
+                await self.queue.put(next_task)
         self.logger.trace(
             "Queued tasks",
             visited_tasks=list(self.completed_tasks),
