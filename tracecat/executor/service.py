@@ -6,6 +6,7 @@ import time
 import traceback
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -22,6 +23,7 @@ from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logger,
+    ctx_logical_time,
     ctx_role,
     ctx_run,
     ctx_session_id,
@@ -376,6 +378,18 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     context = input.exec_context.copy()
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = workspace_variables
+
+    # Set logical_time for deterministic FN.now() etc.
+    # logical_time = time_anchor + elapsed workflow time
+    # Always set unconditionally to avoid stale context leakage
+    env_context = context.get(ExprContext.ENV) or {}
+    workflow_context = env_context.get("workflow") or {}
+    logical_time = workflow_context.get("logical_time")
+    if logical_time is not None:
+        # logical_time may be serialized as ISO string through Temporal
+        if isinstance(logical_time, str):
+            logical_time = datetime.fromisoformat(logical_time)
+    ctx_logical_time.set(logical_time)
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
 

@@ -566,6 +566,14 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 class WorkflowExecutionCreate(BaseModel):
     workflow_id: AnyWorkflowID
     inputs: TriggerInputs | None = None
+    time_anchor: datetime | None = Field(
+        default=None,
+        description=(
+            "Override the workflow's time anchor for FN.now() and related functions. "
+            "If not provided, computed from TemporalScheduledStartTime (for schedules) "
+            "or workflow start_time (for other triggers)."
+        ),
+    )
 
 
 class WorkflowExecutionCreateResponse(TypedDict):

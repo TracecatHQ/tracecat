@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.dsl.validation import (
         normalize_trigger_inputs_activity,
+        resolve_time_anchor_activity,
         validate_trigger_inputs_activity,
     )
     from tracecat.dsl.workflow import DSLWorkflow
@@ -75,6 +76,7 @@ def get_activities() -> list[Callable]:
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         normalize_trigger_inputs_activity,
+        resolve_time_anchor_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
     ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import dateparser
@@ -15,7 +16,7 @@ from tenacity import (
 )
 
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_run
+from tracecat.contexts import ctx_logger, ctx_logical_time, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.schemas import ActionStatement, RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
@@ -115,6 +116,18 @@ class DSLActivities:
             environment=environment,
         )
         ctx_logger.set(log)
+
+        # Set logical_time for deterministic FN.now() etc.
+        # logical_time = time_anchor + elapsed workflow time
+        # Always set unconditionally to avoid stale context leakage
+        env_context = input.exec_context.get(ExprContext.ENV) or {}
+        workflow_context = env_context.get("workflow") or {}
+        logical_time = workflow_context.get("logical_time")
+        if logical_time is not None:
+            # logical_time may be serialized as ISO string through Temporal
+            if isinstance(logical_time, str):
+                logical_time = datetime.fromisoformat(logical_time)
+        ctx_logical_time.set(logical_time)
 
         act_info = activity.info()
         act_attempt = act_info.attempt

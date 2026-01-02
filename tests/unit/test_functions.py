@@ -1,10 +1,12 @@
 from collections import Counter
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import orjson
 import pytest
 
+from tracecat.contexts import ctx_logical_time
 from tracecat.expressions.functions import (
     _bool,
     add,
@@ -77,6 +79,7 @@ from tracecat.expressions.functions import (
     not_equal,
     not_in,
     not_null,
+    now,
     or_,
     parse_datetime,
     parse_time,
@@ -101,11 +104,14 @@ from tracecat.expressions.functions import (
     to_datetime,
     to_time,
     to_timestamp,
+    today,
     union,
     unset_timezone,
     uppercase,
     url_decode,
     url_encode,
+    utcnow,
+    wall_clock,
     weeks_between,
     zip_iterables,
 )
@@ -1588,3 +1594,196 @@ def test_hash_sha512() -> None:
         hash_sha512(b"test")
         == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
     )
+
+
+# ============================================================================
+# Time Anchor Tests (FN.now(), FN.utcnow(), FN.today(), FN.wall_clock())
+# ============================================================================
+
+
+class TestTimeAnchorFunctions:
+    """Tests for time anchor functionality in FN.now(), FN.utcnow(), FN.today(), and FN.wall_clock()."""
+
+    def test_now_with_logical_time(self) -> None:
+        """Test that now() uses ctx_logical_time when set."""
+        # Set a specific logical time (UTC-aware datetime)
+        logical_time = datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = now()
+            # Type narrowing: when called without as_isoformat, now() returns datetime
+            assert isinstance(result, datetime)
+            # Result should be naive (no tzinfo) - the logical_time converted to local
+            assert result.tzinfo is None
+            # The result should be the logical_time converted to local timezone
+            # The actual local time depends on the system timezone
+            expected_local = logical_time.astimezone().replace(tzinfo=None)
+            assert result == expected_local
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_now_without_logical_time(self) -> None:
+        """Test that now() falls back to wall clock when ctx_logical_time is not set."""
+        # Ensure ctx_logical_time is not set (default is None)
+        assert ctx_logical_time.get() is None
+
+        before = datetime.now()
+        result = now()
+        after = datetime.now()
+
+        # Type narrowing: when called without as_isoformat, now() returns datetime
+        assert isinstance(result, datetime)
+        # Result should be a naive datetime close to wall clock time
+        assert result.tzinfo is None
+        assert before <= result <= after
+
+    def test_now_with_isoformat(self) -> None:
+        """Test now() with as_isoformat=True."""
+        logical_time = datetime(2024, 6, 15, 10, 30, 45, tzinfo=UTC)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = now(as_isoformat=True)
+            assert isinstance(result, str)
+            # Should be ISO 8601 format
+            parsed = datetime.fromisoformat(result)
+            expected_local = logical_time.astimezone().replace(tzinfo=None)
+            assert parsed == expected_local
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_utcnow_with_logical_time(self) -> None:
+        """Test that utcnow() uses ctx_logical_time when set."""
+        logical_time = datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = utcnow()
+            # Type narrowing: when called without as_isoformat, utcnow() returns datetime
+            assert isinstance(result, datetime)
+            # Result should be UTC-aware
+            assert result.tzinfo == UTC
+            assert result == logical_time
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_utcnow_without_logical_time(self) -> None:
+        """Test that utcnow() falls back to wall clock when ctx_logical_time is not set."""
+        assert ctx_logical_time.get() is None
+
+        before = datetime.now(UTC)
+        result = utcnow()
+        after = datetime.now(UTC)
+
+        # Type narrowing: when called without as_isoformat, utcnow() returns datetime
+        assert isinstance(result, datetime)
+        # Result should be UTC-aware
+        assert result.tzinfo == UTC
+        assert before <= result <= after
+
+    def test_utcnow_with_naive_logical_time(self) -> None:
+        """Test that utcnow() handles naive logical_time by treating it as UTC."""
+        # Naive datetime (no timezone info)
+        logical_time = datetime(2024, 6, 15, 10, 30, 0)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = utcnow()
+            # Type narrowing: when called without as_isoformat, utcnow() returns datetime
+            assert isinstance(result, datetime)
+            # Should add UTC timezone to naive datetime
+            assert result.tzinfo == UTC
+            assert result == datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC)
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_utcnow_with_isoformat(self) -> None:
+        """Test utcnow() with as_isoformat=True."""
+        logical_time = datetime(2024, 6, 15, 10, 30, 45, tzinfo=UTC)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = utcnow(as_isoformat=True)
+            assert isinstance(result, str)
+            # Should contain timezone info
+            assert "+" in result or "Z" in result or result.endswith("+00:00")
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_utcnow_with_non_utc_timezone(self) -> None:
+        """Test that utcnow() converts non-UTC timezones to UTC."""
+        # Create a logical_time in a non-UTC timezone (US/Eastern = UTC-5 or UTC-4 DST)
+        eastern = ZoneInfo("America/New_York")
+        # June 15 2024 10:30 AM Eastern (during DST, so UTC-4)
+        logical_time = datetime(2024, 6, 15, 10, 30, 0, tzinfo=eastern)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = utcnow()
+            assert isinstance(result, datetime)
+            # Result should be in UTC
+            assert result.tzinfo == UTC
+            # 10:30 AM Eastern (UTC-4 in June) should be 14:30 UTC
+            assert result == datetime(2024, 6, 15, 14, 30, 0, tzinfo=UTC)
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_today_with_logical_time(self) -> None:
+        """Test that today() uses ctx_logical_time when set."""
+        logical_time = datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            result = today()
+            # Result should be a date object
+            assert isinstance(result, date)
+            # The date should be the local date of the logical_time
+            expected_date = logical_time.astimezone().date()
+            assert result == expected_date
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_today_without_logical_time(self) -> None:
+        """Test that today() falls back to wall clock when ctx_logical_time is not set."""
+        assert ctx_logical_time.get() is None
+
+        result = today()
+        expected = date.today()
+
+        assert isinstance(result, date)
+        assert result == expected
+
+    def test_wall_clock_always_returns_current_time(self) -> None:
+        """Test that wall_clock() ignores ctx_logical_time and returns actual time."""
+        # Set a logical time to a specific past time
+        logical_time = datetime(2000, 1, 1, 0, 0, 0, tzinfo=UTC)
+        token = ctx_logical_time.set(logical_time)
+        try:
+            before = datetime.now()
+            result = wall_clock()
+            after = datetime.now()
+
+            # Type narrowing: when called without as_isoformat, wall_clock() returns datetime
+            assert isinstance(result, datetime)
+            # wall_clock should return current wall time, not logical_time
+            assert result.tzinfo is None
+            assert before <= result <= after
+            # Definitely not the year 2000
+            assert result.year >= 2024
+        finally:
+            ctx_logical_time.reset(token)
+
+    def test_wall_clock_with_isoformat(self) -> None:
+        """Test wall_clock() with as_isoformat=True."""
+        result = wall_clock(as_isoformat=True)
+        assert isinstance(result, str)
+        # Should be parseable as ISO 8601
+        parsed = datetime.fromisoformat(result)
+        assert parsed.year >= 2024
+
+    def test_wall_clock_without_logical_time(self) -> None:
+        """Test wall_clock() when ctx_logical_time is not set."""
+        assert ctx_logical_time.get() is None
+
+        before = datetime.now()
+        result = wall_clock()
+        after = datetime.now()
+
+        # Type narrowing: when called without as_isoformat, wall_clock() returns datetime
+        assert isinstance(result, datetime)
+        assert result.tzinfo is None
+        assert before <= result <= after

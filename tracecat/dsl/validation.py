@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
@@ -14,6 +15,7 @@ from tracecat.expressions.expectations import (
 )
 from tracecat.logger import logger
 from tracecat.validation.schemas import DSLValidationResult, ValidationDetail
+from tracecat.workflow.executions.enums import TriggerType
 
 
 def validate_trigger_inputs(
@@ -144,3 +146,28 @@ PYDANTIC_ERR_TYPE_HANDLER: dict[str, Callable[[Sequence[int | str]], str]] = {
     "pydantic.missing": lambda loc: f"Missing required field(s): '{'.'.join(str(s) for s in loc)}'.",
     "pydantic.invalid_type": lambda loc: f"Invalid type at '{'.'.join(str(s) for s in loc)}'.",
 }
+
+
+class ResolveTimeAnchorActivityInputs(BaseModel):
+    """Inputs for resolving the workflow time anchor."""
+
+    trigger_type: TriggerType
+    start_time: datetime
+    scheduled_start_time: datetime | None = None
+
+
+@activity.defn
+def resolve_time_anchor_activity(
+    inputs: ResolveTimeAnchorActivityInputs,
+) -> datetime:
+    """Resolve the time anchor based on trigger type.
+
+    This activity is recorded in workflow history and replayed on reset,
+    ensuring the same time anchor is used across workflow resets.
+
+    For scheduled workflows, uses TemporalScheduledStartTime (the intended schedule time).
+    For other triggers (webhook, manual), uses the workflow start time.
+    """
+    if inputs.trigger_type == TriggerType.SCHEDULED and inputs.scheduled_start_time:
+        return inputs.scheduled_start_time
+    return inputs.start_time

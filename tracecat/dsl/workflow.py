@@ -43,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.contexts import (
         ctx_interaction,
         ctx_logger,
+        ctx_logical_time,
         ctx_role,
         ctx_run,
         ctx_stream_id,
@@ -84,9 +85,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import (
         NormalizeTriggerInputsActivityInputs,
+        ResolveTimeAnchorActivityInputs,
         ValidateTriggerInputsActivityInputs,
         format_input_schema_validation_error,
         normalize_trigger_inputs_activity,
+        resolve_time_anchor_activity,
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -403,6 +406,26 @@ class DSLWorkflow:
                             type=e.__class__.__name__,
                         ) from cause
 
+        # Store workflow start time for computing elapsed time
+        self.wf_start_time = wf_info.start_time
+
+        # Resolve time anchor - recorded in history for replay/reset determinism
+        if args.time_anchor is not None:
+            # Use explicitly provided time anchor (e.g., from parent workflow or API override)
+            self.time_anchor = args.time_anchor
+        else:
+            # Compute time anchor via local activity (recorded in history)
+            self.time_anchor = await workflow.execute_local_activity(
+                resolve_time_anchor_activity,
+                arg=ResolveTimeAnchorActivityInputs(
+                    trigger_type=get_trigger_type(wf_info),
+                    start_time=wf_info.start_time,
+                    scheduled_start_time=self._get_scheduled_start_time(wf_info),
+                ),
+                start_to_close_timeout=timedelta(seconds=5),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
         # Prepare user facing context
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
@@ -410,6 +433,7 @@ class DSLWorkflow:
             ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
+                    "time_anchor": self.time_anchor,
                     "dispatch_type": self.dispatch_type,
                     "execution_id": self.wf_exec_id,
                     "run_id": self.wf_run_id,
@@ -552,6 +576,7 @@ class DSLWorkflow:
             # NOTE: This only works with successful results
             result = await self._execute_task(task)
             ctx[ExprContext.ACTIONS][task.ref] = result
+            self._set_logical_time_context()
             retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
             if not isinstance(retry_until_result, bool):
                 try:
@@ -610,6 +635,7 @@ class DSLWorkflow:
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
                     evaluated_args = eval_templated_object(
                         task.args, operand=agent_operand
                     )
@@ -658,6 +684,7 @@ class DSLWorkflow:
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
                     evaluated_args = eval_templated_object(
                         task.args, operand=agent_operand
                     )
@@ -932,10 +959,12 @@ class DSLWorkflow:
                     return None
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
+        self._set_logical_time_context()
         return eval_templated_object(self.dsl.returns, operand=self.context)
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
         # Evaluate the workflow alias as a templated expression
+        self._set_logical_time_context()
         evaluated_alias = eval_templated_object(wf_alias, operand=self.get_context())
         if not isinstance(evaluated_alias, str):
             raise TypeError(
@@ -1026,6 +1055,20 @@ class DSLWorkflow:
         )
         return schedule_read.inputs
 
+    def _get_scheduled_start_time(self, wf_info: workflow.Info) -> datetime | None:
+        """Extract TemporalScheduledStartTime from search attributes if available.
+
+        This is the intended schedule time for scheduled workflows, which may differ
+        from the actual start time if the worker was delayed.
+        """
+        from temporalio.common import SearchAttributeKey
+
+        try:
+            key = SearchAttributeKey.for_datetime("TemporalScheduledStartTime")
+            return wf_info.typed_search_attributes.get(key)
+        except Exception:
+            return None
+
     async def _validate_action(self, task: ActionStatement) -> None:
         result = await workflow.execute_activity(
             DSLActivities.validate_action_activity,
@@ -1074,6 +1117,14 @@ class DSLWorkflow:
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
+        # Propagate time_anchor: use child's override if set, otherwise use parent's
+        # current logical time so child continues from parent's elapsed position
+        child_time_anchor = (
+            args.time_anchor
+            if args.time_anchor is not None
+            else self._compute_logical_time()
+        )
+
         return DSLRunArgs(
             role=self.role,
             dsl=dsl,
@@ -1082,6 +1133,7 @@ class DSLWorkflow:
             trigger_inputs=args.trigger_inputs,
             runtime_config=runtime_config,
             execution_type=self.execution_type,
+            time_anchor=child_time_anchor,
         )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
@@ -1117,16 +1169,35 @@ class DSLWorkflow:
         """Construct the execution context for an action with resolved dependencies."""
         return self.scheduler.build_stream_aware_context(task, stream_id)
 
+    def _compute_logical_time(self) -> datetime:
+        """Compute the current logical time = time_anchor + elapsed workflow time.
+
+        This provides deterministic time during workflow replay since workflow.now()
+        is recorded in history and replayed identically.
+        """
+        elapsed = workflow.now() - self.wf_start_time
+        return self.time_anchor + elapsed
+
+    def _set_logical_time_context(self) -> None:
+        """Set ctx_logical_time for deterministic FN.now() in template evaluations."""
+        ctx_logical_time.set(self._compute_logical_time())
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
         new_context = self._build_action_context(task, stream_id)
 
+        # Inject current logical_time into the workflow context for FN.now() etc.
+        if env_context := new_context.get(ExprContext.ENV):
+            if workflow_ctx := env_context.get("workflow"):
+                workflow_ctx["logical_time"] = self._compute_logical_time()
+
         # Check if action has environment override
         run_context = self.run_context
         if task.environment is not None:
             # Evaluate the environment expression
+            self._set_logical_time_context()
             evaluated_env = eval_templated_object(task.environment, operand=new_context)
             # Create a new run context with the overridden environment
             run_context = self.run_context.model_copy(
