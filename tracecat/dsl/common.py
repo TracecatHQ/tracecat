@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import Any, Literal, NotRequired, Self, TypedDict, cast
@@ -492,6 +492,14 @@ class DSLRunArgs(BaseModel):
         default=ExecutionType.PUBLISHED,
         description="Execution type (draft or published). Draft executions use draft aliases for child workflows.",
     )
+    time_anchor: datetime | None = Field(
+        default=None,
+        description=(
+            "The workflow's logical time anchor for FN.now() and related functions. "
+            "If not provided, computed from TemporalScheduledStartTime (for schedules) "
+            "or workflow start_time (for other triggers). Stored as UTC."
+        ),
+    )
     registry_lock: dict[str, str] | None = Field(
         default=None,
         description="Registry version lock for action execution. Maps action names to version hashes.",
@@ -515,6 +523,10 @@ class ExecuteChildWorkflowArgs(BaseModel):
     fail_strategy: FailStrategy = FailStrategy.ISOLATED
     timeout: float | None = None
     wait_strategy: WaitStrategy = WaitStrategy.WAIT
+    time_anchor: datetime | None = Field(
+        default=None,
+        description="Override time anchor for child workflow. If None, inherits from parent.",
+    )
 
     @model_validator(mode="after")
     def validate_workflow_id_or_alias(self) -> Self:

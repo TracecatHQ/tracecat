@@ -2,6 +2,7 @@
 
 import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 import type { AgentPresetRead, ChatReadVercel } from "@/client"
 import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
@@ -59,7 +60,11 @@ export function CopilotChatInterface({
   bodyClassName,
 }: CopilotChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
-  const [selectedChatId, setSelectedChatId] = useState<string | undefined>()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+
+  const chatIdParam = searchParams?.get("chatId")
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreating, setAutoCreating] = useState(false)
 
@@ -68,6 +73,8 @@ export function CopilotChatInterface({
     entityType: "copilot",
     entityId: workspaceId,
   })
+
+  const selectedChatId = chatIdParam ?? chats?.[0]?.id
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
@@ -107,7 +114,7 @@ export function CopilotChatInterface({
         entity_type: "copilot",
         entity_id: workspaceId,
       })
-      setSelectedChatId(newChat.id)
+      router.push(`${pathname}?chatId=${newChat.id}`)
     } catch (error) {
       console.error("Failed to auto-create chat:", error)
       toast({
@@ -117,15 +124,20 @@ export function CopilotChatInterface({
     } finally {
       setAutoCreating(false)
     }
-  }, [autoCreating, createChat, createChatPending, workspaceId])
+  }, [
+    autoCreating,
+    createChat,
+    createChatPending,
+    workspaceId,
+    router,
+    pathname,
+  ])
 
   // Auto-select first chat or auto-create if none exists
   useEffect(() => {
     if (chatsLoading || selectedChatId) return
 
-    if (chats && chats.length > 0) {
-      setSelectedChatId(chats[0].id)
-    } else if (chats && chats.length === 0 && !autoCreating) {
+    if (chats && chats.length === 0 && !autoCreating) {
       autoCreateChat()
     }
   }, [chats, chatsLoading, selectedChatId, autoCreating, autoCreateChat])
@@ -138,14 +150,14 @@ export function CopilotChatInterface({
         entity_type: "copilot",
         entity_id: workspaceId,
       })
-      setSelectedChatId(newChat.id)
+      router.push(`${pathname}?chatId=${newChat.id}`)
     } catch (error) {
       console.error("Failed to create chat:", error)
     }
   }
 
   const handleSelectChat = (chatId: string) => {
-    setSelectedChatId(chatId)
+    router.push(`${pathname}?chatId=${chatId}`)
   }
 
   // Show loading while chats are being fetched or auto-created

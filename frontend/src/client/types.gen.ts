@@ -482,6 +482,20 @@ export type AssigneeChangedEventRead = {
   created_at: string
 }
 
+export type AssistantMessage = {
+  content: Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  model: string
+  parent_tool_use_id?: string | null
+  error?:
+    | "authentication_failed"
+    | "billing_error"
+    | "rate_limit"
+    | "invalid_request"
+    | "server_error"
+    | "unknown"
+    | null
+}
+
 /**
  * Event for when an attachment is created for a case.
  */
@@ -1341,17 +1355,24 @@ export type ChatEntity =
   | "copilot"
 
 /**
- * Model for chat metadata with a single message.
+ * Model for a chat message with typed message payload.
  */
 export type ChatMessage = {
   /**
-   * Unique chat identifier
+   * Unique message identifier
    */
   id: string
   /**
-   * The message from the chat
+   * The deserialized message
    */
-  message: ModelRequest | ModelResponse
+  message:
+    | ModelRequest
+    | ModelResponse
+    | UserMessage
+    | AssistantMessage
+    | SystemMessage
+    | ResultMessage
+    | StreamEvent
 }
 
 /**
@@ -1781,6 +1802,10 @@ export type DSLRunArgs = {
    * Execution type (draft or published). Draft executions use draft aliases for child workflows.
    */
   execution_type?: ExecutionType
+  /**
+   * The workflow's logical time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers). Stored as UTC.
+   */
+  time_anchor?: string | null
   /**
    * Registry version lock for action execution. Maps action names to version hashes.
    */
@@ -3555,6 +3580,21 @@ export type ResponseInteraction = {
   timeout?: number | null
 }
 
+export type ResultMessage = {
+  subtype: string
+  duration_ms: number
+  duration_api_ms: number
+  is_error: boolean
+  num_turns: number
+  session_id: string
+  total_cost_usd?: number | null
+  usage?: {
+    [key: string]: unknown
+  } | null
+  result?: string | null
+  structured_output?: unknown
+}
+
 export type RetryPromptPart = {
   content: Array<ErrorDetails> | string
   tool_name?: string | null
@@ -3993,11 +4033,27 @@ export type StepStartUIPart = {
   type: "step-start"
 }
 
+export type StreamEvent = {
+  uuid: string
+  session_id: string
+  event: {
+    [key: string]: unknown
+  }
+  parent_tool_use_id?: string | null
+}
+
 export type SyntaxToken = {
   type: string
   value: string
   start: number
   end: number
+}
+
+export type SystemMessage = {
+  subtype: string
+  data: {
+    [key: string]: unknown
+  }
 }
 
 export type SystemPromptPart = {
@@ -4528,6 +4584,10 @@ export type TextArea = {
   placeholder?: string
 }
 
+export type TextBlock = {
+  text: string
+}
+
 export type TextPart = {
   content: string
   id?: string | null
@@ -4557,6 +4617,11 @@ export type TextUIPart = {
       [key: string]: unknown
     }
   }
+}
+
+export type ThinkingBlock = {
+  thinking: string
+  signature: string
 }
 
 export type ThinkingPart = {
@@ -4627,6 +4692,17 @@ export type ToolCallPartDelta = {
 export type ToolDenied = {
   message?: string
   kind?: "tool-denied"
+}
+
+export type ToolResultBlock = {
+  tool_use_id: string
+  content?:
+    | string
+    | Array<{
+        [key: string]: unknown
+      }>
+    | null
+  is_error?: boolean | null
 }
 
 export type ToolReturn = {
@@ -4713,6 +4789,14 @@ export type ToolUIPartOutputError = {
   }
 }
 
+export type ToolUseBlock = {
+  id: string
+  name: string
+  input: {
+    [key: string]: unknown
+  }
+}
+
 export type Trigger = {
   type: "schedule" | "webhook"
   ref: string
@@ -4787,6 +4871,14 @@ export type UserCreate = {
   is_verified?: boolean | null
   first_name?: string | null
   last_name?: string | null
+}
+
+export type UserMessage = {
+  content:
+    | string
+    | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  uuid?: string | null
+  parent_tool_use_id?: string | null
 }
 
 export type UserPromptPart = {
@@ -5118,6 +5210,10 @@ export type WorkflowEventType =
 export type WorkflowExecutionCreate = {
   workflow_id: string
   inputs?: unknown | null
+  /**
+   * Override the workflow's time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers).
+   */
+  time_anchor?: string | null
 }
 
 export type WorkflowExecutionCreateResponse = {
@@ -7142,6 +7238,13 @@ export type ChatUpdateChatData = {
 }
 
 export type ChatUpdateChatResponse = ChatReadMinimal
+
+export type ChatDeleteChatData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatDeleteChatResponse = void
 
 export type ChatGetChatVercelData = {
   chatId: string
@@ -10268,6 +10371,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChatReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ChatDeleteChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

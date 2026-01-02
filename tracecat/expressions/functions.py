@@ -22,7 +22,7 @@ import yaml
 from slugify import slugify
 
 from tracecat.common import is_iterable
-from tracecat.contexts import ctx_interaction
+from tracecat.contexts import ctx_interaction, ctx_logical_time
 from tracecat.expressions.formatters import (
     tabulate,
     to_markdown_list,
@@ -849,24 +849,82 @@ def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
 
 
 def now(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
-    """Return the current datetime."""
-    dt = datetime.now()
+    """Return workflow logical time (local, naive) or current time if outside workflow.
+
+    When called within a workflow context, returns the workflow's logical time
+    (time_anchor + elapsed workflow time) converted to the local timezone as a
+    naive datetime. This ensures deterministic behavior during workflow replay
+    and reset while allowing time to progress as the workflow executes.
+
+    Outside workflow context, falls back to wall clock time.
+    """
+    logical_time = ctx_logical_time.get()
+    if logical_time is not None:
+        # Convert UTC logical_time to local timezone, then make naive
+        dt = logical_time.astimezone().replace(tzinfo=None)
+    else:
+        dt = datetime.now()
+
     if as_isoformat:
         return to_isoformat(dt, timespec)
     return dt
 
 
 def utcnow(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
-    """Return the current timezone-aware datetime."""
-    dt = datetime.now(UTC)
+    """Return workflow logical time (UTC, aware) or current UTC time if outside workflow.
+
+    When called within a workflow context, returns the workflow's logical time
+    (time_anchor + elapsed workflow time) as a UTC-aware datetime. This ensures
+    deterministic behavior during workflow replay and reset while allowing time
+    to progress as the workflow executes.
+
+    Outside workflow context, falls back to wall clock UTC time.
+    """
+    logical_time = ctx_logical_time.get()
+    if logical_time is not None:
+        # Ensure logical_time is UTC-aware; convert if it has a different timezone
+        if logical_time.tzinfo is None:
+            dt = logical_time.replace(tzinfo=UTC)
+        else:
+            dt = logical_time.astimezone(UTC)
+    else:
+        dt = datetime.now(UTC)
+
     if as_isoformat:
         return to_isoformat(dt, timespec)
     return dt
 
 
 def today() -> date:
-    """Return the current date."""
+    """Return workflow logical time date (local) or current date if outside workflow.
+
+    When called within a workflow context, returns the date portion of the
+    workflow's logical time (time_anchor + elapsed workflow time) in local
+    timezone. This ensures deterministic behavior during workflow replay and reset.
+
+    Outside workflow context, falls back to current date.
+    """
+    logical_time = ctx_logical_time.get()
+    if logical_time is not None:
+        # Convert to local timezone and get date
+        return logical_time.astimezone().date()
     return date.today()
+
+
+def wall_clock(as_isoformat: bool = False, timespec: str = "auto") -> datetime | str:
+    """Return actual current wall clock time (local, naive).
+
+    This function always returns the real current time, ignoring any workflow
+    time_anchor. Use this only when you need the actual wall clock time rather
+    than the workflow's logical time.
+
+    Note: Using wall_clock() in workflows may cause non-deterministic behavior
+    during replay. Prefer FN.now() for most use cases.
+    """
+    dt = datetime.now()
+    if as_isoformat:
+        return to_isoformat(dt, timespec)
+    return dt
 
 
 def set_timezone(x: datetime | str, timezone: str) -> datetime:
@@ -1101,6 +1159,7 @@ _FUNCTION_MAPPING = {
     "today": today,
     "unset_timezone": unset_timezone,
     "utcnow": utcnow,
+    "wall_clock": wall_clock,
     "weeks_between": weeks_between,
     "weeks": create_weeks,
     "windows_filetime": windows_filetime,

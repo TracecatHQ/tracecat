@@ -7,6 +7,9 @@ import orjson
 from pydantic import Discriminator, TypeAdapter
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
+from tracecat.agent.stream.types import UnifiedStreamEvent
+
+UnifiedStreamEventTA: TypeAdapter[UnifiedStreamEvent] = TypeAdapter(UnifiedStreamEvent)
 AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
 
 
@@ -16,7 +19,7 @@ class StreamDelta:
 
     kind: Literal["event"] = "event"
     id: str
-    event: AgentStreamEvent
+    event: UnifiedStreamEvent | AgentStreamEvent
 
     def sse(self) -> str:
         return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"

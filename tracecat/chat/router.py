@@ -144,7 +144,7 @@ async def get_chat_vercel(
 
     # Convert messages to UIMessage format
     messages = [ChatMessage.from_db(message) for message in chat.messages]
-    ui_messages = vercel.convert_model_messages_to_ui(messages)
+    ui_messages = vercel.convert_chat_messages_to_ui(messages)
 
     # Return ChatReadVercel with converted messages
     return ChatReadVercel(
@@ -180,6 +180,24 @@ async def update_chat(
 
     chat = await svc.update_chat(chat, params=params)
     return ChatReadMinimal.model_validate(chat, from_attributes=True)
+
+
+@router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat(
+    chat_id: uuid.UUID,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> None:
+    """Delete a chat."""
+    svc = ChatService(session, role)
+    chat = await svc.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    await svc.delete_chat(chat)
 
 
 @router.post("/{chat_id}/vercel")
