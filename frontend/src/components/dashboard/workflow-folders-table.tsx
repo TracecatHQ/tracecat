@@ -221,53 +221,6 @@ export function WorkflowsDashboardTable({
               enableHiding: false,
             },
             {
-              id: "Last edited",
-              accessorKey: "updated_at",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Last edited"
-                />
-              ),
-              cell: ({ getValue, row }) => {
-                if (row.original.type === "folder") {
-                  return (
-                    <span className="text-xs text-muted-foreground/70">
-                      {NO_DATA}
-                    </span>
-                  )
-                }
-                const updatedAt = getValue<string | undefined>()
-                if (!updatedAt) {
-                  return (
-                    <span className="text-xs text-muted-foreground/70">
-                      No last edited
-                    </span>
-                  )
-                }
-                const updatedAtDate = new Date(updatedAt)
-                return (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="text-xs text-muted-foreground">
-                        {capitalizeFirst(
-                          formatDistanceToNow(updatedAtDate, {
-                            addSuffix: true,
-                          })
-                        )}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {format(updatedAtDate, "PPpp")}
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              },
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
               id: "Created",
               accessorKey: "created_at",
               header: ({ column }) => (
@@ -300,6 +253,53 @@ export function WorkflowsDashboardTable({
                 )
               },
               enableSorting: true,
+            },
+            {
+              id: "Updated",
+              accessorKey: "updated_at",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Updated"
+                />
+              ),
+              cell: ({ getValue, row }) => {
+                if (row.original.type === "folder") {
+                  return (
+                    <span className="text-xs text-muted-foreground/70">
+                      {NO_DATA}
+                    </span>
+                  )
+                }
+                const updatedAt = getValue<string | undefined>()
+                if (!updatedAt) {
+                  return (
+                    <span className="text-xs text-muted-foreground/70">
+                      No updated
+                    </span>
+                  )
+                }
+                const updatedAtDate = new Date(updatedAt)
+                return (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="text-xs text-muted-foreground">
+                        {capitalizeFirst(
+                          formatDistanceToNow(updatedAtDate, {
+                            addSuffix: true,
+                          })
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {format(updatedAtDate, "PPpp")}
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              },
+              enableSorting: true,
+              enableHiding: false,
             },
             {
               id: "Last published",

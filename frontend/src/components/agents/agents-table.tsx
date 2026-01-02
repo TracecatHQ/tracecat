@@ -535,29 +535,6 @@ export function AgentsTable() {
         },
       },
       {
-        accessorKey: "updated_at",
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title="Last edited"
-            className="justify-end"
-            buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
-          />
-        ),
-        cell: ({ row }) =>
-          renderRelativeDate(
-            row.getValue<AgentPresetTableRow["updated_at"]>("updated_at")
-          ),
-        meta: {
-          headerClassName:
-            "w-[110px] min-w-[110px] max-w-[110px] justify-end px-0 text-right",
-          cellClassName:
-            "w-[110px] min-w-[110px] max-w-[110px] px-0 pl-2 text-right",
-          headerStyle: { width: "110px" },
-          cellStyle: { width: "110px" },
-        },
-      },
-      {
         accessorKey: "created_at",
         header: ({ column }) => (
           <DataTableColumnHeader
@@ -570,6 +547,29 @@ export function AgentsTable() {
         cell: ({ row }) =>
           renderRelativeDate(
             row.getValue<AgentPresetTableRow["created_at"]>("created_at")
+          ),
+        meta: {
+          headerClassName:
+            "w-[110px] min-w-[110px] max-w-[110px] justify-end px-0 text-right",
+          cellClassName:
+            "w-[110px] min-w-[110px] max-w-[110px] px-0 pl-2 text-right",
+          headerStyle: { width: "110px" },
+          cellStyle: { width: "110px" },
+        },
+      },
+      {
+        accessorKey: "updated_at",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Updated"
+            className="justify-end"
+            buttonClassName="ml-auto h-8 justify-end px-0 data-[state=open]:bg-accent"
+          />
+        ),
+        cell: ({ row }) =>
+          renderRelativeDate(
+            row.getValue<AgentPresetTableRow["updated_at"]>("updated_at")
           ),
         meta: {
           headerClassName:
