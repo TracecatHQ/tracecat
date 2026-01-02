@@ -357,8 +357,9 @@ function TableContents<TData>({
             className="cursor-pointer"
           >
             {row.getVisibleCells().map((cell) => {
-              const isActionsCol =
-                cell.column.id?.toString().toLowerCase() === "actions"
+              const columnId = cell.column.id?.toString().toLowerCase()
+              const isActionsCol = columnId === "actions"
+              const isSelectCol = columnId === "select"
               const columnMeta = cell.column.columnDef.meta as
                 | ColumnMeta
                 | undefined
@@ -372,8 +373,8 @@ function TableContents<TData>({
                 cell.getContext()
               )
 
-              // For action columns, don't wrap in Link
-              if (isActionsCol || !href) {
+              // For action and select columns, don't wrap in Link
+              if (isActionsCol || isSelectCol || !href) {
                 return (
                   <TableCell
                     key={cell.id}
@@ -396,7 +397,11 @@ function TableContents<TData>({
                   className={cellClassName}
                   style={columnMeta?.cellStyle}
                 >
-                  <Link href={href} prefetch={false} className="block -m-2 p-2">
+                  <Link
+                    href={href}
+                    prefetch={false}
+                    className="block w-full -m-2 p-2"
+                  >
                     {content}
                   </Link>
                 </TableCell>

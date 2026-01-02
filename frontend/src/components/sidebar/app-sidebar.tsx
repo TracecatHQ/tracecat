@@ -1,12 +1,12 @@
 "use client"
 
 import {
+  BotIcon,
   ChevronDown,
   type LucideIcon,
   KeyRoundIcon,
   MessageSquare,
   PlugIcon,
-  Plus,
   SquareStackIcon,
   Table2Icon,
   UserCheckIcon,
@@ -30,7 +30,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -43,7 +42,6 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { useAgentPresets } from "@/hooks"
 import { useListChats } from "@/hooks/use-chat"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -64,9 +62,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const isCasesList = pathname === casesListPath
   const { isFeatureEnabled } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
-  const { presets } = useAgentPresets(workspaceId, {
-    enabled: agentPresetsEnabled,
-  })
   const { chats } = useListChats({
     workspaceId,
     entityType: "copilot",
@@ -132,6 +127,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
+    ...(agentPresetsEnabled
+      ? [
+          {
+            title: "Agents",
+            url: `${basePath}/agents`,
+            icon: BotIcon,
+            isActive: pathname?.startsWith(`${basePath}/agents`),
+          },
+        ]
+      : []),
     {
       title: "Tables",
       url: `${basePath}/tables`,
@@ -199,7 +204,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <CollapsibleContent>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {navWorkspace.map((item) => (
+                  {navWorkspace
+                    .filter((item) => item.visible !== false)
+                    .map((item) => (
                     <SidebarMenuItem key={item.title}>
                       {item.items ? (
                         <SidebarMenuItem>
@@ -238,45 +245,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </CollapsibleContent>
           </SidebarGroup>
         </Collapsible>
-        {agentPresetsEnabled ? (
-          <Collapsible defaultOpen className="group/collapsible">
-            <SidebarGroup className="group/label">
-              <SidebarGroupLabel asChild>
-                <CollapsibleTrigger>
-                  Agents
-                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-                </CollapsibleTrigger>
-              </SidebarGroupLabel>
-              <SidebarGroupAction
-                title="New agent"
-                asChild
-                className="mr-5 opacity-0 transition-opacity group-hover/label:opacity-100"
-              >
-                <Link href={`${basePath}/agents/new`}>
-                  <Plus /> <span className="sr-only">New agent</span>
-                </Link>
-              </SidebarGroupAction>
-              <CollapsibleContent>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {presets?.map((preset) => (
-                      <SidebarMenuItem key={preset.id}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={pathname?.includes(`/agents/${preset.id}`)}
-                        >
-                          <Link href={`${basePath}/agents/${preset.id}`}>
-                            <span className="truncate">{preset.name}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </CollapsibleContent>
-            </SidebarGroup>
-          </Collapsible>
-        ) : null}
       </SidebarContent>
       <SidebarFooter>
         <SidebarUserNav />
