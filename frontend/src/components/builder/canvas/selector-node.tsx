@@ -219,12 +219,37 @@ function ActionCommandGroup({
   registryActions: RegistryActionReadMinimal[]
   inputValue: string
 }) {
-  const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
+  const {
+    workspaceId,
+    workflowId,
+    reactFlow,
+    setSelectedNodeId,
+    actionPanelRef,
+  } = useWorkflowBuilder()
   const { getNode, getEdges, setNodes, setEdges } = reactFlow
   const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
   const { applyGraphOperations, refetchGraph } = useGraphOperations(
     workspaceId,
     workflowId ?? ""
+  )
+
+  const openActionPanelForNode = useCallback(
+    (actionId?: string) => {
+      if (!actionId) {
+        return
+      }
+
+      setSelectedNodeId(actionId)
+      const panelHandle = actionPanelRef.current
+      if (panelHandle) {
+        if (panelHandle.setOpen) {
+          panelHandle.setOpen(true)
+        } else {
+          panelHandle.expand?.()
+        }
+      }
+    },
+    [actionPanelRef, setSelectedNodeId]
   )
 
   // Move sortedActions and filterResults logic here
@@ -300,6 +325,7 @@ function ActionCommandGroup({
         setEdges((prevEdges) =>
           prevEdges.filter((edge) => edge.target !== nodeId)
         )
+        openActionPanelForNode(newNodeId)
       } catch (error) {
         const apiError = error as { status?: number }
         if (apiError.status === 409) {
@@ -353,6 +379,7 @@ function ActionCommandGroup({
             setEdges((prevEdges) =>
               prevEdges.filter((edge) => edge.target !== nodeId)
             )
+            openActionPanelForNode(newNodeId)
           } catch (retryError) {
             console.error("Failed to persist node after retry:", retryError)
             toast({
@@ -380,6 +407,7 @@ function ActionCommandGroup({
       applyGraphOperations,
       refetchGraph,
       graphData?.version,
+      openActionPanelForNode,
     ]
   )
 
