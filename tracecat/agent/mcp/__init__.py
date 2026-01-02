@@ -11,9 +11,8 @@ from tracecat.agent.mcp.http_executor import (
     execute_action,
 )
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
-from tracecat.agent.mcp.schemas import fetch_tool_definitions
 from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import fetch_tool_definitions, normalize_mcp_tool_name
 from tracecat.agent.tokens import MCPTokenClaims
 
 __all__ = [

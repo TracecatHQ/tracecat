@@ -163,7 +163,16 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
 LLM_TOKEN_ISSUER = "tracecat-agent-executor"
 LLM_TOKEN_AUDIENCE = "tracecat-llm-gateway"
 LLM_TOKEN_SUBJECT = "tracecat-agent-runtime"
-LLM_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "workspace_id", "session_id")
+LLM_REQUIRED_CLAIMS = (
+    "iss",
+    "aud",
+    "sub",
+    "iat",
+    "exp",
+    "workspace_id",
+    "session_id",
+    "model",
+)
 
 
 class LLMTokenClaims(BaseModel):
