@@ -285,9 +285,9 @@ async def permanently_delete_file(
             headers={"Authorization": f"Bearer {access_token}"},
         )
         response.raise_for_status()
-        # Return empty dict if no content (DELETE typically returns 204)
+        # Return status info if no content (DELETE typically returns 204)
         if response.status_code == 204 or not response.content:
-            return {}
+            return {"status_code": response.status_code}
         return response.json()
 
 
@@ -434,7 +434,7 @@ async def revoke_permission(
             headers={"Authorization": f"Bearer {access_token}"},
         )
         response.raise_for_status()
-        # Return empty dict if no content (DELETE typically returns 204)
+        # Return status info if no content (DELETE typically returns 204)
         if response.status_code == 204 or not response.content:
-            return {}
+            return {"status_code": response.status_code}
         return response.json()
