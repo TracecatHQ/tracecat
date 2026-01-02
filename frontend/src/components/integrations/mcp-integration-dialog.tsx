@@ -333,7 +333,7 @@ export function MCPIntegrationDialog({
         {!mcpIntegrationIsLoading && !integrationsIsLoading && (
           <Form {...form}>
             <form
-              className="space-y-5 overflow-y-auto pr-2"
+              className="space-y-5 overflow-y-auto px-1"
               onSubmit={form.handleSubmit(onSubmit)}
               noValidate
             >
