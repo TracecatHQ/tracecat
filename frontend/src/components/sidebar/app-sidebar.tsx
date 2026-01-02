@@ -1,13 +1,13 @@
 "use client"
 
 import {
-  BotIcon,
+  BlocksIcon,
   ChevronDown,
   type LucideIcon,
-  KeyRoundIcon,
   MessageSquare,
-  PlugIcon,
   SquareStackIcon,
+  LockKeyholeIcon,
+  SquareMousePointerIcon,
   Table2Icon,
   UserCheckIcon,
   UsersIcon,
@@ -132,7 +132,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {
             title: "Agents",
             url: `${basePath}/agents`,
-            icon: BotIcon,
+            icon: SquareMousePointerIcon,
             isActive: pathname?.startsWith(`${basePath}/agents`),
           },
         ]
@@ -152,13 +152,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     {
       title: "Credentials",
       url: `${basePath}/credentials`,
-      icon: KeyRoundIcon,
+      icon: LockKeyholeIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
     },
     {
       title: "Integrations",
       url: `${basePath}/integrations`,
-      icon: PlugIcon,
+      icon: BlocksIcon,
       isActive: pathname?.startsWith(`${basePath}/integrations`),
     },
     {

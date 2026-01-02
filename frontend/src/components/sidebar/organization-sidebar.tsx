@@ -8,6 +8,7 @@ import {
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
+  LogsIcon,
   MailIcon,
   Settings2,
   ShieldIcon,
@@ -76,7 +77,7 @@ export function OrganizationSidebar({
     {
       title: "Audit Logs",
       url: "/organization/settings/audit",
-      icon: ShieldIcon,
+      icon: LogsIcon,
       isActive: pathname?.includes("/organization/settings/audit"),
     },
     {
