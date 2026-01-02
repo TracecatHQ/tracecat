@@ -16,11 +16,10 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     MCP tool naming convention: mcp__{server_name}__{tool_name}
 
-    Handles both user MCP tools and Tracecat actions:
+    Handles Tracecat proxy tools:
     - mcp__tracecat-proxy__tools__slack__post_message -> tools.slack.post_message
-    - mcp__tracecat-actions__tools__slack__post_message -> tools.slack.post_message
-    - mcp__user-mcp-server__some_tool -> some_tool (unchanged after prefix removal)
-    - tools__slack__post_message -> tools.slack.post_message
+
+    Other MCP tool names are returned as-is.
 
     Args:
         mcp_tool_name: The MCP tool name to normalize
@@ -28,7 +27,7 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     Returns:
         Human-readable action/tool name
     """
-    # Handle full MCP tool names with Tracecat server prefixes
+    # Handle full MCP tool names with Tracecat proxy server prefix
     if mcp_tool_name.startswith("mcp__tracecat-proxy__"):
         tool_part = mcp_tool_name.replace("mcp__tracecat-proxy__", "")
         return _tool_name_to_action_name(tool_part)

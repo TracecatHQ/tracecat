@@ -15,7 +15,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from tracecat.agent.mcp.http_executor import execute_action
-from tracecat.agent.mcp.tokens import verify_mcp_token
+from tracecat.agent.tokens import verify_mcp_token
 
 mcp = FastMCP("tracecat-actions")
 
