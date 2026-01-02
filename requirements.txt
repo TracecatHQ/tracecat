@@ -799,6 +799,7 @@ google-auth==2.37.0 \
     # via
     #   google-genai
     #   tracecat
+    #   tracecat-registry
 google-genai==1.55.0 \
     --hash=sha256:98c422762b5ff6e16b8d9a1e4938e8e0ad910392a5422e47f5301498d7f373a1 \
     --hash=sha256:ae9f1318fedb05c7c1b671a4148724751201e8908a87568364a309804064d986
@@ -1121,7 +1122,9 @@ jmespath==1.0.1 \
 jsonpath-ng==1.7.0 \
     --hash=sha256:f3d7f9e848cba1b6da28c55b1c26ff915dc9e0b1ba7e752a53d6da8d5cbd00b6 \
     --hash=sha256:f6f5f7fd4e5ff79c785f1573b394043b39849fb2bb47bcead935d12b00beab3c
-    # via tracecat
+    # via
+    #   tracecat
+    #   tracecat-registry
 jsonschema==4.25.1 \
     --hash=sha256:3fba0169e345c7175110351d456342c364814cfcf3b964ba4587f22915230a63 \
     --hash=sha256:e4a9655ce0da0c0b67a085847e00a3a51449e1157f4f75e9fb5aa545e122eb85
@@ -1482,7 +1485,9 @@ packaging==25.0 \
 paramiko==3.5.0 \
     --hash=sha256:1fedf06b085359051cd7d0d270cebe19e755a8a921cc2ddbfa647fb0cd7d68f9 \
     --hash=sha256:ad11e540da4f55cedda52931f1a3f812a8238a7af7f62a60de538cd80bb28124
-    # via tracecat
+    # via
+    #   tracecat
+    #   tracecat-registry
 parse==1.20.2 \
     --hash=sha256:967095588cb802add9177d0c0b6133b5ba33b1ea9007ca800e526f42a85af558 \
     --hash=sha256:b41d604d16503c79d81af5165155c0b20f6c8d6c559efa66b4b695c3e5a0a0ce
@@ -2045,11 +2050,14 @@ pyyaml==6.0.3 \
     #   ansible-runner
     #   polyfile
     #   pre-commit
+    #   tracecat-registry
     #   uvicorn
 redis==7.1.0 \
     --hash=sha256:23c52b208f92b56103e17c5d06bdc1a6c2c0b3106583985a76a18f83b265de2b \
     --hash=sha256:b1cc3cfa5a2cb9c2ab3ba700864fb0ad75617b41f01352ce5779dabf6d5f9c3c
-    # via tracecat
+    # via
+    #   tracecat
+    #   tracecat-registry
 referencing==0.37.0 \
     --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231 \
     --hash=sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8
@@ -2397,6 +2405,7 @@ sqlalchemy==2.0.45 \
     #   alembic-utils
     #   fastapi-users-db-sqlalchemy
     #   tracecat
+    #   tracecat-registry
 sse-starlette==3.1.1 \
     --hash=sha256:bb38f71ae74cfd86b529907a9fda5632195dfa6ae120f214ea4c890c7ee9d436 \
     --hash=sha256:bffa531420c1793ab224f63648c059bcadc412bf9fdb1301ac8de1cf9a67b7fb
