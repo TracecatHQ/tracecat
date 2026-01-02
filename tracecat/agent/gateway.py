@@ -269,22 +269,48 @@ def _inject_provider_credentials(
 ) -> None:
     """Inject provider-specific credentials into request."""
     if provider == "openai":
-        data["api_key"] = creds.get("OPENAI_API_KEY")
+        api_key = creds.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ProxyException(
+                message="OPENAI_API_KEY not found in credentials",
+                type="auth_error",
+                param=None,
+                code=401,
+            )
+        data["api_key"] = api_key
 
     elif provider == "anthropic":
-        data["api_key"] = creds.get("ANTHROPIC_API_KEY")
+        api_key = creds.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ProxyException(
+                message="ANTHROPIC_API_KEY not found in credentials",
+                type="auth_error",
+                param=None,
+                code=401,
+            )
+        data["api_key"] = api_key
 
     elif provider == "bedrock":
         if bearer_token := creds.get("AWS_BEARER_TOKEN_BEDROCK"):
             data["api_key"] = bearer_token
         else:
-            data["aws_access_key_id"] = creds.get("AWS_ACCESS_KEY_ID")
-            data["aws_secret_access_key"] = creds.get("AWS_SECRET_ACCESS_KEY")
+            access_key = creds.get("AWS_ACCESS_KEY_ID")
+            secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
+            if not access_key or not secret_key:
+                raise ProxyException(
+                    message="AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY required for Bedrock",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+            data["aws_access_key_id"] = access_key
+            data["aws_secret_access_key"] = secret_key
         data["aws_region_name"] = creds.get("AWS_REGION")
         if arn := creds.get("AWS_MODEL_ARN"):
             data["model"] = f"bedrock/{arn}"
 
     elif provider == "custom-model-provider":
+        # Custom provider has flexible requirements - all fields optional
         if api_key := creds.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
             data["api_key"] = api_key
         if base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
