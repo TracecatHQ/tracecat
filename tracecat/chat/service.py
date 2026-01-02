@@ -418,6 +418,12 @@ class ChatService(BaseWorkspaceService):
 
         return chat
 
+    @audit_log(resource_type="chat", action="delete")
+    async def delete_chat(self, chat: Chat) -> None:
+        """Delete a chat."""
+        await self.session.delete(chat)
+        await self.session.commit()
+
     async def update_chat_last_stream_id(self, chat: Chat, last_stream_id: str) -> Chat:
         """Update the last stream ID for a chat."""
         chat.last_stream_id = last_stream_id

@@ -7134,6 +7134,13 @@ export type ChatUpdateChatData = {
 
 export type ChatUpdateChatResponse = ChatReadMinimal
 
+export type ChatDeleteChatData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatDeleteChatResponse = void
+
 export type ChatGetChatVercelData = {
   chatId: string
   workspaceId: string
@@ -10259,6 +10266,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChatReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ChatDeleteChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
