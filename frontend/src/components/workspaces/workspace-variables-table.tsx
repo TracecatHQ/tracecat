@@ -3,12 +3,12 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
 import type { VariableReadMinimal } from "@/client"
+import { stringify } from "yaml"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { CompactJsonViewer } from "@/components/json-viewer-compact"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,50 @@ import {
 } from "@/components/workspaces/edit-workspace-variable"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+// Custom minimal YAML viewer for table cells that supports
+// syntax highlighting for keys.
+function HighlightedYaml({ data }: { data: unknown }) {
+  let yamlStr = ""
+  try {
+    yamlStr = stringify(data).trimEnd()
+  } catch {
+    yamlStr = String(data)
+  }
+
+  if (!yamlStr || yamlStr === "{}") {
+    return <span className="text-muted-foreground">-</span>
+  }
+
+  // Simple syntax highlighting for YAML keys
+  // Matches "key:" or "  key:" at start of lines
+  const regex = /^(\s*[\w\-\"\']+)(:\s+)/gm
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(yamlStr)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(yamlStr.slice(lastIndex, match.index))
+    }
+    parts.push(
+      <span key={match.index} className="text-sky-600 dark:text-sky-300">
+        {match[1]}
+      </span>
+    )
+    parts.push(match[2])
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < yamlStr.length) {
+    parts.push(yamlStr.slice(lastIndex))
+  }
+
+  return (
+    <div className="rounded border bg-muted/50 px-2 py-1 font-mono text-xs whitespace-pre-wrap">
+      {parts}
+    </div>
+  )
+}
 
 export function WorkspaceVariablesTable() {
   const workspaceId = useWorkspaceId()
@@ -126,7 +170,7 @@ export function WorkspaceVariablesTable() {
               cell: ({ row }) => {
                 const values =
                   row.getValue<VariableReadMinimal["values"]>("values")
-                return <CompactJsonViewer maxLength={50} src={values} />
+                return <HighlightedYaml data={values} />
               },
               enableSorting: false,
               enableHiding: false,
