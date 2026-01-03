@@ -1,6 +1,5 @@
 import {
   Blend,
-  BoxesIcon,
   BoxIcon,
   Building2Icon,
   Code,
@@ -240,12 +239,6 @@ function createIconRenderer(
 }
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
-    // Generic Group
-    group: ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-slate-200/50", className)}>
-        <BoxesIcon {...rest} />
-      </div>
-    ),
     // Triggers namespace
     trigger: ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-indigo-100", className)}>
@@ -354,53 +347,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Table {...rest} />
       </div>
     ),
-    // AWS namespace
-    aws_cloudtrail: ({ className, ...rest }: IconProps) => (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="100%"
-        height="100%"
-        viewBox="0 0 80 80"
-        version="1.1"
-        className={cn("rounded-full", className)}
-        {...rest}
-      >
-        <defs>
-          <linearGradient
-            x1="0%"
-            y1="100%"
-            x2="100%"
-            y2="0%"
-            id="linearGradient-1"
-          >
-            <stop stopColor="#B0084D" offset="0%" />
-            <stop stopColor="#FF4F8B" offset="100%" />
-          </linearGradient>
-        </defs>
-        <g
-          id="Icon-Architecture/64/Arch_AWS-Cloud-Trail_64"
-          stroke="none"
-          strokeWidth="1"
-          fill="none"
-          fillRule="evenodd"
-        >
-          <g
-            id="Icon-Architecture-BG/64/Management-Governance"
-            fill="url(#linearGradient-1)"
-          >
-            <rect id="Rectangle" x="0" y="0" width="80" height="80" />
-          </g>
-          <path
-            d="M25,52.996052 L29,52.996052 L29,50.994078 L25,50.994078 L25,52.996052 Z M59.971,38.1634268 C59.746,35.1264322 58.261,32.8902273 55.902,32.1004485 C54.003,31.4668238 51.911,31.914265 50.318,33.2125451 C49.352,31.3076668 47.9,29.4418271 46.702,28.2596615 C42.406,24.0194805 37.668,22.9384146 32.616,25.0454922 C28.106,26.9223428 24,33.0874217 24,37.9812471 L24,38.1714347 C21.293,39.0863368 19.109,41.0742969 18.074,43.608796 L19.926,44.3655422 C21.245,41.1353571 24.332,40.1223583 25.247,39.8891283 C25.69,39.7760168 26,39.376623 26,38.9191719 L26,37.9812471 C26,33.9362587 29.657,28.444844 33.385,26.8933142 C37.68,25.1025485 41.578,26.0114447 45.298,29.6850669 C46.88,31.2456057 48.427,33.5608886 49.06,35.3176207 C49.184,35.6639622 49.488,35.913208 49.852,35.9682623 C50.212,36.0233166 50.577,35.8741695 50.799,35.5798793 C51.904,34.1104304 53.696,33.4738027 55.269,33.9993209 C57.004,34.5808943 58,36.3966847 58,38.9822341 C58,39.4717168 58.354,39.8891283 58.836,39.9692073 C59.569,40.0913277 66,41.3515703 66,47.9911171 C66,54.8678977 59.281,54.996024 59,54.998026 L36,54.998026 L36,57 L59.002,57 C62.114,56.9939941 68,55.1041306 68,47.9911171 C68,41.7839967 63.279,38.989241 59.971,38.1634268 L59.971,38.1634268 Z M31,52.996052 L45,52.996052 L45,50.994078 L31,50.994078 L31,52.996052 Z M27,57 L33,57 L33,54.998026 L27,54.998026 L27,57 Z M12,57 L15,57 L15,54.998026 L12,54.998026 L12,57 Z M15,48.9921041 L24,48.9921041 L24,46.9901301 L15,46.9901301 L15,48.9921041 Z M13,52.996052 L23,52.996052 L23,50.994078 L13,50.994078 L13,52.996052 Z M27,48.9921041 L34,48.9921041 L34,46.9901301 L27,46.9901301 L27,48.9921041 Z M17,57 L25,57 L25,54.998026 L17,54.998026 L17,57 Z"
-            id="AWS-Cloud-Trail_Icon_64_Squid"
-            fill="#FFFFFF"
-          />
-        </g>
-      </svg>
-    ),
     "tools.datadog": createIconRenderer(DatadogIcon),
     // Emailrep namespace
-    emailrep: (props: IconProps) => (
+    "tools.emailrep": (props: IconProps) => (
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="150"
@@ -419,7 +368,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </svg>
     ),
     // Sublime namespace
-    sublime: (props: IconProps) => (
+    "tools.sublime": (props: IconProps) => (
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="150"
@@ -462,20 +411,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
           />
         </svg>
       </div>
-    ),
-    // Project Discovery namespace
-    project_discovery: ({ className, ...rest }: IconProps) => (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="100%"
-        height="100%"
-        version="1.0"
-        viewBox="0 0 200 200"
-        className={cn("rounded-full", className)}
-        {...rest}
-      >
-        <path d="M0 100v100h200V0H0v100zm126.5-53.1c3.9 1 9.1 2.7 11.8 3.9 3.8 1.7 4.7 2.6 4.7 4.6 0 1.4-1 3.5-2.2 4.6-2.6 2.4-3.6 2.4-16.8-1-17.3-4.4-32.9-1.4-41.4 8-5.7 6.3-7.9 11.6-8.4 20-.5 8.8 1.8 15.7 6.9 20.6 4.4 4.2 3.5 9.1-2.2 10.9-4.1 1.3-11.6-6.8-15.1-16.3-2.4-6.5-2.3-18.4.1-26.1 3.3-10.6 11.8-21.3 20.6-25.9 10.4-5.4 28.4-6.9 42-3.3zM59.9 59.6c2.6 1.9 2.6 2.4-.9 14.4-2.7 9.6-2.9 23.3-.5 30.5 7.5 21.6 34.6 29.7 48.9 14.6 3.6-3.8 7.8-4.1 10-.9 2.4 3.4 1.9 5.5-2.4 10.2-10.6 11.5-28.7 13.7-45.4 5.6-11.1-5.4-19-14.8-22.7-27.1-4.4-14.4-.5-44.3 6.1-47.6 3.3-1.7 4.1-1.6 6.9.3zm59.3 2.5c24.7 5.1 39.1 27.4 35.9 55.3-2.3 19.8-8.1 28.5-15.2 22.7l-2.3-1.8 2.6-8.9c3.4-11.2 4.2-19.2 2.9-27.3-1.9-11.8-8.5-21.1-18.4-25.6-11.5-5.4-22.2-4-31.5 4-3 2.5-5.8 4.5-6.3 4.5-1.8 0-5.9-4.9-5.9-6.9 0-2.8 5.3-8.6 10.8-11.8 8-4.7 17.7-6.2 27.4-4.2zm10 23.7c14.3 15.8 11.8 41.7-5.6 58-7.3 6.8-13.7 9.7-25 11.2-15.9 2.2-41.6-4.3-41.6-10.4 0-.7 1-2.6 2.1-4.1 2.5-3.1 4.1-3.1 15.4.4 8.8 2.7 23.8 3.1 30.4.7 21.2-7.7 28.8-35.3 13.7-49.5-4.6-4.3-2.3-10.1 3.9-10.1 2.5 0 4.1.9 6.7 3.8z" />
-      </svg>
     ),
     "tools.pagerduty": ({
       className,
@@ -578,12 +513,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.servicenow": createIconRenderer(ServiceNowIcon),
     "tools.slack": createIconRenderer(SlackIcon),
     "tools.slack_blocks": createIconRenderer(SlackIcon),
-    "ai.openai": createIconRenderer(OpenAIIcon),
-    "llm.ollama": createIconRenderer(OllamaIcon),
-    openai: createIconRenderer(OpenAIIcon),
-    ollama: createIconRenderer(OllamaIcon),
     "tools.jira": createIconRenderer(JiraIcon),
-    "ai.anthropic": createIconRenderer(ClaudeIcon),
     "tools.github": createIconRenderer(GitHubIcon),
     "tools.microsoft_defender_endpoint": ({
       className,
@@ -596,6 +526,16 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.microsoft_defender_xdr": ({ className, ...rest }: IconProps) => (
       <div className={cn(basicIconsCommon, className)}>
         <MicrosoftDefenderIcon {...rest} />
+      </div>
+    ),
+    "tools.microsoft_entra": ({ className, ...rest }: IconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <MicrosoftEntraIcon {...rest} />
+      </div>
+    ),
+    "tools.microsoft_teams": ({ className, ...rest }: IconProps) => (
+      <div className={cn(basicIconsCommon, className)}>
+        <MicrosoftTeamsIcon {...rest} />
       </div>
     ),
     "tools.microsoft_sentinel": ({ className, ...rest }: IconProps) => (
@@ -651,6 +591,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <GmailIcon className={cn("size-full", iconClassName)} {...rest} />
       </div>
     ),
+    // AI / LLM namespace
+    "llm.openai": createIconRenderer(OpenAIIcon),
+    "llm.ollama": createIconRenderer(OllamaIcon),
+    "llm.anthropic": createIconRenderer(ClaudeIcon),
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
 

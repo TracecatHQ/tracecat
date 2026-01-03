@@ -18,12 +18,6 @@ class ServiceNowOAuthProvider(ClientCredentialsOAuthProvider):
         id="servicenow",
         name="ServiceNow",
         description="ServiceNow OAuth provider using client credentials for REST APIs.",
-        setup_steps=[
-            "Create an OAuth API endpoint (endpoint for external clients) in ServiceNow",
-            "Note the generated client ID and client secret",
-            "Configure the token endpoint URL for your instance",
-            "Assign the appropriate OAuth scopes to the client",
-        ],
         requires_config=True,
         enabled=True,
         api_docs_url=SERVICENOW_API_DOCS_URL,

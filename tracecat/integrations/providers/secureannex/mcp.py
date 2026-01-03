@@ -33,10 +33,5 @@ class SecureAnnexMCPProvider(MCPAuthProvider):
         setup_instructions=(
             "Connect to Secure Annex MCP to access browser and code editor extension investigation."
         ),
-        setup_steps=[
-            "Click 'Connect' to begin OAuth authorization",
-            "Authenticate to Secure Annex",
-            "Complete authorization to enable MCP integration",
-        ],
         api_docs_url="https://docs.secureannex.com/guides/mcp",
     )

@@ -4,7 +4,6 @@ import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import { Icons } from "@/components/icons"
 import { BuilderNav } from "@/components/nav/builder-nav"
-import UserNav from "@/components/nav/user-nav"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 type DynamicNavbarParams = {
@@ -36,9 +35,6 @@ export function DynamicNavbar() {
             <Icons.logo className="size-5" />
           </Link>
           <BuilderNav />
-          <div className="flex flex-1 items-center justify-end space-x-6">
-            <UserNav />
-          </div>
         </div>
       </div>
     </TooltipProvider>

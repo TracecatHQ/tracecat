@@ -37,12 +37,5 @@ class SentryMCPProvider(MCPAuthProvider):
             "Connect to Sentry MCP to access issues and performance monitoring. "
             "Permissions are automatically determined based on your Sentry organization access."
         ),
-        setup_steps=[
-            "Click 'Connect' to begin OAuth authorization",
-            "Authenticate with your Sentry account",
-            "Select your Sentry organization if prompted",
-            "Review and approve the OAuth client permissions",
-            "Complete authorization to enable MCP integration",
-        ],
         api_docs_url="https://docs.sentry.io/product/sentry-mcp/",
     )

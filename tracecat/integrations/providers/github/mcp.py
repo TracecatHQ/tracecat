@@ -42,14 +42,6 @@ class GitHubMCPProvider(MCPAuthProvider):
             "Register an OAuth application with GitHub Copilot MCP and provide the client ID and secret."
             "Permissions are automatically determined based on your GitHub account and organization settings."
         ),
-        setup_steps=[
-            "Register an OAuth client for GitHub Copilot MCP",
-            "Configure the client ID and client secret in Tracecat",
-            "Click 'Connect' to begin OAuth authorization",
-            "Authenticate with your GitHub account",
-            "Review and approve the OAuth client permissions",
-            "Complete authorization to enable MCP integration",
-        ],
         api_docs_url="https://docs.github.com/en/copilot",
         setup_guide_url="https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/set-up-the-github-mcp-server",
         troubleshooting_url="https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors",

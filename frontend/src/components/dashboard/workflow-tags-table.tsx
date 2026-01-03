@@ -122,46 +122,6 @@ export function WorkflowsTagsTable() {
               enableHiding: false,
             },
             {
-              id: "Last edited",
-              accessorKey: "updated_at",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Last edited"
-                />
-              ),
-              cell: ({ getValue }) => {
-                const updatedAt = getValue<string | undefined>()
-                if (!updatedAt) {
-                  return (
-                    <span className="text-xs text-muted-foreground/70">
-                      No last edited
-                    </span>
-                  )
-                }
-                const updatedAtDate = new Date(updatedAt)
-                return (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="text-xs text-muted-foreground">
-                        {capitalizeFirst(
-                          formatDistanceToNow(updatedAtDate, {
-                            addSuffix: true,
-                          })
-                        )}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {format(updatedAtDate, "PPpp")}
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              },
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
               id: "Created",
               accessorKey: "created_at",
               header: ({ column }) => (
@@ -189,13 +149,53 @@ export function WorkflowsTagsTable() {
               enableSorting: true,
             },
             {
-              id: "Last saved",
+              id: "Updated",
+              accessorKey: "updated_at",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Updated"
+                />
+              ),
+              cell: ({ getValue }) => {
+                const updatedAt = getValue<string | undefined>()
+                if (!updatedAt) {
+                  return (
+                    <span className="text-xs text-muted-foreground/70">
+                      No updated
+                    </span>
+                  )
+                }
+                const updatedAtDate = new Date(updatedAt)
+                return (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="text-xs text-muted-foreground">
+                        {capitalizeFirst(
+                          formatDistanceToNow(updatedAtDate, {
+                            addSuffix: true,
+                          })
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {format(updatedAtDate, "PPpp")}
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              },
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
+              id: "Last published",
               accessorKey: "latest_definition.created_at",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last saved"
+                  title="Last published"
                 />
               ),
               cell: ({ getValue }) => {

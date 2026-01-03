@@ -3,7 +3,6 @@
 from typing import ClassVar
 
 from tracecat.integrations.providers.microsoft.common import (
-    MICROSOFT_SETUP_STEPS,
     MicrosoftAuthorizationCodeOAuthProvider,
     MicrosoftClientCredentialsOAuthProvider,
     get_ac_description,
@@ -23,7 +22,6 @@ class MicrosoftDefenderEndpointACProvider(MicrosoftAuthorizationCodeOAuthProvide
         id="microsoft_defender_endpoint",
         name="Microsoft Defender for Endpoint (Delegated)",
         description=get_ac_description("Microsoft Defender for Endpoint"),
-        setup_steps=MICROSOFT_SETUP_STEPS,
         requires_config=True,
         enabled=True,
         api_docs_url="https://learn.microsoft.com/en-us/defender-endpoint/api/",
@@ -43,7 +41,6 @@ class MicrosoftDefenderEndpointCCProvider(MicrosoftClientCredentialsOAuthProvide
         id="microsoft_defender_endpoint",
         name="Microsoft Defender for Endpoint (Service Principal)",
         description=get_cc_description("Microsoft Defender for Endpoint"),
-        setup_steps=MICROSOFT_SETUP_STEPS,
         requires_config=True,
         enabled=True,
         api_docs_url="https://learn.microsoft.com/en-us/defender-endpoint/api/",

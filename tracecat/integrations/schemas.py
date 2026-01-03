@@ -246,10 +246,6 @@ class ProviderMetadata(BaseModel):
         default=False,
         description="Whether this provider requires additional configuration",
     )
-    setup_steps: list[str] = Field(
-        default_factory=list,
-        description="Step-by-step instructions for setting up the provider",
-    )
     enabled: bool = Field(
         default=True,
         description="Whether this provider is available for use",

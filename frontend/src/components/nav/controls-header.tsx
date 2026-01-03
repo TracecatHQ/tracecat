@@ -8,9 +8,11 @@ import {
   FileUpIcon,
   Flag,
   Flame,
+  Key,
   PanelRight,
   PenLine,
   Plus,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -87,6 +89,7 @@ import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
@@ -256,11 +259,70 @@ function TablesActions() {
 }
 
 function IntegrationsActions() {
+  const [activeDialog, setActiveDialog] = useState<"oauth" | "mcp" | null>(null)
+
   return (
-    <div className="flex items-center gap-2">
-      <CreateCustomProviderDialog />
-      <MCPIntegrationDialog />
-    </div>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add integration
+            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuItem onSelect={() => setActiveDialog("oauth")}>
+            <Key className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>OAuth provider</span>
+              <span className="text-xs text-muted-foreground">
+                Add a custom OAuth 2.0 provider
+              </span>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("mcp")}>
+            <Sparkles className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>MCP integration</span>
+              <span className="text-xs text-muted-foreground">
+                Connect to an MCP server
+              </span>
+            </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreateCustomProviderDialog
+        open={activeDialog === "oauth"}
+        onOpenChange={(open) => setActiveDialog(open ? "oauth" : null)}
+        hideTrigger
+      />
+      <MCPIntegrationDialog
+        open={activeDialog === "mcp"}
+        onOpenChange={(open) => setActiveDialog(open ? "mcp" : null)}
+        hideTrigger
+      />
+    </>
+  )
+}
+
+function AgentsActions() {
+  const workspaceId = useWorkspaceId()
+
+  return (
+    <Button variant="outline" size="sm" className="h-7 bg-white" asChild>
+      <Link href={`/workspaces/${workspaceId}/agents/new`}>
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        New agent
+      </Link>
+    </Button>
   )
 }
 
@@ -835,6 +897,36 @@ function IntegrationBreadcrumb({
   )
 }
 
+function AgentPresetBreadcrumb({
+  presetId,
+  workspaceId,
+}: {
+  presetId: string
+  workspaceId: string
+}) {
+  const { preset } = useAgentPreset(workspaceId, presetId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/agents`}>Agents</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {preset?.name || presetId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -865,8 +957,30 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/agents")) {
+    // Check if this is an agent preset detail page
+    const agentPresetMatch = pagePath.match(/^\/agents\/([^/]+)$/)
+    if (agentPresetMatch) {
+      const presetId = agentPresetMatch[1]
+      // Don't show breadcrumb for "new" preset - it's the create page
+      if (presetId === "new") {
+        return {
+          title: "Agents",
+          actions: <AgentsActions />,
+        }
+      }
+      return {
+        title: (
+          <AgentPresetBreadcrumb
+            presetId={presetId}
+            workspaceId={workspaceId}
+          />
+        ),
+      }
+    }
+
     return {
       title: "Agents",
+      actions: <AgentsActions />,
     }
   }
 

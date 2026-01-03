@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
-  Bot,
   Box,
   Braces,
   Brackets,
@@ -67,7 +66,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -540,6 +538,8 @@ function AgentPresetChatPane({
   }, [providersStatus, preset])
 
   const canStartChat = Boolean(preset && providerReady)
+  const shouldAutoCreateChat =
+    canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
   const handleStartChat = async (forceNew = false) => {
     if (!preset || createChatPending || !providerReady) {
@@ -563,6 +563,14 @@ function AgentPresetChatPane({
       console.error("Failed to create agent preset chat", error)
     }
   }
+
+  // Auto-create chat when preset is ready and no chat exists
+  useEffect(() => {
+    if (shouldAutoCreateChat) {
+      void handleStartChat()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoCreateChat])
 
   const handleResetChat = async () => {
     setResetDialogOpen(false)
@@ -621,37 +629,7 @@ function AgentPresetChatPane({
       )
     }
 
-    if (!activeChatId) {
-      return (
-        <div className="flex h-full items-center justify-center px-4">
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Bot />
-              </EmptyMedia>
-              <EmptyTitle>Live chat</EmptyTitle>
-              <EmptyDescription>
-                Converse with the agent live in a chat session.
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button
-                size="sm"
-                onClick={() => void handleStartChat()}
-                disabled={createChatPending || !canStartChat}
-              >
-                {createChatPending ? (
-                  <Loader2 className="mr-1 size-4 animate-spin" />
-                ) : null}
-                Start chat
-              </Button>
-            </EmptyContent>
-          </Empty>
-        </div>
-      )
-    }
-
-    if (chatLoading || chatsLoading || !chat || !modelInfo) {
+    if (!activeChatId || chatLoading || chatsLoading || !chat || !modelInfo) {
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -1542,6 +1520,8 @@ function AgentPresetBuilderChatPane({
   })
 
   const canStartChat = Boolean(presetId && chatReady && modelInfo)
+  const shouldAutoCreateChat =
+    canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
   const handleStartChat = async (forceNew = false) => {
     if (!preset || !presetId || createChatPending || !chatReady || !modelInfo) {
@@ -1564,6 +1544,14 @@ function AgentPresetBuilderChatPane({
       console.error("Failed to create builder assistant chat", error)
     }
   }
+
+  // Auto-create chat when preset is ready and no chat exists
+  useEffect(() => {
+    if (shouldAutoCreateChat) {
+      void handleStartChat()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoCreateChat])
 
   const handleResetChat = async () => {
     if (!canStartChat) {
@@ -1632,18 +1620,6 @@ function AgentPresetBuilderChatPane({
                 assistant.
               </EmptyDescription>
             </EmptyHeader>
-            <EmptyContent>
-              <Button
-                size="sm"
-                onClick={() => void handleStartChat()}
-                disabled={createChatPending || !canStartChat}
-              >
-                {createChatPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : null}
-                Start assistant
-              </Button>
-            </EmptyContent>
           </Empty>
         </div>
       )

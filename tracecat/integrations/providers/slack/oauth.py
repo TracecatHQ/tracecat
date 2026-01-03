@@ -26,13 +26,6 @@ class SlackOAuthProvider(AuthorizationCodeOAuthProvider):
         id="slack",
         name="Slack (Delegated)",
         description="Slack OAuth provider for user-level access tokens.",
-        setup_steps=[
-            "Create a Slack app at https://api.slack.com/apps",
-            "Add required user scopes (e.g. search:read) under OAuth & Permissions",
-            "Add the Tracecat redirect URL shown above to your app's Redirect URLs",
-            "Install the app to your workspace to grant user-level access",
-            "Copy the client ID and client secret into the provider configuration",
-        ],
         requires_config=True,
         enabled=True,
         api_docs_url=SLACK_API_DOCS_URL,

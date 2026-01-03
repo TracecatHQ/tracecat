@@ -23,7 +23,7 @@ import {
 import { useCallback, useState } from "react"
 import type { OAuthGrantType, ProviderRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
-import { SuccessIcon, statusStyles } from "@/components/integrations/icons"
+import { statusStyles } from "@/components/integrations/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
@@ -41,7 +41,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { isCustomProvider, isMCPProvider } from "@/lib/providers"
@@ -543,46 +542,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       <RedirectUriDisplay redirectUri={provider.redirect_uri} />
                     </div>
                   )}
-
-                {/* Setup Steps */}
-                {!isCustom && (
-                  <CollapsibleCard
-                    title={
-                      <div className="flex items-center gap-2">
-                        Setup guide
-                        {isConnected && (
-                          <>
-                            <span className="text-sm font-normal text-muted-foreground">
-                              (completed)
-                            </span>
-                            <SuccessIcon />
-                          </>
-                        )}
-                      </div>
-                    }
-                    description="Follow these steps to complete the integration"
-                    defaultOpen={!isConnected}
-                  >
-                    <div className="space-y-3">
-                      {metadata.setup_steps?.map((step, index) => (
-                        <div key={step} className="flex items-start gap-3">
-                          <div className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                            {index + 1}
-                          </div>
-                          <span
-                            className={`text-sm ${
-                              isConnected
-                                ? "text-gray-500 line-through"
-                                : "text-gray-700"
-                            }`}
-                          >
-                            {step}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CollapsibleCard>
-                )}
               </div>
 
               {/* Sidebar */}

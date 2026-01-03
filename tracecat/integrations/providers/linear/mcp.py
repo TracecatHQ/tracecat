@@ -36,11 +36,5 @@ class LinearMCPProvider(MCPAuthProvider):
             "Connect to Linear MCP to access issues, projects, and teams. "
             "Permissions are automatically determined based on your Linear workspace access."
         ),
-        setup_steps=[
-            "Click 'Connect' to begin OAuth authorization",
-            "Select your Linear workspace if prompted",
-            "Review and approve the OAuth client permissions",
-            "Complete authorization to enable MCP integration",
-        ],
         api_docs_url="https://linear.app/docs/mcp",
     )

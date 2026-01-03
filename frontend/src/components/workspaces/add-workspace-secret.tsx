@@ -297,7 +297,7 @@ export function NewCredentialsDialog({
             onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
             className="flex flex-col flex-1 min-h-0"
           >
-            <div className="space-y-4 overflow-y-auto flex-1 py-2">
+            <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
               <FormField
                 key="name"
                 control={control}
