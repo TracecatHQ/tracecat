@@ -351,12 +351,14 @@ class ActionRunner:
             trust_mode=trust_mode,
         )
 
-        # For untrusted mode, pre-resolve secrets and variables
+        # Pre-resolve context for subprocess execution modes
+        # Both sandbox and direct modes use subprocess_entrypoint which needs action_impl
+        # For untrusted mode, this also resolves secrets/variables since sandbox lacks DB access
         resolved_context: ResolvedContext | None = None
-        if trust_mode == "untrusted":
-            resolved_context = await self._prepare_resolved_context(input, role)
-
         if use_sandbox:
+            # Sandbox mode: always pre-resolve for isolation
+            if trust_mode == "untrusted":
+                resolved_context = await self._prepare_resolved_context(input, role)
             return await self._execute_sandboxed(
                 input=input,
                 role=role,
@@ -367,12 +369,15 @@ class ActionRunner:
                 resolved_context=resolved_context,
             )
         else:
+            # Direct subprocess mode: always need resolved_context for action_impl
+            resolved_context = await self._prepare_resolved_context(input, role)
             return await self._execute_direct(
                 input=input,
                 role=role,
                 registry_cache_dir=target_dir,
                 env_vars=env_vars,
                 timeout=timeout,
+                resolved_context=resolved_context,
             )
 
     async def _prepare_resolved_context(
@@ -634,12 +639,16 @@ class ActionRunner:
         registry_cache_dir: Path,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
+        resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
         """Execute an action in a direct subprocess (no sandbox)."""
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Prepare input JSON for subprocess
-        input_json = to_json({"input": input, "role": role})
+        payload: dict[str, Any] = {"input": input, "role": role}
+        if resolved_context is not None:
+            payload["resolved_context"] = resolved_context
+        input_json = to_json(payload)
 
         # Build environment with target directory in PYTHONPATH
         env = os.environ.copy()

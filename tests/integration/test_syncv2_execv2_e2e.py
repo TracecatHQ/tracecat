@@ -97,12 +97,26 @@ def subprocess_db_env(monkeypatch):
     The subprocess inherits environment variables, so we need to set
     TRACECAT__DB_URI to point to the test database instead of the main
     postgres database.
+
+    Also resets the cached async engine so that _prepare_resolved_context
+    can create a new session that connects to the test database.
     """
+    import tracecat.db.engine as engine_module
+
     # Convert asyncpg URL to psycopg URL for subprocess
     test_db_url = TEST_DB_CONFIG.test_url.replace("+asyncpg", "+psycopg")
     monkeypatch.setenv("TRACECAT__DB_URI", test_db_url)
     monkeypatch.setattr(config, "TRACECAT__DB_URI", test_db_url)
+
+    # Reset the cached async engine so new sessions use the test database
+    # This is needed because get_async_engine() caches the engine globally
+    old_engine = engine_module._async_engine
+    engine_module._async_engine = None
+
     yield
+
+    # Restore the original engine
+    engine_module._async_engine = old_engine
 
 
 @pytest.fixture(scope="module")
@@ -493,9 +507,6 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
-            kwargs["trust_mode"] = (
-                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
-            )
             return await original_execute(**kwargs)
 
         # Mock both the action runner and artifact resolution
@@ -586,9 +597,6 @@ class TestExecuteWithSyncedRegistry:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
-            kwargs["trust_mode"] = (
-                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
-            )
             return await original_execute(**kwargs)
 
         with (
@@ -855,9 +863,6 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
-            kwargs["trust_mode"] = (
-                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
-            )
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently
@@ -966,9 +971,6 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
-            kwargs["trust_mode"] = (
-                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
-            )
             return await original_execute(**kwargs)
 
         # Execute all requests concurrently
@@ -1081,9 +1083,6 @@ class TestMultitenantWorkloads:
 
         async def execute_without_nsjail(**kwargs):
             kwargs["force_sandbox"] = False  # Override to use direct subprocess
-            kwargs["trust_mode"] = (
-                "trusted"  # Skip _prepare_resolved_context (uses cached DB engine)
-            )
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently with locked versions
