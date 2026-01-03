@@ -115,15 +115,26 @@ jobs:
         run: |
           docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy minio redis
 
-          # Wait for services to become healthy
+          # Wait for services with health checks to become healthy
           echo "Waiting for services to become healthy..."
           timeout 300 bash -c '
             while true; do
-              if docker compose -f docker-compose.local.yml ps --format json | jq -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
-                echo "Waiting for services to be healthy..."
+              # Get health status of all services, filter to those with health checks
+              # A service is ready when Health is exactly "healthy" (not empty, null, or starting)
+              statuses=$(docker compose -f docker-compose.local.yml ps --format json | jq -r ".[] | select(.Health != null and .Health != \"\") | .Health")
+
+              # Count healthy vs total services with health checks
+              total=$(echo "$statuses" | grep -c . || true)
+              healthy=$(echo "$statuses" | grep -c "^healthy$" || true)
+
+              if [ "$total" -eq 0 ]; then
+                echo "No services with health checks found yet, waiting..."
+                sleep 5
+              elif [ "$healthy" -lt "$total" ]; then
+                echo "Waiting for services to be healthy ($healthy/$total ready)..."
                 sleep 5
               else
-                echo "All services are healthy"
+                echo "All $total services with health checks are healthy"
                 break
               fi
             done
