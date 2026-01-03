@@ -242,9 +242,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
 
-    # Use docker hostnames when running inside Docker (REDIS_HOST=redis indicates Docker)
-    # Otherwise use localhost for host-side tests
-    in_docker = os.getenv("REDIS_HOST") == "redis"
+    # Detect if running inside Docker container by checking for /.dockerenv file
+    # This is more reliable than checking env vars like REDIS_HOST, which may be
+    # loaded from .env by load_dotenv() even when running on the host
+    in_docker = os.path.exists("/.dockerenv")
     db_host = "postgres_db" if in_docker else "localhost"
     temporal_host = "temporal" if in_docker else "localhost"
     api_host = "api" if in_docker else "localhost"
