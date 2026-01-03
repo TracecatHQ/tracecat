@@ -5472,6 +5472,7 @@ async def test_workflow_time_anchor_deterministic_time_functions(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[..., Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that FN.now()/utcnow()/today() return logical time = time_anchor + elapsed.
 
@@ -5542,7 +5543,10 @@ async def test_workflow_time_anchor_deterministic_time_functions(
     test_name = "test_workflow_time_anchor_deterministic"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -5600,6 +5604,7 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[..., Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that child workflows continue logical time from parent's current position.
 
@@ -5677,8 +5682,10 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_name = "test_workflow_time_anchor_inherited_by_child"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    worker = test_worker_factory(temporal_client)
-    async with worker:
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
