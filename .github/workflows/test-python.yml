@@ -108,10 +108,12 @@ jobs:
           docker compose -f docker-compose.dev.yml up -d temporal postgres_db api
 
           # Wait for services to become healthy
+          # Note: docker compose ps --format json outputs JSON Lines (one object per line),
+          # so we use jq -s to slurp them into an array first
           echo "Waiting for services to become healthy..."
           timeout 300 bash -c '
             while true; do
-              if docker compose -f docker-compose.dev.yml ps --format json | jq -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
+              if docker compose -f docker-compose.dev.yml ps --format json | jq -s -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
                 echo "Waiting for services to be healthy..."
                 sleep 5
               else

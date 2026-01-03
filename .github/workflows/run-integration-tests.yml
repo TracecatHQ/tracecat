@@ -121,7 +121,9 @@ jobs:
             while true; do
               # Get health status of all services, filter to those with health checks
               # A service is ready when Health is exactly "healthy" (not empty, null, or starting)
-              statuses=$(docker compose -f docker-compose.local.yml ps --format json | jq -r ".[] | select(.Health != null and .Health != \"\") | .Health")
+              # Note: docker compose ps --format json outputs JSON Lines (one object per line),
+              # so we use jq -s to slurp them into an array first
+              statuses=$(docker compose -f docker-compose.local.yml ps --format json | jq -s -r ".[] | select(.Health != null and .Health != \"\") | .Health")
 
               # Count healthy vs total services with health checks
               total=$(echo "$statuses" | grep -c . || true)
