@@ -686,7 +686,7 @@ class NsjailExecutor:
                     'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
                 ]
             )
-        else:
+        elif config.trust_mode == "trusted":
             lines.extend(
                 [
                     "",
@@ -695,6 +695,8 @@ class NsjailExecutor:
                     'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.executor.subprocess_entrypoint" }',
                 ]
             )
+        else:
+            raise SandboxValidationError(f"Invalid trust_mode: {config.trust_mode!r}")
 
         return "\n".join(lines)
 

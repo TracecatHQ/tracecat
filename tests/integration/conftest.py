@@ -88,8 +88,10 @@ async def sandboxed_pool():
     )
 
     await pool.start()
-    yield pool
-    await pool.shutdown()
+    try:
+        yield pool
+    finally:
+        await pool.shutdown()
 
 
 @pytest.fixture
@@ -110,8 +112,10 @@ async def small_recycle_pool():
     )
 
     await pool.start()
-    yield pool
-    await pool.shutdown()
+    try:
+        yield pool
+    finally:
+        await pool.shutdown()
 
 
 @pytest.fixture
@@ -131,8 +135,10 @@ async def single_worker_pool():
     )
 
     await pool.start()
-    yield pool
-    await pool.shutdown()
+    try:
+        yield pool
+    finally:
+        await pool.shutdown()
 
 
 # =============================================================================

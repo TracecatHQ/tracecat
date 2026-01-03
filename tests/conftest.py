@@ -50,9 +50,10 @@ else:
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
 # MinIO test configuration - uses docker-compose service on port 9000
+# Credentials match .env.example (MINIO_ROOT_USER/MINIO_ROOT_PASSWORD)
 MINIO_PORT = 9000
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
+MINIO_ACCESS_KEY = "minio"
+MINIO_SECRET_KEY = "password"
 
 # ---------------------------------------------------------------------------
 # Redis test configuration
@@ -615,15 +616,15 @@ def threadpool() -> Iterator[ThreadPoolExecutor]:
 
 
 @pytest.fixture(scope="function")
-async def executor_backend():
+async def executor_backend() -> AsyncGenerator[ExecutorBackend, None]:
     """Initialize executor backend once per test function."""
     from tracecat.executor.backends import (
         initialize_executor_backend,
         shutdown_executor_backend,
     )
 
-    await initialize_executor_backend()
-    yield
+    backend = await initialize_executor_backend()
+    yield backend
     await shutdown_executor_backend()
 
 

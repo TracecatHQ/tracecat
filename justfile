@@ -9,7 +9,7 @@ test:
 # Run backend benchmarks inside Docker (required for nsjail on macOS)
 bench *args:
 	docker run --rm \
-		--network tracecat-0_default \
+		--network tracecat_default \
 		--cap-add SYS_ADMIN \
 		--security-opt seccomp=unconfined \
 		--env-file .env \
@@ -18,7 +18,7 @@ bench *args:
 		-e TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres \
 		-v "$(pwd)/tests:/app/tests:ro" \
 		--entrypoint sh \
-		tracecat-0-executor \
+		tracecat-executor \
 		-c "pip install pytest pytest-anyio anyio -q && python -m pytest tests/backends/test_backend_benchmarks.py -v -s {{args}}"
 
 down:
