@@ -249,11 +249,16 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     db_host = "postgres_db" if in_docker else "localhost"
     temporal_host = "temporal" if in_docker else "localhost"
     api_host = "api" if in_docker else "localhost"
+    blob_storage_host = "minio" if in_docker else "localhost"
 
     db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:5432/postgres"
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
         config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233"
+    )
+    blob_storage_endpoint = f"http://{blob_storage_host}:{MINIO_PORT}"
+    monkeysession.setattr(
+        config, "TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint
     )
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
@@ -274,6 +279,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
 
     monkeysession.setenv("TRACECAT__DB_URI", db_uri)
+    monkeysession.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint)
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     # Point API URL to appropriate host
     api_url = f"http://{api_host}:8000"

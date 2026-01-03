@@ -121,25 +121,31 @@ async def test_workflow_interaction(
             )
             async with InteractionService.with_session(role=role) as svc:
                 # Handling the interaction state
-                while True:
-                    await asyncio.sleep(0.1)
-                    # Let's query the interaction state
-                    if interactions := await svc.list_interactions(
-                        wf_exec_id=wf_exec_id
-                    ):
-                        # Loop until we get a pending interaction
-                        assert len(interactions) == 1
-                        interaction = interactions[0]
-                        # NOTE: We need to refresh the interaction to get the latest state
-                        # Since we're still inside the transaction
-                        await svc.session.refresh(interaction)
-                        interaction_id = interaction.id
-                        assert interaction.action_ref == "a"
-                        assert interaction.response_payload is None
-                        if interaction.status == InteractionStatus.PENDING:
-                            # Pending -> we have started waiting for a response
-                            break
-                        assert interaction.status == InteractionStatus.IDLE
+                try:
+                    async with asyncio.timeout(10):
+                        while True:
+                            await asyncio.sleep(0.1)
+                            # Let's query the interaction state
+                            if interactions := await svc.list_interactions(
+                                wf_exec_id=wf_exec_id
+                            ):
+                                # Loop until we get a pending interaction
+                                assert len(interactions) == 1
+                                interaction = interactions[0]
+                                # NOTE: We need to refresh the interaction to get the latest state
+                                # Since we're still inside the transaction
+                                await svc.session.refresh(interaction)
+                                interaction_id = interaction.id
+                                assert interaction.action_ref == "a"
+                                assert interaction.response_payload is None
+                                if interaction.status == InteractionStatus.PENDING:
+                                    # Pending -> we have started waiting for a response
+                                    break
+                                assert interaction.status == InteractionStatus.IDLE
+                except TimeoutError as e:
+                    raise AssertionError(
+                        "Timed out waiting for interaction to become pending"
+                    ) from e
 
             # Now, manually update the workflow to add an interaction
             input = InteractionInput(
