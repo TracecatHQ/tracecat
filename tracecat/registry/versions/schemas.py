@@ -106,7 +106,10 @@ class RegistryVersionCreate(BaseModel):
         description="Git commit SHA if applicable",
     )
     manifest: RegistryVersionManifest
-    wheel_uri: str = Field(..., description="S3 URI to the wheel file")
+    tarball_uri: str = Field(
+        ...,
+        description="S3 URI to the compressed tarball venv for action execution",
+    )
 
 
 class RegistryVersionRead(BaseModel):
@@ -117,7 +120,7 @@ class RegistryVersionRead(BaseModel):
     version: str
     commit_sha: str | None
     manifest: RegistryVersionManifest
-    wheel_uri: str
+    tarball_uri: str
     created_at: datetime
 
 
@@ -128,7 +131,7 @@ class RegistryVersionReadMinimal(BaseModel):
     repository_id: UUID
     version: str
     commit_sha: str | None
-    wheel_uri: str
+    tarball_uri: str
     created_at: datetime
     action_count: int = Field(
         default=0,

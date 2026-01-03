@@ -43,6 +43,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseService
 from tracecat.validation.schemas import (
     DSLValidationResult,
@@ -507,8 +508,14 @@ class WorkflowsManagementService(BaseService):
         title = params.title or now
         description = params.description or f"New workflow created {now}"
 
+        # Initialize registry_lock with latest versions
+        registry_lock = await self._get_latest_registry_lock()
+
         workflow = Workflow(
-            title=title, description=description, workspace_id=self.role.workspace_id
+            title=title,
+            description=description,
+            workspace_id=self.role.workspace_id,
+            registry_lock=registry_lock,
         )
         # When we create a workflow, we automatically create a webhook
         # Add the Workflow to the session first to generate an ID
@@ -638,6 +645,10 @@ class WorkflowsManagementService(BaseService):
         self.logger.info("Creating workflow from DSL", dsl=dsl)
         if self.role.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
+
+        # Initialize registry_lock with latest versions
+        registry_lock = await self._get_latest_registry_lock()
+
         entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
             "title": dsl.title,
@@ -646,6 +657,7 @@ class WorkflowsManagementService(BaseService):
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "expects": entrypoint.get("expects"),
+            "registry_lock": registry_lock,
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id
@@ -698,6 +710,17 @@ class WorkflowsManagementService(BaseService):
             await self.session.commit()
             await self.session.refresh(workflow)
         return workflow
+
+    async def _get_latest_registry_lock(self) -> dict[str, str] | None:
+        """Get the latest registry versions lock.
+
+        Returns:
+            dict[str, str] | None: Maps origin -> version string, or None if
+            no versions exist yet (e.g., during initial setup before first sync).
+        """
+        lock_service = RegistryLockService(self.session, self.role)
+        lock = await lock_service.get_latest_versions_lock()
+        return lock if lock else None
 
     @staticmethod
     @activity.defn

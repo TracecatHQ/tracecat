@@ -123,6 +123,7 @@ async def lifespan(app: FastAPI):
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
 
     # App
     role = bootstrap_role()

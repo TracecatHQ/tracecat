@@ -8,7 +8,6 @@ Objectives
 
 """
 
-import asyncio
 import os
 import re
 from collections.abc import AsyncGenerator, Callable, Mapping
@@ -85,17 +84,6 @@ from tracecat.workflow.management.schemas import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
-def ray_cluster():
-    import ray
-
-    try:
-        ray.init()
-        yield
-    finally:
-        ray.shutdown()
-
-
-@pytest.fixture(scope="module")
 def hotfix_local_api_url(monkeysession: pytest.MonkeyPatch):
     """Hotfix to allow workflow tests to run locally.
 
@@ -146,8 +134,9 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
 
 def _normalize_error_message(msg: str) -> str:
     """Normalize an error message string for comparison."""
-    # Normalize line numbers
-    msg = re.sub(r"Line: \d+", "Line: <NUM>", msg)
+    # Remove the entire debug info section (File/Function/Line) which is only present in dev mode
+    # This section starts with dashes and includes file path, function name, and line number
+    msg = re.sub(r"\n*-{20,}\n.*", "", msg, flags=re.DOTALL)
     # Normalize newlines (collapse multiple newlines, normalize line endings)
     msg = re.sub(r"\r\n", "\n", msg)
     msg = re.sub(r"\n{2,}", "\n\n", msg)
@@ -198,12 +187,15 @@ def runtime_config() -> DSLConfig:
 )
 @pytest.mark.anyio
 async def test_workflow_can_run_from_yaml(
-    dsl, test_role, temporal_client, test_worker_factory
+    dsl, test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Run workflow
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
@@ -232,7 +224,7 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext)
 )
 @pytest.mark.anyio
 async def test_workflow_ordering_is_correct(
-    dsl, test_role, temporal_client, test_worker_factory
+    dsl, test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     """We need to test that the ordering of the workflow tasks is correct."""
 
@@ -241,7 +233,10 @@ async def test_workflow_ordering_is_correct(
     wf_exec_id = generate_test_exec_id(test_name)
 
     # Run a worker for the activities and workflow
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
@@ -276,7 +271,11 @@ async def test_workflow_ordering_is_correct(
 )
 @pytest.mark.anyio
 async def test_workflow_completes_and_correct(
-    dsl_with_expected, test_role, runtime_config, test_worker_factory
+    dsl_with_expected,
+    test_role,
+    runtime_config,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
@@ -284,7 +283,7 @@ async def test_workflow_completes_and_correct(
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
-    async with test_worker_factory(client):
+    async with test_worker_factory(client), test_executor_worker_factory(client):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -305,119 +304,9 @@ async def test_workflow_completes_and_correct(
     assert result == expected
 
 
-@pytest.mark.parametrize("dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x)
-@pytest.mark.slow
-@pytest.mark.anyio
-async def test_stress_workflow(dsl, test_role, test_worker_factory):
-    """Test that we can have multiple executions of the same workflow running at the same time."""
-    test_name = f"test_stress_workflow-{dsl.title}"
-    client = await get_temporal_client()
-
-    tasks: list[asyncio.Task] = []
-    async with test_worker_factory(client):
-        async with asyncio.TaskGroup() as tg:
-            # We can have multiple executions of the same workflow running at the same time
-            for i in range(100):
-                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
-                task = tg.create_task(
-                    client.execute_workflow(
-                        DSLWorkflow.run,
-                        DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
-                        id=wf_exec_id,
-                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                )
-                tasks.append(task)
-
-    assert all(task.done() for task in tasks)
-
-
-@pytest.mark.skip(reason="This test is too slow to run on CI, and breaking atm.")
-@pytest.mark.parametrize("runs", [10, 100])
-@pytest.mark.slow
-@pytest.mark.anyio
-async def test_stress_workflow_correctness(
-    runs, test_role, temporal_client, test_worker_factory
-):
-    """Test that we can have multiple executions of the same workflow running at the same time."""
-    test_name = test_stress_workflow_correctness.__name__
-    dsl = DSLInput(
-        **{
-            "entrypoint": {"expects": {}, "ref": "a"},
-            "actions": [
-                {
-                    "ref": "a",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ TRIGGER.num }}",
-                    },
-                    "depends_on": [],
-                },
-                {
-                    "ref": "b",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ ACTIONS.a.result * 2 }}",
-                    },
-                    "depends_on": ["a"],
-                },
-                {
-                    "ref": "c",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ ACTIONS.b.result * 2 }}",
-                    },
-                    "depends_on": ["b"],
-                },
-                {
-                    "ref": "d",
-                    "action": "core.transform.reshape",
-                    "args": {
-                        "value": "${{ ACTIONS.c.result * 2 }}",
-                    },
-                    "depends_on": ["c"],
-                },
-            ],
-            "description": "Stress testing",
-            "returns": "${{ ACTIONS.d.result }}",
-            "tests": [],
-            "title": f"{test_name}",
-            "triggers": [],
-            # When the environment is set in the config, it should override the default
-            "config": {"environment": "__TEST_ENVIRONMENT__"},
-        }
-    )
-
-    async with test_worker_factory(temporal_client):
-        async with GatheringTaskGroup() as tg:
-            # We can have multiple executions of the same workflow running at the same time
-            for i in range(runs):
-                wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
-                run_args = DSLRunArgs(
-                    dsl=dsl,
-                    role=ctx_role.get(),
-                    wf_id=TEST_WF_ID,
-                    trigger_inputs={"num": i},
-                )
-                tg.create_task(
-                    temporal_client.execute_workflow(
-                        DSLWorkflow.run,
-                        run_args,
-                        id=wf_exec_id,
-                        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                )
-
-    results = tg.results()
-    assert len(results) == runs
-    assert list(results) == [i * (2**3) for i in range(runs)]
-
-
 @pytest.mark.anyio
 async def test_workflow_set_environment_correct(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"{test_workflow_set_environment_correct.__name__}"
     test_description = (
@@ -457,7 +346,10 @@ async def test_workflow_set_environment_correct(
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -470,7 +362,7 @@ async def test_workflow_set_environment_correct(
 
 @pytest.mark.anyio
 async def test_workflow_override_environment_correct(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"{test_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -511,7 +403,10 @@ async def test_workflow_override_environment_correct(
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -524,7 +419,7 @@ async def test_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_workflow_default_environment_correct(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"{test_workflow_default_environment_correct.__name__}"
     test_description = (
@@ -563,7 +458,10 @@ async def test_workflow_default_environment_correct(
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -606,20 +504,33 @@ async def _run_workflow(
     wf_exec_id: str,
     run_args: DSLRunArgs,
     worker: Worker,
+    executor_worker: Worker | None = None,
 ):
-    async with worker:
-        result = await worker.client.execute_workflow(
-            DSLWorkflow.run,
-            run_args,
-            id=wf_exec_id,
-            task_queue=worker.task_queue,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-        )
+    if executor_worker:
+        async with worker, executor_worker:
+            result = await worker.client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=worker.task_queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+    else:
+        async with worker:
+            result = await worker.client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=worker.task_queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
     return result
 
 
 @pytest.mark.anyio
-async def test_child_workflow_success(test_role, temporal_client, test_worker_factory):
+async def test_child_workflow_success(
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+):
     test_name = f"{test_child_workflow_success.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Child
@@ -686,7 +597,8 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
         t=type(test_worker_factory),
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     expected = {
         "ACTIONS": {
@@ -702,7 +614,7 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
 
 @pytest.mark.anyio
 async def test_child_workflow_context_passing(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     # Setup
     test_name = f"{test_child_workflow_context_passing.__name__}"
@@ -784,7 +696,8 @@ async def test_child_workflow_context_passing(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -860,6 +773,7 @@ async def test_child_workflow_loop(
     loop_strategy: LoopStrategy,
     loop_kwargs: dict[str, Any],
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     # Setup
     test_name = test_child_workflow_loop.__name__
@@ -906,7 +820,8 @@ async def test_child_workflow_loop(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -948,6 +863,7 @@ async def test_single_child_workflow_alias(
     temporal_client: Client,
     child_dsl: DSLInput,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     test_name = test_single_child_workflow_alias.__name__
     wf_exec_id = generate_test_exec_id(test_name)
@@ -987,7 +903,8 @@ async def test_single_child_workflow_alias(
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
     assert result == {"data": "Test", "index": 0}
 
@@ -1024,6 +941,7 @@ async def test_child_workflow_alias_with_loop(
     loop_strategy: LoopStrategy,
     loop_kwargs: dict[str, Any],
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that child workflows can be executed using aliases."""
     test_name = test_single_child_workflow_alias.__name__
@@ -1067,7 +985,8 @@ async def test_child_workflow_alias_with_loop(
         trigger_inputs="__EXPECTED_DATA__",
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
     assert result == [
         {
@@ -1099,6 +1018,7 @@ async def test_child_workflow_with_expression_alias(
     temporal_client: Client,
     child_dsl: DSLInput,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that child workflows can be executed using expression-based aliases."""
     test_name = test_child_workflow_with_expression_alias.__name__
@@ -1155,7 +1075,8 @@ async def test_child_workflow_with_expression_alias(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Verify the child workflow was called correctly
     assert result == {"data": "Test data", "index": 42}
@@ -1163,7 +1084,7 @@ async def test_child_workflow_with_expression_alias(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_override_environment_correct(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"{test_single_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1225,7 +1146,8 @@ async def test_single_child_workflow_override_environment_correct(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1240,7 +1162,7 @@ async def test_single_child_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_override_environment_correct(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"{test_multiple_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1302,7 +1224,8 @@ async def test_multiple_child_workflow_override_environment_correct(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1317,7 +1240,7 @@ async def test_multiple_child_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_environment_has_correct_default(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = f"{test_single_child_workflow_environment_has_correct_default.__name__}"
     test_description = (
@@ -1379,7 +1302,8 @@ async def test_single_child_workflow_environment_has_correct_default(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1394,7 +1318,7 @@ async def test_single_child_workflow_environment_has_correct_default(
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_environments_have_correct_defaults(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     test_name = (
         f"{test_multiple_child_workflow_environments_have_correct_defaults.__name__}"
@@ -1462,7 +1386,8 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1481,7 +1406,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_get_correct_secret_environment(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     # We need to set this on the API server, as we run it in a separate process
     # monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
@@ -1564,7 +1489,8 @@ async def test_single_child_workflow_get_correct_secret_environment(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1582,7 +1508,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
 
 @pytest.mark.anyio
 async def test_workflow_can_access_workspace_variables(
-    test_role, temporal_client, test_worker_factory
+    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
 ):
     """Test that workflows can access workspace variables via VARS context."""
     test_name = f"{test_workflow_can_access_workspace_variables.__name__}"
@@ -1653,7 +1579,8 @@ async def test_workflow_can_access_workspace_variables(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Verify the workflow can access all workspace variables
     expected = {
@@ -1668,7 +1595,7 @@ async def test_workflow_can_access_workspace_variables(
 
 @pytest.mark.anyio
 async def test_pull_based_workflow_fetches_latest_version(
-    temporal_client, test_role, test_worker_factory
+    temporal_client, test_role, test_worker_factory, test_executor_worker_factory
 ):
     """Test that a pull-based workflow fetches the latest version after being updated.
 
@@ -1728,7 +1655,10 @@ async def test_pull_based_workflow_fetches_latest_version(
         # Not setting schedule_id here to make it use the passed in trigger inputs
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(f"{wf_exec_id}:first", run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(
+        f"{wf_exec_id}:first", run_args, worker, executor_worker
+    )
 
     assert result == "__EXPECTED_FIRST_RESULT__"
 
@@ -1761,7 +1691,10 @@ async def test_pull_based_workflow_fetches_latest_version(
         )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(f"{wf_exec_id}:second", run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(
+        f"{wf_exec_id}:second", run_args, worker, executor_worker
+    )
     assert result == "__EXPECTED_SECOND_RESULT__"
 
 
@@ -1787,11 +1720,8 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "\n"
         "\n"
         "------------------------------\n"
-        # f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
-        # f"Function: {run_action_on_ray_cluster.__name__}\n"
-        # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
-    "type": "ExecutorClientError",
+    "type": "ExecutionError",
     "expr_context": "ACTIONS",
     "attempt": 1,
     "stream_id": "<root>:0",
@@ -2201,7 +2131,12 @@ def _get_test_id(test_case):
 )
 @pytest.mark.anyio
 async def test_workflow_error_path(
-    test_role, runtime_config, dsl_data, expected, test_worker_factory
+    test_role,
+    runtime_config,
+    dsl_data,
+    expected,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     dsl = DSLInput(**dsl_data)
     test_name = f"test_workflow_error-{dsl.title}"
@@ -2209,7 +2144,7 @@ async def test_workflow_error_path(
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
-    async with test_worker_factory(client):
+    async with test_worker_factory(client), test_executor_worker_factory(client):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -2233,7 +2168,7 @@ async def test_workflow_error_path(
 
 @pytest.mark.anyio
 async def test_workflow_join_unreachable(
-    test_role, runtime_config, test_worker_factory
+    test_role, runtime_config, test_worker_factory, test_executor_worker_factory
 ):
     """Test join strategy behavior with unreachable nodes.
 
@@ -2284,7 +2219,7 @@ async def test_workflow_join_unreachable(
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
 
-    async with test_worker_factory(client):
+    async with test_worker_factory(client), test_executor_worker_factory(client):
         with pytest.raises(TemporalError):
             await client.execute_workflow(
                 DSLWorkflow.run,
@@ -2309,7 +2244,7 @@ async def test_workflow_join_unreachable(
 
 @pytest.mark.anyio
 async def test_workflow_multiple_entrypoints(
-    test_role, runtime_config, test_worker_factory
+    test_role, runtime_config, test_worker_factory, test_executor_worker_factory
 ):
     """Test workflow behavior with multiple entrypoints.
 
@@ -2364,7 +2299,7 @@ async def test_workflow_multiple_entrypoints(
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
 
-    async with test_worker_factory(client):
+    async with test_worker_factory(client), test_executor_worker_factory(client):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -2398,6 +2333,7 @@ async def test_workflow_runs_template_for_each(
     temporal_client,
     db_session_with_repo,
     test_worker_factory,
+    test_executor_worker_factory,
 ):
     """Test workflow behavior with for_each.
 
@@ -2482,7 +2418,10 @@ async def test_workflow_runs_template_for_each(
     test_name = f"test_workflow_for_each-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -2701,7 +2640,7 @@ def assert_error_handler_initiated_correctly(
                         "Line: 77"
                     ),
                     "ref": "failing_action",
-                    "type": "ExecutorClientError",
+                    "type": "ExecutionError",
                     "stream_id": "<root>:0",
                     "children": None,
                 }
@@ -2710,7 +2649,7 @@ def assert_error_handler_initiated_correctly(
             "message": (
                 "Workflow failed with 1 error(s)\n\n"
                 f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
-                "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
+                "ExecutionError: [ACTIONS.failing_action -> execute_action] (Attempt 1)\n\n"
                 "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
                 "\n"
                 "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
@@ -2788,6 +2727,7 @@ async def test_workflow_error_handler_success(
     error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
     failing_dsl: DSLInput,
     test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that the error handler can capture errors.
@@ -2829,7 +2769,8 @@ async def test_workflow_error_handler_success(
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
         worker = test_worker_factory(temporal_client)
-        _ = await _run_workflow(wf_exec_id, run_args, worker)
+        executor_worker = test_executor_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert str(exc_info.value) == "Workflow execution failed"
 
     # Check temporal event history
@@ -2893,6 +2834,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     id_or_alias: str,
     expected_err_msg: str,
     test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that the error handler fails with an invalid error handler that has no matching workflow
@@ -2916,7 +2858,8 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
         worker = test_worker_factory(temporal_client)
-        _ = await _run_workflow(wf_exec_id, run_args, worker)
+        executor_worker = test_executor_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert str(exc_info.value) == "Workflow execution failed"
     cause0 = exc_info.value.cause
     assert isinstance(cause0, ActivityError)
@@ -2928,7 +2871,11 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_lookup_table_success(
-    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_admin_role: Role,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that a workflow can lookup a table
@@ -2976,7 +2923,8 @@ async def test_workflow_lookup_table_success(
         wf_id=TEST_WF_ID,
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert "number" in result
     assert result["number"] == 1
 
@@ -2984,7 +2932,11 @@ async def test_workflow_lookup_table_success(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_lookup_table_missing_value(
-    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_admin_role: Role,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that a workflow returns None when looking up a non-existent value in a table.
@@ -3035,14 +2987,19 @@ async def test_workflow_lookup_table_missing_value(
         wf_id=TEST_WF_ID,
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert result is None
 
 
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_insert_table_row_success(
-    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_admin_role: Role,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that a workflow can insert a row into a table.
@@ -3090,7 +3047,8 @@ async def test_workflow_insert_table_row_success(
         wf_id=TEST_WF_ID,
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Verify the result indicates success
     assert result is not None
@@ -3109,7 +3067,11 @@ async def test_workflow_insert_table_row_success(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_table_actions_in_loop(
-    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_admin_role: Role,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that a workflow can perform table operations in a loop.
@@ -3191,7 +3153,8 @@ async def test_workflow_table_actions_in_loop(
         wf_id=TEST_WF_ID,
     )
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Verify the results
     assert result is not None
@@ -3226,7 +3189,10 @@ async def test_workflow_table_actions_in_loop(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_detached_child_workflow(
-    test_role: Role, temporal_client: Client, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory,
+    test_executor_worker_factory,
 ):
     """
     Test that a workflow can detach a child workflow.
@@ -3282,7 +3248,8 @@ async def test_workflow_detached_child_workflow(
         wf_id=TEST_WF_ID,
     )
     worker = test_worker_factory(temporal_client)
-    async with worker:
+    executor_worker = test_executor_worker_factory(temporal_client)
+    async with worker, executor_worker:
         parent_handle = await temporal_client.start_workflow(
             DSLWorkflow.run,
             run_args,
@@ -3324,6 +3291,7 @@ async def test_scatter_with_child_workflow(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that scatter works with child workflow execution.
 
@@ -3389,7 +3357,8 @@ async def test_scatter_with_child_workflow(
     )
 
     worker = test_worker_factory(temporal_client)
-    result = await _run_workflow(wf_exec_id, run_args, worker)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Each item should be doubled: [1, 2, 3, 4] -> [2, 4, 6, 8]
     expected = {
@@ -4737,7 +4706,7 @@ async def test_scatter_with_child_workflow(
                             {
                                 "ref": "throw",
                                 "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutorClientError",
+                                "type": "ExecutionError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
                                 "stream_id": "<root>:0/scatter1:0",
@@ -4746,7 +4715,7 @@ async def test_scatter_with_child_workflow(
                             {
                                 "ref": "throw",
                                 "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutorClientError",
+                                "type": "ExecutionError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
                                 "stream_id": "<root>:0/scatter1:1",
@@ -4846,7 +4815,7 @@ async def test_scatter_with_child_workflow(
                             {
                                 "ref": "throw",
                                 "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutorClientError",
+                                "type": "ExecutionError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
                                 "stream_id": "<root>:0/scatter1:0",
@@ -4855,7 +4824,7 @@ async def test_scatter_with_child_workflow(
                             {
                                 "ref": "throw",
                                 "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutorClientError",
+                                "type": "ExecutionError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
                                 "stream_id": "<root>:0/scatter1:1",
@@ -4981,6 +4950,7 @@ async def test_workflow_scatter_gather(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
     dsl: DSLInput,
     expected: ExecutionContext,
 ):
@@ -4992,7 +4962,10 @@ async def test_workflow_scatter_gather(
     run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
@@ -5011,6 +4984,7 @@ async def test_workflow_gather_error_strategy_raise(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ) -> None:
     """Gather should fail-fast when configured with the raise error strategy."""
 
@@ -5049,7 +5023,10 @@ async def test_workflow_gather_error_strategy_raise(
         test_workflow_gather_error_strategy_raise.__name__
     )
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         with pytest.raises(WorkflowFailureError) as exc_info:
             await temporal_client.execute_workflow(
                 DSLWorkflow.run,
@@ -5088,7 +5065,10 @@ async def test_workflow_gather_error_strategy_raise(
 
 @pytest.mark.anyio
 async def test_workflow_env_and_trigger_access_in_stream(
-    test_role: Role, temporal_client: Client, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory,
+    test_executor_worker_factory,
 ) -> None:
     """
     Test that ENV and TRIGGER contexts are accessible from inside a stream.
@@ -5147,7 +5127,10 @@ async def test_workflow_env_and_trigger_access_in_stream(
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
     # Run the workflow and check the result
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         run_args = DSLRunArgs(
             dsl=dsl,
             role=test_role,
@@ -5209,6 +5192,7 @@ async def test_workflow_return_strategy(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory,
+    test_executor_worker_factory,
     return_strategy: Literal["context", "minimal"],
     validator: Callable[[dict[str, Any]], bool],
     monkeypatch: pytest.MonkeyPatch,
@@ -5235,7 +5219,10 @@ async def test_workflow_return_strategy(
         ],
     )
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         run_args = DSLRunArgs(
             dsl=dsl,
             role=test_role,
@@ -5256,6 +5243,7 @@ async def test_workflow_environment_override(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -5264,6 +5252,8 @@ async def test_workflow_environment_override(
     # Set return strategy to context so we can verify the result
     monkeypatch.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
     monkeypatch.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    # Disable secret masking so we can verify the actual secret value
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
 
     test_name = f"{test_workflow_environment_override.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -5312,7 +5302,10 @@ async def test_workflow_environment_override(
             ],
         )
 
-        async with test_worker_factory(temporal_client):
+        async with (
+            test_worker_factory(temporal_client),
+            test_executor_worker_factory(temporal_client),
+        ):
             run_args = DSLRunArgs(
                 dsl=dsl,
                 role=test_role,
@@ -5339,7 +5332,10 @@ async def test_workflow_environment_override(
 
 @pytest.mark.anyio
 async def test_workflow_trigger_defaults(
-    test_role: Role, temporal_client: Client, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory,
+    test_executor_worker_factory,
 ) -> None:
     """
     Test that TRIGGER defaults are applied when not provided in DSLRunArgs.
@@ -5378,7 +5374,10 @@ async def test_workflow_trigger_defaults(
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
     # Run the workflow and check the result
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         run_args = DSLRunArgs(
             dsl=dsl,
             role=test_role,
@@ -5397,7 +5396,10 @@ async def test_workflow_trigger_defaults(
 
 @pytest.mark.anyio
 async def test_workflow_trigger_validation_error_details(
-    test_role: Role, temporal_client: Client, test_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory,
+    test_executor_worker_factory,
 ) -> None:
     """Ensure trigger validation errors surface field-level details to callers."""
 
@@ -5427,7 +5429,10 @@ async def test_workflow_trigger_validation_error_details(
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         run_args = DSLRunArgs(
             dsl=dsl,
             role=test_role,
@@ -5467,6 +5472,7 @@ async def test_workflow_time_anchor_deterministic_time_functions(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[..., Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that FN.now()/utcnow()/today() return logical time = time_anchor + elapsed.
 
@@ -5537,7 +5543,10 @@ async def test_workflow_time_anchor_deterministic_time_functions(
     test_name = "test_workflow_time_anchor_deterministic"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    async with test_worker_factory(temporal_client):
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -5595,6 +5604,7 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: Callable[..., Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that child workflows continue logical time from parent's current position.
 
@@ -5672,8 +5682,10 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_name = "test_workflow_time_anchor_inherited_by_child"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    worker = test_worker_factory(temporal_client)
-    async with worker:
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(

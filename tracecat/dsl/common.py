@@ -500,6 +500,10 @@ class DSLRunArgs(BaseModel):
             "or workflow start_time (for other triggers). Stored as UTC."
         ),
     )
+    registry_lock: dict[str, str] | None = Field(
+        default=None,
+        description="Registry version lock for action execution. Maps action names to version hashes.",
+    )
 
     @field_validator("wf_id", mode="before")
     @classmethod

@@ -9,7 +9,10 @@ from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.management.schemas import (
+    GetWorkflowDefinitionActivityInputs,
+    WorkflowDefinitionActivityResult,
+)
 
 
 class WorkflowDefinitionsService(BaseService):
@@ -48,8 +51,21 @@ class WorkflowDefinitionsService(BaseService):
         dsl: DSLInput,
         *,
         alias: str | None = None,
+        registry_lock: dict[str, str] | None = None,
         commit: bool = True,
     ) -> WorkflowDefinition:
+        """Create a new workflow definition.
+
+        Args:
+            workflow_id: The ID of the workflow this definition belongs to.
+            dsl: The DSL input for the workflow definition.
+            registry_lock: Optional registry version lock to freeze with this definition.
+                Maps repository origin to version string.
+            commit: Whether to commit the transaction.
+
+        Returns:
+            The created WorkflowDefinition.
+        """
         if self.role.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
         statement = (
@@ -70,6 +86,7 @@ class WorkflowDefinitionsService(BaseService):
             content=dsl.model_dump(exclude_unset=True),
             version=version,
             alias=alias,
+            registry_lock=registry_lock,
         )
         self.session.add(defn)
         if commit:
@@ -83,7 +100,7 @@ class WorkflowDefinitionsService(BaseService):
 @activity.defn
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
-) -> DSLInput:
+) -> WorkflowDefinitionActivityResult:
     async with WorkflowDefinitionsService.with_session(role=input.role) as service:
         defn = await service.get_definition_by_workflow_id(
             input.workflow_id, version=input.version
@@ -93,4 +110,4 @@ async def get_workflow_definition_activity(
             logger.error(msg)
             raise TracecatException(msg)
         dsl = DSLInput(**defn.content)
-    return dsl
+    return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=defn.registry_lock)

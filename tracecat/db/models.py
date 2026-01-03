@@ -510,6 +510,14 @@ class WorkflowDefinition(WorkspaceModel):
     alias: Mapped[str | None] = mapped_column(
         String, nullable=True, index=True, doc="Workflow alias at commit time"
     )
+    registry_lock: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Frozen registry versions at commit time. "
+            "Maps repository origin to version string."
+        ),
+    )
 
     workflow: Mapped[Workflow] = relationship(back_populates="definitions")
 
@@ -686,7 +694,7 @@ class Workflow(WorkspaceModel):
         nullable=True,
         doc=(
             "Maps repository origin to pinned version string. "
-            "Example: {'builtin': '1.2.3', 'git+ssh://...': '0.5.0'}"
+            "Example: {'tracecat_registry': '1.2.3', 'git+ssh://...': '0.5.0'}"
         ),
     )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1108,10 +1116,10 @@ class RegistryVersion(OrganizationModel):
         nullable=False,
         doc="Frozen action definitions",
     )
-    wheel_uri: Mapped[str] = mapped_column(
+    tarball_uri: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        doc="S3 URI to the wheel file",
+        doc="S3 URI to the compressed tarball venv for action execution",
     )
 
     repository: Mapped[RegistryRepository] = relationship(back_populates="versions")

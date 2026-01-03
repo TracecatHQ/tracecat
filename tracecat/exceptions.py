@@ -116,6 +116,12 @@ class ExecutionError(TracecatException):
 
     def __init__(self, info: ExecutorActionErrorInfo):
         self.info = info
+        # Build a user-friendly error message from the info
+        message = (
+            f"There was an error in the executor when calling action '{info.action_name}'."
+            f"\n\n{info}"
+        )
+        super().__init__(message)
 
 
 class LoopExecutionError(TracecatException):
@@ -123,6 +129,9 @@ class LoopExecutionError(TracecatException):
 
     def __init__(self, loop_errors: list[ExecutionError]):
         self.loop_errors = loop_errors
+        n_errors = len(loop_errors)
+        message = f"Loop execution failed with {n_errors} error(s)"
+        super().__init__(message)
 
 
 class TracecatSettingsError(TracecatException):

@@ -120,7 +120,7 @@ async def configure_minio_for_attachments(
     monkeypatch.setattr(
         config,
         "TRACECAT__BLOB_STORAGE_ENDPOINT",
-        "http://localhost:9002",
+        "http://localhost:9000",
         raising=False,
     )
     monkeypatch.setattr(

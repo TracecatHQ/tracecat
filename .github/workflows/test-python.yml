@@ -103,21 +103,36 @@ jobs:
       - name: Start core Docker services
         env:
           COMPOSE_BAKE: "true"
-          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: |
-          docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+          # Start postgres, temporal, and api (api runs alembic migrations on startup)
+          docker compose -f docker-compose.dev.yml up -d temporal postgres_db api
 
           # Wait for services to become healthy
+          # Note: docker compose ps --format json outputs JSON Lines (one object per line),
+          # so we use jq -s to slurp them into an array first
           echo "Waiting for services to become healthy..."
           timeout 300 bash -c '
             while true; do
-              if docker compose -f docker-compose.dev.yml ps --format json | jq -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
+              if docker compose -f docker-compose.dev.yml ps --format json | jq -s -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
                 echo "Waiting for services to be healthy..."
                 sleep 5
               else
                 echo "All services are healthy"
                 break
               fi
+            done
+          '
+
+          # Wait for API to be ready (runs alembic migrations on startup)
+          echo "Waiting for API to be ready..."
+          timeout 120 bash -c '
+            while true; do
+              if curl -sf http://localhost:8000/ready > /dev/null 2>&1; then
+                echo "API is ready"
+                break
+              fi
+              echo "Waiting for API..."
+              sleep 2
             done
           '
 
@@ -130,10 +145,10 @@ jobs:
       - name: Run workflow tests with compression
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
-          # Enable compression
+          # Enable compression (also set above for docker services)
           TRACECAT__CONTEXT_COMPRESSION_ENABLED: true
-          # Apply unconditionally
           TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: 0
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true" # Executor runs in-process
         run: uv run pytest tests/unit/test_workflows.py -ra
 
       - name: Show Docker logs on failure
@@ -147,12 +162,6 @@ jobs:
 
           echo "=== API Logs ==="
           docker compose -f docker-compose.dev.yml logs api --tail=200
-
-          echo "=== Worker Logs ==="
-          docker compose -f docker-compose.dev.yml logs worker --tail=200
-
-          echo "=== Executor Logs ==="
-          docker compose -f docker-compose.dev.yml logs executor --tail=200
 
           echo "=== Postgres Logs ==="
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
@@ -198,7 +207,7 @@ jobs:
         env:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy minio
+        run: docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -209,6 +218,8 @@ jobs:
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
+          TRACECAT__WORKFLOW_RETURN_STRATEGY: "context"
         run: |
           if [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -ra
@@ -229,12 +240,6 @@ jobs:
 
           echo "=== API Logs ==="
           docker compose -f docker-compose.dev.yml logs api --tail=200
-
-          echo "=== Worker Logs ==="
-          docker compose -f docker-compose.dev.yml logs worker --tail=200
-
-          echo "=== Executor Logs ==="
-          docker compose -f docker-compose.dev.yml logs executor --tail=200
 
           echo "=== Postgres Logs ==="
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200

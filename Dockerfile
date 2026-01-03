@@ -116,7 +116,17 @@ EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
 # ====================
-# Stage 5: Production target
+# Stage 5: Test target (development + pytest)
+# ====================
+FROM development AS test
+
+# Install test dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --group dev
+
+CMD ["python", "-m", "pytest"]
+
+# ====================
+# Stage 6: Production target
 # ====================
 FROM base AS production
 

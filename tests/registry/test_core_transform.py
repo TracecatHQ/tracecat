@@ -334,7 +334,11 @@ def test_not_in(
 )
 @pytest.mark.anyio
 async def test_deduplicate(
-    items: list[dict[str, Any]], keys: list[str], expected: list[dict[str, Any]]
+    items: list[dict[str, Any]],
+    keys: list[str],
+    expected: list[dict[str, Any]],
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test the deduplicate function with various inputs and transformations."""
     try:
@@ -404,6 +408,8 @@ async def test_deduplicate_persistence(
     second_call: list[dict[str, Any]],
     expected_first: list[dict[str, Any]],
     expected_second: list[dict[str, Any]],
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test that deduplication persists across multiple calls."""
     try:
@@ -474,6 +480,8 @@ async def test_deduplicate_special_values(
     items: list[dict[str, Any]],
     keys: list[str],
     description: str,
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test deduplication with special values and edge cases."""
     try:
@@ -516,6 +524,8 @@ async def test_deduplicate_return_types(
     input_data: dict[str, Any] | list[dict[str, Any]],
     keys: list[str],
     expected_type: type,
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test that deduplicate returns the correct type based on input."""
     try:
@@ -531,7 +541,7 @@ async def test_deduplicate_return_types(
 
 
 @pytest.mark.anyio
-async def test_deduplicate_ttl_expiry() -> None:
+async def test_deduplicate_ttl_expiry(redis_server, clean_redis_db) -> None:
     """Test that items are no longer considered duplicates after TTL expires."""
     try:
         payload = [{"id": 200}]
@@ -589,7 +599,7 @@ async def test_deduplicate_error_cases(
 
 
 @pytest.mark.anyio
-async def test_deduplicate_concurrent_calls() -> None:
+async def test_deduplicate_concurrent_calls(redis_server, clean_redis_db) -> None:
     """Test that concurrent calls to deduplicate work correctly."""
     try:
         # Create multiple items that will be processed concurrently
@@ -652,6 +662,8 @@ async def test_deduplicate_concurrent_calls() -> None:
 async def test_deduplicate_complex_keys(
     keys: list[str],
     description: str,
+    redis_server,
+    clean_redis_db,
 ) -> None:
     """Test deduplication with complex key configurations."""
     try:
@@ -721,7 +733,9 @@ async def test_deduplicate_redis_operation_error(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_deduplicate_skip_persistence_vs_redis() -> None:
+async def test_deduplicate_skip_persistence_vs_redis(
+    redis_server, clean_redis_db
+) -> None:
     """Test that persist=True persists across calls, but persist=False doesn't."""
     items_persist = [{"id": 998, "data": "test_persist"}]
     items_no_persist = [{"id": 997, "data": "test_no_persist"}]

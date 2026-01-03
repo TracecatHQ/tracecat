@@ -307,6 +307,8 @@ class RunActionInput(BaseModel):
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""
+    registry_lock: dict[str, str] | None = None
+    """Registry version lock from workflow definition. Maps origin -> version."""
 
     @model_validator(mode="before")
     @classmethod

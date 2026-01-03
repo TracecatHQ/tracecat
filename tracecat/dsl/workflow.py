@@ -128,6 +128,7 @@ with workflow.unsafe.imports_passed_through():
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
         ResolveWorkflowAliasActivityInputs,
+        WorkflowDefinitionActivityResult,
     )
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -225,17 +226,21 @@ class DSLWorkflow:
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
-        # Set DSL
+        # Set DSL and registry_lock
         if args.dsl:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
             self.dsl = args.dsl
+            # Use registry_lock from args if provided (e.g., from parent workflow)
+            self.registry_lock = args.registry_lock
             self.dispatch_type = "push"
         else:
             # Otherwise, fetch the latest workflow definition
             self.logger.debug("Fetching latest workflow definition")
             try:
-                self.dsl = await self._get_workflow_definition(args.wf_id)
+                result = await self._get_workflow_definition(args.wf_id)
+                self.dsl = result.dsl
+                self.registry_lock = result.registry_lock
             except TracecatException as e:
                 self.logger.error("Failed to fetch workflow definition")
                 raise ApplicationError(
@@ -989,7 +994,7 @@ class DSLWorkflow:
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
-    ) -> DSLInput:
+    ) -> WorkflowDefinitionActivityResult:
         activity_inputs = GetWorkflowDefinitionActivityInputs(
             role=self.role, workflow_id=workflow_id, version=version
         )
@@ -1100,7 +1105,8 @@ class DSLWorkflow:
         else:
             raise ValueError("Either workflow_id or workflow_alias must be provided")
 
-        dsl = await self._get_workflow_definition(child_wf_id, version=args.version)
+        result = await self._get_workflow_definition(child_wf_id, version=args.version)
+        dsl = result.dsl
 
         self.logger.debug(
             "Got workflow definition",
@@ -1134,6 +1140,7 @@ class DSLWorkflow:
             runtime_config=runtime_config,
             execution_type=self.execution_type,
             time_anchor=child_time_anchor,
+            registry_lock=self.registry_lock,
         )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
@@ -1150,6 +1157,7 @@ class DSLWorkflow:
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
+            registry_lock=self.registry_lock,
         )
 
         return await workflow.execute_local_activity(
@@ -1216,11 +1224,15 @@ class DSLWorkflow:
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             session_id=session_id,
+            registry_lock=self.registry_lock,
         )
 
+        # Dispatch to ExecutorWorker on shared-action-queue
+        # Using string activity name since it's registered on a different worker
         return await workflow.execute_activity(
-            DSLActivities.run_action_activity,
+            "execute_action_activity",
             args=(arg, self.role),
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
             ),
@@ -1312,7 +1324,8 @@ class DSLWorkflow:
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
 
-        dsl = await self._get_workflow_definition(handler_wf_id)
+        result = await self._get_workflow_definition(handler_wf_id)
+        dsl = result.dsl
 
         self.logger.debug(
             "Got workflow definition for error handler",
@@ -1362,6 +1375,7 @@ class DSLWorkflow:
             ),
             runtime_config=runtime_config,
             execution_type=self.execution_type,
+            registry_lock=self.registry_lock,
         )
 
     async def _run_error_handler_workflow(

@@ -131,6 +131,16 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
         return WorkflowUUID.new(v)
 
 
+class WorkflowDefinitionActivityResult(BaseModel):
+    """Result from get_workflow_definition_activity.
+
+    Contains both the DSL and the registry lock for this workflow definition.
+    """
+
+    dsl: DSLInput
+    registry_lock: dict[str, str] | None = None
+
+
 class ResolveWorkflowAliasActivityInputs(BaseModel):
     workflow_alias: str
     role: Role

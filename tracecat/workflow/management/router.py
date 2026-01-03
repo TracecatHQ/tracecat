@@ -31,6 +31,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import (
@@ -444,12 +445,28 @@ async def commit_workflow(
     # Validation is complete. We can now construct the workflow definition
     # Phase 1: Create workflow definition
     # Workflow definition uses action.refs to refer to actions
-    # We should only instantiate action refs at workflow    runtime
+    # We should only instantiate action refs at workflow runtime
     service = WorkflowDefinitionsService(session, role=role)
+
+    # Get the workflow's current registry_lock
+    # If no lock exists (e.g., legacy workflow), compute one from latest versions
+    registry_lock = workflow.registry_lock
+    if registry_lock is None:
+        lock_service = RegistryLockService(session, role)
+        registry_lock = await lock_service.get_latest_versions_lock()
+        # Also update the workflow with the computed lock
+        if registry_lock:
+            workflow.registry_lock = registry_lock
+
     # Creating a workflow definition only uses refs
     # Copy the alias from the draft workflow to the committed definition
+    # Pass the registry_lock to freeze it with this definition
     defn = await service.create_workflow_definition(
-        workflow_id, dsl, alias=workflow.alias, commit=False
+        workflow_id,
+        dsl,
+        alias=workflow.alias,
+        registry_lock=registry_lock,
+        commit=False,
     )
 
     # Update Workflow

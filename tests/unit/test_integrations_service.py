@@ -138,8 +138,8 @@ def mock_token_response() -> TokenResponse:
 @pytest.fixture
 def mock_provider(monkeypatch: pytest.MonkeyPatch) -> MockOAuthProvider:
     """Create a mock OAuth provider instance."""
-    # Set required environment variable
-    monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+    # Patch the config value directly (env var won't work since config is already loaded)
+    monkeypatch.setattr("tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost")
     return MockOAuthProvider(
         client_id="mock_client_id", client_secret="mock_client_secret"
     )
@@ -150,7 +150,8 @@ def mock_pkce_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> MockOAuthProviderWithPKCE:
     """Create a mock OAuth provider instance with PKCE enabled."""
-    monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+    # Patch the config value directly (env var won't work since config is already loaded)
+    monkeypatch.setattr("tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost")
     return MockOAuthProviderWithPKCE(
         client_id="mock_client_id", client_secret="mock_client_secret"
     )
@@ -159,8 +160,8 @@ def mock_pkce_provider(
 @pytest.fixture
 def mock_cc_provider(monkeypatch: pytest.MonkeyPatch) -> MockCCOAuthProvider:
     """Create a mock client credentials OAuth provider instance."""
-    # Set required environment variable
-    monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+    # Patch the config value directly (env var won't work since config is already loaded)
+    monkeypatch.setattr("tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost")
     return MockCCOAuthProvider(
         client_id="mock_cc_client_id", client_secret="mock_cc_client_secret"
     )
@@ -1607,7 +1608,9 @@ class TestBaseOAuthProvider:
 
     async def test_from_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test creating provider from configuration."""
-        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
 
         config = ProviderConfig(
             client_id="config_client_id",
@@ -1630,7 +1633,9 @@ class TestBaseOAuthProvider:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that empty scope array is respected (not using defaults)."""
-        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
         provider = MockOAuthProvider(
             client_id="test_id", client_secret="test_secret", scopes=[]
         )
@@ -1640,7 +1645,9 @@ class TestBaseOAuthProvider:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that provided scopes override defaults completely."""
-        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
         provider = MockOAuthProvider(
             client_id="test_id",
             client_secret="test_secret",
@@ -1652,7 +1659,9 @@ class TestBaseOAuthProvider:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that None scopes fall back to defaults."""
-        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
         provider = MockOAuthProvider(
             client_id="test_id", client_secret="test_secret", scopes=None
         )
@@ -1662,7 +1671,9 @@ class TestBaseOAuthProvider:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that scope overrides are isolated between provider instances."""
-        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
 
         # Create first provider with custom scopes
         provider1 = MockOAuthProvider(

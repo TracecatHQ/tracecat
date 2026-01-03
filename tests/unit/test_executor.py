@@ -14,10 +14,10 @@ from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.service import (
+    DispatchActionContext,
     _dispatch_action,
     flatten_wrapped_exc_error_group,
     run_action_from_input,
-    sync_executor_entrypoint,
 )
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
@@ -481,22 +481,30 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
     )
 
 
-async def mock_action(input: Any, **kwargs):
+async def mock_action(input: Any, role: Any = None):
     """Mock action that simulates some async work"""
+    del role  # unused
     await asyncio.sleep(0.1)
     return input
 
 
 @pytest.mark.integration
-def test_sync_executor_entrypoint(
+@pytest.mark.anyio
+async def test_direct_backend_execute(
     test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
 ):
-    """Test that the sync executor entrypoint properly handles async operations."""
+    """Test that the direct backend properly handles async operations."""
+    from tracecat.executor.backends.direct import DirectBackend
+    from tracecat.executor.schemas import ExecutorResultSuccess
 
     # Mock the run_action_from_input function
-    monkeypatch.setattr("tracecat.executor.service.run_action_from_input", mock_action)
+    monkeypatch.setattr(
+        "tracecat.executor.backends.direct.run_action_from_input", mock_action
+    )
 
-    # Run the entrypoint
+    backend = DirectBackend()
+
+    # Run the backend execute
     for i in range(10):
         input = RunActionInput(
             task=ActionStatement(
@@ -509,8 +517,10 @@ def test_sync_executor_entrypoint(
             exec_context=create_default_execution_context(),
             run_context=mock_run_context,
         )
-        result = sync_executor_entrypoint(input, test_role)
-        assert result == input.model_dump(mode="json")
+        result = await backend.execute(input, test_role)
+        assert isinstance(result, ExecutorResultSuccess)
+        # The mock returns the input directly
+        assert result.result == input
 
 
 async def mock_error(*args, **kwargs):
@@ -519,12 +529,20 @@ async def mock_error(*args, **kwargs):
 
 
 @pytest.mark.integration
-def test_sync_executor_entrypoint_returns_wrapped_error(
+@pytest.mark.anyio
+async def test_direct_backend_returns_wrapped_error(
     test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
 ):
-    """Test that the sync executor entrypoint properly handles wrapped errors."""
+    """Test that the direct backend properly handles wrapped errors."""
+    from tracecat.executor.backends.direct import DirectBackend
+    from tracecat.executor.schemas import ExecutorResultFailure
+
     # Create a test input with an action that will raise an error
-    monkeypatch.setattr("tracecat.executor.service.run_action_from_input", mock_error)
+    monkeypatch.setattr(
+        "tracecat.executor.backends.direct.run_action_from_input", mock_error
+    )
+
+    backend = DirectBackend()
 
     input = RunActionInput(
         task=ActionStatement(
@@ -538,14 +556,15 @@ def test_sync_executor_entrypoint_returns_wrapped_error(
         run_context=mock_run_context,
     )
 
-    # Run the entrypoint and verify it returns a RegistryActionErrorInfo
-    result = sync_executor_entrypoint(input, test_role)
-    assert isinstance(result, ExecutorActionErrorInfo)
-    assert result.type == "ValueError"
-    assert result.message == "__EXPECTED_MESSAGE__"
-    assert result.action_name == "test.error_action"
-    assert result.filename == __file__
-    assert result.function == "mock_error"
+    # Run the backend execute and verify it returns a failure result
+    result = await backend.execute(input, test_role)
+    assert isinstance(result, ExecutorResultFailure)
+    error_info = result.error
+    assert error_info.type == "ValueError"
+    assert error_info.message == "__EXPECTED_MESSAGE__"
+    assert error_info.action_name == "test.error_action"
+    assert error_info.filename == __file__
+    assert error_info.function == "mock_error"
 
 
 @pytest.mark.anyio
@@ -562,12 +581,12 @@ async def test_dispatcher(
     1. Add mock package with a function that will raise an error
     """
 
-    # Mock out run_action_on_ray_cluster
+    # Mock out run_action_on_cluster
     async def mocked_executor_entrypoint(
-        input: RunActionInput, role: Role, *args, **kwargs
+        input: RunActionInput, ctx: DispatchActionContext, *args, **kwargs
     ):
         try:
-            return await run_action_from_input(input=input, role=role)
+            return await run_action_from_input(input=input, role=ctx.role)
         except Exception as e:
             # Raise the error proxy here
             logger.error(
@@ -584,7 +603,7 @@ async def test_dispatcher(
             raise ExecutionError(info=exec_result) from None
 
     monkeypatch.setattr(
-        "tracecat.executor.service.run_action_on_ray_cluster",
+        "tracecat.executor.service.run_action_on_cluster",
         mocked_executor_entrypoint,
     )
     session, db_repo_id = db_session_with_repo
@@ -617,7 +636,8 @@ async def test_dispatcher(
 
     # Act
 
-    result = await _dispatch_action(input, test_role)
+    dispatch_context = DispatchActionContext(role=test_role)
+    result = await _dispatch_action(input, dispatch_context)
 
     # This should run correctly
     assert result == [101, 102, 103, 104, 105]
@@ -639,7 +659,7 @@ async def test_dispatcher(
 
     # Act
     with pytest.raises(LoopExecutionError) as e:
-        result = await _dispatch_action(input, test_role)
+        result = await _dispatch_action(input, dispatch_context)
     assert len(e.value.loop_errors) == 1
     assert e.value.loop_errors[0].info.loop_iteration == 2
     assert e.value.loop_errors[0].info.loop_vars == {"x": None}
@@ -660,7 +680,7 @@ async def test_dispatcher(
 
     # Act
     with pytest.raises(LoopExecutionError) as e:
-        result = await _dispatch_action(input, test_role)
+        result = await _dispatch_action(input, dispatch_context)
     assert len(e.value.loop_errors) == 1
     assert e.value.loop_errors[0].info.loop_iteration == 1
     assert e.value.loop_errors[0].info.loop_vars == {"x": None}

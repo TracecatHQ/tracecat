@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
@@ -9,6 +10,9 @@ from sqlalchemy import Boolean, cast, func, or_, select
 from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat import config
+
+if TYPE_CHECKING:
+    from tracecat.ssh import SshEnv
 from tracecat.db.models import RegistryAction, RegistryRepository
 from tracecat.exceptions import (
     RegistryActionValidationError,
@@ -316,6 +320,7 @@ class RegistryActionsService(BaseService):
         target_version: str | None = None,
         target_commit_sha: str | None = None,
         allow_delete_all: bool = False,
+        ssh_env: SshEnv | None = None,
     ) -> tuple[str | None, str | None]:
         """Sync actions from a repository using the v2 versioned flow.
 
@@ -331,6 +336,7 @@ class RegistryActionsService(BaseService):
             target_version: Version string (auto-generated if not provided).
             target_commit_sha: Optional commit SHA to sync to.
             allow_delete_all: If True, allow deleting all actions if list is empty.
+            ssh_env: SSH environment for git operations (required for git+ssh repos).
 
         Returns:
             Tuple of (commit_sha, version_string)
@@ -351,6 +357,7 @@ class RegistryActionsService(BaseService):
                     db_repo=db_repo,
                     target_version=target_version,
                     target_commit_sha=target_commit_sha,
+                    ssh_env=ssh_env,
                     commit=False,
                 )
                 # Also update the mutable RegistryAction table for backward compatibility
@@ -367,6 +374,7 @@ class RegistryActionsService(BaseService):
                     db_repo=db_repo,
                     target_version=target_version,
                     target_commit_sha=target_commit_sha,
+                    ssh_env=ssh_env,
                     commit=False,
                 )
                 # Also update the mutable RegistryAction table for backward compatibility

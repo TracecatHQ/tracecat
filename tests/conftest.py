@@ -1,7 +1,6 @@
 import asyncio
 import importlib
 import os
-import subprocess
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
@@ -31,6 +30,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.executor.backends import ExecutorBackend
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -49,24 +49,25 @@ else:
     # Extract number from "gwN" format
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
-# MinIO test configuration - worker-specific
-MINIO_BASE_PORT = 9002
-MINIO_CONSOLE_BASE_PORT = 9003
-MINIO_PORT = MINIO_BASE_PORT + (WORKER_OFFSET * 2)  # Each worker gets 2 ports
-MINIO_CONSOLE_PORT = MINIO_CONSOLE_BASE_PORT + (WORKER_OFFSET * 2)
-MINIO_ENDPOINT = f"localhost:{MINIO_PORT}"
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
-MINIO_CONTAINER_NAME = f"test-minio-{WORKER_ID}"
+# MinIO test configuration - uses docker-compose service on port 9000
+# Credentials match .env.example (MINIO_ROOT_USER/MINIO_ROOT_PASSWORD)
+MINIO_PORT = 9000
+MINIO_ACCESS_KEY = "minio"
+MINIO_SECRET_KEY = "password"
 
 # ---------------------------------------------------------------------------
-# Redis test configuration - worker-specific
+# Redis test configuration
 # ---------------------------------------------------------------------------
 
-REDIS_BASE_PORT = 6380
-REDIS_PORT = str(REDIS_BASE_PORT + WORKER_OFFSET)
-REDIS_CONTAINER_NAME = f"test-redis-{WORKER_ID}"
-DOCKER_RUN_TIMEOUT_SECONDS = int(os.getenv("TRACECAT_TEST_DOCKER_RUN_TIMEOUT", "60"))
+# Redis runs on standard port via docker-compose
+# REDIS_HOST is configurable for running tests inside containers (e.g., executor)
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = 6379
+
+# Worker-specific Redis database number for pytest-xdist isolation
+# Each xdist worker uses a different database (0-15) to avoid conflicts
+# when multiple workers run tests in parallel
+REDIS_DB = WORKER_OFFSET % 16
 
 
 # ---------------------------------------------------------------------------
@@ -76,95 +77,51 @@ DOCKER_RUN_TIMEOUT_SECONDS = int(os.getenv("TRACECAT_TEST_DOCKER_RUN_TIMEOUT", "
 
 @pytest.fixture(scope="session")
 def redis_server():
-    """Start Redis server in Docker for the test session."""
+    """Verify Redis is available via docker-compose.
 
+    Redis should be started externally via:
+    - CI: docker-compose in workflow
+    - Local: `just dev` or `docker-compose up`
+
+    Each pytest-xdist worker uses a different Redis database number
+    to ensure test isolation during parallel execution.
+    """
     import redis as redis_sync
 
-    # Stop any existing container with the same name
-    subprocess.run(
-        [
-            "docker",
-            "stop",
-            REDIS_CONTAINER_NAME,
-        ],
-        check=False,
-        capture_output=True,
-    )
-    subprocess.run(
-        [
-            "docker",
-            "rm",
-            REDIS_CONTAINER_NAME,
-        ],
-        check=False,
-        capture_output=True,
-    )
-
-    # Launch Redis container
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            REDIS_CONTAINER_NAME,
-            "-p",
-            f"{REDIS_PORT}:6379",
-            "redis:7-alpine",
-        ],
-        check=True,
-        capture_output=True,
-        timeout=DOCKER_RUN_TIMEOUT_SECONDS,
-    )
-
-    # Wait until Redis is ready
-    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
     for _ in range(30):
         try:
             if client.ping():
-                break
+                logger.info(
+                    f"Redis available at {REDIS_HOST}:{REDIS_PORT}, db={REDIS_DB} "
+                    f"(worker={WORKER_ID})"
+                )
+                # Include database number in REDIS_URL for worker isolation
+                os.environ["REDIS_URL"] = (
+                    f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+                )
+                yield
+                return
         except Exception:
             time.sleep(1)
-    else:
-        raise RuntimeError("Redis server failed to start in time")
 
-    # Ensure library code picks up the correct URL
-    os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}"
-
-    try:
-        yield
-    finally:
-        subprocess.run(
-            [
-                "docker",
-                "stop",
-                REDIS_CONTAINER_NAME,
-            ],
-            check=False,
-            capture_output=True,
-        )
-        subprocess.run(
-            [
-                "docker",
-                "rm",
-                REDIS_CONTAINER_NAME,
-            ],
-            check=False,
-            capture_output=True,
-        )
+    pytest.fail(
+        f"Redis not available at {REDIS_HOST}:{REDIS_PORT}. "
+        "Start it with: docker-compose -f docker-compose.dev.yml up -d redis"
+    )
 
 
 @pytest.fixture(autouse=True, scope="function")
 def clean_redis_db(redis_server):
-    """Flush Redis before every test function to guarantee isolation."""
+    """Flush Redis before every test function to guarantee isolation.
 
+    Uses worker-specific database to avoid affecting other xdist workers.
+    """
     import redis as redis_sync
 
-    # Use sync redis client to avoid event loop issues
-    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
     client.flushdb()
     yield
-    # Optionally flush again after test
     client.flushdb()
 
 
@@ -283,19 +240,28 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
     load_dotenv()
     logger.info("Setting up environment variables")
-    # Ensure executor URL points to the host-exposed port before config is used.
-    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
+
+    # Detect if running inside Docker container by checking for /.dockerenv file
+    # This is more reliable than checking env vars like REDIS_HOST, which may be
+    # loaded from .env by load_dotenv() even when running on the host
+    in_docker = os.path.exists("/.dockerenv")
+    db_host = "postgres_db" if in_docker else "localhost"
+    temporal_host = "temporal" if in_docker else "localhost"
+    api_host = "api" if in_docker else "localhost"
+    blob_storage_host = "minio" if in_docker else "localhost"
+
+    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:5432/postgres"
+    monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
-        config,
-        "TRACECAT__DB_URI",
-        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
+        config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233"
     )
-    monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
+    blob_storage_endpoint = f"http://{blob_storage_host}:{MINIO_PORT}"
+    monkeysession.setattr(
+        config, "TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint
+    )
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
-    # Need this for local unit tests
-    monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
         logger.info("Enabling compression for workflow context")
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
@@ -313,24 +279,26 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
     )
 
-    monkeysession.setenv(
-        "TRACECAT__DB_URI",
-        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
-    )
+    monkeysession.setenv("TRACECAT__DB_URI", db_uri)
+    monkeysession.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint)
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
-    # Point API URL to host-exposed port for host-side tests.
-    monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost:8000")
-    monkeysession.setenv("TRACECAT__API_URL", "http://localhost:8000")
-    # Needed for local unit tests
-    monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://localhost:8001")
-    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
+    # Point API URL to appropriate host
+    api_url = f"http://{api_host}:8000"
+    executor_url = f"http://{'executor' if in_docker else 'localhost'}:8001"
+    monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__EXECUTOR_URL", executor_url)
+    # Use DirectBackend for in-process executor (no sandbox overhead) unless overridden
+    if not in_docker:
+        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
-    # When launching the worker directly in a test, use localhost
-    # If the worker is running inside a container, use host.docker.internal
-    monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
-    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-tracecat-task-queue")
+    monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
+    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
+    monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
 
     yield
     logger.info("Environment variables cleaned up")
@@ -539,94 +507,39 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
 # MinIO and S3 testing fixtures
 @pytest.fixture(scope="session")
 def minio_server():
-    """Start MinIO server in Docker for the test session."""
-    # First, clean up any existing container
-    try:
-        subprocess.run(
-            ["docker", "stop", MINIO_CONTAINER_NAME], check=False, capture_output=True
-        )
-        subprocess.run(
-            ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
-        )
-    except subprocess.CalledProcessError:
-        pass
+    """Verify MinIO is available via docker-compose.
 
-    # Start MinIO container with correct environment variables
-    try:
-        subprocess.run(
-            [
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                MINIO_CONTAINER_NAME,
-                "-p",
-                f"{MINIO_PORT}:9000",
-                "-p",
-                f"{MINIO_CONSOLE_PORT}:9001",
-                "-e",
-                f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
-                "-e",
-                f"MINIO_ROOT_PASSWORD={MINIO_SECRET_KEY}",
-                "minio/minio:latest",
-                "server",
-                "/data",
-                "--console-address",
-                ":9001",
-            ],
-            check=True,
-            capture_output=True,
-            # Add timeout
-            timeout=DOCKER_RUN_TIMEOUT_SECONDS,
-        )
-
-        # Wait for MinIO to be ready
-        max_retries = 30
-        for i in range(max_retries):
-            try:
-                client = Minio(
-                    MINIO_ENDPOINT,
-                    access_key=MINIO_ACCESS_KEY,
-                    secret_key=MINIO_SECRET_KEY,
-                    secure=False,
-                )
-                # Try to list buckets to check if MinIO is ready
-                list(client.list_buckets())
-                logger.info(f"MinIO server started in container {MINIO_CONTAINER_NAME}")
-                break
-            except Exception as e:
-                if i == max_retries - 1:
-                    logger.error(
-                        f"MinIO failed to start after {max_retries} retries: {e}"
-                    )
-                    raise RuntimeError(
-                        "MinIO server failed to start within timeout"
-                    ) from e
-                time.sleep(1)
-
-        yield
-
-    finally:
-        # Cleanup: stop and remove container
+    MinIO should be started externally via:
+    - CI: docker-compose in workflow
+    - Local: `just dev` or `docker-compose up`
+    """
+    endpoint = f"localhost:{MINIO_PORT}"
+    for _ in range(30):
         try:
-            subprocess.run(
-                ["docker", "stop", MINIO_CONTAINER_NAME],
-                check=False,
-                capture_output=True,
+            client = Minio(
+                endpoint,
+                access_key=MINIO_ACCESS_KEY,
+                secret_key=MINIO_SECRET_KEY,
+                secure=False,
             )
-            subprocess.run(
-                ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
-            )
-            logger.info(f"MinIO container {MINIO_CONTAINER_NAME} cleaned up")
-        except subprocess.CalledProcessError:
-            pass
+            list(client.list_buckets())
+            logger.info(f"MinIO available on port {MINIO_PORT}")
+            yield
+            return
+        except Exception:
+            time.sleep(1)
+
+    pytest.fail(
+        f"MinIO not available on port {MINIO_PORT}. "
+        "Start it with: docker-compose -f docker-compose.dev.yml up -d minio"
+    )
 
 
 @pytest.fixture
 async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
     """Create MinIO client for testing."""
     client = Minio(
-        MINIO_ENDPOINT,
+        f"localhost:{MINIO_PORT}",
         access_key=MINIO_ACCESS_KEY,
         secret_key=MINIO_SECRET_KEY,
         secure=False,
@@ -686,7 +599,7 @@ async def aioboto3_minio_client(monkeypatch):
 
     def mock_client(self, service_name, **kwargs):
         if service_name == "s3":
-            kwargs["endpoint_url"] = f"http://{MINIO_ENDPOINT}"
+            kwargs["endpoint_url"] = f"http://localhost:{MINIO_PORT}"
         return original_client(self, service_name, **kwargs)
 
     # Apply mocks using monkeypatch
@@ -700,6 +613,19 @@ async def aioboto3_minio_client(monkeypatch):
 def threadpool() -> Iterator[ThreadPoolExecutor]:
     with ThreadPoolExecutor(max_workers=4) as executor:
         yield executor
+
+
+@pytest.fixture(scope="function")
+async def executor_backend() -> AsyncGenerator[ExecutorBackend, None]:
+    """Initialize executor backend once per test function."""
+    from tracecat.executor.backends import (
+        initialize_executor_backend,
+        shutdown_executor_backend,
+    )
+
+    backend = await initialize_executor_backend()
+    yield backend
+    await shutdown_executor_backend()
 
 
 @pytest.fixture(scope="function")
@@ -723,6 +649,34 @@ async def test_worker_factory(
             activities=activities,
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
+            activity_executor=threadpool,
+        )
+
+    yield create_worker
+
+
+@pytest.fixture(scope="function")
+async def test_executor_worker_factory(
+    threadpool: ThreadPoolExecutor,
+    executor_backend: ExecutorBackend,
+) -> AsyncGenerator[Callable[..., Worker], Any]:
+    """Factory fixture to create executor workers with DirectBackend.
+
+    This worker listens on the shared-action-queue and handles execute_action_activity.
+    Uses DirectBackend for in-process execution without sandbox overhead.
+    """
+    from tracecat.executor.activities import ExecutorActivities
+
+    def create_worker(
+        client: Client,
+        *,
+        task_queue: str | None = None,
+    ) -> Worker:
+        """Create an executor worker for testing."""
+        return Worker(
+            client=client,
+            task_queue=task_queue or config.TRACECAT__EXECUTOR_QUEUE,
+            activities=ExecutorActivities.get_activities(),
             activity_executor=threadpool,
         )
 

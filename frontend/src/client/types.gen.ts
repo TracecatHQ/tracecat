@@ -1806,6 +1806,12 @@ export type DSLRunArgs = {
    * The workflow's logical time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers). Stored as UTC.
    */
   time_anchor?: string | null
+  /**
+   * Registry version lock for action execution. Maps action names to version hashes.
+   */
+  registry_lock?: {
+    [key: string]: string
+  } | null
 }
 
 /**
@@ -3661,6 +3667,9 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+  registry_lock?: {
+    [key: string]: string
+  } | null
 }
 
 /**

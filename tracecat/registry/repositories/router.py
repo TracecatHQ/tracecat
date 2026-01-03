@@ -105,12 +105,37 @@ async def sync_registry_repository(
     # Check if v2 sync is enabled via feature flag
     use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
 
+    # For git+ssh repos, we need SSH context for wheel building
+    is_git_ssh = repo.origin.startswith("git+ssh://")
+
     try:
         if use_v2_sync:
-            # V2 sync: creates RegistryVersion, builds wheel, populates RegistryIndex
-            commit_sha, version = await actions_service.sync_actions_from_repository_v2(
-                repo, target_commit_sha=target_commit_sha
-            )
+            if is_git_ssh:
+                # Get SSH context for git operations
+                allowed_domains_setting = await get_setting(
+                    "git_allowed_domains", role=role
+                )
+                allowed_domains = allowed_domains_setting or {"github.com"}
+                git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+
+                async with ssh_context(
+                    role=role, git_url=git_url, session=session
+                ) as ssh_env:
+                    # V2 sync with SSH env for wheel building
+                    (
+                        commit_sha,
+                        version,
+                    ) = await actions_service.sync_actions_from_repository_v2(
+                        repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
+                    )
+            else:
+                # V2 sync without SSH (built-in registry)
+                (
+                    commit_sha,
+                    version,
+                ) = await actions_service.sync_actions_from_repository_v2(
+                    repo, target_commit_sha=target_commit_sha
+                )
             logger.info(
                 "Synced repository (v2)",
                 origin=repo.origin,

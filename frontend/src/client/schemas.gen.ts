@@ -5826,6 +5826,22 @@ export const $DSLRunArgs = {
       description:
         "The workflow's logical time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers). Stored as UTC.",
     },
+    registry_lock: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Registry Lock",
+      description:
+        "Registry version lock for action execution. Maps action names to version hashes.",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -11263,6 +11279,20 @@ export const $RunActionInput = {
         },
       ],
       title: "Session Id",
+    },
+    registry_lock: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Registry Lock",
     },
   },
   type: "object",
