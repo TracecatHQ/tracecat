@@ -166,7 +166,8 @@ async def update_task(
         update_params["assignee_id"] = assignee_id
     if workflow_id is not None:
         update_params["workflow_id"] = workflow_id
-    update_params["default_trigger_values"] = default_trigger_values
+    if default_trigger_values is not None:
+        update_params["default_trigger_values"] = default_trigger_values
 
     return await get_context().cases.update_task(task_id=task_id, **update_params)
 
