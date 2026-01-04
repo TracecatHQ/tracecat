@@ -455,8 +455,31 @@ async def prepare_resolved_context(
     context[ExprContext.SECRETS] = secrets
     context[ExprContext.VARS] = workspace_variables
 
-    # Evaluate templated args
-    evaluated_args = evaluate_templated_args(task, context)
+    # Extract and set logical_time BEFORE evaluating args
+    # This ensures FN.now(), FN.utcnow(), FN.today() use the deterministic time
+    env_context = context.get(ExprContext.ENV) or {}
+    workflow_context = env_context.get("workflow") or {}
+    logical_time = workflow_context.get("logical_time")
+    logger.trace(
+        "Extracting logical_time from context",
+        task_ref=task.ref,
+        logical_time_raw=logical_time,
+    )
+    if logical_time is not None and isinstance(logical_time, str):
+        # logical_time may be serialized as ISO string through Temporal
+        logical_time = datetime.fromisoformat(logical_time)
+    token = ctx_logical_time.set(logical_time)
+    try:
+        logger.trace(
+            "ctx_logical_time set before template evaluation",
+            task_ref=task.ref,
+            logical_time=logical_time,
+        )
+
+        # Evaluate templated args (now with logical_time set for deterministic time functions)
+        evaluated_args = evaluate_templated_args(task, context)
+    finally:
+        ctx_logical_time.reset(token)
 
     # Generate executor token for SDK authentication
     executor_role = Role(
@@ -475,15 +498,6 @@ async def prepare_resolved_context(
 
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
-
-    # Extract logical_time for deterministic FN.now()
-    # logical_time = time_anchor + elapsed workflow time
-    env_context = context.get(ExprContext.ENV) or {}
-    workflow_context = env_context.get("workflow") or {}
-    logical_time = workflow_context.get("logical_time")
-    if logical_time is not None and isinstance(logical_time, str):
-        # logical_time may be serialized as ISO string through Temporal
-        logical_time = datetime.fromisoformat(logical_time)
 
     resolved_context = ResolvedContext(
         secrets=secrets,
