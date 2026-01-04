@@ -1,5 +1,4 @@
 import asyncio
-import traceback
 import uuid
 from pathlib import Path
 from typing import Any
@@ -15,11 +14,9 @@ from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
-    DispatchActionContext,
     dispatch_action,
     flatten_wrapped_exc_error_group,
 )
-from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
@@ -606,7 +603,6 @@ async def test_dispatcher(
     test_role,
     mock_run_context,
     db_session_with_repo,
-    monkeypatch: pytest.MonkeyPatch,
 ):
     """Try to replicate `Error in loop` error, where usually we fail validation inside the executor loop.
 
@@ -619,30 +615,6 @@ async def test_dispatcher(
     # Set up the role context for dispatch_action
     ctx_role.set(test_role)
 
-    # Mock invoke_once to use run_action_test directly
-    async def mocked_invoke_once(
-        backend, input: RunActionInput, ctx: DispatchActionContext, iteration=None
-    ):
-        try:
-            return await run_action_test(input=input, role=ctx.role)
-        except Exception as e:
-            # Raise the error proxy here
-            logger.error(
-                "Error running action, raising error proxy",
-                error=e,
-                type=type(e).__name__,
-                traceback=traceback.format_exc(),
-            )
-            exec_result = ExecutorActionErrorInfo.from_exc(e, input.task.action)
-            if iteration is not None:
-                exec_result.loop_iteration = iteration
-                exec_result.loop_vars = input.exec_context[ExprContext.LOCAL_VARS]
-            raise ExecutionError(info=exec_result) from None
-
-    monkeypatch.setattr(
-        "tracecat.executor.service.invoke_once",
-        mocked_invoke_once,
-    )
     session, db_repo_id = db_session_with_repo
     repo = Repository()
     repo._register_udfs_from_package(mock_package)
