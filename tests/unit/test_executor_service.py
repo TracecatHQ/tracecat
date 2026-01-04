@@ -1,4 +1,3 @@
-import uuid
 from contextlib import asynccontextmanager
 
 import pytest
@@ -9,80 +8,32 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import TracecatCredentialsError
-from tracecat.executor.service import run_action_from_input
-from tracecat.expressions.core import CollectedExprs
-from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 
 
 @pytest.mark.anyio
-async def test_run_action_from_input_secrets_handling(mocker, test_role):
-    """Test that run_action_from_input correctly handles secrets as sets without converting to lists."""
-    # Mock the registry action service
-    mock_reg_service = mocker.AsyncMock(spec=RegistryActionsService)
-    mock_reg_service.get_action.return_value = mocker.MagicMock()
-    mock_reg_service.get_bound.return_value = mocker.MagicMock()
-
-    # Create some registry secrets
-    registry_secrets = [
+async def test_get_action_secrets_passes_sets_to_auth_sandbox(mocker):
+    """Test that get_action_secrets correctly passes secrets as sets to AuthSandbox."""
+    # Create registry secrets with both required and optional
+    action_secrets: set[RegistrySecretType] = {
         RegistrySecret(name="required_secret1", keys=["REQ_KEY1"], optional=False),
         RegistrySecret(name="required_secret2", keys=["REQ_KEY2"], optional=False),
         RegistrySecret(name="optional_secret1", keys=["OPT_KEY1"], optional=True),
         RegistrySecret(name="optional_secret2", keys=["OPT_KEY2"], optional=True),
-    ]
-    mock_reg_service.fetch_all_action_secrets.return_value = registry_secrets
-
-    # Mock the with_session context manager
-    mocker.patch(
-        "tracecat.registry.actions.service.RegistryActionsService.with_session",
-        return_value=mocker.AsyncMock(
-            __aenter__=mocker.AsyncMock(return_value=mock_reg_service)
-        ),
-    )
-
-    # Mock the task args with templated secrets
-    task_args = {
-        "param1": "{{ secrets.args_secret1 }}",
-        "param2": {"nested": "{{ secrets.args_secret2 }}"},
     }
 
-    # Create a run action input
-    wf_id = WorkflowUUID.new_uuid4()
-    wf_exec_id = wf_id.short() + "/exec_test"
-    wf_run_id = uuid.uuid4()
-
-    task = ActionStatement(ref="test_task", action="test_action", args=task_args)
-    input = RunActionInput(
-        task=task,
-        exec_context={},
-        run_context=RunContext(
-            wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            wf_run_id=wf_run_id,
-            environment="test-env",
-        ),
-    )
-
-    # Mock collect_expressions to return args secrets
-    mock_collected = CollectedExprs(
-        secrets={"args_secret1", "args_secret2"},
-        variables=set(),
-    )
+    # Mock templated secrets from args
     mocker.patch(
-        "tracecat.executor.service.collect_expressions",
-        return_value=mock_collected,
+        "tracecat.expressions.eval.extract_templated_secrets",
+        return_value=["args_secret1", "args_secret2"],
     )
-
-    # Mock get_runtime_env
     mocker.patch(
         "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
     )
 
-    # Mock the AuthSandbox
+    # Mock AuthSandbox to capture call arguments
     mock_sandbox = mocker.MagicMock()
     mock_sandbox.secrets = {}
     mock_sandbox.__aenter__.return_value = mock_sandbox
@@ -91,22 +42,12 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
     auth_sandbox_mock = mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox")
     auth_sandbox_mock.return_value = mock_sandbox
 
-    # Mock run_single_action to avoid actually running the action
-    mocker.patch("tracecat.executor.service.run_single_action", return_value="result")
-
-    # Mock evaluate_templated_args
-    mocker.patch("tracecat.executor.service.evaluate_templated_args", return_value={})
-
-    # Mock env_sandbox
-    mocker.patch("tracecat.secrets.secrets_manager.env_sandbox")
-
-    # Mock flatten_secrets
-    mocker.patch("tracecat.secrets.secrets_manager.flatten_secrets", return_value={})
-
     # Run the function
-    await run_action_from_input(input, test_role)
+    await secrets_manager.get_action_secrets(
+        secret_exprs={"args_secret1", "args_secret2"}, action_secrets=action_secrets
+    )
 
-    # Check that AuthSandbox was called with sets, not lists
+    # Verify AuthSandbox was called with sets, not lists
     auth_sandbox_mock.assert_called_once()
     _call_args, call_kwargs = auth_sandbox_mock.call_args
 

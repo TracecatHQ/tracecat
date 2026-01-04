@@ -12,12 +12,13 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
     DispatchActionContext,
     dispatch_action,
     flatten_wrapped_exc_error_group,
-    run_action_from_input,
+    prepare_resolved_context,
 )
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
@@ -36,6 +37,16 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+
+
+async def run_action_test(input: RunActionInput, role: Role) -> Any:
+    """Test helper: execute action using production code path."""
+    prepared = await prepare_resolved_context(input, role)
+    backend = DirectBackend()
+    result = await backend.execute(input, role, prepared.resolved_context)
+    if result.type == "failure":
+        raise ExecutionError(result.error)
+    return result.result
 
 
 @pytest.fixture
@@ -137,7 +148,7 @@ async def test_executor_can_run_udf_with_secrets(
         )
 
         # Act
-        result = await run_action_from_input(input, test_role)
+        result = await run_action_test(input, test_role)
 
         # Assert
         assert result == "__SECRET_VALUE_UDF__"
@@ -241,7 +252,7 @@ async def test_executor_can_run_template_action_with_secret(
         )
 
         # Act
-        result = await run_action_from_input(input, test_role)
+        result = await run_action_test(input, test_role)
 
         # Assert
         assert result == "__SECRET_VALUE__"
@@ -344,7 +355,7 @@ async def test_executor_can_run_template_action_with_oauth(
     )
 
     # Act
-    result = await run_action_from_input(input, test_role)
+    result = await run_action_test(input, test_role)
 
     # Assert - the template returns the result from the reshape step
     # which contains oauth_token
@@ -423,7 +434,7 @@ async def test_executor_can_run_udf_with_oauth(
     )
 
     # Act
-    result = await run_action_from_input(input, test_role)
+    result = await run_action_test(input, test_role)
 
     # Assert - the UDF returns the OAuth token value
     assert result == oauth_token_value, (
@@ -473,7 +484,7 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
     )
 
     # Act
-    result = await run_action_from_input(input, test_role)
+    result = await run_action_test(input, test_role)
 
     # Assert - the UDF returns the OAuth token value
     assert result == oauth_token_value, (
@@ -606,12 +617,12 @@ async def test_dispatcher(
     # Set up the role context for dispatch_action
     ctx_role.set(test_role)
 
-    # Mock invoke_once to use run_action_from_input directly
+    # Mock invoke_once to use run_action_test directly
     async def mocked_invoke_once(
         backend, input: RunActionInput, ctx: DispatchActionContext, iteration=None
     ):
         try:
-            return await run_action_from_input(input=input, role=ctx.role)
+            return await run_action_test(input=input, role=ctx.role)
         except Exception as e:
             # Raise the error proxy here
             logger.error(

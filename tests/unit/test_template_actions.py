@@ -17,9 +17,14 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
-from tracecat.exceptions import RegistryValidationError, TracecatValidationError
+from tracecat.exceptions import (
+    ExecutionError,
+    RegistryValidationError,
+    TracecatValidationError,
+)
 from tracecat.executor import service
-from tracecat.executor.service import run_action_from_input
+from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.service import prepare_resolved_context
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.schemas import (
     ActionStep,
@@ -34,6 +39,16 @@ from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
+
+
+async def run_action_test(input: RunActionInput, role) -> Any:
+    """Test helper: execute action using production code path."""
+    prepared = await prepare_resolved_context(input, role)
+    backend = DirectBackend()
+    result = await backend.execute(input, role, prepared.resolved_context)
+    if result.type == "failure":
+        raise ExecutionError(result.error)
+    return result.result
 
 
 @pytest.fixture
@@ -320,7 +335,7 @@ async def test_template_action_fetches_nested_secrets(
             environment="default",
         ),
     )
-    result = await run_action_from_input(input=input, role=test_role)
+    result = await run_action_test(input=input, role=test_role)
     assert result == {
         "secret_step": "UDF_SECRET_VALUE",
         "nested_secret_step": "UDF_SECRET_VALUE",
@@ -781,7 +796,7 @@ async def test_template_action_with_vars_expressions(
             environment="default",
         ),
     )
-    result1 = await run_action_from_input(input=input1, role=test_role)
+    result1 = await run_action_test(input=input1, role=test_role)
     assert result1 == {
         "url": "https://api.example.com",  # From VARS.test.url
         "base_url": "https://example.com",  # From VARS.api_config.base_url
@@ -804,7 +819,7 @@ async def test_template_action_with_vars_expressions(
             environment="default",
         ),
     )
-    result2 = await run_action_from_input(input=input2, role=test_role)
+    result2 = await run_action_test(input=input2, role=test_role)
     assert result2 == {
         "url": "https://custom.example.com",  # From inputs.url (overrides VARS)
         "base_url": "https://example.com",  # From VARS.api_config.base_url
@@ -827,7 +842,7 @@ async def test_template_action_with_vars_expressions(
             environment="default",
         ),
     )
-    result3 = await run_action_from_input(input=input3, role=test_role)
+    result3 = await run_action_test(input=input3, role=test_role)
     assert result3 == {
         "url": "https://another.example.com",  # From inputs.url (overrides VARS)
         "base_url": "https://example.com",  # From VARS.api_config.base_url
@@ -920,7 +935,7 @@ async def test_template_action_with_multi_level_fallback_chain(
             environment="default",
         ),
     )
-    result1 = await run_action_from_input(input=input1, role=test_role)
+    result1 = await run_action_test(input=input1, role=test_role)
     assert result1 == "http://input-url.com", (
         "Should use inputs.url when provided (first in fallback chain)"
     )
@@ -940,7 +955,7 @@ async def test_template_action_with_multi_level_fallback_chain(
             environment="default",
         ),
     )
-    result2 = await run_action_from_input(input=input2, role=test_role)
+    result2 = await run_action_test(input=input2, role=test_role)
     assert result2 == "http://vars-url.com", (
         "Should use VARS.config.url when inputs.url not provided (second in fallback chain)"
     )
@@ -965,7 +980,7 @@ async def test_template_action_with_multi_level_fallback_chain(
             environment="default",
         ),
     )
-    result3 = await run_action_from_input(input=input3, role=test_role)
+    result3 = await run_action_test(input=input3, role=test_role)
     assert result3 == "http://default-url.com", (
         "Should use literal default when neither inputs.url nor VARS.config.url available (third in fallback chain)"
     )
