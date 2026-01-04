@@ -167,6 +167,21 @@ class CaseTaskRead(TypedDict):
     default_trigger_values: dict[str, Any] | None
 
 
+class CaseDurationMetric(TypedDict):
+    """OTEL-aligned Gauge metric for case durations."""
+
+    timestamp: datetime
+    metric_name: str
+    value: float
+    duration_name: str
+    duration_slug: str
+    case_priority: str
+    case_severity: str
+    case_status: str
+    case_id: str
+    case_short_id: str
+
+
 class TagRead(TypedDict):
     """Tag information."""
 

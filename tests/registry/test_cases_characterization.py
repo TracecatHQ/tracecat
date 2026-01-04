@@ -23,9 +23,6 @@ import sqlalchemy as sa
 from httpx import Response
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.cases.durations import get_case_metrics
-from tracecat_ee.cases.tasks import create_task, list_tasks
-from tracecat_ee.cases.types import CaseDurationMetric
 from tracecat_registry import types
 from tracecat_registry.context import RegistryContext, clear_context, set_context
 from tracecat_registry.core.cases import (
@@ -51,6 +48,8 @@ from tracecat_registry.core.cases import (
     upload_attachment,
     upload_attachment_from_url,
 )
+from tracecat_registry.core.ee.durations import get_case_metrics
+from tracecat_registry.core.ee.tasks import create_task, list_tasks
 from tracecat_registry.sdk.exceptions import (
     TracecatNotFoundError as SDKNotFoundError,
 )
@@ -1041,8 +1040,16 @@ class TestListCaseEvents:
 
 @pytest.mark.anyio
 class TestCaseTasks:
-    """Characterization tests for case task UDFs."""
+    """Characterization tests for case task UDFs.
 
+    NOTE: These tests are only run with registry_client_on because task UDFs are
+    SDK-only (no direct service fallback). They require the HTTP API mock to be
+    set up by the cases_ctx fixture.
+    """
+
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [True], ids=["registry_client_on"], indirect=True
+    )
     async def test_create_task_returns_task(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
@@ -1067,6 +1074,9 @@ class TestCaseTasks:
         assert result["status"] == "todo"
         assert str(result["case_id"]) == str(case["id"])
 
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [True], ids=["registry_client_on"], indirect=True
+    )
     async def test_list_tasks_returns_tasks(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
@@ -1101,14 +1111,21 @@ class TestCaseTasks:
 
 @pytest.mark.anyio
 class TestCaseDurationMetrics:
-    """Characterization tests for case duration metrics UDF."""
+    """Characterization tests for case duration metrics UDF.
 
+    NOTE: These tests are only run with registry_client_on because duration UDFs
+    are SDK-only (no direct service fallback). They require the HTTP API mock to
+    be set up by the cases_ctx fixture.
+    """
+
+    @pytest.mark.parametrize(
+        "registry_client_enabled", [True], ids=["registry_client_on"], indirect=True
+    )
     async def test_get_case_metrics_returns_metrics(
         self,
         db,
         session: AsyncSession,
         cases_ctx: Role,
-        registry_client_enabled: bool,
     ):
         """Get case metrics returns duration metrics for the case."""
         definition_payload = CaseDurationDefinitionCreate(
@@ -1122,16 +1139,11 @@ class TestCaseDurationMetrics:
             ),
         )
 
-        if registry_client_enabled:
-            definition_service = CaseDurationDefinitionService(
-                session=session, role=cases_ctx
-            )
-            await definition_service.create_definition(definition_payload)
-        else:
-            async with CaseDurationDefinitionService.with_session(
-                role=cases_ctx
-            ) as definition_service:
-                await definition_service.create_definition(definition_payload)
+        # Use the test session since we're always in registry_client_on mode
+        definition_service = CaseDurationDefinitionService(
+            session=session, role=cases_ctx
+        )
+        await definition_service.create_definition(definition_payload)
 
         case = await create_case(
             summary="Case with Duration Metrics",
@@ -1145,7 +1157,7 @@ class TestCaseDurationMetrics:
 
         result = await get_case_metrics(case_ids=[str(case["id"])])
 
-        TypeAdapter(list[CaseDurationMetric]).validate_python(result)
+        TypeAdapter(list[types.CaseDurationMetric]).validate_python(result)
         assert result
         assert result[0]["case_id"] == str(case["id"])
 
