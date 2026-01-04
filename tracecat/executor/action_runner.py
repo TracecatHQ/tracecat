@@ -1,12 +1,15 @@
-"""Action runner for subprocess-based execution.
+"""Action runner for subprocess-based execution (untrusted mode).
 
 This module provides the ActionRunner class that executes registry actions
 in isolated subprocesses with tarball venv caching.
 
+All execution is untrusted - DB credentials are never passed to subprocesses.
+Secrets and variables are pre-resolved on the host.
+
 Key features:
 - Tarball extraction: Downloads and extracts pre-built venv tarballs from S3
 - Caching: Reuses extracted tarballs by cache key for fast subsequent runs
-- Subprocess execution: Runs actions via subprocess_entrypoint.py
+- Subprocess execution: Runs actions via minimal_runner.py
 - nsjail sandboxing: Optional OS-level isolation with resource limits
 - Timeout handling: Kills subprocess on timeout
 """
@@ -22,7 +25,7 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx
@@ -34,19 +37,12 @@ from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import AccessLevel
 from tracecat.auth.types import Role as AuthRole
 from tracecat.executor.schemas import (
-    ActionImplementation,
     ExecutorActionErrorInfo,
     ResolvedContext,
-    get_trust_mode,
 )
-from tracecat.expressions.eval import collect_expressions
-from tracecat.feature_flags import is_feature_enabled
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
-from tracecat.secrets import secrets_manager
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -299,13 +295,16 @@ class ActionRunner:
         self,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         tarball_uri: str | None = None,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         force_sandbox: bool = False,
-        trust_mode: Literal["trusted", "untrusted"] | None = None,
     ) -> ExecutionResult:
-        """Execute an action in a subprocess.
+        """Execute an action in a subprocess (untrusted mode).
+
+        All execution is in untrusted mode - DB credentials are never passed
+        to subprocesses. Secrets and variables are pre-resolved on the host.
 
         Args:
             input: The RunActionInput containing task and context
@@ -314,15 +313,13 @@ class ActionRunner:
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
             force_sandbox: If True, always use nsjail sandbox regardless of config
-            trust_mode: Override trust mode ('trusted' or 'untrusted', default: 'untrusted').
-                If None, derives from executor backend type.
+            resolved_context: Pre-resolved context from service layer (optional,
+                will be resolved here if not provided)
 
         Returns:
             The action result, or ExecutorActionErrorInfo on error
         """
-
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
-        trust_mode = trust_mode or get_trust_mode()
 
         # Download and extract tarball venv
         if tarball_uri:
@@ -348,29 +345,18 @@ class ActionRunner:
             "Using sandbox execution",
             use_sandbox=use_sandbox,
             force_sandbox=force_sandbox,
-            trust_mode=trust_mode,
         )
 
-        # Pre-resolve context for subprocess execution modes
-        # Both sandbox and direct modes use subprocess_entrypoint which needs action_impl
-        # For untrusted mode, this also resolves secrets/variables since sandbox lacks DB access
-        resolved_context: ResolvedContext | None = None
         if use_sandbox:
-            # Sandbox mode: always pre-resolve for isolation
-            if trust_mode == "untrusted":
-                resolved_context = await self._prepare_resolved_context(input, role)
             return await self._execute_sandboxed(
                 input=input,
                 role=role,
                 registry_cache_dir=target_dir,
                 env_vars=env_vars,
                 timeout=timeout,
-                trust_mode=trust_mode,
                 resolved_context=resolved_context,
             )
         else:
-            # Direct subprocess mode: always need resolved_context for action_impl
-            resolved_context = await self._prepare_resolved_context(input, role)
             return await self._execute_direct(
                 input=input,
                 role=role,
@@ -380,110 +366,27 @@ class ActionRunner:
                 resolved_context=resolved_context,
             )
 
-    async def _prepare_resolved_context(
-        self,
-        input: RunActionInput,
-        role: Role,
-    ) -> ResolvedContext:
-        """Pre-resolve all context needed for untrusted mode execution.
-
-        In untrusted mode, the sandbox doesn't have DB access, so we
-        resolve everything here:
-        - Secrets and variables
-        - Action implementation metadata (module path, function name, or template definition)
-        - Evaluated args with all template expressions resolved
-        """
-        # Lazy import to avoid circular dependency with service.py
-        from tracecat.executor.service import (
-            evaluate_templated_args,
-            get_workspace_variables,
-        )
-        from tracecat.expressions.common import ExprContext
-        from tracecat.registry.actions.schemas import RegistryActionImplValidator
-
-        task = input.task
-        action_name = task.action
-
-        # Get action and its secrets configuration
-        async with RegistryActionsService.with_session() as service:
-            reg_action = await service.get_action(action_name)
-            action_secrets = await service.fetch_all_action_secrets(reg_action)
-
-        # Extract action implementation metadata for sandbox execution
-        impl = RegistryActionImplValidator.validate_python(reg_action.implementation)
-        if impl.type == "udf":
-            action_impl = ActionImplementation(
-                type="udf",
-                module=impl.module,
-                name=impl.name,
-            )
-        else:
-            # Template action - pass the full definition
-            action_impl = ActionImplementation(
-                type="template",
-                template_definition=impl.template_action.model_dump(mode="json")
-                if impl.template_action
-                else None,
-            )
-
-        # Collect expression references from task args
-        collected = collect_expressions(task.args)
-
-        # Resolve secrets
-        secrets = await secrets_manager.get_action_secrets(
-            secret_exprs=collected.secrets, action_secrets=action_secrets
-        )
-
-        # Resolve workspace variables
-        workspace_variables = await get_workspace_variables(
-            variable_exprs=collected.variables,
-            environment=input.run_context.environment,
-            role=role,
-        )
-
-        # Build execution context and evaluate template expressions in args
-        exec_context = input.exec_context.copy()
-        exec_context[ExprContext.SECRETS] = secrets
-        exec_context[ExprContext.VARS] = workspace_variables
-
-        # Evaluate templated args with resolved context
-        evaluated_args = dict(evaluate_templated_args(task, exec_context))
-
-        logger.debug(
-            "Pre-resolved context for untrusted mode",
-            action=action_name,
-            impl_type=impl.type,
-            num_secrets=len(secrets),
-            num_variables=len(workspace_variables),
-        )
-
-        return ResolvedContext(
-            secrets=secrets,
-            variables=workspace_variables,
-            action_impl=action_impl,
-            evaluated_args=evaluated_args,
-        )
-
     async def _execute_sandboxed(
         self,
         input: RunActionInput,
         role: Role,
         registry_cache_dir: Path,
+        resolved_context: ResolvedContext,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
-        trust_mode: Literal["trusted", "untrusted"] = "untrusted",
-        resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
-        """Execute an action in an nsjail sandbox.
+        """Execute an action in an nsjail sandbox (untrusted mode).
+
+        All sandbox execution is untrusted - DB credentials are never passed.
+        Secrets and variables must be pre-resolved and passed via resolved_context.
 
         Args:
             input: The RunActionInput containing task and context
             role: The Role for authorization
             registry_cache_dir: Directory containing extracted registry tarballs
+            resolved_context: Pre-resolved secrets, variables, and action impl
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
-            trust_mode: 'trusted' (pass DB creds) or 'untrusted' (SDK mode)
-            resolved_context: Pre-resolved secrets/variables for untrusted mode
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
@@ -491,83 +394,62 @@ class ActionRunner:
         job_dir = Path(tempfile.mkdtemp(prefix="tracecat_action_"))
 
         try:
-            # Build payload with optional resolved_context for untrusted mode
-            payload: dict[str, Any] = {"input": input, "role": role}
-            if resolved_context is not None:
-                payload["resolved_context"] = resolved_context
+            # Build payload with resolved_context
+            payload: dict[str, Any] = {
+                "input": input,
+                "role": role,
+                "resolved_context": resolved_context,
+            }
 
             # Write input JSON to job directory
             input_json = to_json(payload)
             input_path = job_dir / "input.json"
             input_path.write_bytes(input_json)
 
-            # For untrusted mode, copy minimal_runner.py to job directory
-            # This avoids needing to mount /app in the sandbox
-            if trust_mode == "untrusted":
-                from tracecat.executor import minimal_runner as minimal_runner_module
+            # Copy minimal_runner.py to job directory
+            from tracecat.executor import minimal_runner as minimal_runner_module
 
-                minimal_runner_src = Path(minimal_runner_module.__file__)
-                minimal_runner_dst = job_dir / "minimal_runner.py"
-                shutil.copy2(minimal_runner_src, minimal_runner_dst)
+            minimal_runner_src = Path(minimal_runner_module.__file__)
+            minimal_runner_dst = job_dir / "minimal_runner.py"
+            shutil.copy2(minimal_runner_src, minimal_runner_dst)
 
-            # Build environment variables for sandbox based on trust mode
+            # Build environment variables for sandbox (untrusted mode only)
+            # NOTE: DB credentials are intentionally NOT passed
             sandbox_env: dict[str, str] = {}
             if env_vars:
                 sandbox_env.update(env_vars)
 
-            # Set trust mode so subprocess_entrypoint knows how to run
-            sandbox_env["TRACECAT__EXECUTOR_TRUST_MODE"] = trust_mode
+            # SDK context for any registry SDK operations
+            sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
+            sandbox_env["TRACECAT__WORKSPACE_ID"] = (
+                str(role.workspace_id) if role.workspace_id else ""
+            )
+            sandbox_env["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
+            sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
+            sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
 
-            if trust_mode == "untrusted":
-                # Untrusted mode: Pass SDK context, NOT DB credentials
-                sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
-                sandbox_env["TRACECAT__WORKSPACE_ID"] = (
-                    str(role.workspace_id) if role.workspace_id else ""
-                )
-                sandbox_env["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
-                sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
-                sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
+            # Mint an executor token for SDK calls
+            executor_role = AuthRole(
+                type="service",
+                service_id="tracecat-executor",
+                access_level=AccessLevel.ADMIN,
+                workspace_id=role.workspace_id,
+                organization_id=role.organization_id,
+                user_id=role.user_id,
+            )
+            executor_token = mint_executor_token(
+                role=executor_role,
+                run_id=str(input.run_context.wf_run_id),
+                workflow_id=str(input.run_context.wf_id),
+            )
+            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
+            # Only forward sandbox-safe feature flags (not EE flags like case-tasks)
+            sandbox_env["TRACECAT__FEATURE_FLAGS"] = "registry-client"
 
-                # Mint an executor token for SDK calls
-                if is_feature_enabled(FeatureFlag.EXECUTOR_AUTH):
-                    executor_role = AuthRole(
-                        type="service",
-                        service_id="tracecat-executor",
-                        access_level=AccessLevel.ADMIN,
-                        workspace_id=role.workspace_id,
-                        organization_id=role.organization_id,
-                        user_id=role.user_id,
-                    )
-                    executor_token = mint_executor_token(
-                        role=executor_role,
-                        run_id=str(input.run_context.wf_run_id),
-                        workflow_id=str(input.run_context.wf_id),
-                    )
-                    sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
-
-                logger.debug(
-                    "Using untrusted mode - no DB credentials passed to sandbox",
-                    action=input.task.action,
-                )
-            else:
-                # Trusted mode: Pass DB credentials for direct access
-                for var in [
-                    "TRACECAT__DB_URI",
-                    "TRACECAT__DB_USER",
-                    "TRACECAT__DB_PASS",
-                    "TRACECAT__DB_ENDPOINT",
-                    "TRACECAT__DB_PORT",
-                    "TRACECAT__DB_NAME",
-                    "TRACECAT__DB_SSLMODE",
-                    "TRACECAT__DB_ENCRYPTION_KEY",
-                    "TRACECAT__BLOB_STORAGE_PROTOCOL",
-                    "TRACECAT__BLOB_STORAGE_ENDPOINT",
-                    "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY",
-                    "MINIO_ROOT_USER",
-                    "MINIO_ROOT_PASSWORD",
-                ]:
-                    if var in os.environ:
-                        sandbox_env[var] = os.environ[var]
+            logger.debug(
+                "Using untrusted mode - no DB credentials passed to sandbox",
+                action=input.task.action,
+            )
 
             # Configure sandbox
             sandbox_config = ActionSandboxConfig(
@@ -580,7 +462,6 @@ class ActionRunner:
                     timeout_seconds=int(timeout),
                 ),
                 timeout_seconds=timeout,
-                trust_mode=trust_mode,
             )
 
             logger.debug(
@@ -661,6 +542,11 @@ class ActionRunner:
         else:
             env["PYTHONPATH"] = str(registry_cache_dir)
 
+        # Get path to minimal_runner.py for subprocess execution
+        from tracecat.executor import minimal_runner as minimal_runner_module
+
+        minimal_runner_path = Path(minimal_runner_module.__file__)
+
         logger.debug(
             "Executing action in subprocess",
             action=input.task.action,
@@ -670,8 +556,7 @@ class ActionRunner:
         start_time = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
-            "-m",
-            "tracecat.executor.subprocess_entrypoint",
+            str(minimal_runner_path),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

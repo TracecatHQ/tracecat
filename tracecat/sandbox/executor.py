@@ -23,16 +23,18 @@ from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
 @dataclass
 class ActionSandboxConfig:
-    """Configuration for action sandbox execution.
+    """Configuration for action sandbox execution (untrusted mode only).
+
+    All sandbox execution is untrusted - DB credentials are never passed.
+    Secrets and variables must be pre-resolved before sandbox execution.
 
     Attributes:
         registry_cache_dir: Directory containing extracted registry tarballs (mounted at /packages).
-        tracecat_app_dir: Directory containing tracecat package (mounted at /app).
-        site_packages_dir: Directory containing Python site-packages with dependencies (mounted at /site-packages).
-        env_vars: Environment variables to inject (DB creds, S3 config, secrets).
+        tracecat_app_dir: Directory containing tracecat package (not mounted in untrusted mode).
+        site_packages_dir: Directory containing Python site-packages (not mounted in untrusted mode).
+        env_vars: Environment variables to inject (SDK context, NOT DB credentials).
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
-        trust_mode: 'trusted' (full runner with DB access) or 'untrusted' (minimal runner, no DB).
     """
 
     registry_cache_dir: Path
@@ -41,7 +43,6 @@ class ActionSandboxConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
-    trust_mode: Literal["trusted", "untrusted"] = "untrusted"
 
 
 # Valid environment variable name pattern (POSIX compliant)
@@ -642,22 +643,8 @@ class NsjailExecutor:
                 f'mount {{ src: "{config.registry_cache_dir}" dst: "/packages" is_bind: true rw: false }}'
             )
 
-        # Mount tracecat app directory - only needed for trusted mode
+        # NOTE: /app and /site-packages are NOT mounted in untrusted mode
         # Untrusted mode uses minimal_runner.py copied to /work, no tracecat imports
-        if config.trust_mode != "untrusted" and config.tracecat_app_dir.exists():
-            lines.append(
-                f'mount {{ src: "{config.tracecat_app_dir}" dst: "/app" is_bind: true rw: false }}'
-            )
-
-        # Mount site-packages directory for Python dependencies - only for trusted mode
-        if (
-            config.trust_mode != "untrusted"
-            and config.site_packages_dir
-            and config.site_packages_dir.exists()
-        ):
-            lines.append(
-                f'mount {{ src: "{config.site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}'
-            )
 
         # Resource limits
         lines.extend(
@@ -673,30 +660,16 @@ class NsjailExecutor:
             ]
         )
 
-        # Execution settings - choose entrypoint based on trust mode
-        # - untrusted: minimal_runner.py copied to /work (no /app mount needed)
-        # - trusted: subprocess_entrypoint (full tracecat with DB access)
-        if config.trust_mode == "untrusted":
-            # Run standalone script - doesn't need tracecat package
-            lines.extend(
-                [
-                    "",
-                    "# Execution",
-                    'cwd: "/work"',
-                    'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
-                ]
-            )
-        elif config.trust_mode == "trusted":
-            lines.extend(
-                [
-                    "",
-                    "# Execution",
-                    'cwd: "/work"',
-                    'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.executor.subprocess_entrypoint" }',
-                ]
-            )
-        else:
-            raise SandboxValidationError(f"Invalid trust_mode: {config.trust_mode!r}")
+        # Execution settings - always use minimal_runner.py (untrusted mode)
+        # minimal_runner.py is copied to /work and doesn't need tracecat imports
+        lines.extend(
+            [
+                "",
+                "# Execution",
+                'cwd: "/work"',
+                'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runner.py" }',
+            ]
+        )
 
         return "\n".join(lines)
 
@@ -704,32 +677,19 @@ class NsjailExecutor:
         self,
         config: ActionSandboxConfig,
     ) -> dict[str, str]:
-        """Construct environment for action sandbox execution."""
+        """Construct environment for action sandbox execution (untrusted mode)."""
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
-        # Set PYTHONPATH based on trust mode
-        # - untrusted: only /packages (tarball with tracecat_registry)
-        # - trusted: /packages, /app, /app/packages/*, /site-packages
+        # Set PYTHONPATH - only /packages (tarball with tracecat_registry)
+        # NOTE: /app and /site-packages are NOT mounted in untrusted mode
         pythonpath_parts = []
         if config.registry_cache_dir.exists():
             pythonpath_parts.append("/packages")
 
-        if config.trust_mode != "untrusted":
-            # Trusted mode needs full tracecat and dependencies
-            # Note: .pth files (editable installs) in site-packages are NOT processed
-            # when added via PYTHONPATH, so we must explicitly add those paths
-            if config.tracecat_app_dir.exists():
-                pythonpath_parts.append("/app")
-                # Add editable-installed packages from /app/packages
-                pythonpath_parts.append("/app/packages/tracecat-registry")
-                pythonpath_parts.append("/app/packages/tracecat-ee")
-            if config.site_packages_dir and config.site_packages_dir.exists():
-                pythonpath_parts.append("/site-packages")
-
         if pythonpath_parts:
             env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
 
-        # Add user-provided env vars (DB creds, S3 config, secrets, etc.)
+        # Add user-provided env vars (SDK context, NOT DB credentials)
         for key, value in config.env_vars.items():
             _validate_env_key(key)
             env_map[key] = value

@@ -1,19 +1,16 @@
-"""Ephemeral nsjail subprocess executor backend.
+"""Ephemeral nsjail subprocess executor backend (untrusted mode).
 
 This backend creates a fresh nsjail sandbox for each action execution,
 providing maximum isolation for multitenant workloads. Each action runs
 in complete isolation with no shared state.
 
-Best for multitenant deployments with untrusted workloads.
+All execution is untrusted - DB credentials are never passed to sandboxes.
+Secrets and variables are pre-resolved on the host.
 
-Trust Modes:
-- 'trusted': Pass DB credentials to sandbox (single-tenant)
-- 'untrusted': Use SDK for secrets/variables (multitenant, default for ephemeral)
+Best for multitenant deployments with untrusted workloads.
 """
 
 from __future__ import annotations
-
-from typing import Literal
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -25,6 +22,7 @@ from tracecat.executor.schemas import (
     ExecutorResult,
     ExecutorResultFailure,
     ExecutorResultSuccess,
+    ResolvedContext,
 )
 from tracecat.executor.service import (
     get_registry_artifacts_cached,
@@ -34,13 +32,14 @@ from tracecat.logger import logger
 
 
 class EphemeralBackend(ExecutorBackend):
-    """Ephemeral nsjail subprocess backend.
+    """Ephemeral nsjail subprocess backend (untrusted mode).
 
     Creates a fresh nsjail sandbox for each action execution, providing:
 
     - Complete isolation between actions (no shared workers)
     - Full OS-level sandboxing (namespaces, seccomp, resource limits)
     - Suitable for untrusted multitenant workloads
+    - No DB credentials passed to sandbox (untrusted mode)
 
     Trade-offs:
     - Higher latency (~4000ms cold start per action)
@@ -56,38 +55,22 @@ class EphemeralBackend(ExecutorBackend):
     - Cgroup namespace isolation
     - Seccomp syscall filtering
     - Resource limits (CPU, memory, file size)
-
-    Trust modes:
-    - 'trusted': Pass DB credentials to sandbox. Actions can directly
-      access the database for secrets/variables. Use for single-tenant.
-    - 'untrusted': Do NOT pass DB credentials. Secrets/variables are
-      pre-resolved on the host. Use for multitenant with untrusted code.
     """
-
-    @property
-    def trust_mode(self) -> Literal["trusted", "untrusted"]:
-        """Get the trust mode for this backend.
-
-        Ephemeral backend always uses 'untrusted' mode to preserve isolation
-        guarantees. This ensures DB credentials are never passed into the sandbox.
-        """
-        return "untrusted"
 
     async def execute(
         self,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute action in an ephemeral nsjail sandbox."""
+        """Execute action in an ephemeral nsjail sandbox (untrusted mode)."""
         action_name = input.task.action
-        trust_mode = self.trust_mode
 
         logger.debug(
             "Executing action in ephemeral sandbox",
             action=action_name,
             task_ref=input.task.ref,
-            trust_mode=trust_mode,
         )
 
         # Get tarball URI for registry environment
@@ -98,10 +81,10 @@ class EphemeralBackend(ExecutorBackend):
         result = await runner.execute_action(
             input=input,
             role=role,
+            resolved_context=resolved_context,
             tarball_uri=tarball_uri,
             timeout=timeout,
             force_sandbox=True,  # Always use nsjail for ephemeral backend
-            trust_mode=trust_mode,
         )
 
         # Convert to standard response format

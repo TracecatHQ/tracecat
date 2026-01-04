@@ -4,6 +4,10 @@ This backend uses a pool of warm nsjail workers for high-throughput
 execution with OS-level isolation. Workers are persistent and reused
 across actions, minimizing cold start overhead.
 
+Uses untrusted execution mode - workers don't have DB credentials.
+All secrets, variables, and action metadata are pre-resolved by the
+caller and passed via ResolvedContext.
+
 Best for single-tenant deployments where high throughput is critical.
 """
 
@@ -21,7 +25,7 @@ from tracecat.logger import logger
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
-    from tracecat.executor.schemas import ExecutorResult
+    from tracecat.executor.schemas import ExecutorResult, ResolvedContext
 
 
 class SandboxedPoolBackend(ExecutorBackend):
@@ -33,6 +37,7 @@ class SandboxedPoolBackend(ExecutorBackend):
     - OS-level isolation (namespaces, seccomp, resource limits)
     - Warm Python (~100-200ms overhead vs ~4000ms cold start)
     - High throughput for single-tenant workloads
+    - Untrusted execution (no DB credentials in sandbox)
 
     Trade-offs:
     - Workers are shared across tenants (single-tenant only)
@@ -43,10 +48,14 @@ class SandboxedPoolBackend(ExecutorBackend):
         self,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute action in the sandboxed worker pool."""
+        """Execute action in the sandboxed worker pool.
 
+        Workers execute in untrusted mode without DB credentials.
+        All context is pre-resolved by the caller.
+        """
         action_name = input.task.action
         logger.debug(
             "Executing action in sandboxed pool",
@@ -55,7 +64,12 @@ class SandboxedPoolBackend(ExecutorBackend):
         )
 
         pool = await get_sandboxed_worker_pool()
-        return await pool.execute(input=input, role=role, timeout=timeout)
+        return await pool.execute(
+            input=input,
+            role=role,
+            resolved_context=resolved_context,
+            timeout=timeout,
+        )
 
     async def start(self) -> None:
         """Initialize the worker pool."""

@@ -46,15 +46,21 @@ except ImportError:
     JSON_OUTPUT_IS_BYTES = True
 
 
+# Static config (read once at module load, immutable)
+_API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
+
+
 def run_action_minimal(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
     secrets: dict[str, Any],
 ) -> Any:
-    """Run an action with minimal imports.
+    """Run an action with minimal imports (sync, for subprocess execution).
 
     This is the core execution function for untrusted sandboxes.
     It does NOT import tracecat - only tracecat_registry.
+
+    For warm workers with concurrent requests, use run_action_minimal_async() instead.
 
     Args:
         action_impl: Action implementation metadata with:
@@ -85,6 +91,110 @@ def run_action_minimal(
         raise ValueError(f"Unknown action type: {impl_type}")
 
 
+async def run_action_minimal_async(
+    action_impl: dict[str, Any],
+    args: Mapping[str, Any],
+    secrets: dict[str, Any],
+    *,
+    workspace_id: str,
+    workflow_id: str,
+    run_id: str,
+    executor_token: str,
+) -> Any:
+    """Run an action asynchronously (for warm workers with concurrent requests).
+
+    Unlike run_action_minimal(), this variant:
+    - Uses await for async functions (proper event loop integration)
+    - Uses asyncio.to_thread() for sync functions (doesn't block event loop)
+    - Sets up RegistryContext from explicit params (not env vars)
+    - Uses contextvars for task isolation with concurrent requests
+
+    Args:
+        action_impl: Action implementation metadata (type, module, name)
+        args: Pre-evaluated arguments to pass to the action
+        secrets: Pre-resolved secrets dict
+        workspace_id: Workspace UUID for SDK context
+        workflow_id: Workflow UUID for SDK context
+        run_id: Run UUID for SDK context
+        executor_token: JWT token for SDK authentication
+
+    Returns:
+        The action result
+    """
+    impl_type = action_impl.get("type")
+
+    if impl_type == "udf":
+        return await _run_udf_async(
+            action_impl,
+            args,
+            secrets,
+            workspace_id=workspace_id,
+            workflow_id=workflow_id,
+            run_id=run_id,
+            executor_token=executor_token,
+        )
+    elif impl_type == "template":
+        raise NotImplementedError(
+            "Template actions must be orchestrated at the activity level. "
+            "Backends should only receive UDF invocations."
+        )
+    else:
+        raise ValueError(f"Unknown action type: {impl_type}")
+
+
+async def _run_udf_async(
+    action_impl: dict[str, Any],
+    args: Mapping[str, Any],
+    secrets: dict[str, Any],
+    *,
+    workspace_id: str,
+    workflow_id: str,
+    run_id: str,
+    executor_token: str,
+) -> Any:
+    """Run a UDF action asynchronously with proper context setup."""
+    module_path = action_impl.get("module")
+    function_name = action_impl.get("name")
+
+    if not module_path or not function_name:
+        raise ValueError(
+            f"UDF action missing module or name: module={module_path}, name={function_name}"
+        )
+
+    # Set up registry context from request payload (not env vars)
+    # ContextVar ensures isolation between concurrent asyncio Tasks
+    try:
+        from tracecat_registry.context import RegistryContext, set_context
+
+        registry_ctx = RegistryContext(
+            workspace_id=workspace_id,
+            workflow_id=workflow_id,
+            run_id=run_id,
+            api_url=_API_URL,  # Static, immutable
+            token=executor_token,
+        )
+        set_context(registry_ctx)
+    except ImportError:
+        pass  # Registry context not available
+
+    # Set secrets as environment variables
+    _set_env_secrets(secrets)
+
+    try:
+        # Import the module from tracecat_registry
+        mod = importlib.import_module(module_path)
+        fn = getattr(mod, function_name)
+
+        # Use await for async, asyncio.to_thread for sync (doesn't block event loop)
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(**args)
+        else:
+            return await asyncio.to_thread(fn, **args)
+    finally:
+        # Clean up environment variables
+        _clear_env_secrets(secrets)
+
+
 def _run_udf(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
@@ -98,6 +208,21 @@ def _run_udf(
         raise ValueError(
             f"UDF action missing module or name: module={module_path}, name={function_name}"
         )
+
+    # Set up registry context from environment variables
+    try:
+        from tracecat_registry.context import RegistryContext, set_context
+
+        registry_ctx = RegistryContext(
+            workspace_id=os.environ.get("TRACECAT__WORKSPACE_ID", ""),
+            workflow_id=os.environ.get("TRACECAT__WORKFLOW_ID", ""),
+            run_id=os.environ.get("TRACECAT__RUN_ID", ""),
+            api_url=_API_URL,
+            token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
+        )
+        set_context(registry_ctx)
+    except ImportError:
+        pass  # Registry context not available
 
     # Set secrets as environment variables (same as env_sandbox)
     _set_env_secrets(secrets)

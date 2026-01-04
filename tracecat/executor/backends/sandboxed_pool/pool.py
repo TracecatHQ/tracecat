@@ -1,12 +1,17 @@
-"""Warm worker pool with nsjail sandboxing.
+"""Warm worker pool with nsjail sandboxing (untrusted mode).
 
 Each worker runs inside a persistent nsjail sandbox. The sandbox starts once
 and stays alive, so Python startup + imports happen only once per worker.
+
+Workers execute in UNTRUSTED mode - they do NOT have database credentials.
+All secrets, variables, and action metadata are pre-resolved on the host
+before being sent to workers via Unix socket.
 
 This gives you:
 - nsjail isolation (namespaces, seccomp, resource limits)
 - Warm Python (imports done once)
 - ~100-200ms overhead instead of ~4000ms
+- No DB credentials in sandbox (untrusted mode)
 
 Architecture:
 
@@ -47,7 +52,7 @@ import orjson
 from pydantic import TypeAdapter
 
 from tracecat import config
-from tracecat.executor.schemas import ExecutorResult
+from tracecat.executor.schemas import ExecutorResult, ResolvedContext
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -376,6 +381,8 @@ class SandboxedWorkerPool:
         pythonpath = ":".join(pythonpath_parts)
 
         # Build nsjail command
+        # NOTE: We intentionally do NOT pass DB credentials to the sandbox.
+        # Workers execute in untrusted mode with pre-resolved context.
         nsjail_path = config.TRACECAT__SANDBOX_NSJAIL_PATH
         cmd = [
             nsjail_path,
@@ -393,21 +400,6 @@ class SandboxedWorkerPool:
             "PYTHONDONTWRITEBYTECODE=1",
             "--env",
             "PYTHONUNBUFFERED=1",
-            # DB and storage env vars
-            "--env",
-            "TRACECAT__DB_URI",
-            "--env",
-            "TRACECAT__DB_SSLMODE",
-            "--env",
-            "TRACECAT__DB_ENCRYPTION_KEY",
-            "--env",
-            "TRACECAT__BLOB_STORAGE_PROTOCOL",
-            "--env",
-            "TRACECAT__BLOB_STORAGE_ENDPOINT",
-            "--env",
-            "MINIO_ROOT_USER",
-            "--env",
-            "MINIO_ROOT_PASSWORD",
         ]
 
         logger.debug(
@@ -445,7 +437,7 @@ class SandboxedWorkerPool:
             "time_limit: 0",  # No time limit - worker stays alive
             "",
             "# Clone flags for isolation",
-            "clone_newnet: false",  # Need network for DB access
+            "clone_newnet: false",  # Need network for HTTP requests in actions
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
@@ -941,9 +933,17 @@ class SandboxedWorkerPool:
         self,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute a task on an available sandboxed worker."""
+        """Execute a task on an available sandboxed worker.
+
+        Args:
+            input: The RunActionInput containing task and execution context
+            role: The Role for authorization
+            resolved_context: Pre-resolved secrets, variables, and action impl
+            timeout: Execution timeout in seconds
+        """
         if not self._started:
             raise RuntimeError("Sandboxed worker pool not started")
 
@@ -969,7 +969,9 @@ class SandboxedWorkerPool:
 
         start_time = time.monotonic()
         try:
-            result = await self._execute_on_worker(worker, input, role, timeout)
+            result = await self._execute_on_worker(
+                worker, input, role, resolved_context, timeout
+            )
             # Track latency for successful execution
             elapsed_ms = (time.monotonic() - start_time) * 1000
             self._total_task_time_ms += elapsed_ms
@@ -1046,6 +1048,7 @@ class SandboxedWorkerPool:
         worker: SandboxedWorkerInfo,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         timeout: float,
     ) -> ExecutorResult:
         """Execute task on a sandboxed worker via Unix socket."""
@@ -1058,6 +1061,7 @@ class SandboxedWorkerPool:
         request = {
             "input": input.model_dump(mode="json"),
             "role": role.model_dump(mode="json"),
+            "resolved_context": resolved_context.model_dump(mode="json"),
         }
         request_bytes = orjson.dumps(request)
 
