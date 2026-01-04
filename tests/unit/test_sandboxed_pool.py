@@ -19,6 +19,7 @@ from tracecat.executor.backends.sandboxed_pool import (
     SandboxedWorkerPool,
 )
 from tracecat.executor.backends.sandboxed_pool.pool import get_available_cpus
+from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import WorkflowUUID
 
 
@@ -70,6 +71,21 @@ def mock_worker_info() -> SandboxedWorkerInfo:
     )
 
 
+@pytest.fixture
+def mock_resolved_context() -> ResolvedContext:
+    """Create a mock ResolvedContext for testing."""
+    return ResolvedContext(
+        secrets={},
+        variables={},
+        action_impl=ActionImplementation(type="udf", module="test", name="mock"),
+        evaluated_args={},
+        workspace_id="test-workspace",
+        workflow_id="test-workflow",
+        run_id="test-run",
+        executor_token="",
+    )
+
+
 class TestGetAvailableCpus:
     """Tests for get_available_cpus function."""
 
@@ -102,7 +118,7 @@ class TestSandboxedWorkerPool:
 
     @pytest.mark.anyio
     async def test_pool_not_started_raises_on_execute(
-        self, mock_run_action_input, mock_role
+        self, mock_run_action_input, mock_role, mock_resolved_context
     ):
         """Execute should raise if pool not started."""
         pool = SandboxedWorkerPool(size=2)
@@ -110,6 +126,7 @@ class TestSandboxedWorkerPool:
             await pool.execute(
                 input=mock_run_action_input,
                 role=mock_role,
+                resolved_context=mock_resolved_context,
             )
 
     @pytest.mark.anyio

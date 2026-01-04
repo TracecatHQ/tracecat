@@ -42,6 +42,7 @@ from tracecat.executor.schemas import (
     ExecutorResult,
     ExecutorResultFailure,
     ExecutorResultSuccess,
+    ResolvedContext,
 )
 
 # =============================================================================
@@ -82,6 +83,7 @@ class TestSandboxedPoolColdStart:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Measure and verify cold start latency is within acceptable bounds.
@@ -97,11 +99,13 @@ class TestSandboxedPoolColdStart:
             action="core.transform",
             args={"value": {"test": True}},
         )
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         start = time.monotonic()
         result = await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -115,6 +119,7 @@ class TestSandboxedPoolColdStart:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify that warm worker execution is significantly faster than cold start.
@@ -127,12 +132,14 @@ class TestSandboxedPoolColdStart:
         - Warm execution completes within 1s
         """
         input_data = run_action_input_factory()
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         # First execution (may incur cold start)
         start1 = time.monotonic()
         await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
         first_ms = (time.monotonic() - start1) * 1000
@@ -142,6 +149,7 @@ class TestSandboxedPoolColdStart:
         await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
         warm_ms = (time.monotonic() - start2) * 1000
@@ -172,6 +180,7 @@ class TestMultiTenantExecution:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
         role_workspace_b: Role,
         staged_cache_dirs: tuple[Path, Path],
@@ -190,16 +199,21 @@ class TestMultiTenantExecution:
         input_a = run_action_input_factory()
         input_b = run_action_input_factory()
 
+        resolved_context_a = resolved_context_factory(role_workspace_a)
+        resolved_context_b = resolved_context_factory(role_workspace_b)
+
         # Execute concurrently with different PYTHONPATHs
         results = await asyncio.gather(
             sandboxed_pool.execute(
                 input=input_a,
                 role=role_workspace_a,
+                resolved_context=resolved_context_a,
                 timeout=30.0,
             ),
             sandboxed_pool.execute(
                 input=input_b,
                 role=role_workspace_b,
+                resolved_context=resolved_context_b,
                 timeout=30.0,
             ),
         )
@@ -213,6 +227,7 @@ class TestMultiTenantExecution:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify basic execution for a single workspace works correctly.
@@ -222,10 +237,12 @@ class TestMultiTenantExecution:
         - Worker receives and processes the request
         """
         input_data = run_action_input_factory()
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         result = await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
 
@@ -236,6 +253,7 @@ class TestMultiTenantExecution:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify multiple concurrent requests from same workspace work correctly.
@@ -248,12 +266,14 @@ class TestMultiTenantExecution:
         - No request interference
         """
         inputs = [run_action_input_factory() for _ in range(5)]
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         results = await asyncio.gather(
             *[
                 sandboxed_pool.execute(
                     input=inp,
                     role=role_workspace_a,
+                    resolved_context=resolved_context,
                     timeout=30.0,
                 )
                 for inp in inputs
@@ -283,6 +303,7 @@ class TestWorkerRecycling:
         self,
         small_recycle_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify worker is recycled after completing max_tasks_per_worker tasks.
@@ -298,6 +319,7 @@ class TestWorkerRecycling:
         pool = small_recycle_pool
         original_process = pool._workers[0].process
         original_pid = pool._workers[0].pid
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         # Execute 6 tasks (1 more than limit of 5)
         for i in range(6):
@@ -305,6 +327,7 @@ class TestWorkerRecycling:
             result = await pool.execute(
                 input=input_data,
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             assert result.type == "success", f"Task {i} should succeed"
@@ -329,6 +352,7 @@ class TestWorkerRecycling:
         result = await pool.execute(
             input=run_action_input_factory(),
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
         assert result.type == "success", "Recycled worker should be functional"
@@ -338,6 +362,7 @@ class TestWorkerRecycling:
         self,
         small_recycle_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify concurrent tasks are handled correctly during recycling.
@@ -350,6 +375,7 @@ class TestWorkerRecycling:
         - No tasks lost during recycle window
         """
         pool = small_recycle_pool
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         # Launch many tasks concurrently to trigger recycle during execution
         tasks: list[Awaitable[ExecutorResult]] = []
@@ -359,6 +385,7 @@ class TestWorkerRecycling:
                 pool.execute(
                     input=input_data,
                     role=role_workspace_a,
+                    resolved_context=resolved_context,
                     timeout=60.0,
                 )
             )
@@ -465,6 +492,7 @@ class TestMultiTenantThrashing:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
         role_workspace_b: Role,
         staged_cache_dirs: tuple[Path, Path],
@@ -498,14 +526,19 @@ class TestMultiTenantThrashing:
         task_count = 100
         launch_interval = 0.005  # 5ms between launches
 
+        resolved_context_a = resolved_context_factory(role_workspace_a)
+        resolved_context_b = resolved_context_factory(role_workspace_b)
+
         tasks: list[asyncio.Task[ExecutorResult]] = []
 
         for i in range(task_count):
             if i % 2 == 0:
                 role = role_workspace_a
+                resolved_context = resolved_context_a
                 _pythonpath = str(path_a)
             else:
                 role = role_workspace_b
+                resolved_context = resolved_context_b
                 _pythonpath = str(path_b)
 
             # Launch task immediately, don't await - allows concurrent execution
@@ -513,6 +546,7 @@ class TestMultiTenantThrashing:
                 sandboxed_pool.execute(
                     input=run_action_input_factory(),
                     role=role,
+                    resolved_context=resolved_context,
                     timeout=30.0,
                 )
             )
@@ -555,6 +589,7 @@ class TestMultiTenantThrashing:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
         role_workspace_b: Role,
         staged_cache_dirs: tuple[Path, Path],
@@ -573,11 +608,15 @@ class TestMultiTenantThrashing:
         path_a, path_b = staged_cache_dirs
         burst_size = 20
 
+        resolved_context_a = resolved_context_factory(role_workspace_a)
+        resolved_context_b = resolved_context_factory(role_workspace_b)
+
         # Burst A
         tasks_a = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context_a,
                 timeout=30.0,
             )
             for _ in range(burst_size)
@@ -589,6 +628,7 @@ class TestMultiTenantThrashing:
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_b,
+                resolved_context=resolved_context_b,
                 timeout=30.0,
             )
             for _ in range(burst_size)
@@ -610,6 +650,7 @@ class TestMultiTenantThrashing:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
         role_workspace_b: Role,
         staged_cache_dirs: tuple[Path, Path],
@@ -628,11 +669,15 @@ class TestMultiTenantThrashing:
         path_a, path_b = staged_cache_dirs
         burst_size = 10
 
+        resolved_context_a = resolved_context_factory(role_workspace_a)
+        resolved_context_b = resolved_context_factory(role_workspace_b)
+
         # Start A burst
         tasks_a = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context_a,
                 timeout=30.0,
             )
             for _ in range(burst_size)
@@ -643,6 +688,7 @@ class TestMultiTenantThrashing:
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_b,
+                resolved_context=resolved_context_b,
                 timeout=30.0,
             )
             for _ in range(burst_size)
@@ -664,6 +710,7 @@ class TestMultiTenantThrashing:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
         role_workspace_b: Role,
         staged_cache_dirs: tuple[Path, Path],
@@ -684,6 +731,9 @@ class TestMultiTenantThrashing:
         duration_seconds = 75  # Cross the 60s TTL boundary
         request_interval = 0.5  # 2 requests per second
 
+        resolved_context_a = resolved_context_factory(role_workspace_a)
+        resolved_context_b = resolved_context_factory(role_workspace_b)
+
         start_time = time.monotonic()
         request_count = 0
         success_count = 0
@@ -693,15 +743,18 @@ class TestMultiTenantThrashing:
             # Alternate between workspaces
             if request_count % 2 == 0:
                 role = role_workspace_a
+                resolved_context = resolved_context_a
                 _pythonpath = str(path_a)
             else:
                 role = role_workspace_b
+                resolved_context = resolved_context_b
                 _pythonpath = str(path_b)
 
             try:
                 result = await sandboxed_pool.execute(
                     input=run_action_input_factory(),
                     role=role,
+                    resolved_context=resolved_context,
                     timeout=30.0,
                 )
                 if result.type == "success":
@@ -726,6 +779,7 @@ class TestMultiTenantThrashing:
         self,
         single_worker_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
         role_workspace_b: Role,
         staged_cache_dirs: tuple[Path, Path],
@@ -743,6 +797,9 @@ class TestMultiTenantThrashing:
         pool = single_worker_pool
         path_a, path_b = staged_cache_dirs
 
+        resolved_context_a = resolved_context_factory(role_workspace_a)
+        resolved_context_b = resolved_context_factory(role_workspace_b)
+
         # Capture the single worker
         assert len(pool._workers) == 1, "Should have exactly 1 worker"
         worker = pool._workers[0]
@@ -752,14 +809,17 @@ class TestMultiTenantThrashing:
         for i in range(10):
             if i % 2 == 0:
                 role = role_workspace_a
+                resolved_context = resolved_context_a
                 _pythonpath = str(path_a)
             else:
                 role = role_workspace_b
+                resolved_context = resolved_context_b
                 _pythonpath = str(path_b)
 
             result = await pool.execute(
                 input=run_action_input_factory(),
                 role=role,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
 
@@ -790,6 +850,7 @@ class TestErrorPropagation:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify action errors return structured error information.
@@ -804,9 +865,11 @@ class TestErrorPropagation:
         # In test mode, all executions succeed. This test documents the expected
         # error response format for when real errors occur.
         input_data = run_action_input_factory()
+        resolved_context = resolved_context_factory(role_workspace_a)
         result = await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
 
@@ -827,6 +890,7 @@ class TestErrorPropagation:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify pool continues functioning after task failures.
@@ -839,12 +903,14 @@ class TestErrorPropagation:
         - Each task gets a response (regardless of success/failure)
         - Workers remain alive and functional
         """
+        resolved_context = resolved_context_factory(role_workspace_a)
         results = []
         for _ in range(5):
             input_data = run_action_input_factory()
             result = await sandboxed_pool.execute(
                 input=input_data,
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             results.append(result)
@@ -863,6 +929,7 @@ class TestErrorPropagation:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify concurrent tasks are isolated - one failure doesn't affect others.
@@ -874,10 +941,12 @@ class TestErrorPropagation:
         - All concurrent tasks complete independently
         - No cross-task interference
         """
+        resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             for _ in range(10)
@@ -954,6 +1023,7 @@ class TestWorkerCrashRecovery:
         self,
         single_worker_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify task fails gracefully when sent to a dead worker.
@@ -970,11 +1040,13 @@ class TestWorkerCrashRecovery:
         - Error or timeout is returned to caller
         """
         pool = single_worker_pool
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         # First, verify pool works
         result = await pool.execute(
             input=run_action_input_factory(),
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
         assert result.type == "success", "Initial task should succeed"
@@ -993,6 +1065,7 @@ class TestWorkerCrashRecovery:
                 pool.execute(
                     input=run_action_input_factory(),
                     role=role_workspace_a,
+                    resolved_context=resolved_context,
                     timeout=2.0,  # Short task timeout
                 ),
                 timeout=5.0,  # Outer timeout to prevent test hang
@@ -1010,6 +1083,7 @@ class TestWorkerCrashRecovery:
     async def test_pool_continues_with_remaining_workers_after_crash(
         self,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify pool continues serving requests after one worker crashes.
@@ -1027,6 +1101,7 @@ class TestWorkerCrashRecovery:
 
         pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=4)
         await pool.start()
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         try:
             # Kill one worker
@@ -1041,6 +1116,7 @@ class TestWorkerCrashRecovery:
                     result = await pool.execute(
                         input=run_action_input_factory(),
                         role=role_workspace_a,
+                        resolved_context=resolved_context,
                         timeout=10.0,
                     )
                     if result.type == "success":
@@ -1073,6 +1149,7 @@ class TestTaskTimeoutHandling:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify task completes within the specified timeout.
@@ -1086,11 +1163,13 @@ class TestTaskTimeoutHandling:
         - Timeout parameter is accepted
         """
         input_data = run_action_input_factory()
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         start = time.monotonic()
         result = await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=5.0,  # 5 second timeout
         )
         elapsed = time.monotonic() - start
@@ -1103,6 +1182,7 @@ class TestTaskTimeoutHandling:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify pool-level timeout returns proper error structure.
@@ -1114,11 +1194,13 @@ class TestTaskTimeoutHandling:
         trigger real timeouts. This test documents expected behavior.
         """
         input_data = run_action_input_factory()
+        resolved_context = resolved_context_factory(role_workspace_a)
 
         # Very short timeout - task should still complete in test mode
         result = await sandboxed_pool.execute(
             input=input_data,
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
 
@@ -1131,6 +1213,7 @@ class TestTaskTimeoutHandling:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify different tasks can have different timeouts.
@@ -1141,10 +1224,12 @@ class TestTaskTimeoutHandling:
         - Multiple concurrent tasks with different timeouts
         - All complete successfully (in test mode)
         """
+        resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=float(5 + i),  # 5s, 6s, 7s, 8s, 9s
             )
             for i in range(5)
@@ -1175,6 +1260,7 @@ class TestPoolExhaustion:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify pool handles concurrent requests up to its capacity.
@@ -1188,10 +1274,12 @@ class TestPoolExhaustion:
         """
         # Pool has 2 workers with 4 concurrent each = 8 capacity
         capacity = 8
+        resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             for _ in range(capacity)
@@ -1212,6 +1300,7 @@ class TestPoolExhaustion:
         self,
         sandboxed_pool: SandboxedWorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ) -> None:
         """Verify requests beyond capacity eventually complete.
@@ -1225,10 +1314,12 @@ class TestPoolExhaustion:
         """
         # Send 2x capacity
         request_count = 16  # 2x the 8 capacity
+        resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=60.0,  # Longer timeout for queued requests
             )
             for _ in range(request_count)
@@ -1249,6 +1340,7 @@ class TestPoolExhaustion:
         self,
         sandboxed_pool,
         run_action_input_factory,
+        resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
     ):
         """Verify pool returns to normal after handling burst traffic.
@@ -1261,11 +1353,14 @@ class TestPoolExhaustion:
         - Subsequent requests work normally
         - Workers are healthy after burst
         """
+        resolved_context = resolved_context_factory(role_workspace_a)
+
         # Burst of requests
         burst_tasks = [
             sandboxed_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             for _ in range(20)
@@ -1284,6 +1379,7 @@ class TestPoolExhaustion:
         result = await sandboxed_pool.execute(
             input=run_action_input_factory(),
             role=role_workspace_a,
+            resolved_context=resolved_context,
             timeout=30.0,
         )
         assert result.type == "success", "Post-burst request should succeed"

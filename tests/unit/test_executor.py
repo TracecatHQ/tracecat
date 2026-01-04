@@ -509,7 +509,7 @@ async def test_direct_backend_execute(
     from tracecat.executor.schemas import ExecutorResultSuccess, ResolvedContext
 
     # Mock _execute_with_context to return a simple result
-    async def mock_execute_with_context(self, input, resolved_context):
+    async def mock_execute_with_context(self, input, role, resolved_context):
         return {"input": input.task.args}
 
     monkeypatch.setattr(

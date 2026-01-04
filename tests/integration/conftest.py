@@ -14,10 +14,12 @@ import importlib
 import shutil
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 
 # =============================================================================
 # Environment Setup for Pool Tests
@@ -282,6 +284,42 @@ def run_action_input_factory():
                 environment="test",
             ),
             registry_lock=registry_lock,
+        )
+
+    return _create
+
+
+# =============================================================================
+# ResolvedContext Factory for Pool Tests
+# =============================================================================
+
+
+@pytest.fixture
+def resolved_context_factory():
+    """Factory for creating mock ResolvedContext objects for testing.
+
+    In test mode (TRACECAT__POOL_WORKER_TEST_MODE=true), workers return mock
+    success without using the resolved context. This fixture provides a minimal
+    valid ResolvedContext for satisfying the execute() signature.
+    """
+
+    def _create(
+        role: Role,
+        args: dict[str, Any] | None = None,
+    ) -> ResolvedContext:
+        return ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.actions.core.transform",
+                name="reshape",
+            ),
+            evaluated_args=args or {"value": {"test": True}},
+            workspace_id=str(role.workspace_id),
+            workflow_id=str(uuid.uuid4()),
+            run_id=str(uuid.uuid4()),
+            executor_token="mock-token-for-testing",
         )
 
     return _create
