@@ -18,7 +18,6 @@ from tracecat.executor.service import (
     DispatchActionContext,
     dispatch_action,
     flatten_wrapped_exc_error_group,
-    prepare_resolved_context,
 )
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
@@ -40,13 +39,16 @@ from tracecat.secrets.service import SecretsService
 
 
 async def run_action_test(input: RunActionInput, role: Role) -> Any:
-    """Test helper: execute action using production code path."""
-    prepared = await prepare_resolved_context(input, role)
+    """Test helper: execute action using production code path.
+
+    Uses dispatch_action to ensure proper service-layer orchestration
+    for both UDF and template actions.
+    """
+    from tracecat.contexts import ctx_role
+
+    ctx_role.set(role)
     backend = DirectBackend()
-    result = await backend.execute(input, role, prepared.resolved_context)
-    if result.type == "failure":
-        raise ExecutionError(result.error)
-    return result.result
+    return await dispatch_action(backend, input)
 
 
 @pytest.fixture

@@ -166,7 +166,29 @@ class DirectBackend(ExecutorBackend):
         role: Role,
         resolved_context: ResolvedContext,
     ) -> Any:
-        """Execute action using pre-resolved context."""
+        """Execute action using pre-resolved context.
+
+        Uses resolved_context.action_impl to determine what to execute.
+        This allows the backend to execute any action, not just the one
+        specified in input.task.action (important for template step execution).
+        """
+        action_impl = resolved_context.action_impl
+
+        # Templates should be orchestrated at the service layer
+        # This backend should only receive UDF invocations
+        if action_impl.type == "template":
+            raise NotImplementedError(
+                "Template actions must be orchestrated at the service layer. "
+                "DirectBackend should only receive UDF invocations."
+            )
+
+        # Get action name from action_impl for logging and loading
+        action_name = (
+            f"{action_impl.module}.{action_impl.name}"
+            if action_impl.module
+            else action_impl.name or "unknown"
+        )
+
         # Set context variables (matches untrusted_runner.py)
         ctx_role.set(role)
         ctx_run.set(input.run_context)
@@ -187,13 +209,14 @@ class DirectBackend(ExecutorBackend):
         )
         set_context(registry_ctx)
 
-        # Load action implementation
-        action = await self._load_action(input.task.action)
+        # Load action implementation using module/name from resolved_context
+        # This allows executing the correct action for template steps
+        action = await self._load_action_from_impl(action_impl)
 
         log.info(
             "Run action",
             task_ref=input.task.ref,
-            action_name=input.task.action,
+            action_name=action_name,
         )
 
         # Build execution context with pre-resolved secrets and variables
@@ -223,8 +246,26 @@ class DirectBackend(ExecutorBackend):
             # Reset secrets context to prevent leakage
             registry_secrets.reset_context(secrets_token)
 
-    async def _load_action(self, action_name: str) -> Any:
-        """Load the action implementation."""
+    async def _load_action_from_impl(self, action_impl) -> Any:
+        """Load the action implementation from action_impl metadata.
+
+        Uses the module and name from action_impl to load the correct
+        action, regardless of what's in input.task.action.
+        """
+        if not action_impl.module or not action_impl.name:
+            raise ValueError(
+                f"UDF action missing module or name: module={action_impl.module}, name={action_impl.name}"
+            )
+
+        # Reconstruct the action name from namespace.name pattern
+        # The module is like 'tracecat_registry.integrations.core.transform'
+        # The name is the function name like 'reshape'
+        # We need to find the registry action name which is like 'core.transform.reshape'
         async with RegistryActionsService.with_session() as service:
-            reg_action = await service.get_action(action_name)
+            # Search for action by module path and function name
+            # The action_impl contains the exact module and name we need
+            reg_action = await service.get_action_by_impl(
+                module=action_impl.module,
+                name=action_impl.name,
+            )
             return service.get_bound(reg_action, mode="execution")

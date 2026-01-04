@@ -85,8 +85,8 @@ def run_action_minimal(
         return _run_udf(action_impl, args, secrets)
     elif impl_type == "template":
         raise NotImplementedError(
-            "Template actions are not yet supported in minimal runner. "
-            "Use the full runner for template actions."
+            "Template actions must be orchestrated at the service layer. "
+            "The minimal runner should only receive UDF invocations."
         )
     else:
         raise ValueError(f"Unknown action type: {impl_type}")
