@@ -39,6 +39,7 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 # =============================================================================
 # HEAVY IMPORTS - Done once at startup, this is the key optimization
 # =============================================================================
+from tracecat import config  # noqa: E402
 from tracecat.auth.types import Role  # noqa: E402
 from tracecat.dsl.schemas import RunActionInput  # noqa: E402
 from tracecat.executor.minimal_runner import run_action_minimal_async  # noqa: E402
@@ -47,6 +48,34 @@ from tracecat.executor.schemas import (  # noqa: E402
     ResolvedContext,
 )
 from tracecat.logger import logger  # noqa: E402
+
+# Track tarball paths already added to sys.path to avoid duplicates
+_added_tarball_paths: set[str] = set()
+
+
+def _ensure_tarball_paths_in_sys_path() -> None:
+    """Ensure all tarball extraction directories are in sys.path.
+
+    Scans the registry cache directory for tarball-* subdirectories and adds
+    them to sys.path if not already present. This allows the worker to import
+    modules from both builtin and custom registries.
+    """
+    cache_dir = Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
+    if not cache_dir.exists():
+        return
+
+    for path in cache_dir.iterdir():
+        if path.is_dir() and path.name.startswith("tarball-"):
+            path_str = str(path)
+            if path_str not in _added_tarball_paths and path_str not in sys.path:
+                sys.path.insert(0, path_str)
+                _added_tarball_paths.add(path_str)
+                logger.debug(
+                    "Added tarball path to sys.path",
+                    path=path_str,
+                    worker_id=_worker_id,
+                )
+
 
 # Global counters for connection tracking
 _connection_counter = 0
@@ -96,6 +125,9 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
                     "timing": timing,
                 },
             }
+
+        # Ensure tarball paths are in sys.path for custom registry modules
+        _ensure_tarball_paths_in_sys_path()
 
         # Execute action using minimal runner (no DB access, explicit context)
         start = time.monotonic()

@@ -507,7 +507,7 @@ class TestExecuteWithSyncedRegistry:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args=args,
@@ -616,7 +616,7 @@ class TestExecuteWithSyncedRegistry:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args=args,
@@ -726,7 +726,7 @@ class TestFailureScenarios:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args=args,
@@ -915,7 +915,7 @@ class TestMultitenantWorkloads:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args={"value": value_a},
@@ -929,7 +929,7 @@ class TestMultitenantWorkloads:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args={"value": value_b},
@@ -1055,7 +1055,7 @@ class TestMultitenantWorkloads:
                 variables={},
                 action_impl=ActionImplementation(
                     type="udf",
-                    module="tracecat_registry.actions.core.transform",
+                    module="tracecat_registry.core.transform",
                     name="reshape",
                 ),
                 evaluated_args={"value": value},
@@ -1191,7 +1191,7 @@ class TestMultitenantWorkloads:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args={"value": value_a},
@@ -1205,7 +1205,7 @@ class TestMultitenantWorkloads:
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args={"value": value_b},

@@ -312,7 +312,7 @@ def resolved_context_factory():
             variables={},
             action_impl=ActionImplementation(
                 type="udf",
-                module="tracecat_registry.actions.core.transform",
+                module="tracecat_registry.core.transform",
                 name="reshape",
             ),
             evaluated_args=args or {"value": {"test": True}},

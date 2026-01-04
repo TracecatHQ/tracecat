@@ -52,7 +52,10 @@ from tracecat.expressions.eval import (
 )
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.actions.schemas import BoundRegistryAction
+from tracecat.registry.actions.schemas import (
+    BoundRegistryAction,
+    RegistryActionImplValidator,
+)
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
@@ -401,25 +404,25 @@ async def prepare_resolved_context(
     task = input.task
     action_name = task.action
 
-    # Get action implementation
+    # Get action implementation from DB without importing modules
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
         action_secrets = await service.fetch_all_action_secrets(reg_action)
-        action = service.get_bound(reg_action, mode="execution")
+        # NOTE: We don't call get_bound() here to avoid importing the module
+        # before tarball paths are added to sys.path (which happens in the backend)
 
-    # Build action implementation metadata
-    if action.is_template and action.template_action:
+    # Build action implementation metadata directly from JSONB
+    impl = RegistryActionImplValidator.validate_python(reg_action.implementation)
+    if impl.type == "template":
         action_impl = ActionImplementation(
             type="template",
-            template_definition=action.template_action.definition.model_dump(
-                mode="json"
-            ),
+            template_definition=impl.template_action.definition.model_dump(mode="json"),
         )
     else:
         action_impl = ActionImplementation(
             type="udf",
-            module=action.fn.__module__,
-            name=action.fn.__name__,
+            module=impl.module,
+            name=impl.name,
         )
 
     # Collect expressions to know what secrets/variables are needed
