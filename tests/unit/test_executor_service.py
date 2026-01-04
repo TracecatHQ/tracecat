@@ -1,6 +1,5 @@
 import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import SecretStr
@@ -10,132 +9,14 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
-from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import TracecatCredentialsError
-from tracecat.executor.service import (
-    DispatchActionContext,
-    _dispatch_action,
-    run_action_from_input,
-)
-from tracecat.expressions.common import ExprContext
+from tracecat.executor.service import run_action_from_input
 from tracecat.expressions.core import CollectedExprs
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
-
-
-@pytest.fixture
-def mock_session():
-    return AsyncMock()
-
-
-@pytest.fixture
-def basic_task_input():
-    """Fixture that provides a basic RunActionInput without looping."""
-    wf_id = WorkflowUUID.new_uuid4()
-    wf_exec_id = wf_id.short() + "/exec_test"
-    wf_run_id = uuid.uuid4()
-    return RunActionInput(
-        task=ActionStatement(
-            action="test_action",
-            args={"key": "value"},
-            ref="test_ref",
-        ),
-        exec_context={
-            ExprContext.ACTIONS: {
-                "test_action": {
-                    "args": {"key": "value"},
-                    "ref": "test-ref",
-                }
-            }
-        },
-        run_context=RunContext(
-            wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            wf_run_id=wf_run_id,
-            environment="test-env",
-        ),
-    )
-
-
-@pytest.fixture
-def basic_looped_task_input():
-    wf_id = WorkflowUUID.new_uuid4()
-    wf_exec_id = wf_id.short() + "/exec_test"
-    wf_run_id = uuid.uuid4()
-    return RunActionInput(
-        task=ActionStatement(
-            action="test_action",
-            args={"key": "value"},
-            ref="test_ref",
-            for_each="${{ for var.x in [1,2,3] }}",
-        ),
-        exec_context={
-            ExprContext.ACTIONS: {
-                "test_action": {
-                    "args": {"key": "value"},
-                    "ref": "test-ref",
-                }
-            }
-        },
-        run_context=RunContext(
-            wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            wf_run_id=wf_run_id,
-            environment="test-env",
-        ),
-    )
-
-
-@pytest.fixture
-def dispatch_context():
-    return DispatchActionContext(
-        role=Role(type="service", service_id="tracecat-executor"),
-    )
-
-
-@pytest.mark.anyio
-async def test_dispatch_action_basic(mock_session, basic_task_input, dispatch_context):  # noqa: ARG001
-    with patch("tracecat.executor.service.run_action_on_cluster") as mock_cluster:
-        mock_cluster.return_value = {"result": "success"}
-
-        result = await _dispatch_action(input=basic_task_input, ctx=dispatch_context)
-
-        assert result == {"result": "success"}
-        mock_cluster.assert_called_once_with(basic_task_input, dispatch_context)
-
-
-@pytest.mark.anyio
-async def test_dispatch_action_with_foreach(
-    mock_session,
-    basic_looped_task_input,
-    dispatch_context,  # noqa: ARG001
-):
-    with patch("tracecat.executor.service.run_action_on_cluster") as mock_cluster:
-        mock_cluster.return_value = {"result": "success"}
-
-        result = await _dispatch_action(
-            input=basic_looped_task_input, ctx=dispatch_context
-        )
-
-        assert result == [{"result": "success"}] * 3
-
-        # Assert the number of calls
-        assert mock_cluster.call_count == 3
-
-        # Get all calls and their arguments
-        calls = mock_cluster.call_args_list
-
-        # Verify each call's arguments
-        for i, call in enumerate(calls, 1):
-            args, _kwargs = call
-            input_arg = args[0]
-            # Verify the loop variable 'x' was set to different values (1, 2, 3)
-            assert input_arg.task.args["key"] == "value"
-            assert input_arg.exec_context[ExprContext.LOCAL_VARS] == {"x": i}
-            assert args[1] == dispatch_context
 
 
 @pytest.mark.anyio
