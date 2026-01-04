@@ -39,11 +39,43 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 # =============================================================================
 # HEAVY IMPORTS - Done once at startup, this is the key optimization
 # =============================================================================
+from tracecat import config  # noqa: E402
 from tracecat.auth.types import Role  # noqa: E402
 from tracecat.dsl.schemas import RunActionInput  # noqa: E402
-from tracecat.executor.schemas import ExecutorActionErrorInfo  # noqa: E402
-from tracecat.executor.service import run_action_from_input  # noqa: E402
+from tracecat.executor.minimal_runner import run_action_minimal_async  # noqa: E402
+from tracecat.executor.schemas import (  # noqa: E402
+    ExecutorActionErrorInfo,
+    ResolvedContext,
+)
 from tracecat.logger import logger  # noqa: E402
+
+# Track tarball paths already added to sys.path to avoid duplicates
+_added_tarball_paths: set[str] = set()
+
+
+def _ensure_tarball_paths_in_sys_path() -> None:
+    """Ensure all tarball extraction directories are in sys.path.
+
+    Scans the registry cache directory for tarball-* subdirectories and adds
+    them to sys.path if not already present. This allows the worker to import
+    modules from both builtin and custom registries.
+    """
+    cache_dir = Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
+    if not cache_dir.exists():
+        return
+
+    for path in cache_dir.iterdir():
+        if path.is_dir() and path.name.startswith("tarball-"):
+            path_str = str(path)
+            if path_str not in _added_tarball_paths and path_str not in sys.path:
+                sys.path.insert(0, path_str)
+                _added_tarball_paths.add(path_str)
+                logger.debug(
+                    "Added tarball path to sys.path",
+                    path=path_str,
+                    worker_id=_worker_id,
+                )
+
 
 # Global counters for connection tracking
 _connection_counter = 0
@@ -56,7 +88,7 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
     """Handle a single task request.
 
     Args:
-        request: Dict with keys: input, role
+        request: Dict with keys: input, role, resolved_context
 
     Returns:
         Dict matching ExecutorResult schema:
@@ -71,6 +103,7 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
         start = time.monotonic()
         input_obj = RunActionInput.model_validate(request["input"])
         role = Role.model_validate(request["role"])
+        resolved_context = ResolvedContext.model_validate(request["resolved_context"])
         timing["parse_ms"] = (time.monotonic() - start) * 1000
 
         # Test mode: return mock success without executing action
@@ -93,9 +126,20 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
                 },
             }
 
-        # Execute action
+        # Ensure tarball paths are in sys.path for custom registry modules
+        _ensure_tarball_paths_in_sys_path()
+
+        # Execute action using minimal runner (no DB access, explicit context)
         start = time.monotonic()
-        result = await run_action_from_input(input=input_obj, role=role)
+        result = await run_action_minimal_async(
+            action_impl=resolved_context.action_impl.model_dump(),
+            args=resolved_context.evaluated_args,
+            secrets=resolved_context.secrets,
+            workspace_id=resolved_context.workspace_id,
+            workflow_id=resolved_context.workflow_id,
+            run_id=resolved_context.run_id,
+            executor_token=resolved_context.executor_token,
+        )
         timing["action_ms"] = (time.monotonic() - start) * 1000
 
         timing["total_ms"] = (time.monotonic() - start_total) * 1000

@@ -27,6 +27,7 @@ from tracecat.exceptions import (
     LoopExecutionError,
     RateLimitExceeded,
 )
+from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
 
@@ -88,6 +89,7 @@ class ExecutorActivities:
         )
 
         try:
+            backend = get_executor_backend()
             async for attempt_manager in AsyncRetrying(
                 retry=retry_if_exception_type(RateLimitExceeded),
                 stop=stop_after_attempt(20),
@@ -98,7 +100,7 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    return await dispatch_action(input=input)
+                    return await dispatch_action(backend=backend, input=input)
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__

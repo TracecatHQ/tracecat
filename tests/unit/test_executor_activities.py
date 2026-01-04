@@ -88,12 +88,14 @@ class TestExecuteActionActivity:
 
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = expected_result
 
             result = await ExecutorActivities.execute_action_activity(
@@ -101,7 +103,9 @@ class TestExecuteActionActivity:
             )
 
             assert result == expected_result
-            mock_dispatch.assert_called_once_with(input=mock_run_action_input)
+            mock_dispatch.assert_called_once_with(
+                backend=mock_backend.return_value, input=mock_run_action_input
+            )
 
     @pytest.mark.anyio
     async def test_execution_error_raises_application_error(
@@ -119,12 +123,14 @@ class TestExecuteActionActivity:
 
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.side_effect = exec_error
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -156,12 +162,14 @@ class TestExecuteActionActivity:
 
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.side_effect = loop_error
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -179,12 +187,14 @@ class TestExecuteActionActivity:
         """Test that unexpected errors are marked as non-retryable."""
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.side_effect = RuntimeError("Unexpected crash")
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -205,12 +215,14 @@ class TestExecuteActionActivity:
 
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.side_effect = original_error
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -226,6 +238,7 @@ class TestExecuteActionActivity:
         """Test that context variables (ctx_run, ctx_role) are set."""
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
@@ -234,6 +247,7 @@ class TestExecuteActionActivity:
             patch("tracecat.executor.activities.ctx_role") as mock_ctx_role,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = {"result": "ok"}
 
             await ExecutorActivities.execute_action_activity(
@@ -262,12 +276,14 @@ class TestExecuteActionActivity:
 
         with (
             patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
             patch(
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
             mock_dispatch.side_effect = exec_error
 
             with pytest.raises(ApplicationError) as exc_info:

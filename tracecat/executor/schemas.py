@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import traceback
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -36,8 +37,10 @@ ExecutorResult = Annotated[
 class ExecutorBackendType(StrEnum):
     """Executor backend types for action execution.
 
-    - SANDBOXED_POOL: Warm nsjail workers (single-tenant, trusted, high throughput)
-    - EPHEMERAL: Cold nsjail subprocess per action (multitenant, untrusted, full isolation)
+    All sandbox backends use untrusted mode - DB credentials are never passed.
+
+    - SANDBOXED_POOL: Warm nsjail workers (high throughput, untrusted)
+    - EPHEMERAL: Cold nsjail subprocess per action (full isolation, untrusted)
     - DIRECT: In-process execution (TESTING ONLY - no isolation, no subprocess overhead)
     - AUTO: Auto-select based on environment
     """
@@ -46,11 +49,6 @@ class ExecutorBackendType(StrEnum):
     EPHEMERAL = "ephemeral"
     DIRECT = "direct"
     AUTO = "auto"
-
-    @property
-    def is_untrusted(self) -> bool:
-        """Return True if this backend uses untrusted mode (no DB creds in sandbox)."""
-        return self == ExecutorBackendType.EPHEMERAL
 
 
 def _is_nsjail_available() -> bool:
@@ -96,17 +94,6 @@ def _resolve_backend_type() -> ExecutorBackendType:
     return backend_type
 
 
-def get_trust_mode() -> Literal["trusted", "untrusted"]:
-    """Get the trust mode derived from the backend type.
-
-    Returns:
-        'trusted' for sandboxed_pool and direct backends.
-        'untrusted' for ephemeral backend.
-    """
-    backend_type = _resolve_backend_type()
-    return "untrusted" if backend_type.is_untrusted else "trusted"
-
-
 class ExecutorSyncInput(BaseModel):
     repository_id: UUID4
 
@@ -143,11 +130,27 @@ class ResolvedContext(BaseModel):
     variables: dict[str, Any] = {}
     """Pre-resolved workspace variables keyed by variable name."""
 
-    action_impl: ActionImplementation | None = None
+    action_impl: ActionImplementation
     """Action implementation metadata for direct execution without DB."""
 
-    evaluated_args: dict[str, Any] | None = None
+    evaluated_args: dict[str, Any]
     """Pre-evaluated action arguments with all template expressions resolved."""
+
+    # Execution context for SDK calls (used by warm workers with concurrent requests)
+    workspace_id: str
+    """Workspace UUID for SDK context."""
+
+    workflow_id: str
+    """Workflow UUID for SDK context."""
+
+    run_id: str
+    """Run UUID for SDK context."""
+
+    executor_token: str
+    """JWT token for SDK authentication."""
+
+    logical_time: datetime | None = None
+    """Logical time for deterministic FN.now() during workflow execution."""
 
 
 class ExecutorActionErrorInfo(BaseModel):

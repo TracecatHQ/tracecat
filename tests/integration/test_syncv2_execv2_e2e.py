@@ -32,7 +32,11 @@ from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
-from tracecat.executor.schemas import ExecutorResultSuccess
+from tracecat.executor.schemas import (
+    ActionImplementation,
+    ExecutorResultSuccess,
+    ResolvedContext,
+)
 from tracecat.executor.service import (
     RegistryArtifactsContext,
     get_registry_artifacts_for_lock,
@@ -491,9 +495,26 @@ class TestExecuteWithSyncedRegistry:
         ]
 
         # Create input for core.transform.reshape action
+        args = {"value": {"input": "test_value"}}
         input_data = run_action_input_factory(
             action="core.transform.reshape",
-            args={"value": {"input": "test_value"}},
+            args=args,
+        )
+
+        # Create resolved context for execution
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args=args,
+            workspace_id=str(test_role.workspace_id),
+            workflow_id=str(input_data.run_context.wf_id),
+            run_id=str(input_data.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
         )
 
         # Execute via EphemeralBackend
@@ -526,7 +547,9 @@ class TestExecuteWithSyncedRegistry:
                 return_value=mock_artifacts,
             ),
         ):
-            result = await backend.execute(input_data, test_role, timeout=60.0)
+            result = await backend.execute(
+                input_data, test_role, resolved_context=resolved_context, timeout=60.0
+            )
 
         # Verify execution succeeded
         assert isinstance(result, ExecutorResultSuccess), (
@@ -580,10 +603,27 @@ class TestExecuteWithSyncedRegistry:
 
         # Create input with registry lock
         registry_lock = {"tracecat_registry": sync_result.version.version}
+        args = {"value": {"locked": True}}
         input_data = run_action_input_factory(
             action="core.transform.reshape",
-            args={"value": {"locked": True}},
+            args=args,
             registry_lock=registry_lock,
+        )
+
+        # Create resolved context for execution
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args=args,
+            workspace_id=str(test_role.workspace_id),
+            workflow_id=str(input_data.run_context.wf_id),
+            run_id=str(input_data.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
         )
 
         # Execute via EphemeralBackend
@@ -615,7 +655,9 @@ class TestExecuteWithSyncedRegistry:
                 return_value=mock_artifacts,
             ),
         ):
-            result = await backend.execute(input_data, test_role, timeout=60.0)
+            result = await backend.execute(
+                input_data, test_role, resolved_context=resolved_context, timeout=60.0
+            )
 
         # Verify execution succeeded with locked version
         assert isinstance(result, ExecutorResultSuccess), (
@@ -675,7 +717,24 @@ class TestFailureScenarios:
         ]
 
         # Create input
-        input_data = run_action_input_factory()
+        args = {"value": {"test": True}}
+        input_data = run_action_input_factory(args=args)
+
+        # Create resolved context for execution
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args=args,
+            workspace_id=str(test_role.workspace_id),
+            workflow_id=str(input_data.run_context.wf_id),
+            run_id=str(input_data.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
+        )
 
         # Execute should fail
         backend = EphemeralBackend()
@@ -709,7 +768,12 @@ class TestFailureScenarios:
             # Currently raises HTTPStatusError for missing tarball
             # A future improvement could convert this to ExecutorResultFailure
             with pytest.raises(httpx.HTTPStatusError) as exc_info:
-                await backend.execute(input_data, test_role, timeout=30.0)
+                await backend.execute(
+                    input_data,
+                    test_role,
+                    resolved_context=resolved_context,
+                    timeout=30.0,
+                )
 
             assert exc_info.value.response.status_code == 404
 
@@ -834,13 +898,45 @@ class TestMultitenantWorkloads:
         role_b = create_workspace_role(workspace_b_id)
 
         # Create inputs with workspace-specific values
+        value_a = {"workspace": "A", "tenant_id": str(workspace_a_id)}
+        value_b = {"workspace": "B", "tenant_id": str(workspace_b_id)}
         input_a = create_run_input(
             workspace_id=workspace_a_id,
-            value={"workspace": "A", "tenant_id": str(workspace_a_id)},
+            value=value_a,
         )
         input_b = create_run_input(
             workspace_id=workspace_b_id,
-            value={"workspace": "B", "tenant_id": str(workspace_b_id)},
+            value=value_b,
+        )
+
+        # Create resolved contexts for both workspaces
+        resolved_context_a = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args={"value": value_a},
+            workspace_id=str(workspace_a_id),
+            workflow_id=str(input_a.run_context.wf_id),
+            run_id=str(input_a.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
+        )
+        resolved_context_b = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args={"value": value_b},
+            workspace_id=str(workspace_b_id),
+            workflow_id=str(input_b.run_context.wf_id),
+            run_id=str(input_b.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
         )
 
         # Create mock artifacts for both workspaces
@@ -884,8 +980,12 @@ class TestMultitenantWorkloads:
         ):
             # Run both executions concurrently
             result_a, result_b = await asyncio.gather(
-                backend.execute(input_a, role_a, timeout=60.0),
-                backend.execute(input_b, role_b, timeout=60.0),
+                backend.execute(
+                    input_a, role_a, resolved_context=resolved_context_a, timeout=60.0
+                ),
+                backend.execute(
+                    input_b, role_b, resolved_context=resolved_context_b, timeout=60.0
+                ),
             )
 
         # Verify both succeeded
@@ -943,13 +1043,28 @@ class TestMultitenantWorkloads:
 
         # Create multiple inputs for the same workspace
         workspace_id = test_role.workspace_id
-        inputs = [
-            create_run_input(
+        inputs_and_contexts = []
+        for i in range(5):
+            value = {"request_id": i, "workspace": str(workspace_id)}
+            inp = create_run_input(
                 workspace_id=workspace_id,
-                value={"request_id": i, "workspace": str(workspace_id)},
+                value=value,
             )
-            for i in range(5)
-        ]
+            resolved_ctx = ResolvedContext(
+                secrets={},
+                variables={},
+                action_impl=ActionImplementation(
+                    type="udf",
+                    module="tracecat_registry.core.transform",
+                    name="reshape",
+                ),
+                evaluated_args={"value": value},
+                workspace_id=str(workspace_id),
+                workflow_id=str(inp.run_context.wf_id),
+                run_id=str(inp.run_context.wf_run_id),
+                executor_token="mock-token-for-testing",
+            )
+            inputs_and_contexts.append((inp, resolved_ctx))
 
         # Create mock artifacts
         mock_artifacts = [
@@ -991,7 +1106,12 @@ class TestMultitenantWorkloads:
             ),
         ):
             results = await asyncio.gather(
-                *[backend.execute(inp, test_role, timeout=60.0) for inp in inputs]
+                *[
+                    backend.execute(
+                        inp, test_role, resolved_context=resolved_ctx, timeout=60.0
+                    )
+                    for inp, resolved_ctx in inputs_and_contexts
+                ]
             )
 
         # Verify all succeeded
@@ -1052,15 +1172,47 @@ class TestMultitenantWorkloads:
         registry_lock = {"tracecat_registry": sync_result.version.version}
 
         # Create inputs with registry locks
+        value_a = {"workspace": "A", "locked_version": sync_result.version.version}
+        value_b = {"workspace": "B", "locked_version": sync_result.version.version}
         input_a = create_run_input(
             workspace_id=workspace_a_id,
-            value={"workspace": "A", "locked_version": sync_result.version.version},
+            value=value_a,
             registry_lock=registry_lock,
         )
         input_b = create_run_input(
             workspace_id=workspace_b_id,
-            value={"workspace": "B", "locked_version": sync_result.version.version},
+            value=value_b,
             registry_lock=registry_lock,
+        )
+
+        # Create resolved contexts for both workspaces
+        resolved_context_a = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args={"value": value_a},
+            workspace_id=str(workspace_a_id),
+            workflow_id=str(input_a.run_context.wf_id),
+            run_id=str(input_a.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
+        )
+        resolved_context_b = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args={"value": value_b},
+            workspace_id=str(workspace_b_id),
+            workflow_id=str(input_b.run_context.wf_id),
+            run_id=str(input_b.run_context.wf_run_id),
+            executor_token="mock-token-for-testing",
         )
 
         # Create mock artifacts for locked version
@@ -1103,8 +1255,12 @@ class TestMultitenantWorkloads:
             ),
         ):
             result_a, result_b = await asyncio.gather(
-                backend.execute(input_a, role_a, timeout=60.0),
-                backend.execute(input_b, role_b, timeout=60.0),
+                backend.execute(
+                    input_a, role_a, resolved_context=resolved_context_a, timeout=60.0
+                ),
+                backend.execute(
+                    input_b, role_b, resolved_context=resolved_context_b, timeout=60.0
+                ),
             )
 
         # Verify both succeeded with locked version

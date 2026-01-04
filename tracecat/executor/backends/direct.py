@@ -17,17 +17,33 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from tracecat_registry import secrets as registry_secrets
+from tracecat_registry.context import RegistryContext, set_context
+
+from tracecat import config
+from tracecat.contexts import (
+    ctx_interaction,
+    ctx_logger,
+    ctx_role,
+    ctx_run,
+    ctx_session_id,
+)
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResult,
     ExecutorResultFailure,
     ExecutorResultSuccess,
+    ResolvedContext,
 )
-from tracecat.executor.service import run_action_from_input
+from tracecat.executor.service import run_single_action
+from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
+from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.secrets import secrets_manager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -82,11 +98,14 @@ class DirectBackend(ExecutorBackend):
         self,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute action directly in-process."""
-        # Import here to avoid circular dependency
-        from tracecat.executor.action_runner import get_action_runner
+        """Execute action directly in-process using pre-resolved context.
+
+        Uses the same resolution flow as other backends - secrets and args
+        are pre-resolved by invoke_once before calling execute.
+        """
 
         action_name = input.task.action
         logger.debug(
@@ -96,12 +115,10 @@ class DirectBackend(ExecutorBackend):
         )
 
         # Get tarball paths from the action runner's cache
-        # These were extracted by _get_registry_pythonpath in run_action_on_cluster
         tarball_paths: list[str] = []
         runner = get_action_runner()
         cache_dir = runner.cache_dir
         if cache_dir.exists():
-            # Find all extracted tarball directories
             for path in cache_dir.iterdir():
                 if path.is_dir() and path.name.startswith("tarball-"):
                     tarball_paths.append(str(path))
@@ -115,7 +132,7 @@ class DirectBackend(ExecutorBackend):
         try:
             with _temporary_sys_path(tarball_paths):
                 result = await asyncio.wait_for(
-                    run_action_from_input(input, role),
+                    self._execute_with_context(input, role, resolved_context),
                     timeout=timeout,
                 )
             return ExecutorResultSuccess(result=result)
@@ -142,3 +159,72 @@ class DirectBackend(ExecutorBackend):
             )
             error_info = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
             return ExecutorResultFailure(error=error_info)
+
+    async def _execute_with_context(
+        self,
+        input: RunActionInput,
+        role: Role,
+        resolved_context: ResolvedContext,
+    ) -> Any:
+        """Execute action using pre-resolved context."""
+        # Set context variables (matches untrusted_runner.py)
+        ctx_role.set(role)
+        ctx_run.set(input.run_context)
+        ctx_session_id.set(input.session_id)
+        # Always set interaction context (even if None) to prevent stale context leakage
+        ctx_interaction.set(input.interaction_context)
+
+        log = ctx_logger.get(logger.bind(ref=input.task.ref))
+
+        # Set up registry context for SDK access within UDFs
+        registry_ctx = RegistryContext(
+            workspace_id=resolved_context.workspace_id,
+            workflow_id=resolved_context.workflow_id,
+            run_id=resolved_context.run_id,
+            environment=input.run_context.environment,
+            api_url=config.TRACECAT__API_URL,
+            token=resolved_context.executor_token,
+        )
+        set_context(registry_ctx)
+
+        # Load action implementation
+        action = await self._load_action(input.task.action)
+
+        log.info(
+            "Run action",
+            task_ref=input.task.ref,
+            action_name=input.task.action,
+        )
+
+        # Build execution context with pre-resolved secrets and variables
+        context = input.exec_context.copy()
+        context[ExprContext.SECRETS] = resolved_context.secrets
+        context[ExprContext.VARS] = resolved_context.variables
+
+        # Flatten secrets for env sandbox
+        flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
+
+        # Initialize registry secrets context for SDK mode
+        secrets_token = registry_secrets.set_context(flattened_secrets)
+
+        try:
+            # Execute with secrets in environment
+            args = resolved_context.evaluated_args or {}
+            with secrets_manager.env_sandbox(flattened_secrets):
+                result = await run_single_action(
+                    action=action,
+                    args=args,
+                    context=context,
+                )
+
+            log.trace("Result", result=result)
+            return result
+        finally:
+            # Reset secrets context to prevent leakage
+            registry_secrets.reset_context(secrets_token)
+
+    async def _load_action(self, action_name: str) -> Any:
+        """Load the action implementation."""
+        async with RegistryActionsService.with_session() as service:
+            reg_action = await service.get_action(action_name)
+            return service.get_bound(reg_action, mode="execution")

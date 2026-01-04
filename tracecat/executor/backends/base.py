@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
-    from tracecat.executor.schemas import ExecutorResult
+    from tracecat.executor.schemas import ExecutorResult, ResolvedContext
 
 
 class ExecutorBackend(ABC):
@@ -25,6 +25,13 @@ class ExecutorBackend(ABC):
 
     Backends implement different execution strategies with varying
     trade-offs between isolation, latency, and resource usage.
+
+    All backends receive a pre-resolved ResolvedContext containing:
+    - secrets: Pre-resolved secrets
+    - variables: Pre-resolved workspace variables
+    - action_impl: Action implementation metadata
+    - evaluated_args: Pre-evaluated action arguments
+    - Execution context (workspace_id, workflow_id, run_id, executor_token)
     """
 
     @abstractmethod
@@ -32,6 +39,7 @@ class ExecutorBackend(ABC):
         self,
         input: RunActionInput,
         role: Role,
+        resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
         """Execute an action and return result.
@@ -39,6 +47,7 @@ class ExecutorBackend(ABC):
         Args:
             input: The RunActionInput containing task definition and context
             role: The Role for authorization
+            resolved_context: Pre-resolved secrets, variables, action impl, and args
             timeout: Execution timeout in seconds
 
         Returns:
