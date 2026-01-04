@@ -362,11 +362,13 @@ async def _prepare_step_context(
     if impl.type == "template":
         action_impl = ActionImplementation(
             type="template",
+            action_name=step_action,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
         )
     else:
         action_impl = ActionImplementation(
             type="udf",
+            action_name=step_action,
             module=impl.module,
             name=impl.name,
         )
@@ -652,11 +654,13 @@ async def prepare_resolved_context(
     if impl.type == "template":
         action_impl = ActionImplementation(
             type="template",
+            action_name=action_name,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
         )
     else:
         action_impl = ActionImplementation(
             type="udf",
+            action_name=action_name,
             module=impl.module,
             name=impl.name,
         )

@@ -107,7 +107,7 @@ class DirectBackend(ExecutorBackend):
         are pre-resolved by invoke_once before calling execute.
         """
 
-        action_name = input.task.action
+        action_name = resolved_context.action_impl.action_name or input.task.action
         logger.debug(
             "Executing action directly (no sandbox)",
             action=action_name,
@@ -182,8 +182,8 @@ class DirectBackend(ExecutorBackend):
                 "DirectBackend should only receive UDF invocations."
             )
 
-        # Get action name from action_impl for logging and loading
-        action_name = (
+        # Prefer registry action name for logging when available.
+        action_name = action_impl.action_name or (
             f"{action_impl.module}.{action_impl.name}"
             if action_impl.module
             else action_impl.name or "unknown"
@@ -252,18 +252,18 @@ class DirectBackend(ExecutorBackend):
         Uses the module and name from action_impl to load the correct
         action, regardless of what's in input.task.action.
         """
-        if not action_impl.module or not action_impl.name:
-            raise ValueError(
-                f"UDF action missing module or name: module={action_impl.module}, name={action_impl.name}"
-            )
-
-        # Reconstruct the action name from namespace.name pattern
-        # The module is like 'tracecat_registry.integrations.core.transform'
-        # The name is the function name like 'reshape'
-        # We need to find the registry action name which is like 'core.transform.reshape'
         async with RegistryActionsService.with_session() as service:
-            # Search for action by module path and function name
-            # The action_impl contains the exact module and name we need
+            # Fast path: load by registry action name when provided.
+            if action_impl.action_name:
+                reg_action = await service.get_action(action_impl.action_name)
+                return service.get_bound(reg_action, mode="execution")
+
+            # Fallback: resolve via implementation metadata (slower JSONB scan).
+            if not action_impl.module or not action_impl.name:
+                raise ValueError(
+                    "UDF action missing module or name: "
+                    f"module={action_impl.module}, name={action_impl.name}"
+                )
             reg_action = await service.get_action_by_impl(
                 module=action_impl.module,
                 name=action_impl.name,

@@ -107,6 +107,14 @@ class ActionImplementation(BaseModel):
     type: str
     """Action type: 'udf' or 'template'."""
 
+    action_name: str | None = None
+    """Registry action name (e.g., 'core.transform.reshape' or 'testing.my_template').
+
+    This is preferred for loading actions in-process (e.g., DirectBackend) because it
+    allows indexed lookups on (namespace, name) instead of slower JSON implementation
+    scans.
+    """
+
     module: str | None = None
     """Module path for UDF actions (e.g., 'tracecat_registry.integrations.core.transform')."""
 
