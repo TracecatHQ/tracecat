@@ -525,17 +525,17 @@ async def invoke_once(
     # Ensure registry environment is set up (for tarball extraction)
     await _get_registry_pythonpath(input, role)
 
-    # Prepare resolved context (secrets, variables, action impl, evaluated args)
-    # This is done once here and passed to all backends
-    prepared = await _prepare_resolved_context(input, role)
-    resolved_context = prepared.resolved_context
-    mask_values = prepared.mask_values
-
-    # Set logical_time for deterministic FN.now() (applies to in-process backends)
-    # Sandboxed backends set this in their subprocess from resolved_context.logical_time
-    ctx_logical_time.set(resolved_context.logical_time)
-
     try:
+        # Prepare resolved context (secrets, variables, action impl, evaluated args)
+        # This is done once here and passed to all backends
+        prepared = await _prepare_resolved_context(input, role)
+        resolved_context = prepared.resolved_context
+        mask_values = prepared.mask_values
+
+        # Set logical_time for deterministic FN.now() (applies to in-process backends)
+        # Sandboxed backends set this in their subprocess from resolved_context.logical_time
+        ctx_logical_time.set(resolved_context.logical_time)
+
         result = await backend.execute(
             input=input,
             role=role,
