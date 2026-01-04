@@ -16,6 +16,7 @@ from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
+    ctx_interaction,
     ctx_logical_time,
     ctx_role,
     with_session,
@@ -468,18 +469,22 @@ async def prepare_resolved_context(
     if logical_time is not None and isinstance(logical_time, str):
         # logical_time may be serialized as ISO string through Temporal
         logical_time = datetime.fromisoformat(logical_time)
-    token = ctx_logical_time.set(logical_time)
+    logical_time_token = ctx_logical_time.set(logical_time)
+    # Set interaction context for FN.get_interaction() during args evaluation
+    interaction_token = ctx_interaction.set(input.interaction_context)
     try:
         logger.trace(
-            "ctx_logical_time set before template evaluation",
+            "Context set before template evaluation",
             task_ref=task.ref,
             logical_time=logical_time,
+            has_interaction=input.interaction_context is not None,
         )
 
-        # Evaluate templated args (now with logical_time set for deterministic time functions)
+        # Evaluate templated args (now with logical_time and interaction context set)
         evaluated_args = evaluate_templated_args(task, context)
     finally:
-        ctx_logical_time.reset(token)
+        ctx_logical_time.reset(logical_time_token)
+        ctx_interaction.reset(interaction_token)
 
     # Generate executor token for SDK authentication
     executor_role = Role(

@@ -2075,6 +2075,7 @@ export type FeatureFlag =
   | "agent-presets"
   | "case-durations"
   | "case-tasks"
+  | "executor-auth"
   | "registry-client"
   | "registry-sync-v2"
 

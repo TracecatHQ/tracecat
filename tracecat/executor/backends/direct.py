@@ -23,7 +23,13 @@ from tracecat_registry import secrets as registry_secrets
 from tracecat_registry.context import RegistryContext, set_context
 
 from tracecat import config
-from tracecat.contexts import ctx_logger
+from tracecat.contexts import (
+    ctx_interaction,
+    ctx_logger,
+    ctx_role,
+    ctx_run,
+    ctx_session_id,
+)
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.schemas import (
@@ -126,7 +132,7 @@ class DirectBackend(ExecutorBackend):
         try:
             with _temporary_sys_path(tarball_paths):
                 result = await asyncio.wait_for(
-                    self._execute_with_context(input, resolved_context),
+                    self._execute_with_context(input, role, resolved_context),
                     timeout=timeout,
                 )
             return ExecutorResultSuccess(result=result)
@@ -157,9 +163,17 @@ class DirectBackend(ExecutorBackend):
     async def _execute_with_context(
         self,
         input: RunActionInput,
+        role: Role,
         resolved_context: ResolvedContext,
     ) -> Any:
         """Execute action using pre-resolved context."""
+        # Set context variables (matches untrusted_runner.py)
+        ctx_role.set(role)
+        ctx_run.set(input.run_context)
+        ctx_session_id.set(input.session_id)
+        # Always set interaction context (even if None) to prevent stale context leakage
+        ctx_interaction.set(input.interaction_context)
+
         log = ctx_logger.get(logger.bind(ref=input.task.ref))
 
         # Set up registry context for SDK access within UDFs
