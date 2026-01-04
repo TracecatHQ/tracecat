@@ -47,23 +47,6 @@ if not config.flags.registry_client or TYPE_CHECKING:
     from tracecat.tables.common import coerce_optional_to_utc_datetime
     from tracecat.tags.schemas import TagCreate, TagRead
 
-if config.flags.case_tasks:
-    from tracecat_registry._internal.logger import logger
-
-    logger.info("Case tasks feature flag is enabled. Enabling case tasks integration.")
-    from tracecat_ee.cases.tasks import (
-        create_task,
-        get_task,
-        list_tasks,
-        update_task,
-        delete_task,
-    )
-else:
-    create_task = None
-    get_task = None
-    list_tasks = None
-    update_task = None
-    delete_task = None
 
 PriorityType = Literal[
     "unknown",

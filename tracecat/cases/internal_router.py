@@ -51,6 +51,8 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.feature_flags import is_feature_enabled
+from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -58,6 +60,10 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 router = APIRouter(
     prefix="/internal/cases", tags=["internal-cases"], include_in_schema=False
 )
+
+# Sub-routers for feature-gated routes (conditionally included at end of file)
+task_router = APIRouter()
+duration_router = APIRouter()
 
 
 @router.get("")
@@ -660,7 +666,7 @@ class CaseMetricsRequest(Schema):
     case_ids: list[uuid.UUID]
 
 
-@router.post("/metrics", status_code=HTTP_200_OK)
+@duration_router.post("/metrics", status_code=HTTP_200_OK)
 async def get_case_metrics(
     *,
     role: ExecutorWorkspaceRole,
@@ -687,7 +693,7 @@ async def get_case_metrics(
     return await duration_service.compute_time_series(cases)
 
 
-@router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
+@task_router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
 async def list_tasks(
     *,
     role: ExecutorWorkspaceRole,
@@ -718,7 +724,7 @@ async def list_tasks(
     ]
 
 
-@router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
+@task_router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
 async def create_task(
     *,
     role: ExecutorWorkspaceRole,
@@ -759,7 +765,7 @@ async def create_task(
         ) from e
 
 
-@router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
+@task_router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
 async def update_task(
     *,
     role: ExecutorWorkspaceRole,
@@ -804,7 +810,7 @@ async def update_task(
         ) from e
 
 
-@router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+@task_router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
 async def delete_task(
     *,
     role: ExecutorWorkspaceRole,
@@ -831,7 +837,7 @@ async def delete_task(
         ) from e
 
 
-@router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
+@task_router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
 async def get_task_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -866,7 +872,7 @@ async def get_task_by_id(
         ) from e
 
 
-@router.patch("/tasks/{task_id}", status_code=HTTP_200_OK)
+@task_router.patch("/tasks/{task_id}", status_code=HTTP_200_OK)
 async def update_task_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -908,7 +914,7 @@ async def update_task_by_id(
         ) from e
 
 
-@router.delete("/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+@task_router.delete("/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
 async def delete_task_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -1186,3 +1192,14 @@ async def assign_user_by_email_to_case(
         ) from e
 
     return InternalCaseData.model_validate(updated_case, from_attributes=True)
+
+
+# =============================================================================
+# Conditionally include feature-gated sub-routers
+# =============================================================================
+
+if is_feature_enabled(FeatureFlag.CASE_TASKS):
+    router.include_router(task_router)
+
+if is_feature_enabled(FeatureFlag.CASE_DURATIONS):
+    router.include_router(duration_router)
