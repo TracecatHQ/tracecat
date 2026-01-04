@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import warnings
 from collections.abc import Mapping
 from typing import Any
 
@@ -177,8 +178,22 @@ async def _run_udf_async(
     except ImportError:
         pass  # Registry context not available
 
-    # Set secrets as environment variables
-    _set_env_secrets(secrets)
+    # Set secrets in registry secrets context (ContextVar - task-isolated)
+    # NOTE: We use ContextVar instead of os.environ because os.environ is
+    # process-global and not safe for concurrent async execution.
+    secrets_token = None
+    try:
+        from tracecat_registry._internal import secrets as registry_secrets
+
+        secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
+    except ImportError:
+        registry_secrets = None
+        warnings.warn(
+            "Could not import tracecat_registry._internal.secrets - "
+            "secrets may not be available to actions",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     try:
         # Import the module from tracecat_registry
@@ -191,8 +206,9 @@ async def _run_udf_async(
         else:
             return await asyncio.to_thread(fn, **args)
     finally:
-        # Clean up environment variables
-        _clear_env_secrets(secrets)
+        # Reset secrets context to prevent leakage between tasks
+        if registry_secrets is not None and secrets_token is not None:
+            registry_secrets.reset_context(secrets_token)
 
 
 def _run_udf(
@@ -224,7 +240,22 @@ def _run_udf(
     except ImportError:
         pass  # Registry context not available
 
-    # Set secrets as environment variables (same as env_sandbox)
+    # Set secrets in registry secrets context (required when registry_client flag is set)
+    secrets_token = None
+    try:
+        from tracecat_registry._internal import secrets as registry_secrets
+
+        secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
+    except ImportError:
+        registry_secrets = None
+        warnings.warn(
+            "Could not import tracecat_registry._internal.secrets - "
+            "secrets may not be available to actions",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    # Also set env vars for backwards compatibility with actions that read env directly
     _set_env_secrets(secrets)
 
     try:
@@ -238,6 +269,9 @@ def _run_udf(
         else:
             return fn(**args)
     finally:
+        # Reset secrets context
+        if registry_secrets is not None and secrets_token is not None:
+            registry_secrets.reset_context(secrets_token)
         # Clean up environment variables
         _clear_env_secrets(secrets)
 

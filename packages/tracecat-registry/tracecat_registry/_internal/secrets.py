@@ -10,26 +10,41 @@ _secrets_ctx: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
     "registry_secrets_ctx", default={}
 )
 
+# Type alias for the token returned by set_context
+SecretsToken = contextvars.Token[dict[str, str]]
 
-def init_from_env(keys: list[str] | None = None) -> None:
+
+def init_from_env(keys: list[str] | None = None) -> SecretsToken:
     """Initialize secrets context from environment variables.
 
     Called by executor before running UDF in sandbox mode.
     If keys is None, copies all environment variables.
     Otherwise, only copies the specified keys.
+
+    Returns a token that can be used to reset the context.
     """
     if keys is None:
-        _secrets_ctx.set(dict(os.environ))
+        return _secrets_ctx.set(dict(os.environ))
     else:
-        _secrets_ctx.set({k: os.environ[k] for k in keys if k in os.environ})
+        return _secrets_ctx.set({k: os.environ[k] for k in keys if k in os.environ})
 
 
-def set_context(secrets: dict[str, str]) -> None:
+def set_context(secrets: dict[str, str]) -> SecretsToken:
     """Set the secrets context directly.
 
     Called by executor to initialize registry secrets before running UDFs.
+    Returns a token that can be used to reset the context via reset_context().
     """
-    _secrets_ctx.set(secrets)
+    return _secrets_ctx.set(secrets)
+
+
+def reset_context(token: SecretsToken) -> None:
+    """Reset the secrets context to its previous state.
+
+    Args:
+        token: The token returned by set_context() or init_from_env().
+    """
+    _secrets_ctx.reset(token)
 
 
 # Overload declarations for type checking

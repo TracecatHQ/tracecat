@@ -205,20 +205,23 @@ class DirectBackend(ExecutorBackend):
         flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
 
         # Initialize registry secrets context for SDK mode
-        if registry_secrets is not None:
-            registry_secrets.set_context(flattened_secrets)
+        secrets_token = registry_secrets.set_context(flattened_secrets)
 
-        # Execute with secrets in environment
-        args = resolved_context.evaluated_args or {}
-        with secrets_manager.env_sandbox(flattened_secrets):
-            result = await run_single_action(
-                action=action,
-                args=args,
-                context=context,
-            )
+        try:
+            # Execute with secrets in environment
+            args = resolved_context.evaluated_args or {}
+            with secrets_manager.env_sandbox(flattened_secrets):
+                result = await run_single_action(
+                    action=action,
+                    args=args,
+                    context=context,
+                )
 
-        log.trace("Result", result=result)
-        return result
+            log.trace("Result", result=result)
+            return result
+        finally:
+            # Reset secrets context to prevent leakage
+            registry_secrets.reset_context(secrets_token)
 
     async def _load_action(self, action_name: str) -> Any:
         """Load the action implementation."""

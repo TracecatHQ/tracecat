@@ -20,6 +20,9 @@ import importlib
 import os
 from typing import Any
 
+from tracecat_registry import secrets as registry_secrets
+from tracecat_registry.context import RegistryContext, set_context
+
 from tracecat.auth.types import Role
 from tracecat.contexts import (
     ctx_interaction,
@@ -30,21 +33,10 @@ from tracecat.contexts import (
 )
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.executor.schemas import ResolvedContext
-from tracecat.feature_flags import is_feature_enabled
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
-
-# Optional imports for registry SDK
-try:
-    from tracecat_registry import secrets as registry_secrets
-    from tracecat_registry.context import RegistryContext, set_context
-except ImportError:
-    registry_secrets = None  # type: ignore[assignment]
-    RegistryContext = None  # type: ignore[assignment, misc]
-    set_context = None  # type: ignore[assignment]
 
 
 async def run_action_untrusted(
@@ -135,18 +127,24 @@ async def run_action_untrusted(
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
 
     # Initialize registry secrets context for SDK mode
-    _setup_registry_secrets_context(flattened_secrets)
+    secrets_token = registry_secrets.set_context(flattened_secrets)
 
-    # Execute the UDF directly (no DB lookup needed)
-    with secrets_manager.env_sandbox(flattened_secrets):
-        result = await _run_udf(action_impl.module, action_impl.name, evaluated_args)
+    try:
+        # Execute the UDF directly (no DB lookup needed)
+        with secrets_manager.env_sandbox(flattened_secrets):
+            result = await _run_udf(
+                action_impl.module, action_impl.name, evaluated_args
+            )
 
-    # Apply masking
-    if mask_values:
-        result = apply_masks_object(result, masks=mask_values)
+        # Apply masking
+        if mask_values:
+            result = apply_masks_object(result, masks=mask_values)
 
-    log.trace("Result", result=result)
-    return result
+        log.trace("Result", result=result)
+        return result
+    finally:
+        # Reset secrets context to prevent leakage
+        registry_secrets.reset_context(secrets_token)
 
 
 async def _run_udf(
@@ -197,9 +195,3 @@ def _setup_registry_sdk_context() -> None:
         token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
     )
     set_context(registry_ctx)
-
-
-def _setup_registry_secrets_context(flattened_secrets: dict[str, str]) -> None:
-    """Set up registry secrets context for SDK mode."""
-    if registry_secrets is not None and is_feature_enabled(FeatureFlag.REGISTRY_CLIENT):
-        registry_secrets.set_context(flattened_secrets)
