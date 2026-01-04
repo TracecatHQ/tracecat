@@ -19,10 +19,9 @@ from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import (
     ExecutionError,
     RegistryValidationError,
-    TracecatCredentialsError,
 )
 from tracecat.executor.backends.direct import DirectBackend
-from tracecat.executor.service import prepare_resolved_context
+from tracecat.executor.service import dispatch_action
 from tracecat.expressions.expectations import ExpectedField
 
 # Add imports for expression validation
@@ -49,12 +48,11 @@ from tracecat.validation.service import validate_dsl
 
 async def run_action_test(input: RunActionInput, role) -> Any:
     """Test helper: execute action using production code path."""
-    prepared = await prepare_resolved_context(input, role)
+    from tracecat.contexts import ctx_role
+
+    ctx_role.set(role)
     backend = DirectBackend()
-    result = await backend.execute(input, role, prepared.resolved_context)
-    if result.type == "failure":
-        raise ExecutionError(result.error)
-    return result.result
+    return await dispatch_action(backend, input)
 
 
 @pytest.fixture
@@ -766,10 +764,11 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
     )
 
     # Should raise error when required credential is missing
-    with pytest.raises(TracecatCredentialsError) as exc_info:
+    with pytest.raises(ExecutionError) as exc_info:
         await run_action_test(input_required, test_role)
 
     assert "Missing required OAuth integrations" in str(exc_info.value)
+    assert exc_info.value.info.type == "TracecatCredentialsError"
 
 
 @pytest.mark.integration

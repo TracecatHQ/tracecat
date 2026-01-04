@@ -18,13 +18,11 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.exceptions import (
-    ExecutionError,
     RegistryValidationError,
     TracecatValidationError,
 )
 from tracecat.executor import service
 from tracecat.executor.backends.direct import DirectBackend
-from tracecat.executor.service import prepare_resolved_context
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.schemas import (
     ActionStep,
@@ -43,12 +41,11 @@ from tracecat.variables.service import VariablesService
 
 async def run_action_test(input: RunActionInput, role) -> Any:
     """Test helper: execute action using production code path."""
-    prepared = await prepare_resolved_context(input, role)
+    from tracecat.contexts import ctx_role
+
+    ctx_role.set(role)
     backend = DirectBackend()
-    result = await backend.execute(input, role, prepared.resolved_context)
-    if result.type == "failure":
-        raise ExecutionError(result.error)
-    return result.result
+    return await service.dispatch_action(backend, input)
 
 
 @pytest.fixture
