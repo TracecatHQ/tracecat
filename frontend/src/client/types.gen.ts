@@ -3824,6 +3824,18 @@ export type SecretCreate = {
   environment?: string
 }
 
+/**
+ * Aggregated secret definition from registry actions.
+ */
+export type SecretDefinition = {
+  name: string
+  keys: Array<string>
+  optional_keys?: Array<string> | null
+  optional?: boolean
+  actions: Array<string>
+  action_count: number
+}
+
 export type SecretKeyValue = {
   key: string
   value: string
@@ -6149,6 +6161,12 @@ export type SecretsCreateSecretData = {
 
 export type SecretsCreateSecretResponse = unknown
 
+export type SecretsListSecretDefinitionsData = {
+  workspaceId: string
+}
+
+export type SecretsListSecretDefinitionsResponse = Array<SecretDefinition>
+
 export type SecretsGetSecretByNameData = {
   secretName: string
   workspaceId: string
@@ -8423,6 +8441,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/secrets/definitions": {
+    get: {
+      req: SecretsListSecretDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SecretDefinition>
         /**
          * Validation Error
          */

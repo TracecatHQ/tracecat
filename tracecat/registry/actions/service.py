@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean, cast, func, or_, select
-from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecretType,
+    RegistrySecretTypeValidator,
+)
 
 from tracecat import config
 
@@ -41,8 +45,16 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
+
+
+class SecretAggregate(TypedDict):
+    keys: set[str]
+    optional_keys: set[str]
+    optional: bool
+    actions: set[str]
 
 
 class RegistryActionsService(BaseService):
@@ -81,6 +93,77 @@ class RegistryActionsService(BaseService):
 
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def get_aggregated_secrets(self) -> list[SecretDefinition]:
+        organization_id = (
+            self.role.organization_id
+            if self.role is not None
+            else config.TRACECAT__DEFAULT_ORG_ID
+        )
+        statement = select(RegistryAction).where(
+            RegistryAction.organization_id == organization_id,
+            RegistryAction.secrets.is_not(None),
+        )
+        result = await self.session.execute(statement)
+        actions = result.scalars().all()
+
+        aggregated: dict[str, SecretAggregate] = {}
+
+        for action in actions:
+            if not action.secrets:
+                continue
+            action_name = action.action
+            for raw_secret in action.secrets:
+                try:
+                    secret = RegistrySecretTypeValidator.validate_python(raw_secret)
+                except ValidationError as exc:
+                    self.logger.warning(
+                        "Skipping invalid registry secret",
+                        action=action_name,
+                        error=str(exc),
+                    )
+                    continue
+                if isinstance(secret, RegistryOAuthSecret) or secret.name.endswith(
+                    "_oauth"
+                ):
+                    continue
+
+                entry = aggregated.setdefault(
+                    secret.name,
+                    {
+                        "keys": set(),
+                        "optional_keys": set(),
+                        "optional": False,
+                        "actions": set(),
+                    },
+                )
+                if secret.keys:
+                    entry["keys"].update(secret.keys)
+                if secret.optional_keys:
+                    entry["optional_keys"].update(secret.optional_keys)
+                entry["optional"] = entry["optional"] or secret.optional
+                entry["actions"].add(action_name)
+
+        definitions: list[SecretDefinition] = []
+        for name, data in aggregated.items():
+            required_keys = sorted(data["keys"])
+            optional_keys = sorted(set(data["optional_keys"]) - set(required_keys))
+            actions = sorted(data["actions"])
+            definitions.append(
+                SecretDefinition(
+                    name=name,
+                    keys=required_keys,
+                    optional_keys=optional_keys or None,
+                    optional=data["optional"],
+                    actions=actions,
+                    action_count=len(actions),
+                )
+            )
+
+        return sorted(
+            definitions,
+            key=lambda definition: (-definition.action_count, definition.name),
+        )
 
     async def get_action(self, action_name: str) -> RegistryAction:
         """Get an action by name."""

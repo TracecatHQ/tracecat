@@ -8,6 +8,7 @@ This test suite validates:
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from textwrap import dedent
 
@@ -627,3 +628,94 @@ async def test_sync_actions_from_repository_mixed_valid_and_malformed(
     # This test documents the current behavior: no transaction rollback means
     # we could have partial state
     assert len(actions) == 0
+
+
+@pytest.mark.anyio
+async def test_get_aggregated_secrets_merges_skips_oauth_and_sorts(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """Test secret aggregation across registry actions."""
+    other_org_id = uuid.uuid4()
+    actions = [
+        RegistryAction(
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            name="action_one",
+            namespace="tools.alpha",
+            description="Action one",
+            origin="test",
+            type="template",
+            interface={},
+            secrets=[
+                {
+                    "name": "alpha",
+                    "keys": ["KEY1"],
+                    "optional_keys": ["KEY2", "KEY1"],
+                },
+                {
+                    "type": "oauth",
+                    "provider_id": "github",
+                    "grant_type": "authorization_code",
+                },
+            ],
+        ),
+        RegistryAction(
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            name="action_two",
+            namespace="tools.beta",
+            description="Action two",
+            origin="test",
+            type="template",
+            interface={},
+            secrets=[
+                {
+                    "name": "alpha",
+                    "keys": ["KEY3"],
+                    "optional_keys": ["KEY4"],
+                    "optional": True,
+                },
+                {"name": "beta", "keys": ["B1"]},
+            ],
+        ),
+        RegistryAction(
+            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            name="action_four",
+            namespace="tools.delta",
+            description="Action four",
+            origin="test",
+            type="template",
+            interface={},
+            secrets=None,
+        ),
+        RegistryAction(
+            organization_id=other_org_id,
+            name="action_three",
+            namespace="tools.gamma",
+            description="Action three",
+            origin="test",
+            type="template",
+            interface={},
+            secrets=[{"name": "gamma", "keys": ["G1"]}],
+        ),
+    ]
+    session.add_all(actions)
+    await session.commit()
+
+    service = RegistryActionsService(session, role=svc_role)
+    definitions = await service.get_aggregated_secrets()
+
+    assert [definition.name for definition in definitions] == ["alpha", "beta"]
+
+    alpha = definitions[0]
+    assert alpha.keys == ["KEY1", "KEY3"]
+    assert alpha.optional_keys == ["KEY2", "KEY4"]
+    assert alpha.optional is True
+    assert alpha.actions == ["tools.alpha.action_one", "tools.beta.action_two"]
+    assert alpha.action_count == 2
+
+    beta = definitions[1]
+    assert beta.keys == ["B1"]
+    assert beta.optional_keys is None
+    assert beta.optional is False
+    assert beta.actions == ["tools.beta.action_two"]
+    assert beta.action_count == 1

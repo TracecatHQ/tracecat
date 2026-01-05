@@ -298,6 +298,8 @@ import type {
   SecretsDeleteSecretByIdResponse,
   SecretsGetSecretByNameData,
   SecretsGetSecretByNameResponse,
+  SecretsListSecretDefinitionsData,
+  SecretsListSecretDefinitionsResponse,
   SecretsListSecretsData,
   SecretsListSecretsResponse,
   SecretsSearchSecretsData,
@@ -2162,6 +2164,29 @@ export const secretsCreateSecret = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Secret Definitions
+ * List registry secret definitions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns SecretDefinition Successful Response
+ * @throws ApiError
+ */
+export const secretsListSecretDefinitions = (
+  data: SecretsListSecretDefinitionsData
+): CancelablePromise<SecretsListSecretDefinitionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/secrets/definitions",
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

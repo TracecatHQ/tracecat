@@ -345,3 +345,14 @@ class OrganizationSecretRead(SecretReadBase):
             encrypted_keys=obj.encrypted_keys,
             tags=obj.tags,
         )
+
+
+class SecretDefinition(BaseModel):
+    """Aggregated secret definition from registry actions."""
+
+    name: str
+    keys: list[str]
+    optional_keys: list[str] | None = None
+    optional: bool = False
+    actions: list[str]
+    action_count: int
