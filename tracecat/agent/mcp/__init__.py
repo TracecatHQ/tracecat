@@ -5,7 +5,7 @@ This package provides two MCP servers:
 2. Proxy stdin MCP Server - Per-job, explicit tools that forward to trusted server
 """
 
-from tracecat.agent.mcp.http_executor import (
+from tracecat.agent.mcp.executor import (
     ActionExecutionError,
     ActionNotAllowedError,
     execute_action,

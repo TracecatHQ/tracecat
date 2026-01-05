@@ -1,10 +1,13 @@
-"""Trusted HTTP MCP server for Tracecat agent.
+"""Trusted MCP server for Tracecat agent.
 
 A FastMCP-based server with a single generic `execute_action` tool.
 The proxy MCP server (inside nsjail) handles tool schema/explicitness for Claude.
 
 Run with uvicorn on a Unix socket:
-    uvicorn tracecat.agent.mcp.http_server:app --uds /var/run/tracecat/mcp.sock
+    uvicorn tracecat.agent.mcp.trusted_server:app --uds /var/run/tracecat/mcp.sock
+
+All action execution uses nsjail sandboxing. To test locally, run in a
+Docker container with nsjail installed (e.g., the executor image).
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from tracecat.agent.mcp.http_executor import execute_action
+from tracecat.agent.mcp.executor import execute_action
 from tracecat.agent.tokens import verify_mcp_token
 
 mcp = FastMCP("tracecat-actions")

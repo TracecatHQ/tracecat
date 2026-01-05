@@ -8,20 +8,17 @@ via JWT tokens minted by the agent executor.
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any
 from uuid import UUID
 
-import jwt
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy.proxy_server import ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
-from pydantic import BaseModel, Field
 
 from tracecat.agent.config import MODEL_CONFIGS
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 
@@ -29,57 +26,12 @@ from tracecat.db.engine import get_async_session_context_manager
 # Configuration
 # -----------------------------------------------------------------------------
 
-SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY", "")
-
-# LLM Token constants
-LLM_TOKEN_ISSUER = "tracecat-agent-executor"
-LLM_TOKEN_AUDIENCE = "tracecat-llm-gateway"
-LLM_TOKEN_SUBJECT = "tracecat-agent-runtime"
-
 # Allowed providers
 ALLOWED_PROVIDERS = frozenset(
     {"openai", "anthropic", "bedrock", "custom-model-provider"}
 )
 
 logger = logging.getLogger("llm_gateway")
-
-
-# -----------------------------------------------------------------------------
-# LLM Token Claims
-# -----------------------------------------------------------------------------
-
-
-class LLMTokenClaims(BaseModel):
-    """Claims extracted from a verified LLM token."""
-
-    workspace_id: str = Field(..., description="Workspace UUID as string")
-    session_id: str = Field(..., description="Agent session UUID as string")
-    model: str = Field(..., description="The model to use for this run")
-    model_settings: dict[str, Any] = Field(default_factory=dict)
-    output_type: str | dict | None = Field(default=None)
-    use_workspace_credentials: bool = Field(default=False)
-
-
-def verify_llm_token(token: str) -> LLMTokenClaims:
-    """Verify LLM JWT and return extracted claims."""
-    if not SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
-    try:
-        payload = jwt.decode(
-            token,
-            SERVICE_KEY,
-            algorithms=["HS256"],
-            audience=LLM_TOKEN_AUDIENCE,
-            issuer=LLM_TOKEN_ISSUER,
-        )
-    except jwt.PyJWTError as exc:
-        raise ValueError(f"Invalid LLM token: {exc}") from exc
-
-    if payload.get("sub") != LLM_TOKEN_SUBJECT:
-        raise ValueError("Invalid LLM token subject")
-
-    return LLMTokenClaims.model_validate(payload)
 
 
 # -----------------------------------------------------------------------------
