@@ -55,6 +55,7 @@ from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.schemas import (
     BoundRegistryAction,
     RegistryActionImplValidator,
+    TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
@@ -340,6 +341,243 @@ async def run_template_action(
     )
 
 
+async def _prepare_step_context(
+    step_action: str,
+    evaluated_args: dict[str, Any],
+    parent_resolved: ResolvedContext,
+    input: RunActionInput,
+    role: Role,
+) -> ResolvedContext:
+    """Prepare ResolvedContext for a template step, reusing parent secrets.
+
+    This avoids re-fetching secrets for each step - they're already available
+    from the parent template's prepare_resolved_context() call which fetches
+    all secrets recursively.
+    """
+    # Only fetch action impl (lightweight - no secret fetching)
+    async with RegistryActionsService.with_session() as service:
+        reg_action = await service.get_action(step_action)
+
+    impl = RegistryActionImplValidator.validate_python(reg_action.implementation)
+    if impl.type == "template":
+        action_impl = ActionImplementation(
+            type="template",
+            action_name=step_action,
+            template_definition=impl.template_action.definition.model_dump(mode="json"),
+        )
+    else:
+        action_impl = ActionImplementation(
+            type="udf",
+            action_name=step_action,
+            module=impl.module,
+            name=impl.name,
+        )
+
+    # Mint new executor token for step (required for SDK authentication)
+    executor_role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        access_level=AccessLevel.ADMIN,
+        workspace_id=role.workspace_id,
+        organization_id=role.organization_id,
+        user_id=role.user_id,
+    )
+    executor_token = mint_executor_token(
+        role=executor_role,
+        run_id=str(input.run_context.wf_run_id),
+        workflow_id=str(input.run_context.wf_id),
+    )
+
+    # Reuse parent secrets/variables, use pre-evaluated args
+    return ResolvedContext(
+        secrets=parent_resolved.secrets,  # Reuse - already fetched recursively
+        variables=parent_resolved.variables,  # Reuse
+        action_impl=action_impl,
+        evaluated_args=evaluated_args,  # Already evaluated against template context
+        workspace_id=parent_resolved.workspace_id,
+        workflow_id=parent_resolved.workflow_id,
+        run_id=parent_resolved.run_id,
+        executor_token=executor_token,  # Mint new token for step
+        logical_time=parent_resolved.logical_time,
+    )
+
+
+async def _execute_template_action(
+    backend: ExecutorBackend,
+    input: RunActionInput,
+    ctx: DispatchActionContext,
+    resolved_context: ResolvedContext,
+    timeout: float,
+) -> Any:
+    """Execute a template action by orchestrating its steps.
+
+    This function handles template execution at the service layer, allowing
+    template actions to work with any backend (including sandboxed backends).
+
+    Each step becomes a separate backend.execute() call with its own ResolvedContext.
+    Secrets are reused from the parent context (already fetched recursively).
+
+    Args:
+        backend: The executor backend to use for step execution
+        input: The original RunActionInput
+        ctx: Dispatch context containing the role
+        resolved_context: Pre-resolved context with secrets and template definition
+        timeout: Execution timeout
+
+    Returns:
+        The evaluated returns expression result
+    """
+    role = ctx.role
+
+    # Parse template definition from resolved context
+    template_def_dict = resolved_context.action_impl.template_definition
+    if not template_def_dict:
+        raise ValueError("Template action missing template_definition")
+
+    template_def = TemplateActionDefinition.model_validate(template_def_dict)
+
+    # Build template context for expression evaluation
+    # Secrets context uses the pre-resolved secrets from parent
+    secrets_context = resolved_context.secrets
+    env_context = input.exec_context.get(ExprContext.ENV, {})
+    vars_context = resolved_context.variables
+
+    # The evaluated_args are the template's input arguments
+    validated_input_args = resolved_context.evaluated_args
+
+    template_context = cast(
+        ExecutionContext,
+        {
+            ExprContext.SECRETS: secrets_context,
+            ExprContext.ENV: env_context,
+            ExprContext.VARS: vars_context,
+            ExprContext.TEMPLATE_ACTION_INPUTS: validated_input_args,
+            ExprContext.TEMPLATE_ACTION_STEPS: {},
+        },
+    )
+
+    logger.info(
+        "Executing template action via backend",
+        action=template_def.action,
+        steps=len(template_def.steps),
+    )
+
+    # Execute each step
+    for step in template_def.steps:
+        logger.trace(
+            "Executing template step",
+            step_ref=step.ref,
+            step_action=step.action,
+        )
+
+        # Evaluate step args with template context
+        evaled_args = cast(
+            dict[str, Any],
+            eval_templated_object(
+                step.args, operand=cast(ExprOperand, template_context)
+            ),
+        )
+
+        # Prepare step context (reuses parent secrets, no re-fetch)
+        step_resolved = await _prepare_step_context(
+            step_action=step.action,
+            evaluated_args=evaled_args,
+            parent_resolved=resolved_context,
+            input=input,
+            role=role,
+        )
+
+        # Execute step via _invoke_step (handles nested templates)
+        try:
+            step_result = await _invoke_step(
+                backend=backend,
+                resolved_context=step_resolved,
+                input=input,
+                ctx=ctx,
+                timeout=timeout,
+            )
+        except ExecutionError:
+            # Re-raise with step context preserved
+            raise
+        except Exception as e:
+            # Wrap other exceptions
+            logger.error(
+                "Template step failed",
+                step_ref=step.ref,
+                step_action=step.action,
+                error=str(e),
+            )
+            raise ExecutionError(
+                info=ExecutorActionErrorInfo.from_exc(e, action_name=step.action)
+            ) from e
+
+        # Store step result for subsequent steps
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResult(
+            result=step_result,
+            result_typename=type(step_result).__name__,
+        )
+        logger.trace("Template step completed", step_ref=step.ref)
+
+    # Evaluate returns expression with final template context
+    return eval_templated_object(
+        template_def.returns, operand=cast(ExprOperand, template_context)
+    )
+
+
+async def _invoke_step(
+    backend: ExecutorBackend,
+    resolved_context: ResolvedContext,
+    input: RunActionInput,
+    ctx: DispatchActionContext,
+    timeout: float,
+) -> Any:
+    """Execute a template step. Skips masking (done at root level).
+
+    This function handles both UDF and nested template actions.
+    For templates, it recurses into _execute_template_action.
+    For UDFs, it delegates to the backend.
+
+    Args:
+        backend: The executor backend to use
+        resolved_context: Pre-resolved context for the step
+        input: The original RunActionInput
+        ctx: Dispatch context containing the role
+        timeout: Execution timeout
+
+    Returns:
+        The step execution result (unmasked)
+    """
+    match resolved_context.action_impl.type:
+        case "template":
+            # Nested template - recurse
+            return await _execute_template_action(
+                backend=backend,
+                input=input,
+                ctx=ctx,
+                resolved_context=resolved_context,
+                timeout=timeout,
+            )
+        case "udf":
+            # Leaf node - execute via backend
+            result = await backend.execute(
+                input=input,
+                role=ctx.role,
+                resolved_context=resolved_context,
+                timeout=timeout,
+            )
+            if isinstance(result, ExecutorResultSuccess):
+                return result.result
+            else:
+                # Error response from backend
+                error_data = result.error
+                exec_result = ExecutorActionErrorInfo.model_validate(error_data)
+                raise ExecutionError(info=exec_result)
+        case _:
+            raise ValueError(
+                f"Unknown action type: {resolved_context.action_impl.type}"
+            )
+
+
 async def _get_registry_pythonpath(input: RunActionInput, role: Role) -> str | None:
     """Get the PYTHONPATH for the current registry version.
 
@@ -416,11 +654,13 @@ async def prepare_resolved_context(
     if impl.type == "template":
         action_impl = ActionImplementation(
             type="template",
+            action_name=action_name,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
         )
     else:
         action_impl = ActionImplementation(
             type="udf",
+            action_name=action_name,
             module=impl.module,
             name=impl.name,
         )
@@ -546,6 +786,7 @@ async def invoke_once(
     try:
         # Prepare resolved context (secrets, variables, action impl, evaluated args)
         # This is done once here and passed to all backends
+        # For templates, secrets are fetched recursively for all steps
         prepared = await prepare_resolved_context(input, role)
         resolved_context = prepared.resolved_context
         mask_values = prepared.mask_values
@@ -554,12 +795,22 @@ async def invoke_once(
         # Sandboxed backends set this in their subprocess from resolved_context.logical_time
         ctx_logical_time.set(resolved_context.logical_time)
 
-        result = await backend.execute(
-            input=input,
-            role=role,
+        # Delegate execution to _invoke_step (shared logic for template/udf)
+        # This handles both template orchestration and UDF execution
+        action_result = await _invoke_step(
+            backend=backend,
             resolved_context=resolved_context,
+            input=input,
+            ctx=ctx,
             timeout=timeout,
         )
+
+    except ExecutionError as e:
+        # ExecutionError already has proper error info, just add loop context if needed
+        if iteration is not None and e.info is not None:
+            e.info.loop_iteration = iteration
+            e.info.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
+        raise
     except Exception as e:
         # Infrastructure errors need to be wrapped for consistent error handling
         logger.error(
@@ -575,21 +826,11 @@ async def invoke_once(
             exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
         raise ExecutionError(info=exec_result) from e
 
-    # Handle response from backend
-    if isinstance(result, ExecutorResultSuccess):
-        # Apply secret masking uniformly across all backends
-        action_result = result.result
-        if mask_values:
-            action_result = apply_masks_object(action_result, masks=mask_values)
-        return action_result
-
-    # Error response from backend
-    error_data = result.error
-    exec_result = ExecutorActionErrorInfo.model_validate(error_data)
-    if iteration is not None:
-        exec_result.loop_iteration = iteration
-        exec_result.loop_vars = input.exec_context.get(ExprContext.LOCAL_VARS)
-    raise ExecutionError(info=exec_result)
+    # Apply secret masking at root level only
+    # Steps don't mask - masking happens once here after all execution completes
+    if mask_values:
+        action_result = apply_masks_object(action_result, masks=mask_values)
+    return action_result
 
 
 async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> Any:
