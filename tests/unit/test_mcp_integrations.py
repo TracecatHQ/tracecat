@@ -815,7 +815,6 @@ class TestMCPProviderOAuth:
                 id="dummy_mcp",
                 name="Dummy MCP",
                 description="Dummy MCP provider for tests",
-                setup_steps=[],
                 requires_config=False,
                 enabled=True,
             )
