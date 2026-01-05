@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import jwt
 import pytest
-from fastapi import HTTPException
 from starlette.requests import Request
 
 from tracecat import config
@@ -250,17 +249,21 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_null_user(
 
 
 @pytest.mark.anyio
-async def test_role_dependency_executor_workspace_mismatch(
+async def test_role_dependency_executor_uses_jwt_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    """Verify that workspace_id is extracted from JWT, not query param.
+
+    The workspace_id query param is no longer validated - the Role's
+    workspace_id comes entirely from the JWT token.
+    """
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})
 
-    workspace_id = uuid.uuid4()
-    different_workspace_id = uuid.uuid4()
+    jwt_workspace_id = uuid.uuid4()
 
     token = mint_executor_token(
-        workspace_id=workspace_id,
+        workspace_id=jwt_workspace_id,
         user_id=uuid.uuid4(),
         wf_id="wf-1",
         wf_exec_id="run-1",
@@ -268,17 +271,20 @@ async def test_role_dependency_executor_workspace_mismatch(
     )
     request = _make_request(token)
 
-    with pytest.raises(HTTPException) as exc:
-        await _role_dependency(
-            request=request,
-            session=AsyncMock(),
-            workspace_id=different_workspace_id,  # Different workspace
-            user=None,
-            api_key=None,
-            allow_user=False,
-            allow_service=False,
-            allow_executor=True,
-            require_workspace="yes",
-        )
+    # Pass None for workspace_id - it should come from JWT
+    resolved = await _role_dependency(
+        request=request,
+        session=AsyncMock(),
+        workspace_id=None,
+        user=None,
+        api_key=None,
+        allow_user=False,
+        allow_service=False,
+        allow_executor=True,
+        require_workspace="yes",
+    )
 
-    assert exc.value.status_code == 403
+    # The resolved role should have workspace_id from the JWT
+    assert resolved.workspace_id == jwt_workspace_id
+    assert resolved.type == "service"
+    assert resolved.service_id == "tracecat-executor"
