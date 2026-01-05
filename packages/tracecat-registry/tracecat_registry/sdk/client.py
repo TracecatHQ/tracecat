@@ -163,12 +163,6 @@ class TracecatClient:
         if headers:
             request_headers.update(headers)
 
-        # Add workspace_id to query params if set
-        if self._workspace_id:
-            params = params or {}
-            if "workspace_id" not in params:
-                params["workspace_id"] = self._workspace_id
-
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.request(
                 method,

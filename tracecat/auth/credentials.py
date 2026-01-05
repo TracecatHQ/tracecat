@@ -417,6 +417,30 @@ def RoleACL(
             "Must allow either user, service, executor, or require workspace"
         )
 
+    # Executor-only auth: workspace_id comes from JWT, not query param
+    is_executor_only = allow_executor and not allow_user and not allow_service
+    if is_executor_only and require_workspace == "yes":
+
+        async def role_dependency_executor_only(
+            request: Request,
+            session: AsyncDBSession,
+        ) -> Role:
+            return await _role_dependency(
+                request=request,
+                session=session,
+                workspace_id=None,  # Comes from JWT
+                user=None,
+                api_key=None,
+                allow_user=False,
+                allow_service=False,
+                allow_executor=True,
+                min_access_level=min_access_level,
+                require_workspace=require_workspace,
+                require_workspace_roles=require_workspace_roles,
+            )
+
+        return Depends(role_dependency_executor_only)
+
     if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
 
