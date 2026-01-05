@@ -34,8 +34,6 @@ from pydantic_core import to_json
 
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
-from tracecat.auth.types import AccessLevel
-from tracecat.auth.types import Role as AuthRole
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
@@ -429,18 +427,13 @@ class ActionRunner:
             sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
 
             # Mint an executor token for SDK calls
-            executor_role = AuthRole(
-                type="service",
-                service_id="tracecat-executor",
-                access_level=AccessLevel.ADMIN,
-                workspace_id=role.workspace_id,
-                organization_id=role.organization_id,
-                user_id=role.user_id,
-            )
+            if role.workspace_id is None:
+                raise ValueError("workspace_id is required for sandbox execution")
             executor_token = mint_executor_token(
-                role=executor_role,
-                run_id=str(input.run_context.wf_run_id),
-                workflow_id=str(input.run_context.wf_id),
+                workspace_id=role.workspace_id,
+                user_id=role.user_id,
+                wf_id=str(input.run_context.wf_id),
+                wf_exec_id=str(input.run_context.wf_run_id),
             )
             sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
             # Only forward sandbox-safe feature flags (not EE flags like case-tasks)
