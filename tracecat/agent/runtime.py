@@ -1,20 +1,57 @@
-"""Pydantic AI agents with tool calling."""
+"""Agent runtimes for Tracecat.
 
+This module provides:
+- ClaudeAgentRuntime: Stateless, sandboxed runtime for Claude SDK agents
+- run_agent: Legacy sync agent execution using Pydantic AI
+- run_agent_sync: Synchronous agent execution helper
+"""
+
+from __future__ import annotations
+
+import os
 import uuid
+from pathlib import Path
 from timeit import default_timer
 from typing import Any
 
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    HookMatcher,
+)
+from claude_agent_sdk.types import (
+    HookContext,
+    HookInput,
+    StreamEvent,
+    SyncHookJSONOutput,
+    ToolResultBlock,
+    UserMessage,
+)
 from pydantic_ai import Agent, UsageLimits
-from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
-from pydantic_core import to_jsonable_python
 
+from tracecat.agent.adapter.claude import ClaudeSDKAdapter
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
+from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
+from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.parsers import try_parse_json
+from tracecat.agent.sandbox.exceptions import AgentSandboxValidationError
+from tracecat.agent.sandbox.protocol import RuntimeInitPayload
+from tracecat.agent.sandbox.socket_io import SocketStreamWriter
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.agent.stream.types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
+from tracecat.agent.types import (
+    AgentConfig,
+    AgentRuntime,
+    MCPServerConfig,
+    OutputType,
+)
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
     TRACECAT__AGENT_MAX_RETRIES,
@@ -23,6 +60,28 @@ from tracecat.config import (
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+
+_REGISTRY_META_TOOL_GUIDANCE = """
+<TOOLING>
+Tracecat registry access is exposed via a small set of MCP meta-tools (to avoid loading 400+ tools into context).
+
+When you need to use a Tracecat registry action:
+- First call `mcp__tracecat-registry__list_tools` to discover candidate tools. Prefer filtering by `namespace` (e.g. "core", "tools.slack") and/or `search`.
+- Then call `mcp__tracecat-registry__get_tool_schema` with {"tool_name": "<full.tool.name>"} to see the required/optional input fields.
+- Finally call `mcp__tracecat-registry__execute_tool` with:
+  {
+    "tool_name": "<full.tool.name>",
+    "args": { ... validated arguments matching the schema ... }
+  }
+</TOOLING>
+""".strip()
+
+
+def _build_claude_system_prompt(base_prompt: str | None) -> str:
+    """Build the Claude system prompt with Tracecat MCP tool guidance appended."""
+    if base_prompt and base_prompt.strip():
+        return base_prompt.strip() + "\n\n" + _REGISTRY_META_TOOL_GUIDANCE
+    return _REGISTRY_META_TOOL_GUIDANCE
 
 
 async def run_agent_sync(
@@ -148,7 +207,6 @@ async def run_agent(
     start_time = default_timer()
 
     session_id = ctx_session_id.get() or uuid.uuid4()
-    message_nodes: list[ModelMessage] = []
 
     role = ctx_role.get()
     if role is None or role.workspace_id is None:
@@ -208,5 +266,323 @@ async def run_agent(
         raise AgentRunError(
             exc_cls=type(e),
             exc_msg=str(e),
-            message_history=to_jsonable_python(message_nodes),
+            message_history=[],
         ) from e
+
+
+class ClaudeAgentRuntime(AgentRuntime):
+    """Stateless, sandboxed Claude SDK runtime.
+
+    This runtime is designed to run inside an NSJail sandbox without database access.
+    All I/O happens via Unix sockets:
+    - Control socket: Receives init payload, streams events back to orchestrator
+    - MCP socket: Tool execution via trusted MCP server
+
+    The orchestrator (outside the sandbox) handles:
+    - Session persistence (SDK session files)
+    - Message persistence (chat history)
+    - Approval flow coordination
+    """
+
+    def __init__(self, socket_writer: SocketStreamWriter):
+        self._socket_writer = socket_writer
+        self._session_id: uuid.UUID | None = None
+        self._allowed_actions: dict[str, MCPToolDefinition] | None = None
+        self._tool_approvals: dict[str, bool] | None = None
+        self._pending_approval_tool_ids: set[str] = set()
+        self._client: ClaudeSDKClient | None = None
+        self._was_interrupted: bool = False
+
+    def _get_session_file_path(self, sdk_session_id: str) -> Path:
+        """Derive the session file path from SDK session ID.
+
+        The Claude SDK stores sessions at:
+        ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
+
+        Raises:
+            AgentSandboxValidationError: If sdk_session_id contains path traversal.
+        """
+        # Validate session ID to prevent path traversal
+        # Only allow alphanumeric, hyphens, and underscores
+        if not sdk_session_id or not all(
+            c.isalnum() or c in "-_" for c in sdk_session_id
+        ):
+            raise AgentSandboxValidationError(
+                f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
+            )
+
+        cwd = os.getcwd()
+        encoded_cwd = cwd.replace("/", "-")
+        claude_dir = Path.home() / ".claude" / "projects" / encoded_cwd
+        return claude_dir / f"{sdk_session_id}.jsonl"
+
+    def _write_session_file(
+        self,
+        sdk_session_id: str,
+        sdk_session_data: str,
+    ) -> Path:
+        """Write session data to local filesystem for SDK resume."""
+        session_file_path = self._get_session_file_path(sdk_session_id)
+        session_file_path.parent.mkdir(parents=True, exist_ok=True)
+        session_file_path.write_text(sdk_session_data)
+        logger.info(
+            "Wrote session file for resume",
+            sdk_session_id=sdk_session_id,
+            path=str(session_file_path),
+        )
+        return session_file_path
+
+    async def _handle_approval_request(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        tool_use_id: str,
+    ) -> None:
+        """Handle an approval request by streaming and interrupting.
+
+        Streams APPROVAL_REQUEST event via socket and interrupts the client.
+        The orchestrator handles persistence and coordination.
+        """
+        self._pending_approval_tool_ids.add(tool_use_id)
+
+        approval_event = UnifiedStreamEvent.approval_request_event(
+            [
+                ToolCallContent(
+                    id=tool_use_id,
+                    name=tool_name,
+                    input=tool_input,
+                )
+            ]
+        )
+        await self._socket_writer.send_event(approval_event)
+
+        logger.info(
+            "Approval request streamed, interrupting run",
+            tool_name=tool_name,
+        )
+
+        if self._client is not None:
+            self._was_interrupted = True
+            await self._client.interrupt()
+
+    async def _pre_tool_use_hook(
+        self,
+        input_data: HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> SyncHookJSONOutput:
+        """PreToolUse hook invoked by Claude SDK before each tool use.
+
+        Auto-approves:
+        - Discovery tools (list_tools, get_tool_schema)
+        - User MCP server tools
+        - execute_tool when action is in allowed_actions and not requiring approval
+
+        Denies (with approval request):
+        - execute_tool when tool_approvals[action] is True (requires approval)
+        """
+        tool_name: str = input_data.get("tool_name", "")
+        tool_input: dict[str, Any] = input_data.get("tool_input", {})
+
+        # Auto-approve discovery tools
+        if tool_name in (
+            "mcp__tracecat-registry__list_tools",
+            "mcp__tracecat-registry__get_tool_schema",
+        ):
+            logger.debug("Auto-approving discovery tool", tool_name=tool_name)
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                }
+            }
+
+        # Auto-approve user MCP server tools
+        if tool_name.startswith("mcp__user-mcp-"):
+            logger.debug("Auto-approving user MCP tool", tool_name=tool_name)
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                }
+            }
+
+        # For execute_tool, check if approval is required
+        if tool_name == "mcp__tracecat-registry__execute_tool":
+            underlying_action = tool_input.get("tool_name")
+
+            if underlying_action:
+                # Check if this action requires approval
+                requires_approval = (
+                    self._tool_approvals is not None
+                    and self._tool_approvals.get(underlying_action) is True
+                )
+
+                if requires_approval:
+                    # Requires approval - stream request and deny
+                    if tool_use_id:
+                        await self._handle_approval_request(
+                            underlying_action,
+                            tool_input.get("args", {}),
+                            tool_use_id,
+                        )
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": f"Tool '{underlying_action}' requires approval. Request sent for review.",
+                        }
+                    }
+
+                # Auto-approve - if orchestrator passed it in allowed_actions, it's allowed
+                logger.debug(
+                    "Auto-approving execute_tool",
+                    underlying_action=underlying_action,
+                )
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "allow",
+                    }
+                }
+
+        # For any other tool not in our allowed set, reject
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": f"Tool '{tool_name}' is not allowed.",
+            }
+        }
+
+    async def _stop_hook(
+        self,
+        input_data: HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> SyncHookJSONOutput:
+        """Stop hook invoked by Claude SDK when the agent run completes.
+
+        Sends session update to orchestrator for persistence.
+        """
+        transcript_path = input_data.get("transcript_path")
+        sdk_session_id = input_data.get("session_id")
+
+        logger.debug(
+            "Stop hook: sending session update",
+            transcript_path=transcript_path,
+            sdk_session_id=sdk_session_id,
+        )
+
+        if sdk_session_id and transcript_path:
+            transcript_file = Path(transcript_path)
+            if transcript_file.exists():
+                sdk_session_data = transcript_file.read_text()
+                await self._socket_writer.send_session_update(
+                    sdk_session_id, sdk_session_data
+                )
+
+        return {}
+
+    async def run(self, payload: RuntimeInitPayload) -> None:
+        """Run an agent with the given initialization payload.
+
+        This is the main entry point for sandboxed execution.
+        Called after receiving init payload from orchestrator via socket.
+        """
+        self._session_id = payload.session_id
+
+        # Use resolved tool definitions from orchestrator
+        self._allowed_actions = payload.allowed_actions
+        self._tool_approvals = payload.config.tool_approvals
+
+        # Write session file locally if resuming
+        resume_session_id: str | None = None
+        if payload.sdk_session_id and payload.sdk_session_data:
+            self._write_session_file(payload.sdk_session_id, payload.sdk_session_data)
+            resume_session_id = payload.sdk_session_id
+
+        # Stream user message event
+        user_event = UnifiedStreamEvent.user_message_event(payload.user_prompt)
+        await self._socket_writer.send_event(user_event)
+
+        try:
+            # Build MCP servers config
+            mcp_servers: dict[str, Any] = {}
+
+            # Create proxy MCP server using existing infrastructure
+            if self._allowed_actions:
+                proxy_config = await create_proxy_mcp_server(
+                    allowed_actions=self._allowed_actions,
+                    auth_token=payload.jwt_token,
+                    trusted_socket_path=payload.mcp_socket_path,
+                )
+                mcp_servers["tracecat-registry"] = proxy_config
+
+            # Add user-defined MCP servers
+            if payload.config.mcp_servers:
+                for i, server_config in enumerate(payload.config.mcp_servers):
+                    mcp_servers[f"user-mcp-{i}"] = {
+                        "type": "http",
+                        "url": server_config["url"],
+                        "headers": server_config.get("headers", {}),
+                    }
+
+            system_prompt = _build_claude_system_prompt(payload.config.instructions)
+
+            options = ClaudeAgentOptions(
+                include_partial_messages=True,
+                resume=resume_session_id,
+                env={
+                    "MAX_THINKING_TOKENS": "1024",
+                    "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
+                    "ANTHROPIC_BASE_URL": payload.litellm_base_url,
+                },
+                model="agent",
+                system_prompt=system_prompt,
+                mcp_servers=mcp_servers,
+                hooks={
+                    "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
+                    "Stop": [HookMatcher(hooks=[self._stop_hook])],
+                },
+            )
+
+            async with ClaudeSDKClient(options=options) as client:
+                self._client = client
+                await client.query(payload.user_prompt)
+
+                async for message in client.receive_response():
+                    if isinstance(message, StreamEvent):
+                        unified = ClaudeSDKAdapter().to_unified_event(message)
+                        await self._socket_writer.send_event(unified)
+                    elif isinstance(message, UserMessage):
+                        # Stream tool results from user messages
+                        if isinstance(message.content, list):
+                            for block in message.content:
+                                if isinstance(block, ToolResultBlock):
+                                    # Skip denial results for pending approvals
+                                    if (
+                                        block.tool_use_id
+                                        in self._pending_approval_tool_ids
+                                    ):
+                                        continue
+                                    await self._socket_writer.send_event(
+                                        UnifiedStreamEvent(
+                                            type=StreamEventType.TOOL_RESULT,
+                                            tool_call_id=block.tool_use_id,
+                                            tool_output=block.content,
+                                            is_error=block.is_error or False,
+                                        )
+                                    )
+
+        except Exception as e:
+            logger.error(
+                "Error in ClaudeAgentRuntime",
+                error=str(e),
+                session_id=payload.session_id,
+            )
+            await self._socket_writer.send_error(str(e))
+            raise
+        finally:
+            self._client = None
+            await self._socket_writer.send_done()

@@ -84,10 +84,9 @@ async def list_chats(
         limit=limit,
     )
 
-    chats = [
+    return [
         ChatReadMinimal.model_validate(chat, from_attributes=True) for chat in chats
     ]
-    return chats
 
 
 @router.get("/{chat_id}")
@@ -229,6 +228,7 @@ async def chat_with_vercel_streaming(
         deps = await PersistableStreamingAgentDeps.new(
             chat_id, workspace_id, persistent=True, namespace="chat"
         )
+
         executor = AioStreamingAgentExecutor(deps=deps)
 
         # Run chat turn (handles both start and continue cases)

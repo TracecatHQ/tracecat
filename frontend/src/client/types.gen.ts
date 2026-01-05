@@ -1537,6 +1537,14 @@ export type ChatUpdate = {
    * Agent preset to use for the chat session (set to null for default instructions)
    */
   agent_preset_id?: string | null
+  /**
+   * Claude SDK session ID for resumption
+   */
+  sdk_session_id?: string | null
+  /**
+   * Claude SDK session JSONL content for resumption
+   */
+  sdk_session_data?: string | null
 }
 
 /**
