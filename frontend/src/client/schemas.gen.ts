@@ -5155,6 +5155,30 @@ export const $ChatUpdate = {
       description:
         "Agent preset to use for the chat session (set to null for default instructions)",
     },
+    sdk_session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sdk Session Id",
+      description: "Claude SDK session ID for resumption",
+    },
+    sdk_session_data: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sdk Session Data",
+      description: "Claude SDK session JSONL content for resumption",
+    },
   },
   type: "object",
   title: "ChatUpdate",

@@ -412,6 +412,26 @@ TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
 If not set, will be auto-detected from a known dependency's location.
 """
 
+# === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
+TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT", "600")
+)
+"""Default timeout for agent sandbox execution in seconds (10 minutes)."""
+
+TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
+    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB", "4096")
+)
+"""Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
+
+TRACECAT__DISABLE_AGENT_NSJAIL = os.environ.get(
+    "TRACECAT__DISABLE_AGENT_NSJAIL", "true"
+).lower() in ("true", "1")
+"""Disable nsjail sandbox for agent runtime.
+
+When True (default), agent runs in-process without sandbox isolation.
+When False, spawns ClaudeAgentRuntime inside nsjail with full OS-level isolation.
+"""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
