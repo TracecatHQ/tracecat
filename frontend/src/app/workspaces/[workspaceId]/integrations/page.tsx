@@ -7,37 +7,11 @@ import type { IntegrationStatus, OAuthGrantType } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Item, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { useIntegrations, useListMcpIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-// Helper function to get status display info
-const getStatusInfo = (status: IntegrationStatus) => {
-  switch (status) {
-    case "connected":
-      return {
-        label: "Connected",
-        className: "bg-green-50 text-green-700 border-green-200",
-      }
-    case "configured":
-      return {
-        label: "Connection incomplete",
-        className: "bg-amber-50 text-amber-700 border-amber-200",
-      }
-    case "not_configured":
-      return {
-        label: "Available",
-        className: "bg-gray-50 text-gray-600 border-gray-200",
-      }
-    default:
-      return {
-        label: "Available",
-        className: "bg-gray-50 text-gray-600 border-gray-200",
-      }
-  }
-}
 
 type IntegrationItem =
   | {
@@ -205,89 +179,60 @@ export default function IntegrationsPage() {
       </div>
 
       {/* Integrations List */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
         {filteredIntegrations.map((item) => {
           const isOAuth = item.type === "oauth"
           const status: IntegrationStatus =
             item.type === "mcp" ? "connected" : item.integration_status
-          const statusInfo = getStatusInfo(status)
           const isClickable =
             (isOAuth && item.enabled) || (!isOAuth && item.type === "mcp")
 
           return (
-            <Card
+            <Item
               key={isOAuth ? `${item.id}-${item.grant_type}` : item.id}
+              variant="outline"
               className={cn(
-                "border-gray-200 p-4 transition-colors",
                 isClickable
-                  ? "cursor-pointer hover:bg-gray-50"
+                  ? "cursor-pointer hover:bg-muted/50"
                   : "cursor-not-allowed opacity-60"
               )}
               onClick={() => handleIntegrationClick(item)}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {isOAuth ? (
-                    <ProviderIcon
-                      providerId={item.id}
-                      className="h-8 w-8 rounded-md p-1.5"
-                    />
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 text-xs font-medium text-gray-600">
-                      MCP
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-medium text-gray-900">
-                        {item.name}
-                      </h3>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">
-                      {item.description ||
-                        `Connect with ${item.name} to enhance your workflows`}
-                    </p>
+              <ItemMedia>
+                {isOAuth ? (
+                  <ProviderIcon
+                    providerId={item.id}
+                    className="size-7 rounded"
+                  />
+                ) : (
+                  <div className="flex size-7 items-center justify-center rounded bg-muted text-xs font-medium text-muted-foreground">
+                    MCP
                   </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {isOAuth && item.enabled && (
-                    <>
-                      <span
-                        className={cn(
-                          "h-1.5 w-1.5 rounded-full",
-                          status === "connected" && "bg-green-500",
-                          status === "configured" && "bg-yellow-500",
-                          status === "not_configured" && "bg-gray-400"
-                        )}
-                      />
-                      <span className="text-xs text-gray-500">
-                        {statusInfo.label}
-                      </span>
-                    </>
-                  )}
-                  {isOAuth && !item.enabled && (
-                    <span className="text-xs text-gray-500">Coming soon</span>
-                  )}
-                  {!isOAuth && (
-                    <>
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                      <span className="text-xs text-gray-500">Connected</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </Card>
+                )}
+              </ItemMedia>
+              <ItemContent>
+                <ItemTitle className="text-sm">{item.name}</ItemTitle>
+              </ItemContent>
+              <span
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  isOAuth && item.enabled && status === "connected" && "bg-green-500",
+                  isOAuth && item.enabled && status === "configured" && "bg-yellow-500",
+                  isOAuth && item.enabled && status === "not_configured" && "bg-gray-400",
+                  isOAuth && !item.enabled && "bg-gray-300",
+                  !isOAuth && "bg-green-500"
+                )}
+              />
+            </Item>
           )
         })}
       </div>
       {filteredIntegrations.length === 0 && (
-        <Card className="border-gray-200">
-          <div className="py-12 text-center">
-            <p className="text-sm text-gray-500">
-              No integrations found matching your criteria.
-            </p>
-          </div>
-        </Card>
+        <div className="col-span-2 py-12 text-center">
+          <p className="text-sm text-muted-foreground">
+            No integrations found matching your criteria.
+          </p>
+        </div>
       )}
       <MCPIntegrationDialog hideTrigger />
     </div>
