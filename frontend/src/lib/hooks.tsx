@@ -162,6 +162,7 @@ import {
   type SchedulesDeleteScheduleData,
   type SchedulesUpdateScheduleData,
   type SecretCreate,
+  type SecretDefinition,
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
@@ -178,6 +179,7 @@ import {
   schedulesUpdateSchedule,
   secretsCreateSecret,
   secretsDeleteSecretById,
+  secretsListSecretDefinitions,
   secretsListSecrets,
   secretsUpdateSecretById,
   settingsGetAgentSettings,
@@ -1322,6 +1324,24 @@ export function useWorkspaceSecrets(workspaceId: string) {
     createSecret,
     updateSecretById,
     deleteSecretById,
+  }
+}
+
+export function useSecretDefinitions(workspaceId: string) {
+  const {
+    data: secretDefinitions,
+    isLoading: secretDefinitionsIsLoading,
+    error: secretDefinitionsError,
+  } = useQuery<SecretDefinition[], ApiError>({
+    queryKey: ["secret-definitions", workspaceId],
+    queryFn: async () => await secretsListSecretDefinitions({ workspaceId }),
+    enabled: !!workspaceId,
+  })
+
+  return {
+    secretDefinitions,
+    secretDefinitionsIsLoading,
+    secretDefinitionsError,
   }
 }
 

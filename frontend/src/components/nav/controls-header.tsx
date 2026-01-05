@@ -12,6 +12,7 @@ import {
   PanelRight,
   PenLine,
   Plus,
+  Search,
   Sparkles,
   Trash2,
   User,
@@ -694,15 +695,47 @@ function MembersActions() {
 }
 
 function CredentialsActions() {
+  const workspaceId = useWorkspaceId()
+  const pathname = usePathname()
+  const isOnCatalogPage = pathname?.includes("/credentials/catalog")
+
   return (
-    <NewCredentialsDialog>
-      <NewCredentialsDialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 bg-white">
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add credential
-        </Button>
-      </NewCredentialsDialogTrigger>
-    </NewCredentialsDialog>
+    <div className="flex items-center gap-2">
+      <div className="inline-flex items-center rounded-md border bg-transparent">
+        <Link
+          href={`/workspaces/${workspaceId}/credentials`}
+          className={cn(
+            "flex h-7 items-center gap-1.5 rounded-l-sm px-2.5 text-xs font-medium transition-colors",
+            !isOnCatalogPage
+              ? "bg-background text-accent-foreground"
+              : "bg-accent text-muted-foreground hover:bg-muted/50"
+          )}
+        >
+          <Key className="h-3.5 w-3.5" />
+          Credentials
+        </Link>
+        <Link
+          href={`/workspaces/${workspaceId}/credentials/catalog`}
+          className={cn(
+            "flex h-7 items-center gap-1.5 rounded-r-sm px-2.5 text-xs font-medium transition-colors",
+            isOnCatalogPage
+              ? "bg-background text-accent-foreground"
+              : "bg-accent text-muted-foreground hover:bg-muted/50"
+          )}
+        >
+          <Search className="h-3.5 w-3.5" />
+          Catalog
+        </Link>
+      </div>
+      <NewCredentialsDialog>
+        <NewCredentialsDialogTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add credential
+          </Button>
+        </NewCredentialsDialogTrigger>
+      </NewCredentialsDialog>
+    </div>
   )
 }
 

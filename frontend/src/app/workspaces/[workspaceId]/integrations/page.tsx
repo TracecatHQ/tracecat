@@ -216,9 +216,18 @@ export default function IntegrationsPage() {
               <span
                 className={cn(
                   "size-1.5 shrink-0 rounded-full",
-                  isOAuth && item.enabled && status === "connected" && "bg-green-500",
-                  isOAuth && item.enabled && status === "configured" && "bg-yellow-500",
-                  isOAuth && item.enabled && status === "not_configured" && "bg-gray-400",
+                  isOAuth &&
+                    item.enabled &&
+                    status === "connected" &&
+                    "bg-green-500",
+                  isOAuth &&
+                    item.enabled &&
+                    status === "configured" &&
+                    "bg-yellow-500",
+                  isOAuth &&
+                    item.enabled &&
+                    status === "not_configured" &&
+                    "bg-gray-400",
                   isOAuth && !item.enabled && "bg-gray-300",
                   !isOAuth && "bg-green-500"
                 )}
