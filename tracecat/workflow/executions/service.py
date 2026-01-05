@@ -693,6 +693,7 @@ class WorkflowExecutionsService:
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
+        registry_lock: dict[str, str] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
@@ -706,6 +707,7 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
+            registry_lock=registry_lock,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -784,6 +786,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
+        registry_lock: dict[str, str] | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -799,6 +802,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             trigger_type=trigger_type,
             time_anchor=time_anchor,
+            registry_lock=registry_lock,
         )
 
     async def _dispatch_workflow(
@@ -810,6 +814,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
+        registry_lock: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -841,6 +846,7 @@ class WorkflowExecutionsService:
             kwargs=kwargs,
             trigger_type=trigger_type,
             execution_type=execution_type,
+            registry_lock=registry_lock,
         )
 
         pairs = [trigger_type.to_temporal_search_attr_pair()]
@@ -867,6 +873,7 @@ class WorkflowExecutionsService:
                     trigger_inputs=trigger_inputs,
                     execution_type=execution_type,
                     time_anchor=time_anchor,
+                    registry_lock=registry_lock,
                 ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,

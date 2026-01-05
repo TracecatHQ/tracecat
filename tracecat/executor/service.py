@@ -586,12 +586,14 @@ async def _get_registry_pythonpath(input: RunActionInput, role: Role) -> str | N
     tarball_uris: list[str] = []
     try:
         if input.registry_lock:
+            logger.debug(
+                "Resolving registry artifacts from lock",
+                registry_lock=input.registry_lock,
+            )
             artifacts = await get_registry_artifacts_for_lock(input.registry_lock)
         else:
             artifacts = await get_registry_artifacts_cached(role)
 
-        # Collect ALL tarball URIs, not just the first one
-        # This is important for multi-registry setups (e.g., builtin + custom)
         for artifact in artifacts:
             if artifact.tarball_uri:
                 tarball_uris.append(artifact.tarball_uri)

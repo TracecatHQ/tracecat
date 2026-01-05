@@ -158,6 +158,7 @@ async def _incoming_webhook(
                 wf_id=workflow_id,
                 payload=p,
                 trigger_type=TriggerType.WEBHOOK,
+                registry_lock=defn.registry_lock,
             )
         # Currently just return the last response's wf_exec_id
         response = WorkflowExecutionCreateResponse(
@@ -174,6 +175,7 @@ async def _incoming_webhook(
             wf_id=workflow_id,
             payload=payload,
             trigger_type=TriggerType.WEBHOOK,
+            registry_lock=defn.registry_lock,
         )
 
     # Response handling
@@ -225,6 +227,7 @@ async def incoming_webhook_wait(
         wf_id=workflow_id,
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
+        registry_lock=defn.registry_lock,
     )
 
     return response["result"]
