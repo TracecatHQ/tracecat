@@ -43,10 +43,10 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
     Uses lazy imports to avoid circular dependencies with action_runner.
     """
     match backend_type:
-        case ExecutorBackendType.SANDBOXED_POOL:
-            from tracecat.executor.backends.sandboxed_pool import SandboxedPoolBackend
+        case ExecutorBackendType.POOL:
+            from tracecat.executor.backends.pool import PoolBackend
 
-            return SandboxedPoolBackend()
+            return PoolBackend()
         case ExecutorBackendType.EPHEMERAL:
             from tracecat.executor.backends.ephemeral import EphemeralBackend
 

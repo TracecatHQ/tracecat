@@ -4,7 +4,7 @@ This module defines the abstract base class for executor backends,
 enabling pluggable execution strategies for different deployment scenarios.
 
 Available backends:
-- sandboxed_pool: Warm nsjail workers for single-tenant, high throughput
+- pool: Warm nsjail workers for single-tenant, high throughput
 - ephemeral: Cold nsjail subprocess per action for multitenant workloads
 - direct: In-process execution for development only
 """

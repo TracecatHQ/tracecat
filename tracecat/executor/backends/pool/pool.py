@@ -18,7 +18,7 @@ Architecture:
     ┌─────────────────────────────────────────────────────────────────┐
     │ Host Process                                                    │
     │                                                                 │
-    │  SandboxedWorkerPool                                            │
+    │  WorkerPool                                                     │
     │       │                                                         │
     │       ├──► nsjail[0] ──► pool_worker.py (warm Python)           │
     │       │      │              listening on /work/task.sock        │
@@ -84,8 +84,8 @@ def get_available_cpus() -> int:
 
 
 @dataclass
-class SandboxedWorkerInfo:
-    """Metadata about a sandboxed worker."""
+class WorkerInfo:
+    """Metadata about a pool worker."""
 
     worker_id: int
     pid: int
@@ -104,7 +104,7 @@ class SandboxedWorkerInfo:
 
 
 @dataclass
-class SandboxedWorkerPool:
+class WorkerPool:
     """Pool of warm workers running inside nsjail sandboxes.
 
     Each worker is a persistent nsjail process with Python already started
@@ -126,12 +126,11 @@ class SandboxedWorkerPool:
     )
     startup_timeout: float = 60.0
     memory_limit_mb: int = 512
-    _workers: list[SandboxedWorkerInfo] = field(default_factory=list)
+    _workers: list[WorkerInfo] = field(default_factory=list)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _started: bool = False
     _base_dir: Path = field(
-        default_factory=lambda: Path(tempfile.gettempdir())
-        / "tracecat-sandboxed-workers"
+        default_factory=lambda: Path(tempfile.gettempdir()) / "tracecat-pool-workers"
     )
     _metrics_task: asyncio.Task[None] | None = field(default=None, repr=False)
     _metrics_interval: float = 10.0  # Emit metrics every 10 seconds
@@ -210,7 +209,7 @@ class SandboxedWorkerPool:
             yield
 
     async def start(self) -> None:
-        """Start the sandboxed worker pool."""
+        """Start the worker pool."""
         if self._started:
             return
 
@@ -225,29 +224,29 @@ class SandboxedWorkerPool:
                 shutil.rmtree(d, ignore_errors=True)
 
         logger.info(
-            "Starting sandboxed worker pool",
+            "Starting worker pool",
             size=self.size,
             max_concurrent_per_worker=self.max_concurrent_per_worker,
             base_dir=str(self._base_dir),
         )
 
         # Spawn workers
-        spawn_tasks = [self._spawn_sandboxed_worker(i) for i in range(self.size)]
+        spawn_tasks = [self._spawn_worker(i) for i in range(self.size)]
         results = await asyncio.gather(*spawn_tasks, return_exceptions=True)
 
         for result in results:
             if isinstance(result, BaseException):
-                logger.error("Failed to spawn sandboxed worker", error=str(result))
+                logger.error("Failed to spawn worker", error=str(result))
             else:
                 self._workers.append(result)
 
         if not self._workers:
-            raise RuntimeError("Failed to start any sandboxed workers")
+            raise RuntimeError("Failed to start any workers")
 
         self._started = True
         total_capacity = len(self._workers) * self.max_concurrent_per_worker
         logger.info(
-            "Sandboxed worker pool ready",
+            "Worker pool ready",
             num_workers=len(self._workers),
             max_concurrent_per_worker=self.max_concurrent_per_worker,
             total_capacity=total_capacity,
@@ -257,8 +256,8 @@ class SandboxedWorkerPool:
         # Start metrics emission background task
         self._metrics_task = asyncio.create_task(self._emit_metrics_loop())
 
-    async def _spawn_sandboxed_worker(self, worker_id: int) -> SandboxedWorkerInfo:
-        """Spawn a new worker (sandboxed with nsjail or direct subprocess)."""
+    async def _spawn_worker(self, worker_id: int) -> WorkerInfo:
+        """Spawn a new worker (nsjail sandboxed or direct subprocess)."""
         # Create work directory for this worker
         work_dir = self._base_dir / f"sandbox-{worker_id}" / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -312,7 +311,7 @@ class SandboxedWorkerPool:
             mode=mode,
         )
 
-        return SandboxedWorkerInfo(
+        return WorkerInfo(
             worker_id=worker_id,
             pid=proc.pid,
             process=proc,
@@ -336,7 +335,7 @@ class SandboxedWorkerPool:
         cmd = [
             sys.executable,
             "-m",
-            "tracecat.executor.backends.sandboxed_pool.worker",
+            "tracecat.executor.backends.pool.worker",
         ]
 
         logger.debug(
@@ -541,7 +540,7 @@ class SandboxedWorkerPool:
                 "exec_bin {",
                 '  path: "/usr/local/bin/python3"',
                 '  arg: "-m"',
-                '  arg: "tracecat.executor.backends.sandboxed_pool.worker"',
+                '  arg: "tracecat.executor.backends.pool.worker"',
                 "}",
                 "",
                 'cwd: "/app"',
@@ -550,7 +549,7 @@ class SandboxedWorkerPool:
 
         return "\n".join(config_lines)
 
-    async def _get_available_worker(self, timeout: float = 30.0) -> SandboxedWorkerInfo:
+    async def _get_available_worker(self, timeout: float = 30.0) -> WorkerInfo:
         """Get a worker with available capacity.
 
         Workers can handle multiple concurrent tasks up to max_concurrent_per_worker.
@@ -572,7 +571,7 @@ class SandboxedWorkerPool:
                     total_active = 0
 
                     # Find all available workers and minimum load
-                    available_workers: list[SandboxedWorkerInfo] = []
+                    available_workers: list[WorkerInfo] = []
                     min_load = float("inf")
                     for worker in self._workers:
                         total_active += worker.active_tasks
@@ -684,9 +683,7 @@ class SandboxedWorkerPool:
                         elapsed_s=f"{elapsed:.1f}",
                         **pool_state,
                     )
-                    raise RuntimeError(
-                        "No available sandboxed worker (all at capacity)"
-                    )
+                    raise RuntimeError("No available worker (all at capacity)")
 
                 await asyncio.sleep(0.01)
         finally:
@@ -828,7 +825,7 @@ class SandboxedWorkerPool:
                 total_stuck=len(stuck_workers),
             )
 
-    async def _release_worker(self, worker: SandboxedWorkerInfo) -> None:
+    async def _release_worker(self, worker: WorkerInfo) -> None:
         """Release a worker back to the pool.
 
         Decrements active_tasks and recycles the worker if it has completed
@@ -865,15 +862,15 @@ class SandboxedWorkerPool:
         if should_recycle:
             await self._recycle_worker(worker)
 
-    async def _recycle_worker(self, worker: SandboxedWorkerInfo) -> None:
-        """Recycle a sandboxed worker.
+    async def _recycle_worker(self, worker: WorkerInfo) -> None:
+        """Recycle a pool worker.
 
         This method is called outside the lock to avoid blocking the pool.
         It terminates the old worker, spawns a new one, then acquires the lock
         briefly to update the workers list.
         """
         logger.info(
-            "Recycling sandboxed worker",
+            "Recycling worker",
             worker_id=worker.worker_id,
             tasks_completed=worker.tasks_completed,
         )
@@ -902,9 +899,9 @@ class SandboxedWorkerPool:
         )
 
         # Spawn new worker (outside lock - this can take up to startup_timeout)
-        new_worker: SandboxedWorkerInfo | None = None
+        new_worker: WorkerInfo | None = None
         try:
-            new_worker = await self._spawn_sandboxed_worker(worker.worker_id)
+            new_worker = await self._spawn_worker(worker.worker_id)
         except Exception as e:
             self._lifetime_worker_spawn_failures += 1
             logger.error(
@@ -936,7 +933,7 @@ class SandboxedWorkerPool:
         resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute a task on an available sandboxed worker.
+        """Execute a task on an available pool worker.
 
         Args:
             input: The RunActionInput containing task and execution context
@@ -945,7 +942,7 @@ class SandboxedWorkerPool:
             timeout: Execution timeout in seconds
         """
         if not self._started:
-            raise RuntimeError("Sandboxed worker pool not started")
+            raise RuntimeError("Worker pool not started")
 
         action_name = input.task.action
         task_ref = input.task.ref
@@ -1045,13 +1042,13 @@ class SandboxedWorkerPool:
 
     async def _execute_on_worker(
         self,
-        worker: SandboxedWorkerInfo,
+        worker: WorkerInfo,
         input: RunActionInput,
         role: Role,
         resolved_context: ResolvedContext,
         timeout: float,
     ) -> ExecutorResult:
-        """Execute task on a sandboxed worker via Unix socket."""
+        """Execute task on a pool worker via Unix socket."""
 
         start_time = time.monotonic()
         action_name = input.task.action
@@ -1142,7 +1139,7 @@ class SandboxedWorkerPool:
             result = _ExecutorResultAdapter.validate_python(data)
 
             logger.info(
-                "Sandboxed worker task completed",
+                "Pool worker task completed",
                 worker_id=worker.worker_id,
                 action=action_name,
                 task_ref=task_ref,
@@ -1155,7 +1152,7 @@ class SandboxedWorkerPool:
         except TimeoutError:
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.error(
-                "Sandboxed worker task timed out",
+                "Pool worker task timed out",
                 worker_id=worker.worker_id,
                 action=action_name,
                 task_ref=task_ref,
@@ -1173,7 +1170,7 @@ class SandboxedWorkerPool:
         except asyncio.CancelledError:
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "Sandboxed worker task cancelled",
+                "Pool worker task cancelled",
                 worker_id=worker.worker_id,
                 action=action_name,
                 task_ref=task_ref,
@@ -1186,7 +1183,7 @@ class SandboxedWorkerPool:
         except Exception as e:
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.error(
-                "Sandboxed worker task failed",
+                "Pool worker task failed",
                 worker_id=worker.worker_id,
                 action=action_name,
                 task_ref=task_ref,
@@ -1247,8 +1244,8 @@ class SandboxedWorkerPool:
         }
 
     async def shutdown(self) -> None:
-        """Shutdown all sandboxed workers."""
-        logger.info("Shutting down sandboxed worker pool")
+        """Shutdown all pool workers."""
+        logger.info("Shutting down worker pool")
 
         # Cancel metrics task first
         if self._metrics_task is not None:
@@ -1268,7 +1265,7 @@ class SandboxedWorkerPool:
                 await worker.process.wait()
             except Exception as e:
                 logger.warning(
-                    "Error shutting down sandboxed worker",
+                    "Error shutting down worker",
                     worker_id=worker.worker_id,
                     error=str(e),
                 )
@@ -1284,22 +1281,22 @@ class SandboxedWorkerPool:
 
 
 # Global pool
-_sandboxed_pool: SandboxedWorkerPool | None = None
-_sandboxed_pool_lock = asyncio.Lock()
+_worker_pool: WorkerPool | None = None
+_worker_pool_lock = asyncio.Lock()
 
 
-async def get_sandboxed_worker_pool(size: int | None = None) -> SandboxedWorkerPool:
-    """Get or create the global sandboxed worker pool.
+async def get_worker_pool(size: int | None = None) -> WorkerPool:
+    """Get or create the global worker pool.
 
     Pool size is determined by (in order of precedence):
     1. Explicit `size` parameter
     2. TRACECAT__EXECUTOR_WORKER_POOL_SIZE env var
     3. Auto-sized based on available CPUs (respects container limits)
     """
-    global _sandboxed_pool
+    global _worker_pool
 
-    async with _sandboxed_pool_lock:
-        if _sandboxed_pool is None:
+    async with _worker_pool_lock:
+        if _worker_pool is None:
             if size is not None:
                 pool_size = size
             elif env_size := os.environ.get("TRACECAT__EXECUTOR_WORKER_POOL_SIZE"):
@@ -1312,17 +1309,17 @@ async def get_sandboxed_worker_pool(size: int | None = None) -> SandboxedWorkerP
                     available_cpus=pool_size,
                 )
 
-            _sandboxed_pool = SandboxedWorkerPool(size=pool_size)
-            await _sandboxed_pool.start()
+            _worker_pool = WorkerPool(size=pool_size)
+            await _worker_pool.start()
 
-        return _sandboxed_pool
+        return _worker_pool
 
 
-async def shutdown_sandboxed_worker_pool() -> None:
-    """Shutdown the global sandboxed worker pool."""
-    global _sandboxed_pool
+async def shutdown_worker_pool() -> None:
+    """Shutdown the global worker pool."""
+    global _worker_pool
 
-    async with _sandboxed_pool_lock:
-        if _sandboxed_pool is not None:
-            await _sandboxed_pool.shutdown()
-            _sandboxed_pool = None
+    async with _worker_pool_lock:
+        if _worker_pool is not None:
+            await _worker_pool.shutdown()
+            _worker_pool = None

@@ -1,4 +1,4 @@
-"""Sandboxed worker pool executor backend.
+"""Worker pool executor backend.
 
 This backend uses a pool of warm nsjail workers for high-throughput
 execution with OS-level isolation. Workers are persistent and reused
@@ -16,9 +16,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tracecat.executor.backends.base import ExecutorBackend
-from tracecat.executor.backends.sandboxed_pool.pool import (
-    get_sandboxed_worker_pool,
-    shutdown_sandboxed_worker_pool,
+from tracecat.executor.backends.pool.pool import (
+    get_worker_pool,
+    shutdown_worker_pool,
 )
 from tracecat.logger import logger
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from tracecat.executor.schemas import ExecutorResult, ResolvedContext
 
 
-class SandboxedPoolBackend(ExecutorBackend):
+class PoolBackend(ExecutorBackend):
     """Warm nsjail worker pool backend.
 
     Maintains a pool of persistent nsjail sandbox workers with Python
@@ -51,19 +51,19 @@ class SandboxedPoolBackend(ExecutorBackend):
         resolved_context: ResolvedContext,
         timeout: float = 300.0,
     ) -> ExecutorResult:
-        """Execute action in the sandboxed worker pool.
+        """Execute action in the worker pool.
 
         Workers execute in untrusted mode without DB credentials.
         All context is pre-resolved by the caller.
         """
         action_name = input.task.action
         logger.debug(
-            "Executing action in sandboxed pool",
+            "Executing action in pool",
             action=action_name,
             task_ref=input.task.ref,
         )
 
-        pool = await get_sandboxed_worker_pool()
+        pool = await get_worker_pool()
         return await pool.execute(
             input=input,
             role=role,
@@ -73,10 +73,10 @@ class SandboxedPoolBackend(ExecutorBackend):
 
     async def start(self) -> None:
         """Initialize the worker pool."""
-        logger.info("Starting sandboxed pool backend")
-        await get_sandboxed_worker_pool()
+        logger.info("Starting pool backend")
+        await get_worker_pool()
 
     async def shutdown(self) -> None:
         """Shutdown the worker pool."""
-        logger.info("Shutting down sandboxed pool backend")
-        await shutdown_sandboxed_worker_pool()
+        logger.info("Shutting down pool backend")
+        await shutdown_worker_pool()

@@ -759,7 +759,7 @@ async def invoke_once(
     """Execute action using the configured backend.
 
     The backend is selected via TRACECAT__EXECUTOR_BACKEND config:
-    - 'sandboxed_pool': Warm nsjail workers (single-tenant, high throughput)
+    - 'pool': Warm nsjail workers (single-tenant, high throughput)
     - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation)
     - 'direct': In-process execution (development only)
     - 'auto': Auto-select based on environment

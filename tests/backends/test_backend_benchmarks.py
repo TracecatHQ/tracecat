@@ -28,10 +28,10 @@ Run benchmarks:
     pytest-benchmark compare results.json --columns=min,max,mean,stddev
 
     # With specific backend (requires nsjail on Linux)
-    TRACECAT__EXECUTOR_BACKEND=sandboxed_pool \
+    TRACECAT__EXECUTOR_BACKEND=pool \
         uv run pytest tests/backends/test_backend_benchmarks.py -v
 
-Note: Sandboxed backends (sandboxed_pool, ephemeral) require Linux with nsjail.
+Note: Sandboxed backends (pool, ephemeral) require Linux with nsjail.
 """
 
 from __future__ import annotations
@@ -566,7 +566,7 @@ class TestBackendComparison:
     """Comparative benchmarks between all three backends.
 
     These tests compare performance characteristics between
-    direct, sandboxed_pool, and ephemeral backends.
+    direct, pool, and ephemeral backends.
 
     Prerequisites:
     - Registry must be synced with tarballs available in MinIO
@@ -575,7 +575,7 @@ class TestBackendComparison:
 
     Backend configurations:
     - direct: In-process execution (no sandboxing)
-    - sandboxed_pool: Pooled nsjail workers (full OS-level isolation)
+    - pool: Pooled nsjail workers (full OS-level isolation)
     - ephemeral: Per-action nsjail sandbox (maximum isolation)
     """
 
@@ -584,7 +584,7 @@ class TestBackendComparison:
         self,
         require_registry_sync: None,
         direct_backend: ExecutorBackend,
-        sandboxed_pool_backend: ExecutorBackend,
+        pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         benchmark_role: Role,
@@ -593,12 +593,12 @@ class TestBackendComparison:
 
         Measures per-action latency for:
         - direct: In-process execution
-        - sandboxed_pool: Pooled nsjail workers
+        - pool: Pooled nsjail workers
         - ephemeral: Per-action nsjail sandbox
         """
         backends = {
             "direct": direct_backend,
-            "sandboxed_pool": sandboxed_pool_backend,
+            "pool": pool_backend,
             "ephemeral": ephemeral_backend,
         }
 
@@ -633,7 +633,7 @@ class TestBackendComparison:
         print("-" * 60)
 
         direct_mean = results["direct"]["mean_ms"]
-        for name in ["direct", "sandboxed_pool", "ephemeral"]:
+        for name in ["direct", "pool", "ephemeral"]:
             r = results[name]
             overhead = r["mean_ms"] - direct_mean
             overhead_str = f"+{overhead:.1f}ms" if name != "direct" else "-"
@@ -645,8 +645,8 @@ class TestBackendComparison:
         print("=" * 60)
 
         # Direct should be fastest (in-process has no IPC overhead)
-        assert results["direct"]["mean_ms"] <= results["sandboxed_pool"]["mean_ms"], (
-            "Direct should be faster than sandboxed_pool"
+        assert results["direct"]["mean_ms"] <= results["pool"]["mean_ms"], (
+            "Direct should be faster than pool"
         )
 
     @pytest.mark.anyio
@@ -654,7 +654,7 @@ class TestBackendComparison:
         self,
         require_registry_sync: None,
         direct_backend: ExecutorBackend,
-        sandboxed_pool_backend: ExecutorBackend,
+        pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         benchmark_role: Role,
@@ -665,7 +665,7 @@ class TestBackendComparison:
         """
         backends = {
             "direct": direct_backend,
-            "sandboxed_pool": sandboxed_pool_backend,
+            "pool": pool_backend,
             "ephemeral": ephemeral_backend,
         }
 
@@ -691,7 +691,7 @@ class TestBackendComparison:
         print(f"{'Backend':<20} {'Throughput':>15}")
         print("-" * 60)
 
-        for name in ["direct", "sandboxed_pool", "ephemeral"]:
+        for name in ["direct", "pool", "ephemeral"]:
             print(f"{name:<20} {results[name]:>12.1f} actions/sec")
 
         print("=" * 60)

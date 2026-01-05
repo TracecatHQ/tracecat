@@ -1,6 +1,6 @@
 """Fixtures for integration tests that require real infrastructure.
 
-These fixtures support tests that spin up real SandboxedWorkerPool instances
+These fixtures support tests that spin up real WorkerPool instances
 and test multi-tenant isolation under load.
 
 The tests run with TRACECAT__DISABLE_NSJAIL=true, which uses direct subprocess
@@ -49,7 +49,7 @@ def monkeypatch_session():
 def disable_nsjail_for_tests(monkeypatch_session):
     """Disable nsjail sandbox and enable test mode for integration tests.
 
-    This allows the SandboxedWorkerPool to spawn workers as direct subprocesses
+    This allows the WorkerPool to spawn workers as direct subprocesses
     instead of using nsjail, making tests runnable on any platform.
 
     Test mode makes pool workers return mock success without database access,
@@ -70,8 +70,8 @@ def disable_nsjail_for_tests(monkeypatch_session):
 
 
 @pytest.fixture(scope="class")
-async def sandboxed_pool():
-    """Create and manage a real SandboxedWorkerPool for integration tests.
+async def worker_pool():
+    """Create and manage a real WorkerPool for integration tests.
 
     This fixture:
     1. Creates a pool with small size (2 workers) for testing
@@ -80,9 +80,9 @@ async def sandboxed_pool():
 
     Workers run as direct subprocesses (TRACECAT__DISABLE_NSJAIL=true).
     """
-    from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+    from tracecat.executor.backends.pool import WorkerPool
 
-    pool = SandboxedWorkerPool(
+    pool = WorkerPool(
         size=2,
         max_concurrent_per_worker=4,
         max_tasks_per_worker=50,  # Lower for faster recycle testing
@@ -104,9 +104,9 @@ async def small_recycle_pool():
     - size=1: Single worker to ensure same worker handles all tasks
     - max_tasks_per_worker=5: Recycle after just 5 tasks
     """
-    from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+    from tracecat.executor.backends.pool import WorkerPool
 
-    pool = SandboxedWorkerPool(
+    pool = WorkerPool(
         size=1,
         max_concurrent_per_worker=2,
         max_tasks_per_worker=5,  # Recycle after 5 tasks
@@ -127,9 +127,9 @@ async def single_worker_pool():
     Forces all requests to go through the same worker, useful for
     verifying PYTHONPATH switching per-request.
     """
-    from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+    from tracecat.executor.backends.pool import WorkerPool
 
-    pool = SandboxedWorkerPool(
+    pool = WorkerPool(
         size=1,
         max_concurrent_per_worker=4,
         max_tasks_per_worker=1000,  # Normal recycling
