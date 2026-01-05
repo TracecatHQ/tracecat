@@ -295,17 +295,35 @@ async def _role_dependency(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
             )
         try:
-            role = verify_executor_token(token)
+            token_payload = verify_executor_token(token)
         except ValueError as exc:
             logger.info("Invalid executor token", error=str(exc))
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
             ) from exc
-        if role.type != "service" or role.service_id != "tracecat-executor":
-            logger.warning("Invalid executor role", role=role)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
+
+        # Derive access_level from DB lookup on user_id (prevents privilege escalation)
+        access_level = AccessLevel.BASIC  # Default for system/anonymous executions
+        if token_payload.user_id is not None:
+            from sqlalchemy import select
+
+            stmt = select(User.role).where(User.id == token_payload.user_id)  # pyright: ignore[reportArgumentType]
+            result = await session.execute(stmt)
+            user_role = result.scalar_one_or_none()
+            if user_role is not None:
+                access_level = USER_ROLE_TO_ACCESS_LEVEL.get(
+                    user_role, AccessLevel.BASIC
+                )
+
+        # Construct Role from token payload + derived access_level
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            workspace_id=token_payload.workspace_id,
+            user_id=token_payload.user_id,
+            access_level=access_level,
+        )
+
         if require_workspace == "yes":
             if role.workspace_id is None:
                 logger.warning("Executor role missing workspace_id", role=role)

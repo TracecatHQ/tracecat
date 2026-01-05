@@ -13,7 +13,7 @@ from sqlalchemy.orm import aliased
 
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
@@ -374,18 +374,13 @@ async def _prepare_step_context(
         )
 
     # Mint new executor token for step (required for SDK authentication)
-    executor_role = Role(
-        type="service",
-        service_id="tracecat-executor",
-        access_level=AccessLevel.ADMIN,
-        workspace_id=role.workspace_id,
-        organization_id=role.organization_id,
-        user_id=role.user_id,
-    )
+    if role.workspace_id is None:
+        raise ValueError("workspace_id is required for template step execution")
     executor_token = mint_executor_token(
-        role=executor_role,
-        run_id=str(input.run_context.wf_run_id),
-        workflow_id=str(input.run_context.wf_id),
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        wf_id=str(input.run_context.wf_id),
+        wf_exec_id=str(input.run_context.wf_run_id),
     )
 
     # Reuse parent secrets/variables, use pre-evaluated args
@@ -729,23 +724,16 @@ async def prepare_resolved_context(
         ctx_logical_time.reset(logical_time_token)
         ctx_interaction.reset(interaction_token)
 
-    # Generate executor token for SDK authentication
-    executor_role = Role(
-        type="service",
-        service_id="tracecat-executor",
-        access_level=AccessLevel.ADMIN,
-        workspace_id=role.workspace_id,
-        organization_id=role.organization_id,
-        user_id=role.user_id,
-    )
-    executor_token = mint_executor_token(
-        role=executor_role,
-        run_id=str(input.run_context.wf_run_id),
-        workflow_id=str(input.run_context.wf_id),
-    )
-
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
+
+    # Generate executor token for SDK authentication
+    executor_token = mint_executor_token(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        wf_id=str(input.run_context.wf_id),
+        wf_exec_id=str(input.run_context.wf_run_id),
+    )
 
     resolved_context = ResolvedContext(
         secrets=secrets,

@@ -5,25 +5,53 @@ from typing import Any
 
 import jwt
 from jwt import PyJWTError
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from tracecat import config
-from tracecat.auth.types import Role
+from tracecat.identifiers import UserID, WorkspaceID
 
 EXECUTOR_TOKEN_ISSUER = "tracecat-executor"
 EXECUTOR_TOKEN_AUDIENCE = "tracecat-api"
 EXECUTOR_TOKEN_SUBJECT = "tracecat-executor"
-REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "role")
+REQUIRED_CLAIMS = (
+    "iss",
+    "aud",
+    "sub",
+    "iat",
+    "exp",
+    "workspace_id",
+    "wf_id",
+    "wf_exec_id",
+)
+
+
+class ExecutorTokenPayload(BaseModel):
+    """Payload extracted from a verified executor JWT.
+
+    Does NOT include access_level - that is derived from DB lookup on user_id.
+    This prevents privilege escalation if the executor sandbox is compromised.
+    """
+
+    workspace_id: WorkspaceID
+    user_id: UserID | None
+    wf_id: str
+    wf_exec_id: str
 
 
 def mint_executor_token(
     *,
-    role: Role,
-    run_id: str | None = None,
-    workflow_id: str | None = None,
+    workspace_id: WorkspaceID,
+    user_id: UserID | None,
+    wf_id: str,
+    wf_exec_id: str,
     ttl_seconds: int | None = None,
 ) -> str:
-    """Create a signed executor JWT containing the full Role payload."""
+    """Create a signed executor JWT scoped to a specific workflow execution.
+
+    The token does NOT include access_level - that is derived from DB lookup
+    on user_id when the token is verified. This prevents privilege escalation
+    if the executor sandbox is compromised.
+    """
     if not config.TRACECAT__SERVICE_KEY:
         raise ValueError("TRACECAT__SERVICE_KEY is not set")
 
@@ -35,18 +63,21 @@ def mint_executor_token(
         "sub": EXECUTOR_TOKEN_SUBJECT,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
-        "role": role.model_dump(mode="json"),
+        "workspace_id": str(workspace_id),
+        "user_id": str(user_id) if user_id else None,
+        "wf_id": wf_id,
+        "wf_exec_id": wf_exec_id,
     }
-    if run_id:
-        payload["run_id"] = run_id
-    if workflow_id:
-        payload["workflow_id"] = workflow_id
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 
 
-def verify_executor_token(token: str) -> Role:
-    """Verify executor JWT and return the embedded Role."""
+def verify_executor_token(token: str) -> ExecutorTokenPayload:
+    """Verify executor JWT and return the token payload.
+
+    Returns the ExecutorTokenPayload containing workspace_id, user_id, wf_id, and wf_exec_id.
+    The caller must derive access_level from DB lookup on user_id.
+    """
     if not config.TRACECAT__SERVICE_KEY:
         raise ValueError("TRACECAT__SERVICE_KEY is not set")
 
@@ -67,13 +98,14 @@ def verify_executor_token(token: str) -> Role:
     if payload.get("sub") != EXECUTOR_TOKEN_SUBJECT:
         raise ValueError("Invalid executor token subject")
 
-    role_payload = payload.get("role")
-    if role_payload is None:
-        raise ValueError("Executor token missing role claim")
-
     try:
-        role = Role.model_validate(role_payload)
-    except ValidationError as exc:
-        raise ValueError("Executor token role claim is invalid") from exc
+        token_payload = ExecutorTokenPayload(
+            workspace_id=payload["workspace_id"],
+            user_id=payload.get("user_id"),
+            wf_id=payload["wf_id"],
+            wf_exec_id=payload["wf_exec_id"],
+        )
+    except (KeyError, ValidationError) as exc:
+        raise ValueError("Executor token payload is invalid") from exc
 
-    return role
+    return token_payload
