@@ -1,4 +1,4 @@
-"""Tests for the SandboxedWorkerPool.
+"""Tests for the WorkerPool.
 
 These tests cover the pool management logic without requiring actual nsjail execution.
 """
@@ -14,11 +14,11 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.backends.sandboxed_pool import (
-    SandboxedWorkerInfo,
-    SandboxedWorkerPool,
+from tracecat.executor.backends.pool import (
+    WorkerInfo,
+    WorkerPool,
 )
-from tracecat.executor.backends.sandboxed_pool.pool import get_available_cpus
+from tracecat.executor.backends.pool.pool import get_available_cpus
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import WorkflowUUID
 
@@ -55,12 +55,12 @@ def mock_run_action_input() -> RunActionInput:
 
 
 @pytest.fixture
-def mock_worker_info() -> SandboxedWorkerInfo:
-    """Create a mock SandboxedWorkerInfo."""
+def mock_worker_info() -> WorkerInfo:
+    """Create a mock WorkerInfo."""
     proc = MagicMock()
     proc.returncode = None  # Worker is alive
     proc.pid = 12345
-    return SandboxedWorkerInfo(
+    return WorkerInfo(
         worker_id=0,
         pid=12345,
         process=proc,
@@ -103,13 +103,13 @@ class TestGetAvailableCpus:
         assert cpus >= 1
 
 
-class TestSandboxedWorkerPool:
-    """Tests for SandboxedWorkerPool class."""
+class TestWorkerPool:
+    """Tests for WorkerPool class."""
 
     @pytest.mark.anyio
     async def test_pool_initialization(self):
         """Test pool can be created with default settings."""
-        pool = SandboxedWorkerPool(size=2)
+        pool = WorkerPool(size=2)
         assert pool.size == 2
         assert pool.max_tasks_per_worker == 1000
         assert pool.max_concurrent_per_worker == 16
@@ -121,7 +121,7 @@ class TestSandboxedWorkerPool:
         self, mock_run_action_input, mock_role, mock_resolved_context
     ):
         """Execute should raise if pool not started."""
-        pool = SandboxedWorkerPool(size=2)
+        pool = WorkerPool(size=2)
         with pytest.raises(RuntimeError, match="not started"):
             await pool.execute(
                 input=mock_run_action_input,
@@ -132,7 +132,7 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_worker_selection_round_robin(self):
         """Test round-robin selection among workers with equal load."""
-        pool = SandboxedWorkerPool(size=3)
+        pool = WorkerPool(size=3)
         pool._started = True
 
         # Create mock workers with same load
@@ -140,7 +140,7 @@ class TestSandboxedWorkerPool:
             proc = MagicMock()
             proc.returncode = None
             pool._workers.append(
-                SandboxedWorkerInfo(
+                WorkerInfo(
                     worker_id=i,
                     pid=1000 + i,
                     process=proc,
@@ -165,7 +165,7 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_worker_selection_least_loaded(self):
         """Test selection of least-loaded worker."""
-        pool = SandboxedWorkerPool(size=3)
+        pool = WorkerPool(size=3)
         pool._started = True
 
         # Create workers with different loads
@@ -173,7 +173,7 @@ class TestSandboxedWorkerPool:
             proc = MagicMock()
             proc.returncode = None
             pool._workers.append(
-                SandboxedWorkerInfo(
+                WorkerInfo(
                     worker_id=i,
                     pid=1000 + i,
                     process=proc,
@@ -193,14 +193,14 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_worker_selection_skips_dead_workers(self):
         """Test that dead workers are not selected."""
-        pool = SandboxedWorkerPool(size=2)
+        pool = WorkerPool(size=2)
         pool._started = True
 
         # Create one dead worker and one alive
         dead_proc = MagicMock()
         dead_proc.returncode = 1  # Dead
         pool._workers.append(
-            SandboxedWorkerInfo(
+            WorkerInfo(
                 worker_id=0,
                 pid=1000,
                 process=dead_proc,
@@ -214,7 +214,7 @@ class TestSandboxedWorkerPool:
         alive_proc = MagicMock()
         alive_proc.returncode = None  # Alive
         pool._workers.append(
-            SandboxedWorkerInfo(
+            WorkerInfo(
                 worker_id=1,
                 pid=1001,
                 process=alive_proc,
@@ -231,7 +231,7 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_worker_selection_skips_recycling_workers(self):
         """Test that workers being recycled are not selected."""
-        pool = SandboxedWorkerPool(size=2)
+        pool = WorkerPool(size=2)
         pool._started = True
 
         # Create one recycling worker and one available
@@ -239,7 +239,7 @@ class TestSandboxedWorkerPool:
             proc = MagicMock()
             proc.returncode = None
             pool._workers.append(
-                SandboxedWorkerInfo(
+                WorkerInfo(
                     worker_id=i,
                     pid=1000 + i,
                     process=proc,
@@ -257,13 +257,13 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_worker_selection_timeout_when_all_at_capacity(self):
         """Test timeout when all workers are at capacity."""
-        pool = SandboxedWorkerPool(size=1, max_concurrent_per_worker=1)
+        pool = WorkerPool(size=1, max_concurrent_per_worker=1)
         pool._started = True
 
         proc = MagicMock()
         proc.returncode = None
         pool._workers.append(
-            SandboxedWorkerInfo(
+            WorkerInfo(
                 worker_id=0,
                 pid=1000,
                 process=proc,
@@ -274,18 +274,18 @@ class TestSandboxedWorkerPool:
             )
         )
 
-        with pytest.raises(RuntimeError, match="No available sandboxed worker"):
+        with pytest.raises(RuntimeError, match="No available worker"):
             await pool._get_available_worker(timeout=0.1)
 
     @pytest.mark.anyio
     async def test_release_worker_decrements_active_tasks(self):
         """Test that releasing a worker decrements its active_tasks."""
-        pool = SandboxedWorkerPool(size=1)
+        pool = WorkerPool(size=1)
         pool._started = True
 
         proc = MagicMock()
         proc.returncode = None
-        worker = SandboxedWorkerInfo(
+        worker = WorkerInfo(
             worker_id=0,
             pid=1000,
             process=proc,
@@ -304,12 +304,12 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_release_worker_triggers_recycle_at_limit(self):
         """Test that releasing triggers recycle when at task limit and idle."""
-        pool = SandboxedWorkerPool(size=1, max_tasks_per_worker=10)
+        pool = WorkerPool(size=1, max_tasks_per_worker=10)
         pool._started = True
 
         proc = MagicMock()
         proc.returncode = None
-        worker = SandboxedWorkerInfo(
+        worker = WorkerInfo(
             worker_id=0,
             pid=1000,
             process=proc,
@@ -331,12 +331,12 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_release_worker_no_recycle_if_active_tasks_remain(self):
         """Test that recycle is not triggered if active tasks remain."""
-        pool = SandboxedWorkerPool(size=1, max_tasks_per_worker=10)
+        pool = WorkerPool(size=1, max_tasks_per_worker=10)
         pool._started = True
 
         proc = MagicMock()
         proc.returncode = None
-        worker = SandboxedWorkerInfo(
+        worker = WorkerInfo(
             worker_id=0,
             pid=1000,
             process=proc,
@@ -357,7 +357,7 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_concurrent_worker_acquisition(self):
         """Test that concurrent acquisitions are handled correctly."""
-        pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=2)
+        pool = WorkerPool(size=2, max_concurrent_per_worker=2)
         pool._started = True
 
         # Create workers
@@ -365,7 +365,7 @@ class TestSandboxedWorkerPool:
             proc = MagicMock()
             proc.returncode = None
             pool._workers.append(
-                SandboxedWorkerInfo(
+                WorkerInfo(
                     worker_id=i,
                     pid=1000 + i,
                     process=proc,
@@ -392,13 +392,13 @@ class TestSandboxedWorkerPool:
     @pytest.mark.anyio
     async def test_lock_contention_metrics(self):
         """Test that lock contention metrics are tracked."""
-        pool = SandboxedWorkerPool(size=1)
+        pool = WorkerPool(size=1)
         pool._started = True
 
         proc = MagicMock()
         proc.returncode = None
         pool._workers.append(
-            SandboxedWorkerInfo(
+            WorkerInfo(
                 worker_id=0,
                 pid=1000,
                 process=proc,
@@ -416,14 +416,14 @@ class TestSandboxedWorkerPool:
         assert pool._lock_acquisitions > initial_acquisitions
 
 
-class TestSandboxedWorkerInfo:
-    """Tests for SandboxedWorkerInfo dataclass."""
+class TestWorkerInfo:
+    """Tests for WorkerInfo dataclass."""
 
     def test_default_values(self):
         """Test default field values."""
         proc = MagicMock()
         proc.pid = 12345
-        info = SandboxedWorkerInfo(
+        info = WorkerInfo(
             worker_id=0,
             pid=12345,
             process=proc,

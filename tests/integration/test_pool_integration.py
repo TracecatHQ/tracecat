@@ -1,6 +1,6 @@
-"""Integration tests for multi-tenant SandboxedWorkerPool.
+"""Integration tests for multi-tenant WorkerPool.
 
-These tests spin up real SandboxedWorkerPool instances and verify:
+These tests spin up real WorkerPool instances and verify:
 1. Pool startup and cold start behavior
 2. Multi-tenant concurrent execution with different PYTHONPATHs
 3. Worker recycling under load
@@ -21,7 +21,7 @@ Pool workers run in test mode (TRACECAT__POOL_WORKER_TEST_MODE=true),
 returning mock success without executing actual actions. This allows
 testing pool mechanics in isolation without database access.
 
-Run via: uv run pytest tests/integration/test_sandboxed_pool_integration.py -v
+Run via: uv run pytest tests/integration/test_pool_integration.py -v
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
-from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+from tracecat.executor.backends.pool import WorkerPool
 from tracecat.executor.schemas import (
     ExecutorResult,
     ExecutorResultFailure,
@@ -50,7 +50,7 @@ from tracecat.executor.schemas import (
 # =============================================================================
 
 
-class TestSandboxedPoolColdStart:
+class TestPoolColdStart:
     """Tests for pool startup and cold start behavior.
 
     Verifies that:
@@ -60,9 +60,7 @@ class TestSandboxedPoolColdStart:
     """
 
     @pytest.mark.anyio
-    async def test_pool_startup_creates_workers(
-        self, sandboxed_pool: SandboxedWorkerPool
-    ) -> None:
+    async def test_pool_startup_creates_workers(self, worker_pool: WorkerPool) -> None:
         """Verify pool creates the expected number of live workers on startup.
 
         Validates:
@@ -70,10 +68,10 @@ class TestSandboxedPoolColdStart:
         - Correct number of workers created (2)
         - All workers are alive (process.returncode is None)
         """
-        assert sandboxed_pool._started, "Pool should be in started state"
-        assert len(sandboxed_pool._workers) == 2, "Pool should have 2 workers"
+        assert worker_pool._started, "Pool should be in started state"
+        assert len(worker_pool._workers) == 2, "Pool should have 2 workers"
 
-        for worker in sandboxed_pool._workers:
+        for worker in worker_pool._workers:
             assert worker.process.returncode is None, (
                 f"Worker {worker.worker_id} should be alive"
             )
@@ -81,7 +79,7 @@ class TestSandboxedPoolColdStart:
     @pytest.mark.anyio
     async def test_first_execution_measures_cold_start_latency(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -102,7 +100,7 @@ class TestSandboxedPoolColdStart:
         resolved_context = resolved_context_factory(role_workspace_a)
 
         start = time.monotonic()
-        result = await sandboxed_pool.execute(
+        result = await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -117,7 +115,7 @@ class TestSandboxedPoolColdStart:
     @pytest.mark.anyio
     async def test_warm_execution_faster_than_cold(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -136,7 +134,7 @@ class TestSandboxedPoolColdStart:
 
         # First execution (may incur cold start)
         start1 = time.monotonic()
-        await sandboxed_pool.execute(
+        await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -146,7 +144,7 @@ class TestSandboxedPoolColdStart:
 
         # Second execution (warm worker)
         start2 = time.monotonic()
-        await sandboxed_pool.execute(
+        await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -178,7 +176,7 @@ class TestMultiTenantExecution:
     @pytest.mark.anyio
     async def test_concurrent_execution_different_workspaces(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -204,13 +202,13 @@ class TestMultiTenantExecution:
 
         # Execute concurrently with different PYTHONPATHs
         results = await asyncio.gather(
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=input_a,
                 role=role_workspace_a,
                 resolved_context=resolved_context_a,
                 timeout=30.0,
             ),
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=input_b,
                 role=role_workspace_b,
                 resolved_context=resolved_context_b,
@@ -225,7 +223,7 @@ class TestMultiTenantExecution:
     @pytest.mark.anyio
     async def test_single_workspace_execution(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -239,7 +237,7 @@ class TestMultiTenantExecution:
         input_data = run_action_input_factory()
         resolved_context = resolved_context_factory(role_workspace_a)
 
-        result = await sandboxed_pool.execute(
+        result = await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -251,7 +249,7 @@ class TestMultiTenantExecution:
     @pytest.mark.anyio
     async def test_multiple_concurrent_same_workspace(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -270,7 +268,7 @@ class TestMultiTenantExecution:
 
         results = await asyncio.gather(
             *[
-                sandboxed_pool.execute(
+                worker_pool.execute(
                     input=inp,
                     role=role_workspace_a,
                     resolved_context=resolved_context,
@@ -301,7 +299,7 @@ class TestWorkerRecycling:
     @pytest.mark.anyio
     async def test_worker_recycled_after_task_limit(
         self,
-        small_recycle_pool: SandboxedWorkerPool,
+        small_recycle_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -360,7 +358,7 @@ class TestWorkerRecycling:
     @pytest.mark.anyio
     async def test_concurrent_tasks_during_recycle(
         self,
-        small_recycle_pool: SandboxedWorkerPool,
+        small_recycle_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -490,7 +488,7 @@ class TestMultiTenantThrashing:
     @pytest.mark.anyio
     async def test_rapid_alternation_between_workspaces(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -543,7 +541,7 @@ class TestMultiTenantThrashing:
 
             # Launch task immediately, don't await - allows concurrent execution
             task = asyncio.create_task(
-                sandboxed_pool.execute(
+                worker_pool.execute(
                     input=run_action_input_factory(),
                     role=role,
                     resolved_context=resolved_context,
@@ -564,7 +562,7 @@ class TestMultiTenantThrashing:
         )
 
         # Verify lifetime metrics (persists across worker recycling)
-        metrics = sandboxed_pool.get_lifetime_metrics()
+        metrics = worker_pool.get_lifetime_metrics()
 
         assert metrics["tasks_completed"] == task_count, (
             f"Pool lifetime tasks ({metrics['tasks_completed']}) "
@@ -587,7 +585,7 @@ class TestMultiTenantThrashing:
     @pytest.mark.anyio
     async def test_burst_then_switch_pattern(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -613,7 +611,7 @@ class TestMultiTenantThrashing:
 
         # Burst A
         tasks_a = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context_a,
@@ -625,7 +623,7 @@ class TestMultiTenantThrashing:
 
         # Burst B (immediately after A)
         tasks_b = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_b,
                 resolved_context=resolved_context_b,
@@ -648,7 +646,7 @@ class TestMultiTenantThrashing:
     @pytest.mark.anyio
     async def test_interleaved_concurrent_bursts(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -674,7 +672,7 @@ class TestMultiTenantThrashing:
 
         # Start A burst
         tasks_a = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context_a,
@@ -685,7 +683,7 @@ class TestMultiTenantThrashing:
 
         # Immediately start B burst (overlapping with A)
         tasks_b = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_b,
                 resolved_context=resolved_context_b,
@@ -708,7 +706,7 @@ class TestMultiTenantThrashing:
     @pytest.mark.slow
     async def test_thrashing_with_cache_pressure(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -751,7 +749,7 @@ class TestMultiTenantThrashing:
                 _pythonpath = str(path_b)
 
             try:
-                result = await sandboxed_pool.execute(
+                result = await worker_pool.execute(
                     input=run_action_input_factory(),
                     role=role,
                     resolved_context=resolved_context,
@@ -777,7 +775,7 @@ class TestMultiTenantThrashing:
     @pytest.mark.anyio
     async def test_worker_reuse_across_tenants(
         self,
-        single_worker_pool: SandboxedWorkerPool,
+        single_worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -848,7 +846,7 @@ class TestErrorPropagation:
     @pytest.mark.anyio
     async def test_action_error_returns_structured_error(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -866,7 +864,7 @@ class TestErrorPropagation:
         # error response format for when real errors occur.
         input_data = run_action_input_factory()
         resolved_context = resolved_context_factory(role_workspace_a)
-        result = await sandboxed_pool.execute(
+        result = await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -888,7 +886,7 @@ class TestErrorPropagation:
     @pytest.mark.anyio
     async def test_pool_continues_after_failed_task(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -907,7 +905,7 @@ class TestErrorPropagation:
         results = []
         for _ in range(5):
             input_data = run_action_input_factory()
-            result = await sandboxed_pool.execute(
+            result = await worker_pool.execute(
                 input=input_data,
                 role=role_workspace_a,
                 resolved_context=resolved_context,
@@ -921,13 +919,13 @@ class TestErrorPropagation:
             assert hasattr(result, "type"), f"Task {i} should return a response"
 
         # Workers should still be alive
-        for worker in sandboxed_pool._workers:
+        for worker in worker_pool._workers:
             assert worker.process.returncode is None, "Workers should be alive"
 
     @pytest.mark.anyio
     async def test_concurrent_tasks_with_mixed_results(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -943,7 +941,7 @@ class TestErrorPropagation:
         """
         resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context,
@@ -990,9 +988,9 @@ class TestWorkerCrashRecovery:
         - Worker process death is detectable via returncode
         - Pool continues operating with remaining workers
         """
-        from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+        from tracecat.executor.backends.pool import WorkerPool
 
-        pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=4)
+        pool = WorkerPool(size=2, max_concurrent_per_worker=4)
         await pool.start()
 
         try:
@@ -1021,7 +1019,7 @@ class TestWorkerCrashRecovery:
     @pytest.mark.anyio
     async def test_task_fails_gracefully_on_dead_worker(
         self,
-        single_worker_pool: SandboxedWorkerPool,
+        single_worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1097,9 +1095,9 @@ class TestWorkerCrashRecovery:
         - Tasks succeed using surviving workers
         - Pool doesn't hang or crash
         """
-        from tracecat.executor.backends.sandboxed_pool import SandboxedWorkerPool
+        from tracecat.executor.backends.pool import WorkerPool
 
-        pool = SandboxedWorkerPool(size=2, max_concurrent_per_worker=4)
+        pool = WorkerPool(size=2, max_concurrent_per_worker=4)
         await pool.start()
         resolved_context = resolved_context_factory(role_workspace_a)
 
@@ -1147,7 +1145,7 @@ class TestTaskTimeoutHandling:
     @pytest.mark.anyio
     async def test_task_respects_timeout_parameter(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1166,7 +1164,7 @@ class TestTaskTimeoutHandling:
         resolved_context = resolved_context_factory(role_workspace_a)
 
         start = time.monotonic()
-        result = await sandboxed_pool.execute(
+        result = await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -1180,7 +1178,7 @@ class TestTaskTimeoutHandling:
     @pytest.mark.anyio
     async def test_pool_timeout_returns_error(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1197,7 +1195,7 @@ class TestTaskTimeoutHandling:
         resolved_context = resolved_context_factory(role_workspace_a)
 
         # Very short timeout - task should still complete in test mode
-        result = await sandboxed_pool.execute(
+        result = await worker_pool.execute(
             input=input_data,
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -1211,7 +1209,7 @@ class TestTaskTimeoutHandling:
     @pytest.mark.anyio
     async def test_multiple_tasks_with_varying_timeouts(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1226,7 +1224,7 @@ class TestTaskTimeoutHandling:
         """
         resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context,
@@ -1258,7 +1256,7 @@ class TestPoolExhaustion:
     @pytest.mark.anyio
     async def test_concurrent_requests_up_to_capacity(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1276,7 +1274,7 @@ class TestPoolExhaustion:
         capacity = 8
         resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context,
@@ -1298,7 +1296,7 @@ class TestPoolExhaustion:
     @pytest.mark.anyio
     async def test_requests_beyond_capacity_still_complete(
         self,
-        sandboxed_pool: SandboxedWorkerPool,
+        worker_pool: WorkerPool,
         run_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1316,7 +1314,7 @@ class TestPoolExhaustion:
         request_count = 16  # 2x the 8 capacity
         resolved_context = resolved_context_factory(role_workspace_a)
         tasks = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context,
@@ -1338,7 +1336,7 @@ class TestPoolExhaustion:
     @pytest.mark.anyio
     async def test_pool_recovers_after_burst(
         self,
-        sandboxed_pool,
+        worker_pool,
         run_action_input_factory,
         resolved_context_factory: Callable[..., ResolvedContext],
         role_workspace_a: Role,
@@ -1357,7 +1355,7 @@ class TestPoolExhaustion:
 
         # Burst of requests
         burst_tasks = [
-            sandboxed_pool.execute(
+            worker_pool.execute(
                 input=run_action_input_factory(),
                 role=role_workspace_a,
                 resolved_context=resolved_context,
@@ -1376,7 +1374,7 @@ class TestPoolExhaustion:
         await asyncio.sleep(0.1)
 
         # Normal request after burst
-        result = await sandboxed_pool.execute(
+        result = await worker_pool.execute(
             input=run_action_input_factory(),
             role=role_workspace_a,
             resolved_context=resolved_context,
@@ -1386,6 +1384,6 @@ class TestPoolExhaustion:
 
         # Workers should be healthy
         alive_workers = sum(
-            1 for w in sandboxed_pool._workers if w.process.returncode is None
+            1 for w in worker_pool._workers if w.process.returncode is None
         )
         assert alive_workers == 2, f"All workers should be alive: {alive_workers}/2"

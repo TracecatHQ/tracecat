@@ -5,7 +5,7 @@ any sandbox isolation.
 
 WARNING: This backend provides NO isolation between actions. Actions share the
 same process memory space, environment variables, and can affect each other's
-state. NEVER use in production - use sandboxed_pool or ephemeral backends instead.
+state. NEVER use in production - use pool or ephemeral backends instead.
 
 This backend exists solely for:
 - Running unit/integration tests without subprocess overhead
@@ -91,7 +91,7 @@ class DirectBackend(ExecutorBackend):
     - No resource limits or sandboxing
     - A crash in one action affects the entire worker
 
-    For production use sandboxed_pool (single-tenant) or ephemeral (multi-tenant).
+    For production use pool (single-tenant) or ephemeral (multi-tenant).
     """
 
     async def execute(

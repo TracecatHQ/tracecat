@@ -39,13 +39,13 @@ class ExecutorBackendType(StrEnum):
 
     All sandbox backends use untrusted mode - DB credentials are never passed.
 
-    - SANDBOXED_POOL: Warm nsjail workers (high throughput, untrusted)
-    - EPHEMERAL: Cold nsjail subprocess per action (full isolation, untrusted)
+    - POOL: Warm nsjail workers (high throughput, single-tenant, untrusted)
+    - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
     - DIRECT: In-process execution (TESTING ONLY - no isolation, no subprocess overhead)
     - AUTO: Auto-select based on environment
     """
 
-    SANDBOXED_POOL = "sandboxed_pool"
+    POOL = "pool"
     EPHEMERAL = "ephemeral"
     DIRECT = "direct"
     AUTO = "auto"
@@ -82,9 +82,9 @@ def _resolve_backend_type() -> ExecutorBackendType:
             backend_type = ExecutorBackendType.DIRECT
         elif _is_nsjail_available():
             logger.info(
-                "Auto-selecting 'sandboxed_pool' backend (nsjail available)",
+                "Auto-selecting 'pool' backend (nsjail available)",
             )
-            backend_type = ExecutorBackendType.SANDBOXED_POOL
+            backend_type = ExecutorBackendType.POOL
         else:
             logger.warning(
                 "Auto-selecting 'direct' backend (nsjail not available)",

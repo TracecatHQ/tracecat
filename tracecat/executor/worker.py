@@ -5,7 +5,7 @@ dispatched from DSL workflows. It uses the configured executor backend
 for action execution.
 
 Supported backends (via TRACECAT__EXECUTOR_BACKEND):
-- sandboxed_pool: Warm nsjail workers (single-tenant, high throughput)
+- pool: Warm nsjail workers (single-tenant, high throughput)
 - ephemeral: Cold nsjail subprocess per action (multitenant, full isolation)
 - direct: In-process execution (development only)
 - auto: Auto-select based on environment
