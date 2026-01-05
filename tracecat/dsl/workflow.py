@@ -250,6 +250,13 @@ class DSLWorkflow:
                 ) from e
             self.dispatch_type = "pull"
 
+        # Log registry lock for debugging
+        self.logger.debug(
+            "Workflow registry lock",
+            registry_lock=self.registry_lock,
+            dispatch_type=self.dispatch_type,
+        )
+
         # Note that we can't run the error handler above this
         # Run the workflow with error handling
         try:
@@ -1140,7 +1147,8 @@ class DSLWorkflow:
             runtime_config=runtime_config,
             execution_type=self.execution_type,
             time_anchor=child_time_anchor,
-            registry_lock=self.registry_lock,
+            # Use child's own registry_lock from its definition, not parent's
+            registry_lock=result.registry_lock,
         )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
@@ -1375,7 +1383,8 @@ class DSLWorkflow:
             ),
             runtime_config=runtime_config,
             execution_type=self.execution_type,
-            registry_lock=self.registry_lock,
+            # Use error handler's own registry_lock from its definition, not parent's
+            registry_lock=result.registry_lock,
         )
 
     async def _run_error_handler_workflow(
