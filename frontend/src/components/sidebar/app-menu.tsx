@@ -120,7 +120,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-[--radix-dropdown-menu-trigger-width] min-w-[220px] rounded-lg flex flex-col gap-1"
+            className="w-[--radix-dropdown-menu-trigger-width] min-w-[220px] max-h-[50vh] rounded-lg flex flex-col gap-1 overflow-y-auto"
             align="start"
             side="right"
             sideOffset={4}
