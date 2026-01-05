@@ -84,6 +84,22 @@ class WorkflowExecutionsService:
         client = await get_temporal_client()
         return WorkflowExecutionsService(client=client, role=role)
 
+    def _handle_background_task_exception(self, task: asyncio.Task[Any]) -> None:
+        """Handle exceptions from background workflow execution tasks.
+
+        This callback is attached to fire-and-forget tasks to ensure exceptions
+        are logged rather than silently lost.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            # Log the exception - the workflow failure is already logged in _dispatch_workflow
+            self.logger.debug(
+                "Background workflow execution task completed with exception",
+                exception=str(exc),
+            )
+
     def handle(
         self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
@@ -691,7 +707,8 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
         )
-        _ = asyncio.ensure_future(coro)
+        task = asyncio.ensure_future(coro)
+        task.add_done_callback(self._handle_background_task_exception)
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
             wf_id=wf_id,
@@ -721,7 +738,8 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
         )
-        _ = asyncio.ensure_future(coro)
+        task = asyncio.ensure_future(coro)
+        task.add_done_callback(self._handle_background_task_exception)
         return WorkflowExecutionCreateResponse(
             message="Draft workflow execution started",
             wf_id=wf_id,
