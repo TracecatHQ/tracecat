@@ -17,9 +17,9 @@ import {
   Blend,
   BoxIcon,
   Building2Icon,
-  DatabaseIcon,
   Code,
   Cpu,
+  DatabaseIcon,
   Globe,
   KeyRound,
   ListChecks,
@@ -393,7 +393,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.slack_blocks": createIconRenderer(SlackIcon),
     "tools.jira": createIconRenderer(JiraIcon),
     "tools.github": createIconRenderer(GitHubIcon),
-    "tools.microsoft_defender_endpoint": createIconRenderer(MicrosoftDefenderIcon),
+    "tools.microsoft_defender_endpoint": createIconRenderer(
+      MicrosoftDefenderIcon
+    ),
     "tools.microsoft_defender_xdr": createIconRenderer(MicrosoftDefenderIcon),
     "tools.microsoft_entra": createIconRenderer(MicrosoftEntraIcon),
     "tools.microsoft_teams": createIconRenderer(MicrosoftTeamsIcon),
@@ -953,11 +955,7 @@ export function GophishToolIcon({ className, ...rest }: IconProps) {
           strokeLinecap="square"
         />
         <g stroke="#283F50">
-          <path
-            d="M390.45 463.343v61.879-61.88z"
-            fill="none"
-            strokeWidth="4"
-          />
+          <path d="M390.45 463.343v61.879-61.88z" fill="none" strokeWidth="4" />
           <path
             d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
             fill="#283F50"
