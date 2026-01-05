@@ -69,6 +69,9 @@ class TracecatUUID[ShortID: str](UUID):
             raise ValueError(f"{self.__class__.__name__} requires a prefix to be set")
         super().__init__(*args, **kwargs)
 
+    def __repr__(self) -> str:
+        return self.short()
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
