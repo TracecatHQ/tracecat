@@ -581,12 +581,12 @@ class WorkflowTag(Base):
 
     tag_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("tag.id"),
+        ForeignKey("tag.id", ondelete="CASCADE"),
         nullable=False,
     )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("workflow.id"),
+        ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
     )
 
