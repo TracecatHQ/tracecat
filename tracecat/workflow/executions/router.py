@@ -299,6 +299,7 @@ async def create_draft_workflow_execution(
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
+            registry_lock=workflow.registry_lock,
         )
         return response
     except TracecatValidationError as e:

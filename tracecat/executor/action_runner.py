@@ -294,7 +294,7 @@ class ActionRunner:
         input: RunActionInput,
         role: Role,
         resolved_context: ResolvedContext,
-        tarball_uri: str | None = None,
+        tarball_uris: list[str] | None = None,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         force_sandbox: bool = False,
@@ -307,7 +307,7 @@ class ActionRunner:
         Args:
             input: The RunActionInput containing task and context
             role: The Role for authorization
-            tarball_uri: S3 URI to pre-built tarball venv
+            tarball_uris: List of S3 URIs to pre-built tarball venvs (deterministic order)
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
             force_sandbox: If True, always use nsjail sandbox regardless of config
@@ -319,20 +319,23 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Download and extract tarball venv
-        if tarball_uri:
-            cache_key = self.compute_tarball_cache_key(tarball_uri)
-            target_dir = await self.ensure_tarball_extracted(cache_key, tarball_uri)
+        # Download and extract each tarball venv, collect paths in deterministic order
+        registry_paths: list[Path] = []
+        if tarball_uris:
+            for tarball_uri in tarball_uris:
+                cache_key = self.compute_tarball_cache_key(tarball_uri)
+                target_dir = await self.ensure_tarball_extracted(cache_key, tarball_uri)
+                registry_paths.append(target_dir)
             logger.info(
-                "Using tarball venv",
-                cache_key=cache_key,
-                tarball_uri=tarball_uri[:80],
+                "Using tarball venvs",
+                count=len(registry_paths),
             )
         else:
-            # No tarball available - use empty cache dir
-            target_dir = self.cache_dir / "base"
-            target_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("No tarball URI provided, using base PYTHONPATH")
+            # No tarballs available - use empty base dir
+            base_dir = self.cache_dir / "base"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            registry_paths = [base_dir]
+            logger.info("No tarball URIs provided, using base PYTHONPATH")
 
         # Check if sandbox execution is enabled and available
         # force_sandbox=True overrides config (used by ephemeral backend)
@@ -349,7 +352,7 @@ class ActionRunner:
             return await self._execute_sandboxed(
                 input=input,
                 role=role,
-                registry_cache_dir=target_dir,
+                registry_paths=registry_paths,
                 env_vars=env_vars,
                 timeout=timeout,
                 resolved_context=resolved_context,
@@ -358,7 +361,7 @@ class ActionRunner:
             return await self._execute_direct(
                 input=input,
                 role=role,
-                registry_cache_dir=target_dir,
+                registry_paths=registry_paths,
                 env_vars=env_vars,
                 timeout=timeout,
                 resolved_context=resolved_context,
@@ -368,7 +371,7 @@ class ActionRunner:
         self,
         input: RunActionInput,
         role: Role,
-        registry_cache_dir: Path,
+        registry_paths: list[Path],
         resolved_context: ResolvedContext,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
@@ -381,7 +384,7 @@ class ActionRunner:
         Args:
             input: The RunActionInput containing task and context
             role: The Role for authorization
-            registry_cache_dir: Directory containing extracted registry tarballs
+            registry_paths: List of directories containing extracted registry tarballs
             resolved_context: Pre-resolved secrets, variables, and action impl
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
@@ -446,7 +449,7 @@ class ActionRunner:
 
             # Configure sandbox
             sandbox_config = ActionSandboxConfig(
-                registry_cache_dir=registry_cache_dir,
+                registry_paths=registry_paths,
                 tracecat_app_dir=_get_tracecat_app_dir(),
                 site_packages_dir=_get_site_packages_dir(),
                 env_vars=sandbox_env,
@@ -461,7 +464,7 @@ class ActionRunner:
                 "Executing action in nsjail sandbox",
                 action=input.task.action,
                 job_dir=str(job_dir),
-                registry_cache=str(registry_cache_dir),
+                registry_paths_count=len(registry_paths),
             )
 
             # Execute in sandbox
@@ -510,7 +513,7 @@ class ActionRunner:
         self,
         input: RunActionInput,
         role: Role,
-        registry_cache_dir: Path,
+        registry_paths: list[Path],
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         resolved_context: ResolvedContext | None = None,
@@ -524,16 +527,17 @@ class ActionRunner:
             payload["resolved_context"] = resolved_context
         input_json = to_json(payload)
 
-        # Build environment with target directory in PYTHONPATH
+        # Build environment with registry paths in PYTHONPATH
         env = os.environ.copy()
         if env_vars:
             env.update(env_vars)
 
+        # Build PYTHONPATH with multiple registry paths (deterministic order)
+        pythonpath_parts = [str(p) for p in registry_paths if p.exists()]
         existing_pythonpath = env.get("PYTHONPATH", "")
         if existing_pythonpath:
-            env["PYTHONPATH"] = f"{registry_cache_dir}:{existing_pythonpath}"
-        else:
-            env["PYTHONPATH"] = str(registry_cache_dir)
+            pythonpath_parts.append(existing_pythonpath)
+        env["PYTHONPATH"] = ":".join(pythonpath_parts) if pythonpath_parts else ""
 
         # Get path to minimal_runner.py for subprocess execution
         from tracecat.executor import minimal_runner as minimal_runner_module
