@@ -10,7 +10,7 @@ ExecuteChildWorkflowArgs has custom validators that prevent JSON schema generati
 import pytest  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
-from tracecat.registry.actions.schemas import RegistryValidationError  # noqa: E402
+from tracecat.exceptions import RegistryValidationError  # noqa: E402
 
 
 @pytest.fixture(scope="module")

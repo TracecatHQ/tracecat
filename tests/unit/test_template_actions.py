@@ -24,9 +24,9 @@ from tracecat.exceptions import (
 from tracecat.executor import service
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
     ActionStep,
-    BoundRegistryAction,
     RegistryActionCreate,
     TemplateAction,
     TemplateActionDefinition,

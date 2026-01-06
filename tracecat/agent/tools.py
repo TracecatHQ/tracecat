@@ -33,7 +33,8 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import BoundRegistryAction, RegistryActionOptions
+from tracecat.registry.actions.bound import BoundRegistryAction
+from tracecat.registry.actions.schemas import RegistryActionOptions
 from tracecat.registry.actions.service import RegistryActionsService
 
 # Define JsonValue type for tool parameters that accept any JSON-compatible value
