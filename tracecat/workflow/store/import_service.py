@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any, cast
 
 import yaml
 from pydantic import ValidationError
@@ -16,7 +17,7 @@ from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
-from tracecat.workflow.actions.schemas import ActionControlFlow
+from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -481,8 +482,17 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _create_actions_from_dsl(
         self, dsl: DSLInput, workflow_id: WorkflowID
     ) -> list[Action]:
-        """Create actions from DSL for a workflow."""
+        """Create actions from DSL for a workflow.
+
+        This method:
+        1. Creates Action entities from DSL action statements
+        2. Builds upstream_edges from depends_on relationships
+        3. For root actions (no depends_on), creates trigger->action edge
+        """
+        # First pass: Create all actions and build ref->action mapping
         actions: list[Action] = []
+        ref_to_action: dict[str, Action] = {}
+
         for act_stmt in dsl.actions:
             control_flow = ActionControlFlow(
                 run_if=act_stmt.run_if,
@@ -502,7 +512,41 @@ class WorkflowImportService(BaseWorkspaceService):
                 control_flow=control_flow.model_dump(),
             )
             actions.append(new_action)
+            ref_to_action[act_stmt.ref] = new_action
             self.session.add(new_action)
+
+        # Flush to get action IDs assigned
+        await self.session.flush()
+
+        # Second pass: Build upstream_edges from depends_on
+        trigger_id = f"trigger-{workflow_id}"
+
+        for act_stmt in dsl.actions:
+            action = ref_to_action[act_stmt.ref]
+            upstream_edges: list[ActionEdge] = []
+
+            if act_stmt.depends_on:
+                # Build edges from depends_on refs
+                for dep_ref in act_stmt.depends_on:
+                    if dep_action := ref_to_action.get(dep_ref):
+                        upstream_edges.append(
+                            ActionEdge(
+                                source_id=str(dep_action.id),
+                                source_type="udf",
+                                source_handle="success",
+                            )
+                        )
+            else:
+                # Root action: connect to trigger
+                upstream_edges.append(
+                    ActionEdge(
+                        source_id=trigger_id,
+                        source_type="trigger",
+                    )
+                )
+
+            action.upstream_edges = cast(list[dict[str, Any]], upstream_edges)
+
         return actions
 
     def _generate_tag_color(self) -> str:
