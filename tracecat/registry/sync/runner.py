@@ -28,11 +28,8 @@ import tracecat_registry
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
-from tracecat.registry.constants import (
-    DEFAULT_LOCAL_REGISTRY_ORIGIN,
-    DEFAULT_REGISTRY_ORIGIN,
-)
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
+from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
     TarballVenvBuildResult,
     build_tarball_venv_from_path,
@@ -161,8 +158,8 @@ class RegistrySyncRunner:
             # This phase could run in nsjail without network for extra security
             # For now, we use the subprocess approach (same as existing code)
             actions, validation_errors = await self._discover_actions(
-                package_path=package_path,
                 repository_id=request.repository_id,
+                origin=request.origin,
                 validate=request.validate_actions,
             )
 
@@ -341,21 +338,21 @@ class RegistrySyncRunner:
 
     async def _discover_actions(
         self,
-        package_path: Path,
         repository_id: UUID,
+        origin: str,
         validate: bool = False,
     ) -> tuple[
         list[RegistryActionCreate], dict[str, list[RegistryActionValidationErrorInfo]]
     ]:
-        """Discover actions from the installed package.
+        """Discover actions from the repository.
 
         This uses the existing subprocess-based discovery mechanism.
         In the future, this could be replaced with nsjail-based discovery
         with network disabled for extra security.
 
         Args:
-            package_path: Path to the package directory.
             repository_id: Database repository ID.
+            origin: Repository origin (e.g., "tracecat_registry", "local", or git URL).
             validate: Whether to validate template actions.
 
         Returns:
@@ -364,17 +361,6 @@ class RegistrySyncRunner:
         Raises:
             ActionDiscoveryError: If discovery fails.
         """
-        from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-
-        # Determine origin from package path
-        if package_path == Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH):
-            origin = DEFAULT_LOCAL_REGISTRY_ORIGIN
-        elif "tracecat_registry" in str(package_path):
-            origin = DEFAULT_REGISTRY_ORIGIN
-        else:
-            # For git repos, we need to figure out the origin
-            # For now, use the path as a placeholder
-            origin = str(package_path)
 
         try:
             result = await fetch_actions_from_subprocess(
