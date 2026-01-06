@@ -10,11 +10,13 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.dependencies import AnySecretIDPath
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import (
     OrganizationSecretRead,
     SecretCreate,
+    SecretDefinition,
     SecretRead,
     SecretReadMinimal,
     SecretSearch,
@@ -111,6 +113,17 @@ async def list_secrets(
         )
         for secret in secrets
     ]
+
+
+@router.get("/definitions", response_model=list[SecretDefinition])
+async def list_secret_definitions(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> list[SecretDefinition]:
+    """List registry secret definitions."""
+    service = RegistryActionsService(session, role=role)
+    return await service.get_aggregated_secrets()
 
 
 @router.get("/{secret_name}")

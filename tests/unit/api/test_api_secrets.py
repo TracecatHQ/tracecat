@@ -15,7 +15,7 @@ from tracecat.db.models import OrganizationSecret, Secret, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.secrets import router as secrets_router
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.secrets.schemas import SecretDefinition, SecretKeyValue
 
 
 @pytest.fixture
@@ -93,6 +93,44 @@ async def test_list_secrets_with_type_filter(
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert len(data) == 1
+
+
+@pytest.mark.anyio
+async def test_list_secret_definitions_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /secrets/definitions returns registry secret definitions."""
+    with patch.object(secrets_router, "RegistryActionsService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_aggregated_secrets.return_value = [
+            SecretDefinition(
+                name="alpha",
+                keys=["KEY1"],
+                optional_keys=None,
+                optional=False,
+                actions=["tools.alpha.action_one"],
+                action_count=1,
+            )
+        ]
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/secrets/definitions",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == [
+            {
+                "name": "alpha",
+                "keys": ["KEY1"],
+                "optional_keys": None,
+                "optional": False,
+                "actions": ["tools.alpha.action_one"],
+                "action_count": 1,
+            }
+        ]
 
 
 @pytest.mark.anyio

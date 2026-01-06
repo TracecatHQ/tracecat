@@ -11924,6 +11924,56 @@ Secret types
 - \`ca-cert\`: Certificate authority bundle`,
 } as const
 
+export const $SecretDefinition = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Keys",
+    },
+    optional_keys: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Optional Keys",
+    },
+    optional: {
+      type: "boolean",
+      title: "Optional",
+      default: false,
+    },
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    action_count: {
+      type: "integer",
+      title: "Action Count",
+    },
+  },
+  type: "object",
+  required: ["name", "keys", "actions", "action_count"],
+  title: "SecretDefinition",
+  description: "Aggregated secret definition from registry actions.",
+} as const
+
 export const $SecretKeyValue = {
   properties: {
     key: {
