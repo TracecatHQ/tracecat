@@ -14,6 +14,7 @@ from tenacity import (
 
 from tracecat import config
 from tracecat.config import (
+    TEMPORAL__API_KEY,
     TEMPORAL__API_KEY__ARN,
     TEMPORAL__CLUSTER_NAMESPACE,
     TEMPORAL__CLUSTER_URL,
@@ -47,8 +48,8 @@ async def connect_to_temporal(plugins: list[Plugin] | None = None) -> Client:
 
     if TEMPORAL__API_KEY__ARN:
         api_key = await _retrieve_temporal_api_key(arn=TEMPORAL__API_KEY__ARN)
-    elif os.environ.get("TEMPORAL__API_KEY"):
-        api_key = os.environ.get("TEMPORAL__API_KEY")
+    elif TEMPORAL__API_KEY:
+        api_key = TEMPORAL__API_KEY
 
     if api_key is not None:
         tls_config = True
