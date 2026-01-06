@@ -77,8 +77,6 @@ services:
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Redis
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
       # Agent
       TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED: ${TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED}
@@ -134,8 +132,6 @@ services:
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Redis
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
@@ -199,8 +195,6 @@ services:
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       # Redis
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO wheel access)
       TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}

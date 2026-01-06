@@ -15,6 +15,7 @@ os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
 
 import aioboto3
 import pytest
+import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
 from dotenv import load_dotenv
 from minio import Minio
@@ -65,15 +66,14 @@ MINIO_SECRET_KEY = "password"
 # Redis test configuration
 # ---------------------------------------------------------------------------
 
-# Redis runs on standard port via docker-compose
-# REDIS_HOST is configurable for running tests inside containers (e.g., executor)
-REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
-REDIS_PORT = 6379
-
 # Worker-specific Redis database number for pytest-xdist isolation
 # Each xdist worker uses a different database (0-15) to avoid conflicts
 # when multiple workers run tests in parallel
 REDIS_DB = WORKER_OFFSET % 16
+
+# Redis URL from environment (matches docker-compose pattern)
+# Default to localhost for local development
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 
 # ---------------------------------------------------------------------------
@@ -92,27 +92,24 @@ def redis_server():
     Each pytest-xdist worker uses a different Redis database number
     to ensure test isolation during parallel execution.
     """
-    import redis as redis_sync
-
-    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+    # Append worker-specific database number for isolation
+    worker_redis_url = f"{REDIS_URL}/{REDIS_DB}"
+    client = redis.Redis.from_url(worker_redis_url)
     for _ in range(30):
         try:
             if client.ping():
                 logger.info(
-                    f"Redis available at {REDIS_HOST}:{REDIS_PORT}, db={REDIS_DB} "
-                    f"(worker={WORKER_ID})"
+                    f"Redis available at {worker_redis_url} (worker={WORKER_ID})"
                 )
-                # Include database number in REDIS_URL for worker isolation
-                os.environ["REDIS_URL"] = (
-                    f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
-                )
+                # Set REDIS_URL with worker-specific database for isolation
+                os.environ["REDIS_URL"] = worker_redis_url
                 yield
                 return
         except Exception:
             time.sleep(1)
 
     pytest.fail(
-        f"Redis not available at {REDIS_HOST}:{REDIS_PORT}. "
+        f"Redis not available at {REDIS_URL}. "
         "Start it with: docker-compose -f docker-compose.dev.yml up -d redis"
     )
 
@@ -123,9 +120,7 @@ def clean_redis_db(redis_server):
 
     Uses worker-specific database to avoid affecting other xdist workers.
     """
-    import redis as redis_sync
-
-    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+    client = redis.Redis.from_url(os.environ["REDIS_URL"])
     client.flushdb()
     yield
     client.flushdb()
@@ -587,7 +582,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
 
     # Detect if running inside Docker container by checking for /.dockerenv file
-    # This is more reliable than checking env vars like REDIS_HOST, which may be
+    # This is more reliable than checking env vars like REDIS_URL, which may be
     # loaded from .env by load_dotenv() even when running on the host
     in_docker = os.path.exists("/.dockerenv")
     db_host = "postgres_db" if in_docker else "localhost"
