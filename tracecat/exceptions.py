@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import httpx
-from pydantic_core import ValidationError
-
 if TYPE_CHECKING:
+    import httpx
+    from pydantic_core import ValidationError
+
     from tracecat.executor.schemas import ExecutorActionErrorInfo
     from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 
