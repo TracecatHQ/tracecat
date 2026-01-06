@@ -241,7 +241,7 @@ class TestActionRunner:
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
-                registry_cache_dir=base_dir,
+                registry_paths=[base_dir],
                 timeout=0.1,
             )
 
@@ -267,7 +267,7 @@ class TestActionRunner:
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
-                registry_cache_dir=base_dir,
+                registry_paths=[base_dir],
                 timeout=10.0,
             )
 
@@ -297,7 +297,7 @@ class TestActionRunner:
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
-                registry_cache_dir=base_dir,
+                registry_paths=[base_dir],
                 timeout=10.0,
             )
 
@@ -337,7 +337,7 @@ class TestActionRunner:
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
-                registry_cache_dir=base_dir,
+                registry_paths=[base_dir],
                 timeout=10.0,
             )
 
@@ -363,7 +363,7 @@ class TestActionRunner:
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
-                registry_cache_dir=base_dir,
+                registry_paths=[base_dir],
                 timeout=10.0,
             )
 
