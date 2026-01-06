@@ -230,6 +230,35 @@ class TestTablesService:
         )
         assert second_table.name == "people_1"
 
+    async def test_import_table_from_csv_json_arrays(
+        self, tables_service: TablesService
+    ) -> None:
+        """JSON array cells should be stored as JSONB instead of plain text."""
+        csv_content = "\n".join(
+            [
+                "Name,Tags",
+                'Widget,"[\\"foo\\", \\"bar\\"]"',
+            ]
+        )
+
+        table, inserted, inferred_columns = await tables_service.import_table_from_csv(
+            contents=csv_content.encode(),
+            filename="JsonArrays.csv",
+        )
+
+        assert inserted == 1
+        tags_column = next(
+            column for column in inferred_columns if column.original_name == "Tags"
+        )
+        assert tags_column.type is SqlType.JSONB
+
+        retrieved_table = await tables_service.get_table(table.id)
+        rows = await tables_service.list_rows(retrieved_table)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["name"] == "Widget"
+        assert row["tags"] == ["foo", "bar"]
+
     async def test_import_table_handles_empty_numeric_values(
         self, tables_service: TablesService
     ) -> None:
