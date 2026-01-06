@@ -53,12 +53,9 @@ services:
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
       # Migrations
       RUN_MIGRATIONS: "true"
-      # Blob Storage (MinIO)
-      TRACECAT__BLOB_STORAGE_PROTOCOL: minio
+      # Blob Storage
       TRACECAT__BLOB_STORAGE_ENDPOINT: http://minio:9000
       TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${PUBLIC_APP_URL}/s3
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -183,10 +180,7 @@ services:
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO wheel access)
-      TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
@@ -299,9 +293,6 @@ services:
     ports:
       - ${MINIO_PORT:-9000}:9000
       - ${MINIO_CONSOLE_PORT:-9001}:9001
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
