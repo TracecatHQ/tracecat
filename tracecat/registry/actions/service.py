@@ -3,16 +3,18 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
+from typing import cast as typing_cast
 
 from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean, cast, func, or_, select
-from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecretType,
+    RegistrySecretTypeValidator,
+)
 
 from tracecat import config
-
-if TYPE_CHECKING:
-    from tracecat.ssh import SshEnv
 from tracecat.db.models import RegistryAction, RegistryRepository
 from tracecat.exceptions import (
     RegistryActionValidationError,
@@ -20,22 +22,27 @@ from tracecat.exceptions import (
     RegistryValidationError,
 )
 from tracecat.expressions.eval import extract_expressions
+from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validator.validator import (
     TemplateActionExprValidator,
     TemplateActionValidationContext,
 )
 from tracecat.logger import logger
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.enums import (
     TemplateActionValidationErrorType,
 )
 from tracecat.registry.actions.schemas import (
-    BoundRegistryAction,
+    AnnotatedRegistryActionImpl,
     RegistryActionCreate,
     RegistryActionImplValidator,
+    RegistryActionInterface,
+    RegistryActionOptions,
     RegistryActionRead,
+    RegistryActionType,
     RegistryActionUpdate,
     RegistryActionValidationErrorInfo,
-    model_converters,
+    TemplateAction,
 )
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
@@ -43,6 +50,10 @@ from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
+
+if TYPE_CHECKING:
+    from tracecat.db.models import RegistryAction
+    from tracecat.ssh import SshEnv
 
 
 class RegistryActionsService(BaseService):
@@ -165,9 +176,7 @@ class RegistryActionsService(BaseService):
 
         # Interface
         if params.implementation.type == "template":
-            interface = model_converters.implementation_to_interface(
-                params.implementation
-            )
+            interface = _implementation_to_interface(params.implementation)
         else:
             interface = params.interface
 
@@ -594,7 +603,36 @@ class RegistryActionsService(BaseService):
         self, action: RegistryAction
     ) -> RegistryActionRead:
         extra_secrets = await self.fetch_all_action_secrets(action)
-        return RegistryActionRead.from_database(action, list(extra_secrets))
+        impl = RegistryActionImplValidator.validate_python(action.implementation)
+        secrets = {
+            RegistrySecretTypeValidator.validate_python(secret)
+            for secret in action.secrets or []
+        }
+        if extra_secrets:
+            secrets.update(extra_secrets)
+        return RegistryActionRead(
+            id=action.id,
+            repository_id=action.repository_id,
+            name=action.name,
+            description=action.description,
+            namespace=action.namespace,
+            type=typing_cast(RegistryActionType, action.type),
+            doc_url=action.doc_url,
+            author=action.author,
+            deprecated=action.deprecated,
+            interface=_db_to_interface(action),
+            implementation=impl,
+            default_title=action.default_title,
+            display_group=action.display_group,
+            origin=action.origin,
+            options=RegistryActionOptions(**action.options),
+            secrets=sorted(
+                secrets,
+                key=lambda x: x.provider_id
+                if isinstance(x, RegistryOAuthSecret)
+                else x.name,
+            ),
+        )
 
     async def fetch_all_action_secrets(
         self, action: RegistryAction
@@ -757,3 +795,41 @@ async def validate_action_template(
     )
 
     return val_errs
+
+
+def _implementation_to_interface(
+    impl: AnnotatedRegistryActionImpl,
+) -> RegistryActionInterface:
+    if impl.type == "template":
+        expects = create_expectation_model(
+            schema=impl.template_action.definition.expects,
+            model_name=impl.template_action.definition.action.replace(".", "__"),
+        )
+        return RegistryActionInterface(
+            expects=expects.model_json_schema(),
+            returns=impl.template_action.definition.returns,
+        )
+    else:
+        return RegistryActionInterface(expects={}, returns={})
+
+
+def _db_to_interface(action: RegistryAction) -> RegistryActionInterface:
+    match action.implementation:
+        case {"type": "template", "template_action": template_action}:
+            template = TemplateAction.model_validate(template_action)
+            expects = create_expectation_model(
+                template.definition.expects,
+                template.definition.action.replace(".", "__"),
+            )
+            intf = RegistryActionInterface(
+                expects=expects.model_json_schema(),
+                returns=template.definition.returns,
+            )
+        case {"type": "udf", **_kwargs}:
+            intf = RegistryActionInterface(
+                expects=action.interface.get("expects", {}),
+                returns=action.interface.get("returns", {}),
+            )
+        case _:
+            raise ValueError(f"Unknown implementation type: {action.implementation}")
+    return intf

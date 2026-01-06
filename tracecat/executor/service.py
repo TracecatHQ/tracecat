@@ -52,8 +52,8 @@ from tracecat.expressions.eval import (
 )
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
-    BoundRegistryAction,
     RegistryActionImplValidator,
     TemplateActionDefinition,
 )

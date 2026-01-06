@@ -6,8 +6,12 @@ from lark import Lark, Transformer, v_args
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic_core import to_jsonable_python
 
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.logger import logger
 from tracecat.registry.fields import get_components_for_union_type, type_drop_null
+
+# Re-export for backwards compatibility
+__all__ = ["ExpectedField", "create_expectation_model"]
 
 type_grammar = r"""
 ?type: primitive_type
@@ -142,12 +146,6 @@ class TypeTransformer(Transformer):
 def parse_type(type_string: str, field_name: str) -> Any:
     tree = type_parser.parse(type_string)
     return TypeTransformer(field_name).transform(tree)
-
-
-class ExpectedField(BaseModel):
-    type: str
-    description: str | None = None
-    default: Any | None = None
 
 
 def create_expectation_model(

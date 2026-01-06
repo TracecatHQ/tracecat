@@ -13,8 +13,8 @@ from tracecat.db.models import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
-    BoundRegistryAction,
     RegistryActionImplValidator,
     RegistryActionUDFImpl,
 )
