@@ -37,29 +37,65 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import signal
 from concurrent.futures import ThreadPoolExecutor
 
-import uvloop
+from temporalio import workflow
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import (
+    SandboxedWorkflowRunner,
+    SandboxRestrictions,
+)
 
-from tracecat import config
-from tracecat.dsl.client import get_temporal_client
-from tracecat.executor.activities import ExecutorActivities
-from tracecat.executor.backends import (
-    initialize_executor_backend,
-    shutdown_executor_backend,
-)
-from tracecat.logger import logger
-from tracecat.registry.sync.workflow import (
-    RegistrySyncActivities,
-    RegistrySyncWorkflow,
-)
+with workflow.unsafe.imports_passed_through():
+    import uvloop
+
+    from tracecat import config
+    from tracecat.dsl.client import get_temporal_client
+    from tracecat.executor.activities import ExecutorActivities
+    from tracecat.executor.backends import (
+        initialize_executor_backend,
+        shutdown_executor_backend,
+    )
+    from tracecat.logger import logger
+    from tracecat.registry.sync.workflow import (
+        RegistrySyncActivities,
+        RegistrySyncWorkflow,
+    )
 
 interrupt_event = asyncio.Event()
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+
+def new_sandbox_runner() -> SandboxedWorkflowRunner:
+    """Create a sandboxed workflow runner with relaxed restrictions.
+
+    The RegistrySyncWorkflow imports schemas that transitively pull in:
+    - FastAPI → anyio → sniffio (ThreadLocal subclass issues)
+    - SQLAlchemy (metaclass/annotation issues)
+    - Pydantic (validation complexity)
+
+    Since RegistrySyncWorkflow is a simple activity wrapper with no complex
+    determinism requirements, we use a permissive sandbox configuration.
+    """
+    # Relax datetime restrictions (same as DSL worker)
+    invalid_module_member_children = dict(
+        SandboxRestrictions.invalid_module_members_default.children
+    )
+    del invalid_module_member_children["datetime"]
+
+    return SandboxedWorkflowRunner(
+        restrictions=dataclasses.replace(
+            SandboxRestrictions.default,
+            invalid_module_members=dataclasses.replace(
+                SandboxRestrictions.invalid_module_members_default,
+                children=invalid_module_member_children,
+            ),
+        )
+    )
 
 
 async def main() -> None:
@@ -115,6 +151,7 @@ async def main() -> None:
                 activities=activities,
                 activity_executor=executor,
                 max_concurrent_activities=max_concurrent,
+                workflow_runner=new_sandbox_runner(),
             ):
                 logger.info(
                     "ExecutorWorker started, ctrl+c to exit",

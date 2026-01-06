@@ -32,7 +32,10 @@ from temporalio import activity, workflow
 with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.registry.sync.runner import RegistrySyncRunner
-    from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
+    from tracecat.registry.sync.schemas import (
+        RegistrySyncRequest,
+        RegistrySyncResult,
+    )
 
 
 @workflow.defn
@@ -100,6 +103,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     Raises:
         ApplicationError: If sync fails at any phase.
     """
+
     logger.info(
         "Starting sync_registry_activity",
         repository_id=str(request.repository_id),

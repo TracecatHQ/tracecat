@@ -623,7 +623,7 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
 
 # === Registry Sync === #
 TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = os.environ.get(
-    "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", "false"
+    "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", "true"
 ).lower() in ("true", "1")
 """Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
 
