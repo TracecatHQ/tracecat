@@ -10,7 +10,6 @@ from typing import Any
 
 import yaml
 from github.GithubException import GithubException
-from github.InputGitAuthor import InputGitAuthor
 from pydantic import ValidationError
 
 from tracecat.db.models import User
@@ -355,12 +354,11 @@ class WorkflowSyncService(BaseWorkspaceService):
                 sort_keys=False,
             )
 
-            # Set author info
-            author_name = options.author.name if options.author else "Tracecat"
-            author_email = (
-                options.author.email if options.author else "noreply@tracecat.com"
-            )
-            git_author = InputGitAuthor(name=author_name, email=author_email)
+            # NOTE: We intentionally omit author/committer parameters to enable
+            # GitHub's automatic commit signing for GitHub Apps. Per GitHub docs:
+            # "Signature verification for bots will only work if the request
+            # contains no custom author information, custom committer information"
+            # https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification
 
             try:
                 # Try to get existing file to update it
@@ -378,8 +376,6 @@ class WorkflowSyncService(BaseWorkspaceService):
                     content=yaml_content,
                     sha=contents.sha,
                     branch=branch_name,
-                    author=git_author,
-                    committer=git_author,
                 )
                 logger.debug(
                     "Updated workflow file via API",
@@ -395,8 +391,6 @@ class WorkflowSyncService(BaseWorkspaceService):
                         message=options.message,
                         content=yaml_content,
                         branch=branch_name,
-                        author=git_author,
-                        committer=git_author,
                     )
                     logger.debug(
                         "Created workflow file via API",
