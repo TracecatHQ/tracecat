@@ -499,7 +499,7 @@ class ChatService(BaseWorkspaceService):
                 DBChatMessage.chat_id == chat_id,
                 DBChatMessage.workspace_id == self.workspace_id,
             )
-            .order_by(DBChatMessage.created_at.asc())
+            .order_by(DBChatMessage.surrogate_id)
         )
 
         if kinds:
