@@ -228,32 +228,24 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
 )
 
 # === Blob Storage Config === #
-TRACECAT__BLOB_STORAGE_PROTOCOL = os.environ.get(
-    "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio"
-)
-"""Blob storage protocol: 's3' for AWS S3, 'minio' for Minio."""
 
-# Bucket for case attachments
 TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS", "tracecat-attachments"
 )
 """Bucket for case attachments."""
 
-# Bucket for registry artifacts
 TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "tracecat-registry"
 )
 """Bucket for registry tarball files and versioned artifacts."""
 
-TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
-    "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
-)
-"""Endpoint URL for blob storage. Ignored when protocol is 's3'."""
+TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT")
+"""Endpoint URL for blob storage."""
 
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
 )
-"""Public endpoint URL to use for presigned URLs. Ignored when protocol is 's3'."""
+"""Public endpoint URL to use for presigned URLs."""
 
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)

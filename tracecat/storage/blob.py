@@ -12,30 +12,22 @@ from tracecat.logger import logger
 
 # Core storage utility functions
 def get_storage_client() -> ClientCreatorContext:
-    """Get a configured S3 client for either AWS S3 or MinIO.
-
-    Uses environment variables for credentials:
-    - For MinIO: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
-    - For S3: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+    """Get a configured S3 client.
 
     Returns:
         Configured aioboto3 S3 client context manager
     """
     session = aioboto3.Session()
-
-    # Configure client based on protocol
-    if config.TRACECAT__BLOB_STORAGE_PROTOCOL == "minio":
-        # MinIO configuration - use MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
+    if config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None:
         return session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
-            aws_access_key_id=os.environ.get("MINIO_ROOT_USER"),
-            aws_secret_access_key=os.environ.get("MINIO_ROOT_PASSWORD"),
+            # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "minioadmin"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "minioadmin"),
         )
     else:
-        # AWS S3 configuration - use AWS credentials from environment or default credential chain
         return session.client("s3")
-
 
 async def ensure_bucket_exists(bucket: str) -> None:
     """Ensure the storage bucket exists, creating it if necessary.
@@ -53,7 +45,6 @@ async def ensure_bucket_exists(bucket: str) -> None:
             if error_code == "404":
                 # Bucket doesn't exist, create it
                 try:
-                    # For MinIO and most regions, simple create_bucket works
                     await s3_client.create_bucket(Bucket=bucket)
                     logger.info("Created bucket", bucket=bucket)
                 except ClientError as create_error:
@@ -189,7 +180,7 @@ async def upload_file(
     bucket: str,
     content_type: str | None = None,
 ) -> None:
-    """Upload a file to S3/MinIO.
+    """Upload a file to S3.
 
     Args:
         content: The file content as bytes
@@ -229,7 +220,7 @@ async def upload_file(
 
 
 async def download_file(key: str, bucket: str) -> bytes:
-    """Download a file from S3/MinIO.
+    """Download a file from S3.
 
     Args:
         key: The S3 object key
@@ -272,7 +263,7 @@ async def download_file(key: str, bucket: str) -> bytes:
 
 
 async def delete_file(key: str, bucket: str) -> None:
-    """Delete a file from S3/MinIO.
+    """Delete a file from S3.
 
     Args:
         key: The S3 object key
@@ -301,7 +292,7 @@ async def delete_file(key: str, bucket: str) -> None:
 
 
 async def file_exists(key: str, bucket: str) -> bool:
-    """Check if a file exists in S3/MinIO.
+    """Check if a file exists in S3.
 
     Args:
         key: The S3 object key
