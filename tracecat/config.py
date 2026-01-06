@@ -627,13 +627,13 @@ TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
 
-When True, registry sync operations run on the ExecutorWorker with:
+When True (default), registry sync operations run on the ExecutorWorker with:
 - Git clone in subprocess with SSH credentials
 - Package installation with network access
 - Action discovery (currently subprocess, future: nsjail without network)
 - Tarball build and upload to S3
 
-When False (default), uses the existing subprocess approach from the API service.
+When False, uses the existing subprocess approach from the API service.
 """
 
 TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT = int(

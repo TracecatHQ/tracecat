@@ -64,14 +64,14 @@ class RegistrySyncWorkflow:
             origin_type=request.origin_type,
         )
 
-        # Execute the sync activity with appropriate timeouts
-        # - start_to_close_timeout: Total time allowed for the activity
-        # - heartbeat_timeout: Activity must heartbeat within this interval
+        # Execute the sync activity with start_to_close timeout only.
+        # We don't use heartbeat_timeout because the subprocess operations
+        # (package install, action discovery) can take several minutes without
+        # natural checkpoints for heartbeating.
         result = await workflow.execute_activity(
             sync_registry_activity,
             request,
             start_to_close_timeout=timedelta(minutes=15),
-            heartbeat_timeout=timedelta(minutes=2),
         )
 
         workflow.logger.info(
