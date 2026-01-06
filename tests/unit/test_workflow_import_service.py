@@ -313,10 +313,35 @@ class TestWorkflowImportService:
         import_service: WorkflowImportService,
         sample_dsl: DSLInput,
     ):
-        """Test the _create_actions_from_dsl helper method."""
+        """Test the create_actions_from_dsl helper method."""
+        # Create workflow first (actions require existing workflow due to FK constraint)
         workflow_id = WorkflowUUID.new("wf_testworkflowactions")
+        base_dsl = DSLInput(
+            title="Base Workflow",
+            description="Workflow for testing actions",
+            entrypoint=DSLEntrypoint(ref="placeholder"),
+            actions=[
+                ActionStatement(
+                    ref="placeholder",
+                    action="core.transform.transform",
+                    args={"value": "placeholder"},
+                    description="Placeholder",
+                )
+            ],
+        )
+        workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
+            base_dsl, workflow_id=workflow_id, commit=False
+        )
+        # Remove the placeholder actions created by create_db_workflow_from_dsl
+        await import_service.session.refresh(workflow, ["actions"])
+        for action in workflow.actions:
+            await import_service.session.delete(action)
+        await import_service.session.flush()
 
-        actions = await import_service._create_actions_from_dsl(sample_dsl, workflow_id)
+        # Now test creating actions from DSL
+        actions = await import_service.wf_mgmt.create_actions_from_dsl(
+            sample_dsl, workflow_id
+        )
 
         assert len(actions) == 2
 

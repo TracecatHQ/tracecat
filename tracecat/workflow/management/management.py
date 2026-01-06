@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
 from pydantic import ValidationError
-from sqlalchemy import and_, cast, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 
@@ -51,7 +51,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
 )
 from tracecat.validation.service import validate_dsl
-from tracecat.workflow.actions.schemas import ActionControlFlow
+from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
 from tracecat.workflow.executions.enums import ExecutionType
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.schemas import (
@@ -90,7 +90,7 @@ class WorkflowsManagementService(BaseService):
                 WorkflowDefinition.workflow_id,
                 sa.func.max(WorkflowDefinition.version).label("latest_version"),
             )
-            .group_by(cast(WorkflowDefinition.workflow_id, sa.UUID))
+            .group_by(sa.cast(WorkflowDefinition.workflow_id, sa.UUID))
             .subquery()
         )
 
@@ -105,7 +105,7 @@ class WorkflowsManagementService(BaseService):
             .where(Workflow.workspace_id == self.role.workspace_id)
             .outerjoin(
                 latest_defn_subq,
-                cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
+                sa.cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
             )
             .outerjoin(
                 WorkflowDefinition,
@@ -132,7 +132,8 @@ class WorkflowsManagementService(BaseService):
             # Join through the WorkflowTag link table to Tag table
             stmt = (
                 stmt.join(
-                    WorkflowTag, cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id
+                    WorkflowTag,
+                    sa.cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id,
                 )
                 .join(Tag, and_(Tag.id == WorkflowTag.tag_id, Tag.name.in_(tag_set)))
                 # Ensure we get distinct workflows when multiple tags match
@@ -175,7 +176,7 @@ class WorkflowsManagementService(BaseService):
                 WorkflowDefinition.workflow_id,
                 sa.func.max(WorkflowDefinition.version).label("latest_version"),
             )
-            .group_by(cast(WorkflowDefinition.workflow_id, sa.UUID))
+            .group_by(sa.cast(WorkflowDefinition.workflow_id, sa.UUID))
             .subquery()
         )
 
@@ -190,7 +191,7 @@ class WorkflowsManagementService(BaseService):
             .where(Workflow.workspace_id == self.role.workspace_id)
             .outerjoin(
                 latest_defn_subq,
-                cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
+                sa.cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
             )
             .outerjoin(
                 WorkflowDefinition,
@@ -206,7 +207,8 @@ class WorkflowsManagementService(BaseService):
             tag_set = set(tags)
             stmt = (
                 stmt.join(
-                    WorkflowTag, cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id
+                    WorkflowTag,
+                    sa.cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id,
                 )
                 .join(Tag, and_(Tag.id == WorkflowTag.tag_id, Tag.name.in_(tag_set)))
                 .distinct()
@@ -574,7 +576,7 @@ class WorkflowsManagementService(BaseService):
                 self.logger.info("Validation errors", errors=val_errors)
                 return WorkflowDSLCreateResponse(errors=list(val_errors))
 
-        self.logger.info("Creating workflow from DSL", dsl=dsl)
+        self.logger.debug("Creating workflow from DSL", dsl=dsl)
         try:
             workflow = await self.create_db_workflow_from_dsl(dsl)
             return WorkflowDSLCreateResponse(workflow=workflow)
@@ -669,8 +671,10 @@ class WorkflowsManagementService(BaseService):
             workflow_kwargs["alias"] = workflow_alias
         workflow = Workflow(**workflow_kwargs)
 
-        # Add the Workflow to the session first to generate an ID
+        # Add the Workflow to the session first and flush to ensure ID is persisted
         self.session.add(workflow)
+        await self.session.flush()
+        self.logger.debug("Workflow created", workflow_id=workflow.id)
 
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
@@ -680,8 +684,29 @@ class WorkflowsManagementService(BaseService):
         self.session.add(webhook)
         workflow.webhook = webhook
 
-        # Create and associate Actions with the Workflow
+        # Create actions from DSL (actions have workflow_id set, relationship managed by FK)
+        await self.create_actions_from_dsl(dsl, workflow.id)
+
+        # Commit the transaction
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(workflow)
+        return workflow
+
+    async def create_actions_from_dsl(
+        self, dsl: DSLInput, workflow_id: uuid.UUID
+    ) -> list[Action]:
+        """Create Action entities from DSL and add to session.
+
+        Builds upstream_edges from depends_on relationships.
+        For root actions (no depends_on), creates trigger->action edge.
+        """
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError("Workspace ID is required")
+
+        # Create all actions and build ref->action mapping
         actions: list[Action] = []
+        ref_to_action: dict[str, Action] = {}
         for act_stmt in dsl.actions:
             control_flow = ActionControlFlow(
                 run_if=act_stmt.run_if,
@@ -693,7 +718,7 @@ class WorkflowsManagementService(BaseService):
             )
             new_action = Action(
                 workspace_id=self.role.workspace_id,
-                workflow_id=workflow.id,
+                workflow_id=workflow_id,
                 type=act_stmt.action,
                 inputs=yaml.dump(act_stmt.args),
                 title=act_stmt.title,
@@ -701,15 +726,37 @@ class WorkflowsManagementService(BaseService):
                 control_flow=control_flow.model_dump(),
             )
             actions.append(new_action)
-            self.session.add(new_action)
+            ref_to_action[act_stmt.ref] = new_action
 
-        workflow.actions = actions  # Associate actions with the workflow
+        # Build upstream_edges (separate loop handles forward references in depends_on)
+        trigger_id = f"trigger-{workflow_id}"
+        for act_stmt in dsl.actions:
+            action = ref_to_action[act_stmt.ref]
+            upstream_edges: list[ActionEdge] = []
 
-        # Commit the transaction
-        if commit:
-            await self.session.commit()
-            await self.session.refresh(workflow)
-        return workflow
+            if act_stmt.depends_on:
+                for dep_ref in act_stmt.depends_on:
+                    if dep_action := ref_to_action.get(dep_ref):
+                        upstream_edges.append(
+                            ActionEdge(
+                                source_id=str(dep_action.id),
+                                source_type="udf",
+                                source_handle="success",
+                            )
+                        )
+            else:
+                upstream_edges.append(
+                    ActionEdge(
+                        source_id=trigger_id,
+                        source_type="trigger",
+                    )
+                )
+            action.upstream_edges = cast(list[dict[str, Any]], upstream_edges)
+
+        for action in actions:
+            self.session.add(action)
+        await self.session.flush()
+        return actions
 
     async def _get_latest_registry_lock(self) -> dict[str, str] | None:
         """Get the latest registry versions lock.
