@@ -1,8 +1,8 @@
-"""ExecutorWorker - Temporal worker for action execution.
+"""ExecutorWorker - Temporal worker for action execution and registry sync.
 
-This worker listens on the 'shared-action-queue' and executes actions
-dispatched from DSL workflows. It uses the configured executor backend
-for action execution.
+This worker listens on the 'shared-action-queue' and executes:
+- Actions dispatched from DSL workflows
+- Registry sync operations (when sandboxed sync is enabled)
 
 Supported backends (via TRACECAT__EXECUTOR_BACKEND):
 - pool: Warm nsjail workers (single-tenant, high throughput)
@@ -21,6 +21,17 @@ Architecture:
         |
         v
     dispatch_action() -> backend.execute() -> action result
+
+    API Service (registry sync)
+        |
+        v
+    workflow.execute_workflow(RegistrySyncWorkflow, task_queue="shared-action-queue")
+        |
+        v
+    ExecutorWorker picks up workflow
+        |
+        v
+    RegistrySyncRunner -> git clone, install, discover, tarball
 """
 
 from __future__ import annotations
@@ -41,6 +52,10 @@ from tracecat.executor.backends import (
     shutdown_executor_backend,
 )
 from tracecat.logger import logger
+from tracecat.registry.sync.workflow import (
+    RegistrySyncActivities,
+    RegistrySyncWorkflow,
+)
 
 interrupt_event = asyncio.Event()
 
@@ -71,7 +86,15 @@ async def main() -> None:
 
     try:
         client = await get_temporal_client()
-        activities = ExecutorActivities.get_activities()
+
+        # Collect all activities from executor and registry sync
+        activities = [
+            *ExecutorActivities.get_activities(),
+            *RegistrySyncActivities.get_activities(),
+        ]
+
+        # Collect all workflows
+        workflows = [RegistrySyncWorkflow]
 
         logger.debug(
             "Activities loaded",
@@ -79,11 +102,16 @@ async def main() -> None:
                 getattr(a, "__temporal_activity_definition").name for a in activities
             ],
         )
+        logger.debug(
+            "Workflows loaded",
+            workflows=[w.__name__ for w in workflows],
+        )
 
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
                 client,
                 task_queue=task_queue,
+                workflows=workflows,
                 activities=activities,
                 activity_executor=executor,
                 max_concurrent_activities=max_concurrent,
@@ -92,6 +120,8 @@ async def main() -> None:
                     "ExecutorWorker started, ctrl+c to exit",
                     task_queue=task_queue,
                     max_concurrent_activities=max_concurrent,
+                    num_workflows=len(workflows),
+                    num_activities=len(activities),
                 )
                 # Wait until interrupted
                 await interrupt_event.wait()
