@@ -37,7 +37,8 @@ from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
-from tracecat.registry.actions.schemas import BoundRegistryAction, TemplateAction
+from tracecat.registry.actions.bound import BoundRegistryAction
+from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
