@@ -510,6 +510,9 @@ REDIS_CHAT_TTL_SECONDS = int(
 )
 """TTL for Redis chat history streams in seconds. Defaults to 3 days."""
 
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+"""URL for the Redis instance. Required for Redis chat history."""
+
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)

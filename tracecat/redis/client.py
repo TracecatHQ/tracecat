@@ -16,7 +16,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.config import REDIS_CHAT_TTL_SECONDS
+from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL
 from tracecat.logger import logger
 
 
@@ -41,13 +41,9 @@ class RedisClient:
     def _init_pool(self) -> None:
         """Ensure the Redis connection pool is initialized."""
         if RedisClient._pool is None:
-            # Get Redis URL from environment
-            redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-            logger.info("Initializing Redis connection pool", url=redis_url)
-
             # Create connection pool
             RedisClient._pool = redis.from_url(
-                redis_url,
+                REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
@@ -248,7 +244,7 @@ class RedisClient:
 
     async def _reset_connection(self) -> None:
         """Reset the Redis client and pool so the next attempt reinitializes them."""
-        logger.warning("Resetting Redis connection after transport error")
+        logger.error("Resetting Redis connection after transport error")
         await self.close()
         # Re-initialize the pool for subsequent calls
         self._init_pool()
