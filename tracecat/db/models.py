@@ -958,7 +958,7 @@ class Action(WorkspaceModel):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
-        nullable=True,
+        nullable=False,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="actions")
