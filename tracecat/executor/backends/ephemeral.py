@@ -73,8 +73,10 @@ class EphemeralBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        # Get tarball URI for registry environment
-        tarball_uri = await self._get_tarball_uri(input, role)
+        # Get tarball URI for registry environment, matching action's origin
+        tarball_uri = await self._get_tarball_uri(
+            input, role, action_origin=resolved_context.action_impl.origin
+        )
 
         # Execute using ActionRunner with forced sandbox mode
         runner = get_action_runner()
@@ -92,8 +94,20 @@ class EphemeralBackend(ExecutorBackend):
             return ExecutorResultFailure(error=result)
         return ExecutorResultSuccess(result=result)
 
-    async def _get_tarball_uri(self, input: RunActionInput, role: Role) -> str | None:
-        """Get the tarball URI for the registry environment."""
+    async def _get_tarball_uri(
+        self,
+        input: RunActionInput,
+        role: Role,
+        action_origin: str | None,
+    ) -> str | None:
+        """Get the tarball URI for the registry environment.
+
+        Args:
+            input: The RunActionInput containing task and execution context
+            role: The Role for authorization
+            action_origin: The origin URL of the action's registry (e.g., 'tracecat_registry'
+                or 'git+ssh://...'), used to select the matching tarball
+        """
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             return None
 
@@ -103,7 +117,24 @@ class EphemeralBackend(ExecutorBackend):
             else:
                 artifacts = await get_registry_artifacts_cached(role)
 
-            # Return first tarball URI if available
+            # Match the action's origin to the correct artifact
+            if action_origin:
+                for artifact in artifacts:
+                    if artifact.tarball_uri and artifact.origin == action_origin:
+                        logger.debug(
+                            "Matched action origin to artifact",
+                            action_origin=action_origin,
+                            artifact_origin=artifact.origin,
+                        )
+                        return artifact.tarball_uri
+                # Log warning if origin doesn't match any artifact
+                logger.warning(
+                    "Action origin not found in artifacts, falling back to first",
+                    action_origin=action_origin,
+                    available_origins=[a.origin for a in artifacts],
+                )
+
+            # Fallback to first tarball URI if no origin match
             for artifact in artifacts:
                 if artifact.tarball_uri:
                     return artifact.tarball_uri

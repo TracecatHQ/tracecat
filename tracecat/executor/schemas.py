@@ -124,6 +124,9 @@ class ActionImplementation(BaseModel):
     template_definition: dict[str, Any] | None = None
     """Template action definition for template actions."""
 
+    origin: str | None = None
+    """Origin URL for the action's registry (e.g., 'tracecat_registry' or 'git+ssh://...')."""
+
 
 class ResolvedContext(BaseModel):
     """Pre-resolved context for untrusted execution mode.
