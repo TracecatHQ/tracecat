@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -62,7 +63,11 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import TracecatException
-from tracecat.feature_flags import FeatureFlag, feature_flag_dep
+from tracecat.feature_flags import (
+    FeatureFlag,
+    FlagLike,
+    is_feature_enabled,
+)
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import (
     integrations_router,
@@ -200,6 +205,20 @@ def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersExce
         case _:
             status_code = status.HTTP_401_UNAUTHORIZED
     return ORJSONResponse(status_code=status_code, content={"detail": msg})
+
+
+def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
+    """Check if a feature flag is enabled."""
+
+    def _is_feature_enabled() -> None:
+        if not is_feature_enabled(flag):
+            logger.debug("Feature flag is not enabled", flag=flag)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Feature not enabled"
+            )
+        logger.debug("Feature flag is enabled", flag=flag)
+
+    return _is_feature_enabled
 
 
 def create_app(**kwargs) -> FastAPI:
