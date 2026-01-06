@@ -16,6 +16,7 @@ from tracecat.db.models import Membership, Ownership, User, Workspace
 from tracecat.exceptions import TracecatException, TracecatManagementError
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import WorkspaceSearch, WorkspaceUpdate
 
 
@@ -154,6 +155,14 @@ class WorkspaceService(BaseService):
             workspace_role=WorkspaceRole.ADMIN,
             access_level=AccessLevel.ADMIN,
         )
+
+        # Delete Temporal schedules before workspace deletion
+        schedule_service = WorkflowSchedulesService(
+            session=self.session, role=bootstrap_role
+        )
+        for schedule in await schedule_service.list_schedules():
+            await schedule_service.delete_schedule(schedule.id, commit=False)
+
         case_fields_service = CaseFieldsService(
             session=self.session, role=bootstrap_role
         )
