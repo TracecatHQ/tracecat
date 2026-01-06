@@ -13,9 +13,9 @@ from tracecat.agent.tools import (
     _replace_any_with_jsonvalue,
 )
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
     ActionStep,
-    BoundRegistryAction,
     TemplateAction,
     TemplateActionDefinition,
 )
