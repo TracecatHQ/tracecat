@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Frontend build artifacts and dependencies
+frontend/.next
+frontend/node_modules
+frontend/.husky
+
+# Deployments (terraform, etc)
+deployments
+
+# Python
+__pycache__
+*.py[cod]
+*.pyo
+.venv
+venv
+.env
+*.egg-info
+dist
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# Docs and images (not needed in backend containers)
+docs
+img
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.coverage
+htmlcov
+.tox
+
+# Local development
+*.log
+*.tmp
+.trees
