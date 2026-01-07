@@ -76,6 +76,8 @@ dependencies = [
     "croniter>=6.0.0",
     # Security: CVE-2025-66471 - urllib3 streaming API vulnerability
     "urllib3>=2.6.0",
+    "aiohttp==3.13.3",
+    "pynacl==1.6.2",
 ]
 dynamic = ["version"]
 
