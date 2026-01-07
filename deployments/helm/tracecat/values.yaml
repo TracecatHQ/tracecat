@@ -18,20 +18,23 @@ tracecat:
   appEnv: production
   logLevel: ""
   featureFlags: ""
+  allowOrigins: ""
+  sentryDsn: ""
 
-  # Payload and compression settings
-  executorMaxPayloadSize: 1048576          # 1 MiB (1024 × 1024 bytes)
-  contextCompressionEnabled: false         # Whether to compress large action results in workflow contexts
-  contextCompressionThresholdKb: 16        # Threshold in KB above which action results are compressed
+  sandbox:
+    disableNsjail: false
 
   blobStorage:
+    endpoint: ""
     buckets:
       attachments: ""
       registry: ""
 
   saml:
+    enabled: false
     idpMetadataUrl: ""
     allowUnsolicited: "false"
+    acceptedTimeDiff: ""
     authnRequestsSigned: "false"
     signedAssertions: "true"
     signedResponses: "true"
@@ -74,6 +77,9 @@ worker:
     limits:
       cpu: "2000m"
       memory: "2Gi"
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
 
 executor:
   replicas: 2
@@ -84,6 +90,11 @@ executor:
     limits:
       cpu: "2000m"
       memory: "2Gi"
+  queue: "shared-action-queue"
+  workerPoolSize: ""
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
 
 # CloudNativePG cluster subchart configuration (aliased as postgres)
 postgres:
@@ -168,6 +179,5 @@ externalTemporal:
   clusterUrl: ""
   clusterQueue: ""
   clusterNamespace: ""
-  taskTimeout: "300"
   auth:
     existingSecret: null  # Contains `apiKey`
