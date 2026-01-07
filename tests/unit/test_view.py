@@ -1100,7 +1100,7 @@ def test_from_actions_simple_sequence():
     # Verify nodes structure and count
     assert len(graph.nodes) == 4  # 1 trigger + 3 actions
     # Verify all nodes are the expected types
-    assert all(isinstance(node, (TriggerNode, UDFNode)) for node in graph.nodes)
+    assert all(isinstance(node, TriggerNode | UDFNode) for node in graph.nodes)
     # Verify trigger node exists and is correct type
     trigger_nodes = [node for node in graph.nodes if isinstance(node, TriggerNode)]
     assert len(trigger_nodes) == 1
@@ -1225,7 +1225,7 @@ def test_from_actions_diamond():
     # Verify nodes structure and count
     assert len(graph.nodes) == 5  # 1 trigger + 4 actions
     # Verify all nodes are the expected types
-    assert all(isinstance(node, (TriggerNode, UDFNode)) for node in graph.nodes)
+    assert all(isinstance(node, TriggerNode | UDFNode) for node in graph.nodes)
     # Verify trigger node exists and is correct type
     trigger_nodes = [node for node in graph.nodes if isinstance(node, TriggerNode)]
     assert len(trigger_nodes) == 1
@@ -1337,7 +1337,7 @@ def test_from_actions_multiple_entrypoints():
     # Verify nodes structure and count
     assert len(graph.nodes) == 4  # 1 trigger + 3 actions
     # Verify all nodes are the expected types
-    assert all(isinstance(node, (TriggerNode, UDFNode)) for node in graph.nodes)
+    assert all(isinstance(node, TriggerNode | UDFNode) for node in graph.nodes)
     # Verify trigger node exists and is correct type
     trigger_nodes = [node for node in graph.nodes if isinstance(node, TriggerNode)]
     assert len(trigger_nodes) == 1
@@ -1439,7 +1439,7 @@ def test_from_actions_error_edge():
     # Verify nodes structure and count
     assert len(graph.nodes) == 4  # 1 trigger + 3 actions
     # Verify all nodes are the expected types
-    assert all(isinstance(node, (TriggerNode, UDFNode)) for node in graph.nodes)
+    assert all(isinstance(node, TriggerNode | UDFNode) for node in graph.nodes)
     # Verify trigger node exists and is correct type
     trigger_nodes = [node for node in graph.nodes if isinstance(node, TriggerNode)]
     assert len(trigger_nodes) == 1

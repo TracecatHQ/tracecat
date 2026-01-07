@@ -1239,7 +1239,7 @@ def _extract_approval_payload_from_message(
                 first == APPROVAL_REQUEST_HEADER and parts
             ):
                 for part in parts:
-                    if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
+                    if isinstance(part, ToolCallPart | BuiltinToolCallPart):
                         approvals.append(
                             ToolCallPart(
                                 tool_name=part.tool_name,
@@ -1287,13 +1287,13 @@ def _iter_message_parts(
     Returns tuples of (type_name, native_part) for each content block.
     """
     # --- Pydantic-AI path ---
-    if isinstance(message, (ModelRequest, ModelResponse)):
+    if isinstance(message, ModelRequest | ModelResponse):
         for part in message.parts:
             yield (type(part).__name__, part)
         return
 
     # --- Claude SDK path ---
-    if isinstance(message, (AssistantMessage, UserMessage)):
+    if isinstance(message, AssistantMessage | UserMessage):
         content = message.content
         if isinstance(content, str):
             yield ("TextBlock", TextBlock(text=content))
@@ -1323,7 +1323,7 @@ def convert_chat_messages_to_ui(
 
         # Determine role based on message type
         role: Literal["system", "user", "assistant"]
-        if isinstance(message_data, (ModelRequest, ModelResponse)):
+        if isinstance(message_data, ModelRequest | ModelResponse):
             role = "assistant" if message_data.kind == "response" else "user"
         elif isinstance(message_data, AssistantMessage):
             role = "assistant"
