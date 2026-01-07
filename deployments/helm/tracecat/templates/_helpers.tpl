@@ -224,17 +224,15 @@ Internal Blob Storage URL
 {{- end }}
 
 {{/*
-Temporal Cluster URL - supports both self-hosted and Temporal Cloud
+Temporal Cluster URL - supports both subchart and external Temporal
 */}}
 {{- define "tracecat.temporalClusterUrl" -}}
-{{- if .Values.temporalCloud.clusterUrl }}
-{{- .Values.temporalCloud.clusterUrl }}
-{{- else if .Values.tracecat.temporal.clusterUrl }}
-{{- .Values.tracecat.temporal.clusterUrl }}
-{{- else if .Values.temporal.enabled }}
+{{- if .Values.temporal.enabled }}
 {{- printf "%s-temporal-frontend:7233" .Release.Name }}
+{{- else if .Values.externalTemporal.enabled }}
+{{- required "externalTemporal.clusterUrl is required when using external Temporal" .Values.externalTemporal.clusterUrl }}
 {{- else }}
-{{- fail "tracecat.temporal.clusterUrl or temporalCloud.clusterUrl is required when temporal subchart is disabled" }}
+{{- fail "Either temporal.enabled or externalTemporal.enabled must be true" }}
 {{- end }}
 {{- end }}
 
@@ -242,10 +240,10 @@ Temporal Cluster URL - supports both self-hosted and Temporal Cloud
 Temporal Namespace
 */}}
 {{- define "tracecat.temporalNamespace" -}}
-{{- if .Values.temporalCloud.namespace }}
-{{- .Values.temporalCloud.namespace }}
-{{- else if .Values.tracecat.temporal.clusterNamespace }}
-{{- .Values.tracecat.temporal.clusterNamespace }}
+{{- if .Values.temporal.enabled }}
+{{- "default" }}
+{{- else if .Values.externalTemporal.enabled }}
+{{- .Values.externalTemporal.clusterNamespace | default "default" }}
 {{- else }}
 {{- "default" }}
 {{- end }}
@@ -255,10 +253,10 @@ Temporal Namespace
 Temporal Queue
 */}}
 {{- define "tracecat.temporalQueue" -}}
-{{- if .Values.temporalCloud.clusterQueue }}
-{{- .Values.temporalCloud.clusterQueue }}
-{{- else if .Values.tracecat.temporal.clusterQueue }}
-{{- .Values.tracecat.temporal.clusterQueue }}
+{{- if .Values.temporal.enabled }}
+{{- "tracecat-task-queue" }}
+{{- else if .Values.externalTemporal.enabled }}
+{{- .Values.externalTemporal.clusterQueue | default "tracecat-task-queue" }}
 {{- else }}
 {{- "tracecat-task-queue" }}
 {{- end }}
@@ -367,7 +365,7 @@ Merges: common + temporal + postgres + redis + api-specific
 {{- include "tracecat.env.postgres" . }}
 {{- include "tracecat.env.redis" . }}
 - name: TRACECAT__API_ROOT_PATH
-  value: {{ .Values.api.apiRootPath | quote }}
+  value: "/api"
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 - name: TRACECAT__PUBLIC_APP_URL
@@ -377,51 +375,44 @@ Merges: common + temporal + postgres + redis + api-specific
 - name: TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
   value: {{ include "tracecat.publicS3Url" . | quote }}
 - name: TRACECAT__ALLOW_ORIGINS
-  value: {{ .Values.api.allowOrigins | quote }}
+  value: {{ .Values.tracecat.allowOrigins | quote }}
 - name: RUN_MIGRATIONS
-  value: {{ .Values.api.runMigrations | quote }}
-- name: TEMPORAL__TASK_TIMEOUT
-  value: {{ .Values.tracecat.temporal.taskTimeout | quote }}
+  value: "true"
 {{- /* Auth settings */}}
 - name: TRACECAT__AUTH_TYPES
-  value: {{ .Values.api.auth.types | quote }}
+  value: {{ .Values.tracecat.auth.types | quote }}
 - name: TRACECAT__AUTH_ALLOWED_DOMAINS
-  value: {{ .Values.api.auth.allowedDomains | quote }}
+  value: {{ .Values.tracecat.auth.allowedDomains | quote }}
 - name: TRACECAT__AUTH_MIN_PASSWORD_LENGTH
-  value: {{ .Values.api.auth.minPasswordLength | quote }}
+  value: "16"
 - name: TRACECAT__AUTH_SUPERADMIN_EMAIL
-  value: {{ .Values.api.auth.superadminEmail | quote }}
+  value: {{ .Values.tracecat.auth.superadminEmail | quote }}
 {{- /* SAML settings */}}
-{{- if .Values.api.saml.enabled }}
+{{- if .Values.tracecat.saml.enabled }}
 - name: SAML_IDP_METADATA_URL
-  value: {{ .Values.api.saml.idpMetadataUrl | quote }}
+  value: {{ .Values.tracecat.saml.idpMetadataUrl | quote }}
 - name: SAML_ALLOW_UNSOLICITED
-  value: {{ .Values.api.saml.allowUnsolicited | quote }}
+  value: {{ .Values.tracecat.saml.allowUnsolicited | quote }}
 - name: SAML_ACCEPTED_TIME_DIFF
-  value: {{ .Values.api.saml.acceptedTimeDiff | quote }}
+  value: {{ .Values.tracecat.saml.acceptedTimeDiff | quote }}
 - name: SAML_AUTHN_REQUESTS_SIGNED
-  value: {{ .Values.api.saml.authnRequestsSigned | quote }}
+  value: {{ .Values.tracecat.saml.authnRequestsSigned | quote }}
 - name: SAML_SIGNED_ASSERTIONS
-  value: {{ .Values.api.saml.signedAssertions | quote }}
+  value: {{ .Values.tracecat.saml.signedAssertions | quote }}
 - name: SAML_SIGNED_RESPONSES
-  value: {{ .Values.api.saml.signedResponses | quote }}
+  value: {{ .Values.tracecat.saml.signedResponses | quote }}
 - name: SAML_VERIFY_SSL_ENTITY
-  value: {{ .Values.api.saml.verifySslEntity | quote }}
+  value: {{ .Values.tracecat.saml.verifySslEntity | quote }}
 - name: SAML_VERIFY_SSL_METADATA
-  value: {{ .Values.api.saml.verifySslMetadata | quote }}
+  value: {{ .Values.tracecat.saml.verifySslMetadata | quote }}
 - name: SAML_CA_CERTS
-  value: {{ .Values.api.saml.caCerts | quote }}
+  value: {{ .Values.tracecat.saml.caCerts | quote }}
 - name: SAML_METADATA_CERT
-  value: {{ .Values.api.saml.metadataCert | quote }}
+  value: {{ .Values.tracecat.saml.metadataCert | quote }}
 {{- end }}
-{{- /* Local repository settings */}}
-- name: TRACECAT__LOCAL_REPOSITORY_ENABLED
-  value: {{ .Values.api.localRepository.enabled | quote }}
-- name: TRACECAT__LOCAL_REPOSITORY_PATH
-  value: {{ .Values.api.localRepository.path | quote }}
 {{- /* Streaming */}}
 - name: TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
-  value: {{ .Values.api.unifiedAgentStreamingEnabled | quote }}
+  value: "true"
 {{- end }}
 
 {{/*
@@ -434,7 +425,7 @@ Merges: common + temporal + postgres + redis + worker-specific
 {{- include "tracecat.env.postgres" . }}
 {{- include "tracecat.env.redis" . }}
 - name: TRACECAT__API_ROOT_PATH
-  value: {{ .Values.api.apiRootPath | quote }}
+  value: "/api"
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 - name: TRACECAT__PUBLIC_API_URL
@@ -444,15 +435,10 @@ Merges: common + temporal + postgres + redis + worker-specific
   value: {{ .Values.worker.contextCompression.enabled | quote }}
 - name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
   value: {{ .Values.worker.contextCompression.thresholdKb | quote }}
-{{- /* Local repository settings */}}
-- name: TRACECAT__LOCAL_REPOSITORY_ENABLED
-  value: {{ .Values.worker.localRepository.enabled | quote }}
-- name: TRACECAT__LOCAL_REPOSITORY_PATH
-  value: {{ .Values.worker.localRepository.path | quote }}
 {{- /* Sentry */}}
-{{- if .Values.worker.sentryDsn }}
+{{- if .Values.tracecat.sentryDsn }}
 - name: SENTRY_DSN
-  value: {{ .Values.worker.sentryDsn | quote }}
+  value: {{ .Values.tracecat.sentryDsn | quote }}
 {{- end }}
 {{- end }}
 
@@ -475,13 +461,13 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.contextCompression.thresholdKb | quote }}
 {{- /* Sandbox settings */}}
 - name: TRACECAT__DISABLE_NSJAIL
-  value: {{ .Values.executor.sandbox.disableNsjail | quote }}
+  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
 - name: TRACECAT__SANDBOX_NSJAIL_PATH
-  value: {{ .Values.executor.sandbox.nsjailPath | quote }}
+  value: "/usr/local/bin/nsjail"
 - name: TRACECAT__SANDBOX_ROOTFS_PATH
-  value: {{ .Values.executor.sandbox.rootfsPath | quote }}
+  value: "/var/lib/tracecat/sandbox-rootfs"
 - name: TRACECAT__SANDBOX_CACHE_DIR
-  value: {{ .Values.executor.sandbox.cacheDir | quote }}
+  value: "/var/lib/tracecat/sandbox-cache"
 {{- /* Executor settings */}}
 - name: TRACECAT__EXECUTOR_QUEUE
   value: {{ .Values.executor.queue | quote }}
@@ -489,12 +475,7 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.workerPoolSize | quote }}
 {{- /* Secret masking */}}
 - name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
-  value: {{ .Values.executor.unsafeDisableSmMasking | quote }}
-{{- /* Local repository settings */}}
-- name: TRACECAT__LOCAL_REPOSITORY_ENABLED
-  value: {{ .Values.executor.localRepository.enabled | quote }}
-- name: TRACECAT__LOCAL_REPOSITORY_PATH
-  value: {{ .Values.executor.localRepository.path | quote }}
+  value: "false"
 {{- end }}
 
 {{/*
@@ -502,7 +483,7 @@ UI service environment variables
 */}}
 {{- define "tracecat.env.ui" -}}
 - name: NODE_ENV
-  value: {{ .Values.ui.nodeEnv | quote }}
+  value: "production"
 - name: NEXT_PUBLIC_APP_ENV
   value: {{ .Values.tracecat.appEnv | quote }}
 - name: NEXT_PUBLIC_APP_URL
@@ -510,7 +491,7 @@ UI service environment variables
 - name: NEXT_PUBLIC_API_URL
   value: {{ include "tracecat.publicApiUrl" . | quote }}
 - name: NEXT_PUBLIC_AUTH_TYPES
-  value: {{ .Values.ui.authTypes | quote }}
+  value: {{ .Values.tracecat.auth.types | quote }}
 - name: NEXT_SERVER_API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 {{- end }}
