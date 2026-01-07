@@ -59,7 +59,7 @@ def _serialize_message(message: UnifiedMessage) -> tuple[str, dict[str, Any]]:
     Returns:
         Tuple of (harness_type, serialized_data)
     """
-    if isinstance(message, (ModelRequest, ModelResponse)):
+    if isinstance(message, ModelRequest | ModelResponse):
         return HarnessType.PYDANTIC_AI.value, ModelMessageTA.dump_python(
             message, mode="json"
         )

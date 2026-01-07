@@ -219,12 +219,37 @@ function ActionCommandGroup({
   registryActions: RegistryActionReadMinimal[]
   inputValue: string
 }) {
-  const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
+  const {
+    workspaceId,
+    workflowId,
+    reactFlow,
+    setSelectedNodeId,
+    actionPanelRef,
+  } = useWorkflowBuilder()
   const { getNode, getEdges, setNodes, setEdges } = reactFlow
   const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
   const { applyGraphOperations, refetchGraph } = useGraphOperations(
     workspaceId,
     workflowId ?? ""
+  )
+
+  const openActionPanelForNode = useCallback(
+    (actionId?: string) => {
+      if (!actionId) {
+        return
+      }
+
+      setSelectedNodeId(actionId)
+      const panelHandle = actionPanelRef.current
+      if (panelHandle) {
+        if (panelHandle.setOpen) {
+          panelHandle.setOpen(true)
+        } else {
+          panelHandle.expand?.()
+        }
+      }
+    },
+    [actionPanelRef, setSelectedNodeId]
   )
 
   // Move sortedActions and filterResults logic here
@@ -269,9 +294,13 @@ function ActionCommandGroup({
         })
 
         // Identify the new node by diffing ids
-        const previousIds = new Set((graphData?.nodes ?? []).map((n) => n.id))
-        const newNode = graphAfterAdd.nodes.find((n) => !previousIds.has(n.id))
-        const newNodeId = newNode?.id
+        const previousIds = new Set(
+          (graphData?.nodes ?? []).map((n) => String(n.id))
+        )
+        const newNode = graphAfterAdd.nodes.find(
+          (n) => !previousIds.has(String(n.id))
+        )
+        const newNodeId = newNode?.id as string | undefined
 
         // Step 2: connect incoming edge to the new node
         if (incomingEdge && newNodeId) {
@@ -300,6 +329,7 @@ function ActionCommandGroup({
         setEdges((prevEdges) =>
           prevEdges.filter((edge) => edge.target !== nodeId)
         )
+        openActionPanelForNode(newNodeId)
       } catch (error) {
         const apiError = error as { status?: number }
         if (apiError.status === 409) {
@@ -321,12 +351,12 @@ function ActionCommandGroup({
             })
 
             const previousIds = new Set(
-              (latestGraph.nodes ?? []).map((n) => n.id)
+              (latestGraph.nodes ?? []).map((n) => String(n.id))
             )
             const newNode = graphAfterAdd.nodes.find(
-              (n) => !previousIds.has(n.id)
+              (n) => !previousIds.has(String(n.id))
             )
-            const newNodeId = newNode?.id
+            const newNodeId = newNode?.id as string | undefined
 
             if (incomingEdge && newNodeId) {
               const isTrigger = incomingEdge.source.startsWith("trigger")
@@ -353,6 +383,7 @@ function ActionCommandGroup({
             setEdges((prevEdges) =>
               prevEdges.filter((edge) => edge.target !== nodeId)
             )
+            openActionPanelForNode(newNodeId)
           } catch (retryError) {
             console.error("Failed to persist node after retry:", retryError)
             toast({
@@ -380,6 +411,7 @@ function ActionCommandGroup({
       applyGraphOperations,
       refetchGraph,
       graphData?.version,
+      openActionPanelForNode,
     ]
   )
 
