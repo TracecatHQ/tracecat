@@ -294,9 +294,13 @@ function ActionCommandGroup({
         })
 
         // Identify the new node by diffing ids
-        const previousIds = new Set((graphData?.nodes ?? []).map((n) => n.id))
-        const newNode = graphAfterAdd.nodes.find((n) => !previousIds.has(n.id))
-        const newNodeId = newNode?.id
+        const previousIds = new Set(
+          (graphData?.nodes ?? []).map((n) => String(n.id))
+        )
+        const newNode = graphAfterAdd.nodes.find(
+          (n) => !previousIds.has(String(n.id))
+        )
+        const newNodeId = newNode?.id as string | undefined
 
         // Step 2: connect incoming edge to the new node
         if (incomingEdge && newNodeId) {
@@ -347,12 +351,12 @@ function ActionCommandGroup({
             })
 
             const previousIds = new Set(
-              (latestGraph.nodes ?? []).map((n) => n.id)
+              (latestGraph.nodes ?? []).map((n) => String(n.id))
             )
             const newNode = graphAfterAdd.nodes.find(
-              (n) => !previousIds.has(n.id)
+              (n) => !previousIds.has(String(n.id))
             )
-            const newNodeId = newNode?.id
+            const newNodeId = newNode?.id as string | undefined
 
             if (incomingEdge && newNodeId) {
               const isTrigger = incomingEdge.source.startsWith("trigger")
