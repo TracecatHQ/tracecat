@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 import aiofiles
-import tracecat_registry
 
 from tracecat import config
 from tracecat.logger import logger
@@ -31,8 +30,10 @@ from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
+    TarballBuildError,
     TarballVenvBuildResult,
     build_tarball_venv_from_path,
+    get_builtin_registry_source_path,
     get_tarball_venv_s3_key,
     upload_tarball_venv,
 )
@@ -197,22 +198,10 @@ class RegistrySyncRunner:
         Raises:
             RegistrySyncRunnerError: If package path cannot be determined.
         """
-        package_path = Path(tracecat_registry.__file__).parent.parent
-
-        # Check if we have pyproject.toml (we're in the source tree)
-        pyproject = package_path / "pyproject.toml"
-        if not pyproject.exists():
-            # We might be in an installed package, look up one more level
-            package_path = package_path.parent
-            pyproject = package_path / "pyproject.toml"
-
-        if not pyproject.exists():
-            raise RegistrySyncRunnerError(
-                "Cannot find pyproject.toml for tracecat_registry. "
-                "Builtin registry sync requires source installation."
-            )
-
-        return package_path
+        try:
+            return get_builtin_registry_source_path()
+        except TarballBuildError as e:
+            raise RegistrySyncRunnerError(str(e)) from e
 
     async def _clone_repository(
         self,

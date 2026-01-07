@@ -645,3 +645,12 @@ TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT = int(
     os.environ.get("TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT", 300)
 )
 """Timeout for action discovery during registry sync in seconds. Defaults to 300 (5 min)."""
+
+TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
+    "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH", "/app/packages/tracecat-registry"
+)
+"""Path to the builtin tracecat_registry package source.
+
+In Docker, packages are copied to /app/packages/tracecat-registry.
+In development with editable install, falls back to checking relative to the installed package.
+"""
