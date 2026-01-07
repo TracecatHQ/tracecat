@@ -45,7 +45,10 @@ def _get_drive_token() -> str:
 )
 async def list_files(
     query: Annotated[
-        str, Field(default="", description="Search query (e.g., 'name contains \"report\"')")
+        str,
+        Field(
+            default="", description="Search query (e.g., 'name contains \"report\"')"
+        ),
     ] = "",
     max_results: Annotated[
         int, Field(default=10, description="Maximum number of results")
@@ -164,12 +167,16 @@ async def upload_file(
     # Construct multipart/related request with metadata and file content
     boundary = "tracecat_boundary"
     multipart_body = (
-        f"--{boundary}\r\n"
-        f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
-        f"{json.dumps(metadata)}\r\n"
-        f"--{boundary}\r\n"
-        f"Content-Type: {mime_type}\r\n\r\n"
-    ).encode("utf-8") + content_bytes + f"\r\n--{boundary}--".encode("utf-8")
+        (
+            f"--{boundary}\r\n"
+            f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            f"{json.dumps(metadata)}\r\n"
+            f"--{boundary}\r\n"
+            f"Content-Type: {mime_type}\r\n\r\n"
+        ).encode("utf-8")
+        + content_bytes
+        + f"\r\n--{boundary}--".encode("utf-8")
+    )
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
