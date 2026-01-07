@@ -1,13 +1,17 @@
 """
-Type-safe schemas for subprocess sync communication.
+Type-safe schemas for registry sync communication.
 
 This module defines Pydantic models used to serialize/deserialize data
-between the sync subprocess and the main API process.
+for registry sync operations, including:
+- Subprocess sync (existing)
+- Temporal workflow sync (sandboxed executor)
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, TypeAdapter
+from typing import Literal
+
+from pydantic import UUID4, BaseModel, Field, TypeAdapter
 
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -42,3 +46,57 @@ class SyncResultError(BaseModel):
 SyncResultAdapter: TypeAdapter[SyncResultSuccess | SyncResultError] = TypeAdapter(
     SyncResultSuccess | SyncResultError
 )
+
+
+# =============================================================================
+# Temporal Workflow Schemas (Sandboxed Registry Sync)
+# =============================================================================
+
+
+class RegistrySyncRequest(BaseModel):
+    """Request for sandboxed registry sync via Temporal workflow.
+
+    This is passed from the API service to the ExecutorWorker via Temporal.
+    The SSH key is used for git clone only and never enters the nsjail sandbox.
+    """
+
+    repository_id: UUID4 = Field(..., description="Database repository ID")
+    origin: str = Field(..., description="Repository origin URL or name")
+    origin_type: Literal["builtin", "local", "git"] = Field(
+        ..., description="Type of repository origin"
+    )
+    git_url: str | None = Field(
+        default=None, description="Git SSH URL for cloning (git origins only)"
+    )
+    commit_sha: str | None = Field(
+        default=None, description="Target commit SHA (git origins only)"
+    )
+    ssh_key: str | None = Field(
+        default=None,
+        description="SSH private key for git clone (never enters nsjail sandbox)",
+    )
+    validate_actions: bool = Field(
+        default=False, description="Whether to validate template actions"
+    )
+
+
+class RegistrySyncResult(BaseModel):
+    """Result from sandboxed registry sync workflow.
+
+    Returned from the ExecutorWorker to the API service via Temporal.
+    Contains discovered actions and tarball location for DB operations.
+    """
+
+    actions: list[RegistryActionCreate] = Field(
+        default_factory=list,
+        description="List of discovered registry actions",
+    )
+    tarball_uri: str = Field(..., description="S3 URI of the uploaded tarball venv")
+    commit_sha: str | None = Field(
+        default=None,
+        description="Resolved commit SHA (None for builtin/local repos)",
+    )
+    validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = Field(
+        default_factory=dict,
+        description="Map of action name to validation errors",
+    )

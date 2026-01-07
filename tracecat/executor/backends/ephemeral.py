@@ -25,10 +25,12 @@ from tracecat.executor.schemas import (
     ResolvedContext,
 )
 from tracecat.executor.service import (
+    RegistryArtifactsContext,
     get_registry_artifacts_cached,
     get_registry_artifacts_for_lock,
 )
 from tracecat.logger import logger
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
 class EphemeralBackend(ExecutorBackend):
@@ -73,8 +75,33 @@ class EphemeralBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        # Get tarball URI for registry environment
-        tarball_uri = await self._get_tarball_uri(input, role)
+        # Get ALL tarball URIs for registry environment (deterministic ordering)
+        tarball_uris = await self._get_tarball_uris(
+            input, role, action_origin=resolved_context.action_impl.origin
+        )
+
+        # Error out early if no tarballs resolved (unless local repository is enabled)
+        if not tarball_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+            logger.error(
+                "No registry tarballs resolved - cannot execute action",
+                action=action_name,
+                action_origin=resolved_context.action_impl.origin,
+            )
+            return ExecutorResultFailure(
+                error=ExecutorActionErrorInfo(
+                    type="RegistryError",
+                    message="No registry tarballs available for execution. "
+                    "Check that the registry is synced and the registry_lock is valid.",
+                    action_name=action_name,
+                    filename="<ephemeral>",
+                    function="execute",
+                )
+            )
+
+        if tarball_uris:
+            logger.debug("Mounting registry tarballs", count=len(tarball_uris))
+        else:
+            logger.debug("Using local repository mode, no tarballs mounted")
 
         # Execute using ActionRunner with forced sandbox mode
         runner = get_action_runner()
@@ -82,7 +109,7 @@ class EphemeralBackend(ExecutorBackend):
             input=input,
             role=role,
             resolved_context=resolved_context,
-            tarball_uri=tarball_uri,
+            tarball_uris=tarball_uris,
             timeout=timeout,
             force_sandbox=True,  # Always use nsjail for ephemeral backend
         )
@@ -92,25 +119,81 @@ class EphemeralBackend(ExecutorBackend):
             return ExecutorResultFailure(error=result)
         return ExecutorResultSuccess(result=result)
 
-    async def _get_tarball_uri(self, input: RunActionInput, role: Role) -> str | None:
-        """Get the tarball URI for the registry environment."""
+    async def _get_tarball_uris(
+        self,
+        input: RunActionInput,
+        role: Role,
+        action_origin: str | None,
+    ) -> list[str]:
+        """Get tarball URIs for registry environment (deterministic ordering).
+
+        Args:
+            input: The RunActionInput containing task and execution context
+            role: The Role for authorization
+            action_origin: The origin URL of the action's registry (e.g., 'tracecat_registry'
+                or 'git+ssh://...'), used to filter tarballs when no lock is present
+
+        Returns:
+            List of tarball URIs in deterministic order (tracecat_registry first,
+            then lexicographically by origin).
+        """
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
-            return None
+            return []
 
         try:
+            # Note: empty dict {} is treated same as None (falsy in Python)
             if input.registry_lock:
+                # Use ALL tarballs from lock
                 artifacts = await get_registry_artifacts_for_lock(input.registry_lock)
+                return self._sort_tarball_uris(artifacts)
             else:
+                # Policy B1: action-origin + tracecat_registry only
+                logger.warning(
+                    "No registry_lock provided - execution may not be reproducible",
+                    action=input.task.action,
+                )
                 artifacts = await get_registry_artifacts_cached(role)
-
-            # Return first tarball URI if available
-            for artifact in artifacts:
-                if artifact.tarball_uri:
-                    return artifact.tarball_uri
+                return self._filter_and_sort_tarball_uris(artifacts, action_origin)
         except Exception as e:
             logger.warning(
                 "Failed to load registry artifacts for ephemeral execution",
                 error=str(e),
             )
+            return []
 
-        return None
+    def _filter_and_sort_tarball_uris(
+        self,
+        artifacts: list[RegistryArtifactsContext],
+        action_origin: str | None,
+    ) -> list[str]:
+        """Policy B1: Filter to action-origin + tracecat_registry, then sort."""
+        filtered = []
+        for artifact in artifacts:
+            if not artifact.tarball_uri:
+                continue
+            # Include tracecat_registry (always) and action's origin (if different)
+            if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
+                filtered.append(artifact)
+            elif action_origin and artifact.origin == action_origin:
+                filtered.append(artifact)
+        return self._sort_tarball_uris(filtered)
+
+    def _sort_tarball_uris(
+        self, artifacts: list[RegistryArtifactsContext]
+    ) -> list[str]:
+        """Sort tarballs: tracecat_registry first, then lexicographically by origin."""
+        builtin_uris: list[str] = []
+        other_uris: list[tuple[str, str]] = []  # (origin, uri)
+
+        for artifact in artifacts:
+            if not artifact.tarball_uri:
+                continue
+            if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
+                builtin_uris.append(artifact.tarball_uri)
+            else:
+                other_uris.append((artifact.origin, artifact.tarball_uri))
+
+        # Sort non-builtin by origin lexicographically
+        other_uris.sort(key=lambda x: x[0])
+
+        return builtin_uris + [uri for _, uri in other_uris]

@@ -1,19 +1,22 @@
 """Registry sync service for v2 versioned registry flow.
 
 This module orchestrates the full sync flow:
-1. Fetch actions from subprocess (existing)
+1. Fetch actions from subprocess or Temporal workflow
 2. Build manifest from actions
 3. Build tarball venv and upload to S3/MinIO
 4. Create RegistryVersion record with tarball URI
 5. Populate RegistryIndex entries
+
+When TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED is True, sync operations are
+delegated to the ExecutorWorker via Temporal for sandboxed execution.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import aiofiles
 
@@ -120,9 +123,20 @@ class RegistrySyncService(BaseService):
             repository=db_repo.origin,
             target_version=target_version,
             target_commit_sha=target_commit_sha,
+            sandbox_enabled=config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED,
         )
 
-        # Step 1: Fetch actions from subprocess
+        # Check if sandboxed sync via Temporal workflow is enabled
+        if config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED:
+            return await self._sync_via_temporal_workflow(
+                db_repo=db_repo,
+                target_version=target_version,
+                target_commit_sha=target_commit_sha,
+                ssh_env=ssh_env,
+                commit=commit,
+            )
+
+        # Step 1: Fetch actions from subprocess (original approach)
         sync_result = await fetch_actions_from_subprocess(
             origin=db_repo.origin,
             repository_id=db_repo.id,
@@ -325,3 +339,200 @@ class RegistrySyncService(BaseService):
         # Fallback to timestamp-based version
         now = datetime.now(UTC)
         return now.strftime("%Y.%m.%d.%H%M%S")
+
+    def _get_origin_type(self, origin: str) -> Literal["builtin", "local", "git"]:
+        """Determine the origin type from the origin string."""
+        if origin == DEFAULT_REGISTRY_ORIGIN:
+            return "builtin"
+        elif origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
+            return "local"
+        elif origin.startswith("git+ssh://"):
+            return "git"
+        else:
+            raise RegistrySyncError(f"Unknown origin type for: {origin}")
+
+    async def _sync_via_temporal_workflow(
+        self,
+        db_repo: RegistryRepository,
+        *,
+        target_version: str | None = None,
+        target_commit_sha: str | None = None,
+        ssh_env: SshEnv | None = None,
+        commit: bool = True,
+    ) -> SyncResult:
+        """Sync a repository via Temporal workflow on ExecutorWorker.
+
+        This method delegates the heavy lifting (git clone, package install,
+        action discovery, tarball build) to the ExecutorWorker, then handles
+        the database operations locally.
+
+        Args:
+            db_repo: The repository to sync
+            target_version: Version string to use (auto-generated if not provided)
+            target_commit_sha: Specific commit SHA to sync (HEAD if not provided)
+            ssh_env: SSH environment for git operations
+            commit: Whether to commit the transaction (default: True)
+
+        Returns:
+            SyncResult with the created version and metadata
+
+        Raises:
+            RegistrySyncError: If sync fails
+        """
+        from temporalio.common import RetryPolicy
+
+        from tracecat.dsl.client import get_temporal_client
+        from tracecat.registry.sync.schemas import RegistrySyncRequest
+        from tracecat.registry.sync.workflow import RegistrySyncWorkflow
+
+        self.logger.info(
+            "Starting sandboxed registry sync via Temporal workflow",
+            repository=db_repo.origin,
+            repository_id=str(db_repo.id),
+        )
+
+        # Determine origin type
+        origin_type = self._get_origin_type(db_repo.origin)
+
+        # For git origins, retrieve the SSH key from secrets
+        ssh_key: str | None = None
+        if origin_type == "git":
+            from tracecat.secrets.service import SecretsService
+
+            secrets_service = SecretsService(self.session, role=self.role)
+            try:
+                secret = await secrets_service.get_ssh_key(target="registry")
+                ssh_key = secret.get_secret_value()
+            except Exception as e:
+                self.logger.warning(
+                    "Could not retrieve SSH key for git operations",
+                    error=str(e),
+                )
+
+        # Build the workflow request
+        request = RegistrySyncRequest(
+            repository_id=db_repo.id,
+            origin=db_repo.origin,
+            origin_type=origin_type,
+            git_url=db_repo.origin if origin_type == "git" else None,
+            commit_sha=target_commit_sha,
+            ssh_key=ssh_key,
+            validate_actions=True,
+        )
+
+        # Get Temporal client
+        client = await get_temporal_client()
+
+        # Generate workflow ID
+        workflow_id = (
+            f"registry-sync-{db_repo.id}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+        )
+
+        # Execute the workflow
+        try:
+            workflow_result = await client.execute_workflow(
+                RegistrySyncWorkflow.run,
+                request,
+                id=workflow_id,
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+                execution_timeout=timedelta(minutes=20),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(seconds=5),
+                ),
+            )
+        except Exception as e:
+            self.logger.error(
+                "Registry sync workflow failed",
+                repository=db_repo.origin,
+                error=str(e),
+            )
+            raise RegistrySyncError(f"Registry sync workflow failed: {e}") from e
+
+        actions = workflow_result.actions
+        tarball_uri = workflow_result.tarball_uri
+        commit_sha = workflow_result.commit_sha
+
+        if not actions:
+            raise RegistrySyncError(f"No actions found in repository {db_repo.origin}")
+
+        self.logger.info(
+            "Workflow completed, processing results",
+            num_actions=len(actions),
+            tarball_uri=tarball_uri,
+            commit_sha=commit_sha,
+        )
+
+        # Build manifest from actions
+        manifest = RegistryVersionManifest.from_actions(actions)
+
+        # Generate version string if not provided
+        if target_version is None:
+            target_version = self._generate_version_string(commit_sha=commit_sha)
+
+        # Check if version already exists
+        versions_service = RegistryVersionsService(self.session, self.role)
+        existing_version = await versions_service.get_version_by_repo_and_version(
+            repository_id=db_repo.id,
+            version=target_version,
+        )
+        if existing_version:
+            if existing_version.tarball_uri is None:
+                raise RegistrySyncError(
+                    f"Version {target_version} exists but has no tarball artifact. "
+                    "Delete the version and re-sync to create a valid version."
+                )
+            self.logger.info(
+                "Version already exists, returning existing",
+                version=target_version,
+                version_id=str(existing_version.id),
+            )
+            return SyncResult(
+                version=existing_version,
+                actions=actions,
+                tarball_uri=existing_version.tarball_uri,
+                commit_sha=commit_sha,
+            )
+
+        # Create RegistryVersion record with tarball URI
+        version_create = RegistryVersionCreate(
+            repository_id=db_repo.id,
+            version=target_version,
+            commit_sha=commit_sha,
+            manifest=manifest,
+            tarball_uri=tarball_uri,
+        )
+        version = await versions_service.create_version(version_create, commit=False)
+
+        self.logger.info(
+            "Created registry version",
+            version_id=str(version.id),
+            version=target_version,
+            tarball_uri=tarball_uri,
+        )
+
+        # Populate RegistryIndex entries
+        await versions_service.populate_index_from_manifest(version, commit=False)
+
+        # Commit all changes if requested
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(version)
+        else:
+            await self.session.flush()
+            await self.session.refresh(version)
+
+        self.logger.info(
+            "Registry sync v2 (via workflow) completed",
+            version_id=str(version.id),
+            version=target_version,
+            num_actions=len(actions),
+            tarball_uri=tarball_uri,
+        )
+
+        return SyncResult(
+            version=version,
+            actions=actions,
+            tarball_uri=tarball_uri,
+            commit_sha=commit_sha,
+        )

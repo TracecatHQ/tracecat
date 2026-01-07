@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
 from typing import TYPE_CHECKING, Annotated, Any, cast
@@ -316,9 +317,17 @@ ValidWorkflowDefinitionDep = Annotated[
 """Returns WorkflowDefinition that is not loaded with the `workflow` relationship"""
 
 
+@dataclass
+class DraftWorkflowContext:
+    """Context for draft workflow execution containing DSL and registry lock."""
+
+    dsl: DSLInput
+    registry_lock: dict[str, str] | None
+
+
 async def validate_draft_workflow(
     workflow_id: AnyWorkflowIDPath,
-) -> DSLInput:
+) -> DraftWorkflowContext:
     """Build DSL from the draft workflow (i.e. definition in the workflow table)."""
 
     role = ctx_role.get()
@@ -331,7 +340,7 @@ async def validate_draft_workflow(
             )
         try:
             dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
-            return dsl
+            return DraftWorkflowContext(dsl=dsl, registry_lock=workflow.registry_lock)
         except TracecatValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -352,5 +361,5 @@ async def validate_draft_workflow(
             ) from e
 
 
-DraftWorkflowDSLDep = Annotated["DSLInput", Depends(validate_draft_workflow)]
-"""Returns DSLInput built from the draft workflow"""
+DraftWorkflowDep = Annotated[DraftWorkflowContext, Depends(validate_draft_workflow)]
+"""Returns DraftWorkflowContext with DSL and registry_lock from the draft workflow"""

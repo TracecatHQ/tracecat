@@ -620,3 +620,37 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
     "anthropic.claude-haiku-4-5-20251001-v1:0": 180_000,
 }
 """Model-specific character limits for agent message history truncation."""
+
+# === Registry Sync === #
+TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = os.environ.get(
+    "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", "true"
+).lower() in ("true", "1")
+"""Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
+
+When True (default), registry sync operations run on the ExecutorWorker with:
+- Git clone in subprocess with SSH credentials
+- Package installation with network access
+- Action discovery (currently subprocess, future: nsjail without network)
+- Tarball build and upload to S3
+
+When False, uses the existing subprocess approach from the API service.
+"""
+
+TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT = int(
+    os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT", 600)
+)
+"""Timeout for package installation during registry sync in seconds. Defaults to 600 (10 min)."""
+
+TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT = int(
+    os.environ.get("TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT", 300)
+)
+"""Timeout for action discovery during registry sync in seconds. Defaults to 300 (5 min)."""
+
+TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
+    "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH", "/app/packages/tracecat-registry"
+)
+"""Path to the builtin tracecat_registry package source.
+
+In Docker, packages are copied to /app/packages/tracecat-registry.
+In development with editable install, falls back to checking relative to the installed package.
+"""

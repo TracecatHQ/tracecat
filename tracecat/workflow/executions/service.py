@@ -725,6 +725,7 @@ class WorkflowExecutionsService:
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
+        registry_lock: dict[str, str] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -739,6 +740,7 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
+            registry_lock=registry_lock,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -758,6 +760,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
+        registry_lock: dict[str, str] | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new draft workflow execution.
 
@@ -774,6 +777,7 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             execution_type=ExecutionType.DRAFT,
             time_anchor=time_anchor,
+            registry_lock=registry_lock,
         )
 
     @audit_log(resource_type="workflow_execution", action="create")

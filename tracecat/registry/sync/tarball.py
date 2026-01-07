@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import aiofiles
 import tracecat_registry
 
+from tracecat import config
 from tracecat.logger import logger
 from tracecat.storage import blob
 
@@ -63,6 +64,40 @@ def _slugify_origin(origin: str) -> str:
     # Remove leading/trailing underscores
     slug = slug.strip("_")
     return slug[:100]  # Limit length
+
+
+def get_builtin_registry_source_path() -> Path:
+    """Get the path to the builtin tracecat_registry package source.
+
+    Checks in order:
+    1. Config path (TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
+    2. Relative to installed package (editable/source install)
+
+    Returns:
+        Path to the package directory containing pyproject.toml.
+
+    Raises:
+        TarballBuildError: If package path cannot be determined.
+    """
+    # Check configured path first (Docker default: /app/packages/tracecat-registry)
+    config_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
+    if (config_path / "pyproject.toml").exists():
+        return config_path
+
+    # Fall back to development: look relative to installed package
+    package_path = Path(tracecat_registry.__file__).parent.parent
+    pyproject = package_path / "pyproject.toml"
+    if not pyproject.exists():
+        package_path = package_path.parent
+        pyproject = package_path / "pyproject.toml"
+
+    if not pyproject.exists():
+        raise TarballBuildError(
+            "Cannot find pyproject.toml for tracecat_registry. "
+            "Set TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH or use source installation."
+        )
+
+    return package_path
 
 
 async def build_tarball_venv_from_path(
@@ -342,22 +377,7 @@ async def build_builtin_registry_tarball_venv(
     Raises:
         TarballBuildError: If the build fails
     """
-    # Get the package path from the installed module
-    package_path = Path(tracecat_registry.__file__).parent.parent
-
-    # Check if we have pyproject.toml (we're in the source tree)
-    pyproject = package_path / "pyproject.toml"
-    if not pyproject.exists():
-        # We might be in an installed package, look up one more level
-        package_path = package_path.parent
-        pyproject = package_path / "pyproject.toml"
-
-    if not pyproject.exists():
-        raise TarballBuildError(
-            "Cannot find pyproject.toml for tracecat_registry. "
-            "Builtin tarball venv building requires source installation."
-        )
-
+    package_path = get_builtin_registry_source_path()
     return await build_tarball_venv_from_path(package_path, output_dir)
 
 

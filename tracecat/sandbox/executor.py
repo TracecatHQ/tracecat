@@ -29,7 +29,8 @@ class ActionSandboxConfig:
     Secrets and variables must be pre-resolved before sandbox execution.
 
     Attributes:
-        registry_cache_dir: Directory containing extracted registry tarballs (mounted at /packages).
+        registry_paths: List of directories containing extracted registry tarballs.
+            Mounted at /packages/0, /packages/1, etc. in deterministic order.
         tracecat_app_dir: Directory containing tracecat package (not mounted in untrusted mode).
         site_packages_dir: Directory containing Python site-packages (not mounted in untrusted mode).
         env_vars: Environment variables to inject (SDK context, NOT DB credentials).
@@ -37,7 +38,7 @@ class ActionSandboxConfig:
         timeout_seconds: Maximum execution time in seconds.
     """
 
-    registry_cache_dir: Path
+    registry_paths: list[Path]
     tracecat_app_dir: Path
     site_packages_dir: Path | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
@@ -572,7 +573,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
-        _validate_path(config.registry_cache_dir, "registry_cache_dir")
+        for i, registry_path in enumerate(config.registry_paths):
+            _validate_path(registry_path, f"registry_path_{i}")
         _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
         if config.site_packages_dir:
             _validate_path(config.site_packages_dir, "site_packages_dir")
@@ -637,11 +639,12 @@ class NsjailExecutor:
             ]
         )
 
-        # Mount registry cache if it exists and has content
-        if config.registry_cache_dir.exists():
-            lines.append(
-                f'mount {{ src: "{config.registry_cache_dir}" dst: "/packages" is_bind: true rw: false }}'
-            )
+        # Mount each registry path at /packages/0, /packages/1, etc.
+        for i, registry_path in enumerate(config.registry_paths):
+            if registry_path.exists():
+                lines.append(
+                    f'mount {{ src: "{registry_path}" dst: "/packages/{i}" is_bind: true rw: false }}'
+                )
 
         # NOTE: /app and /site-packages are NOT mounted in untrusted mode
         # Untrusted mode uses minimal_runner.py copied to /work, no tracecat imports
@@ -680,11 +683,12 @@ class NsjailExecutor:
         """Construct environment for action sandbox execution (untrusted mode)."""
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
-        # Set PYTHONPATH - only /packages (tarball with tracecat_registry)
+        # Set PYTHONPATH with multiple registry paths: /packages/0:/packages/1:...
         # NOTE: /app and /site-packages are NOT mounted in untrusted mode
         pythonpath_parts = []
-        if config.registry_cache_dir.exists():
-            pythonpath_parts.append("/packages")
+        for i, registry_path in enumerate(config.registry_paths):
+            if registry_path.exists():
+                pythonpath_parts.append(f"/packages/{i}")
 
         if pythonpath_parts:
             env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
@@ -738,7 +742,7 @@ class NsjailExecutor:
             "Executing action in nsjail sandbox",
             cmd=cmd,
             job_dir=str(job_dir),
-            registry_cache=str(config.registry_cache_dir),
+            registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
 

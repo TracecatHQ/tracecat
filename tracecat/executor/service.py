@@ -364,6 +364,7 @@ async def _prepare_step_context(
             type="template",
             action_name=step_action,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
+            origin=reg_action.origin,
         )
     else:
         action_impl = ActionImplementation(
@@ -371,6 +372,7 @@ async def _prepare_step_context(
             action_name=step_action,
             module=impl.module,
             name=impl.name,
+            origin=impl.url,
         )
 
     # Mint new executor token for step (required for SDK authentication)
@@ -653,6 +655,7 @@ async def prepare_resolved_context(
             type="template",
             action_name=action_name,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
+            origin=reg_action.origin,
         )
     else:
         action_impl = ActionImplementation(
@@ -660,6 +663,7 @@ async def prepare_resolved_context(
             action_name=action_name,
             module=impl.module,
             name=impl.name,
+            origin=impl.url,
         )
 
     # Collect expressions to know what secrets/variables are needed

@@ -53,7 +53,6 @@ from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
 
 if TYPE_CHECKING:
-    from tracecat.db.models import RegistryAction
     from tracecat.ssh import SshEnv
 
 
