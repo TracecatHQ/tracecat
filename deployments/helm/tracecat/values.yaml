@@ -1,0 +1,173 @@
+securityContext:
+  fsGroup: 1001
+  runAsUser: 1001
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  host: tracecat.example.com
+  tls: []
+
+urls:
+  publicApp: ""
+  publicApi: ""
+  publicS3: ""
+
+tracecat:
+  appEnv: production
+  logLevel: ""
+  featureFlags: ""
+
+  # Payload and compression settings
+  executorMaxPayloadSize: 1048576          # 1 MiB (1024 × 1024 bytes)
+  contextCompressionEnabled: false         # Whether to compress large action results in workflow contexts
+  contextCompressionThresholdKb: 16        # Threshold in KB above which action results are compressed
+
+  blobStorage:
+    buckets:
+      attachments: ""
+      registry: ""
+
+  saml:
+    idpMetadataUrl: ""
+    allowUnsolicited: "false"
+    authnRequestsSigned: "false"
+    signedAssertions: "true"
+    signedResponses: "true"
+    verifySslEntity: "true"
+    verifySslMetadata: "true"
+    caCerts: ""
+    metadataCert: ""
+
+  auth:
+    types: "basic,saml"
+    allowedDomains: ""
+    superadminEmail: ""
+
+ui:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+api:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+worker:
+  replicas: 4
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+executor:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+# CloudNativePG cluster subchart configuration (aliased as postgres)
+postgres:
+  enabled: true
+  fullnameOverride: tracecat-postgres
+  cluster:
+    instances: 1
+
+# Valkey subchart configuration (aliased as redis)
+redis:
+  enabled: true
+  fullnameOverride: tracecat-valkey
+  dataStorage:
+    enabled: true
+    size: 5Gi
+
+minio:
+  enabled: true
+  fullnameOverride: tracecat-minio
+  mode: standalone
+  primary:
+    enabled: true
+  auth:
+    existingSecret: null
+
+temporal:
+  enabled: true
+  server:
+    config:
+      persistence:
+        numHistoryShards: 1024
+        datastores:
+          default:
+            sql:
+              pluginName: postgres12
+              driverName: postgres12
+              databaseName: temporal
+              connectAddr: ""
+              user: ""
+              existingSecret: ""
+          visibility:
+            sql:
+              pluginName: postgres12
+              driverName: postgres12
+              databaseName: temporal_visibility
+              connectAddr: ""
+              user: ""
+              existingSecret: ""
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 720h
+
+externalPostgres:
+  enabled: false
+  host: "example-db.example.com"
+  port: 5432
+  database: tracecat
+  sslMode: "prefer"
+  auth:
+    # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
+    existingSecret: null  # Contains `username` and `password`.
+    secretArn: null
+
+externalRedis:
+  enabled: false
+  auth:
+    # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
+    existingSecret: null  # Contains `url`
+    secretArn: null
+
+externalS3:
+  enabled: false
+  endpoint: ""
+  region: ""
+  auth:
+    existingSecret: null  # Contains `accessKeyId` and `secretAccessKey`.
+
+externalTemporal:
+  enabled: false
+  clusterUrl: ""
+  clusterQueue: ""
+  clusterNamespace: ""
+  taskTimeout: "300"
+  auth:
+    existingSecret: null  # Contains `apiKey`
