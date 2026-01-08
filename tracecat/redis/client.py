@@ -1,11 +1,13 @@
 """Redis client with connection pooling and retry logic for streaming."""
 
 import asyncio
-import os
+import base64
 from collections.abc import Awaitable
 from typing import Any
 
+import boto3
 import redis.asyncio as redis
+from botocore.exceptions import ClientError
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import RedisError
 from redis.typing import KeyT, StreamIdT
@@ -16,8 +18,35 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL
+from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+
+
+def _resolve_redis_url() -> str:
+    if not REDIS_URL__ARN:
+        return REDIS_URL
+
+    logger.info("Retrieving Redis URL from AWS Secrets Manager...")
+    try:
+        session = boto3.session.Session()
+        client = session.client(service_name="secretsmanager")
+        response = client.get_secret_value(SecretId=REDIS_URL__ARN)
+    except ClientError as e:
+        logger.error(
+            "Error retrieving Redis URL from AWS secrets manager.",
+            error=e,
+        )
+        raise
+
+    secret_string = response.get("SecretString")
+    if not secret_string and response.get("SecretBinary"):
+        secret_string = base64.b64decode(response["SecretBinary"]).decode("utf-8")
+
+    if not secret_string:
+        raise RuntimeError("Redis secret is empty")
+
+    logger.info("Successfully retrieved Redis URL from AWS Secrets Manager")
+    return secret_string
 
 
 class RedisClient:
@@ -43,7 +72,7 @@ class RedisClient:
         if RedisClient._pool is None:
             # Create connection pool
             RedisClient._pool = redis.from_url(
-                REDIS_URL,
+                _resolve_redis_url(),
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
