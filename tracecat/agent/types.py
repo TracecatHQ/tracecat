@@ -17,15 +17,13 @@ from typing import (
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
-from pydantic_ai import ModelResponse
-from pydantic_ai.messages import ModelMessage
-from pydantic_ai.tools import Tool as _PATool
 
-from tracecat import config
 from tracecat.agent.stream.types import ToolCallContent
 from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
+    from pydantic_ai import ModelResponse
+    from pydantic_ai.messages import ModelMessage
     from pydantic_ai.tools import Tool as _PATool
 
     from tracecat.agent.sandbox.protocol import RuntimeInitPayload
@@ -34,7 +32,10 @@ if TYPE_CHECKING:
     from tracecat.chat.schemas import ChatMessage
 
     CustomToolList = list[_PATool[Any]]
-else:  # pragma: no cover - runtime type hint fallback to appease pydantic
+else:
+    # Runtime fallbacks for types only used in annotations
+    ModelResponse = Any
+    ModelMessage = Any
     CustomToolList = list[Any]
 
 
@@ -59,11 +60,47 @@ class StreamKey(str):
         )
 
 
-ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
-ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
+# TypeAdapters for pydantic-ai message types - created lazily to avoid import overhead
+# These are used by the legacy pydantic-ai harness, not the sandbox runtime
 ClaudeSDKMessageTA: TypeAdapter[ClaudeSDKMessage] = TypeAdapter(ClaudeSDKMessage)
 
+
+class _LazyTypeAdapter:
+    """Lazy wrapper for TypeAdapter that imports pydantic-ai only when used."""
+
+    def __init__(self, import_path: str, type_name: str):
+        self._import_path = import_path
+        self._type_name = type_name
+        self._adapter: TypeAdapter[Any] | None = None
+
+    def _ensure_adapter(self) -> TypeAdapter[Any]:
+        if self._adapter is None:
+            import importlib
+
+            module = importlib.import_module(self._import_path)
+            type_cls = getattr(module, self._type_name)
+            self._adapter = TypeAdapter(type_cls)
+        return self._adapter
+
+    def validate_python(self, obj: Any) -> Any:
+        return self._ensure_adapter().validate_python(obj)
+
+    def dump_python(self, obj: Any, **kwargs: Any) -> Any:
+        return self._ensure_adapter().dump_python(obj, **kwargs)
+
+    def validate_json(self, data: bytes | str) -> Any:
+        return self._ensure_adapter().validate_json(data)
+
+    def dump_json(self, obj: Any, **kwargs: Any) -> bytes:
+        return self._ensure_adapter().dump_json(obj, **kwargs)
+
+
+# Lazy TypeAdapters that only import pydantic-ai when methods are called
+ModelMessageTA: Any = _LazyTypeAdapter("pydantic_ai.messages", "ModelMessage")
+ModelResponseTA: Any = _LazyTypeAdapter("pydantic_ai", "ModelResponse")
+
 # Union type for messages from either harness
+# At runtime, ModelMessage is Any so this is effectively Any | ClaudeSDKMessage
 UnifiedMessage = ModelMessage | ClaudeSDKMessage
 
 
@@ -119,7 +156,7 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
-    retries: int = config.TRACECAT__AGENT_MAX_RETRIES
+    retries: int = 20  # Default max retries (avoids importing tracecat.config)
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
 

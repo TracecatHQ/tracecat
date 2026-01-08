@@ -17,6 +17,7 @@ from dataclasses import asdict
 from enum import IntEnum
 
 import orjson
+from claude_agent_sdk.types import Message
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.sandbox.protocol import RuntimeEventEnvelope
@@ -31,7 +32,6 @@ class MessageType(IntEnum):
 
     # Orchestrator → Runtime
     INIT = 0x01  # RuntimeInitPayload
-    APPROVAL_CONTINUATION = 0x02  # ApprovalContinuationPayload
 
     # Runtime → Orchestrator
     EVENT = 0x10  # RuntimeEventEnvelope
@@ -112,9 +112,38 @@ class SocketStreamWriter:
         self._writer.write(message)
         await self._writer.drain()
 
-    async def send_event(self, event: UnifiedStreamEvent) -> None:
-        """Send a stream event to the orchestrator."""
-        await self._send(RuntimeEventEnvelope.from_event(event))
+    async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
+        """Send a stream event (partial delta) to the orchestrator."""
+        await self._send(RuntimeEventEnvelope.from_stream_event(event))
+
+    async def send_message(self, message: Message) -> None:
+        """Send a complete message to the orchestrator for persistence.
+
+        The loopback adds uuid/sessionId when persisting (runtime is untrusted).
+
+        NOTE: This sends the inner message only. For full JSONL persistence with
+        proper uuid/timestamp/parentUuid, use send_session_line() instead.
+        """
+        await self._send(RuntimeEventEnvelope.from_message(message))
+
+    async def send_session_line(
+        self, sdk_session_id: str, line: str, *, internal: bool = False
+    ) -> None:
+        """Send a raw JSONL line for persistence.
+
+        This sends a complete JSONL line from the Claude SDK session file,
+        preserving the exact format needed for resume (uuid, timestamp, parentUuid, etc.).
+
+        Args:
+            sdk_session_id: The SDK's internal session ID.
+            line: Raw JSONL line from the SDK session file.
+            internal: If True, this is internal state not shown in UI timeline.
+        """
+        await self._send(
+            RuntimeEventEnvelope.from_session_line(
+                sdk_session_id, line, internal=internal
+            )
+        )
 
     async def send_session_update(
         self,

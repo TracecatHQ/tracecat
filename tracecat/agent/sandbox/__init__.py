@@ -28,8 +28,6 @@ from tracecat.agent.sandbox.exceptions import (
 )
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime, wait_for_process
 from tracecat.agent.sandbox.protocol import (
-    ApprovalContinuationPayload,
-    ApprovalContinuationPayloadTA,
     RuntimeEventEnvelope,
     RuntimeEventEnvelopeTA,
     RuntimeInitPayload,
@@ -60,8 +58,6 @@ __all__ = [
     "spawn_jailed_runtime",
     "wait_for_process",
     # Protocol
-    "ApprovalContinuationPayload",
-    "ApprovalContinuationPayloadTA",
     "RuntimeEventEnvelope",
     "RuntimeEventEnvelopeTA",
     "RuntimeInitPayload",

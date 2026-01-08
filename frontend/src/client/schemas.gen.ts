@@ -4777,23 +4777,7 @@ export const $ChatMessage = {
     },
     message: {
       anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ModelRequest",
-            },
-            {
-              $ref: "#/components/schemas/ModelResponse",
-            },
-          ],
-          discriminator: {
-            propertyName: "kind",
-            mapping: {
-              request: "#/components/schemas/ModelRequest",
-              response: "#/components/schemas/ModelResponse",
-            },
-          },
-        },
+        {},
         {
           $ref: "#/components/schemas/UserMessage",
         },
@@ -5154,30 +5138,6 @@ export const $ChatUpdate = {
       title: "Agent Preset Id",
       description:
         "Agent preset to use for the chat session (set to null for default instructions)",
-    },
-    sdk_session_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Sdk Session Id",
-      description: "Claude SDK session ID for resumption",
-    },
-    sdk_session_data: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Sdk Session Data",
-      description: "Claude SDK session JSONL content for resumption",
     },
   },
   type: "object",

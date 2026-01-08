@@ -20,4 +20,3 @@ class MessageKind(StrEnum):
     APPROVAL_DECISION = (
         "approval-decision"  # User/operator decisions for pending approvals
     )
-    INTERNAL = "internal"  # Internal messages not shown in chat history (e.g., continuation prompts, interrupt artifacts)

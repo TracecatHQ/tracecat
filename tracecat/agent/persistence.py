@@ -12,15 +12,16 @@ class DBMessageStore:
     """Message store for persisting chat messages to the database."""
 
     async def load(self, session_id: uuid.UUID) -> list[ChatMessage]:
-        """Load all messages for a session.
+        """Load chat messages for a session.
 
-        Returns raw ChatMessage objects - caller is responsible for filtering
-        by harness type and deserializing as needed.
+        Only loads CHAT_MESSAGE kind by default to avoid exposing internal
+        messages (approvals, system messages, etc.) to callers.
         """
         async with ChatService.with_session() as svc:
             try:
-                # Load ALL message kinds
-                message_history = await svc.list_messages(session_id)
+                message_history = await svc.list_messages(
+                    session_id, kinds=[MessageKind.CHAT_MESSAGE]
+                )
                 logger.info(
                     "Loaded message history",
                     message_count=len(message_history),
