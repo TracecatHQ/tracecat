@@ -14,6 +14,7 @@ Both tokens embed workspace_id so the jailed runtime never sees it directly.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -32,15 +33,24 @@ from tracecat.auth.types import Role
 MCP_TOKEN_ISSUER = "tracecat-agent-executor"
 MCP_TOKEN_AUDIENCE = "tracecat-mcp-server"
 MCP_TOKEN_SUBJECT = "tracecat-agent-runtime"
-MCP_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "role", "allowed_actions")
+MCP_REQUIRED_CLAIMS = (
+    "iss",
+    "aud",
+    "sub",
+    "iat",
+    "exp",
+    "role",
+    "allowed_actions",
+    "session_id",
+)
 
 
 class MCPTokenClaims(BaseModel):
     """Claims extracted from a verified MCP token."""
 
     role: Role
-    run_id: str | None = None
-    session_id: str | None = None
+    session_id: uuid.UUID
+    """Agent session ID for traceability."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
 
@@ -49,8 +59,7 @@ def mint_mcp_token(
     *,
     role: Role,
     allowed_actions: list[str],
-    run_id: str | None = None,
-    session_id: str | None = None,
+    session_id: uuid.UUID,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing role and allowed actions.
@@ -61,8 +70,7 @@ def mint_mcp_token(
     Args:
         role: The Role for authorization context
         allowed_actions: Set of allowed action names
-        run_id: Optional run identifier
-        session_id: Optional session identifier
+        session_id: Agent session ID for traceability.
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -82,11 +90,8 @@ def mint_mcp_token(
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
         "role": role.model_dump(mode="json"),
         "allowed_actions": allowed_actions,
+        "session_id": session_id,
     }
-    if run_id:
-        payload["run_id"] = run_id
-    if session_id:
-        payload["session_id"] = session_id
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 
@@ -134,11 +139,14 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
     except ValidationError as exc:
         raise ValueError("MCP token role claim is invalid") from exc
 
+    session_id = payload.get("session_id")
+    if session_id is None:
+        raise ValueError("MCP token missing wf_exec_id claim")
+
     try:
         return MCPTokenClaims(
             role=role,
-            run_id=payload.get("run_id"),
-            session_id=payload.get("session_id"),
+            session_id=session_id,
             allowed_actions=allowed_actions_payload,
         )
     except ValidationError as exc:
@@ -172,8 +180,8 @@ class LLMTokenClaims(BaseModel):
     """
 
     # Identity
-    workspace_id: str = Field(..., description="Workspace UUID as string")
-    session_id: str = Field(..., description="Agent session UUID as string")
+    workspace_id: uuid.UUID = Field(..., description="Workspace UUID")
+    session_id: uuid.UUID = Field(..., description="Agent session UUID")
 
     # Model configuration
     model: str = Field(..., description="The model to use for this run")

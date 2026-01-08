@@ -76,8 +76,7 @@ dependencies = [
     # Security: CVE-2025-66471 - urllib3 streaming API vulnerability
     "urllib3==2.6.0",
     "claude-agent-sdk==0.1.18",
-    "litellm[proxy]==1.80.11",
-    "fastmcp==2.14.1",
+    "uvloop==0.21.0",
 ]
 dynamic = ["version"]
 
@@ -124,6 +123,11 @@ dev = [
     "python-dotenv==1.1.1",
     "respx==0.22.0",
     "ruff==0.13.0",
+]
+
+agent-executor = [
+    "litellm[proxy]==1.80.11",
+    "fastmcp==2.14.1",
 ]
 
 [tool.hatch.version]

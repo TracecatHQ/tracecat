@@ -22,13 +22,6 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
-
-TRACECAT__EXECUTOR_URL = os.environ.get(
-    "TRACECAT__EXECUTOR_URL", "http://executor:8000"
-)
-TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT", "4000"))
-"""Port for the embedded LiteLLM proxy subprocess."""
-
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
 

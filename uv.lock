@@ -4708,7 +4708,6 @@ dependencies = [
     { name = "email-validator" },
     { name = "fastapi", extra = ["standard"] },
     { name = "fastapi-users", extra = ["oauth", "sqlalchemy"] },
-    { name = "fastmcp" },
     { name = "fickling" },
     { name = "filelock" },
     { name = "google-auth" },
@@ -4717,7 +4716,6 @@ dependencies = [
     { name = "httpx" },
     { name = "jsonpath-ng" },
     { name = "lark" },
-    { name = "litellm", extra = ["proxy"] },
     { name = "loguru" },
     { name = "marshmallow" },
     { name = "minio" },
@@ -4746,10 +4744,15 @@ dependencies = [
     { name = "urllib3" },
     { name = "uv" },
     { name = "uvicorn" },
+    { name = "uvloop" },
     { name = "virtualenv" },
 ]
 
 [package.dev-dependencies]
+agent-executor = [
+    { name = "fastmcp" },
+    { name = "litellm", extra = ["proxy"] },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
@@ -4782,7 +4785,6 @@ requires-dist = [
     { name = "email-validator", specifier = "==2.2.0" },
     { name = "fastapi", extras = ["standard"], specifier = "==0.120.3" },
     { name = "fastapi-users", extras = ["oauth", "sqlalchemy"], specifier = "==15.0.2" },
-    { name = "fastmcp", specifier = "==2.14.1" },
     { name = "fickling", specifier = "==0.1.6" },
     { name = "filelock", specifier = "==3.20.1" },
     { name = "google-auth", specifier = "==2.37.0" },
@@ -4791,7 +4793,6 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jsonpath-ng", specifier = ">=1.7.0,<1.8.0" },
     { name = "lark", specifier = "==1.1.9" },
-    { name = "litellm", extras = ["proxy"], specifier = "==1.80.11" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "marshmallow", specifier = "==3.26.2" },
     { name = "minio", specifier = "==7.2.18" },
@@ -4820,10 +4821,15 @@ requires-dist = [
     { name = "urllib3", specifier = "==2.6.0" },
     { name = "uv", specifier = "==0.9.15" },
     { name = "uvicorn", specifier = "==0.35.0" },
+    { name = "uvloop", specifier = "==0.21.0" },
     { name = "virtualenv", specifier = "==20.27.0" },
 ]
 
 [package.metadata.requires-dev]
+agent-executor = [
+    { name = "fastmcp", specifier = "==2.14.1" },
+    { name = "litellm", extras = ["proxy"], specifier = "==1.80.11" },
+]
 dev = [
     { name = "mypy", specifier = "==1.15.0" },
     { name = "pre-commit", specifier = "==4.1.0" },
