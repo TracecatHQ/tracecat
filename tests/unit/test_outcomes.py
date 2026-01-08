@@ -125,14 +125,15 @@ class TestActionOutcomeGather:
         assert outcome.result == [1, 2, 3]
 
     def test_gather_factory(self):
-        outcome = gather(result=["a", "b", "c"])
-        assert outcome.result == ["a", "b", "c"]
-        assert outcome.result_typename == "list"
+        outcome = gather(count=3)
+        assert outcome.count == 3
+        assert outcome.result == 3  # Backwards compat: result = count
+        assert outcome.result_typename == "int"
 
     def test_gather_with_errors(self):
         errors = [{"ref": "action_1", "message": "Failed"}]
-        outcome = gather(result=["ok"], errors=errors)
-        assert outcome.result == ["ok"]
+        outcome = gather(count=1, errors=errors)
+        assert outcome.count == 1
         assert outcome.error == errors
         assert outcome.error_typename == "list"
 
@@ -182,7 +183,7 @@ class TestHelperFunctions:
     def test_is_success(self):
         assert is_success(success(result=1))
         assert is_success(scatter(count=1))
-        assert is_success(gather(result=[]))
+        assert is_success(gather(count=0))
         assert not is_success(error(err="oops"))
         assert not is_success(skipped())
 
@@ -199,10 +200,10 @@ class TestHelperFunctions:
     def test_is_scatter(self):
         assert is_scatter(scatter(count=5))
         assert not is_scatter(success(result=1))
-        assert not is_scatter(gather(result=[]))
+        assert not is_scatter(gather(count=0))
 
     def test_is_gather(self):
-        assert is_gather(gather(result=[]))
+        assert is_gather(gather(count=0))
         assert not is_gather(success(result=1))
         assert not is_gather(scatter(count=5))
 

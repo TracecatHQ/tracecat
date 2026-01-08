@@ -202,11 +202,13 @@ class ActionOutcomeScatter(BaseModel):
 class ActionOutcomeGather(BaseModel):
     """Outcome for a gather control-flow action.
 
-    Gather synchronizes execution streams and collects results.
+    Gather synchronizes execution streams and collects results. Like scatter,
+    we return a count to keep the outcome small - actual results stay in context.
 
     Attributes:
         status: Always "gather" for this variant (represents successful gather).
-        result: Gathered results (list of items from streams).
+        count: Number of gathered items.
+        result: For backwards compat, contains the count (actual data in context).
         result_typename: Type name of result.
         result_ref: Optional reference if result is externalized.
         error: Optional list of errors from streams (if error_strategy=partition).
@@ -214,8 +216,9 @@ class ActionOutcomeGather(BaseModel):
     """
 
     status: Literal["gather"] = "gather"
-    result: Any = None
-    result_typename: str = "list"
+    count: int = 0
+    result: Any = None  # Count for now, actual results in context
+    result_typename: str = "int"
     result_ref: ResultRef | None = None
     error: list[Any] | None = (
         None  # list[ActionErrorInfo] - kept as Any for serialization
@@ -371,6 +374,7 @@ def scatter(
 
 
 def gather(
+    count: int,
     result: Any = None,
     *,
     result_ref: ResultRef | None = None,
@@ -378,8 +382,9 @@ def gather(
 ) -> ActionOutcomeGather:
     """Create a gather outcome."""
     return ActionOutcomeGather(
-        result=result,
-        result_typename=type(result).__name__ if result is not None else "list",
+        count=count,
+        result=result if result is not None else count,
+        result_typename=type(result).__name__ if result is not None else "int",
         result_ref=result_ref,
         error=errors,
         error_typename="list" if errors else None,

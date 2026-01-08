@@ -455,7 +455,7 @@ class TestHandleActionStatementActivity:
     async def test_gather_action_returns_gather_outcome(
         self, mock_handle_action_input, mock_role
     ):
-        """Test that gather action returns ActionOutcomeGather."""
+        """Test that gather action returns ActionOutcomeGather with count."""
         mock_handle_action_input.task = ActionStatement(
             action=PlatformAction.TRANSFORM_GATHER,
             args={"items": "${{ var.__stream_results__ }}"},
@@ -475,7 +475,8 @@ class TestHandleActionStatementActivity:
 
             assert isinstance(result, ActionOutcomeGather)
             assert result.status == "gather"
-            assert result.result == ["result1", "result2", "result3"]
+            assert result.count == 3
+            assert result.result == 3  # Backwards compat: result = count
 
     @pytest.mark.anyio
     async def test_gather_action_drops_nulls_when_configured(
@@ -499,7 +500,9 @@ class TestHandleActionStatementActivity:
             )
 
             assert isinstance(result, ActionOutcomeGather)
-            assert result.result == ["result1", "result2"]
+            # Original had 4 items, after dropping nulls: 2 items
+            assert result.count == 2
+            assert result.result == 2
 
     @pytest.mark.anyio
     async def test_unexpected_error_raises_application_error(

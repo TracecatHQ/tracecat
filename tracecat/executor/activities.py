@@ -332,32 +332,37 @@ def _handle_gather_action(
 ) -> ActionOutcomeGather:
     """Handle gather control-flow action.
 
-    Materializes gathered results from streams.
-    Stream synchronization is handled by the scheduler.
+    Evaluates the gather items expression to get stream results from context,
+    applies transformations, and returns a minimal outcome (count).
+    Actual results stay in context - scheduler manages storage.
 
     Args:
         input: The action statement input
         log: Logger instance
 
     Returns:
-        ActionOutcomeGather with collected results
+        ActionOutcomeGather with count (not O(N) results)
     """
+    operand = _build_operand(input)
     gather_args = GatherArgs.model_validate(input.task.args)
 
-    # Stream results are passed via LOCAL_VARS by the scheduler
-    stream_results = input.exec_context.get(ExprContext.LOCAL_VARS, {}).get(
-        "__stream_results__", []
-    )
+    # Evaluate the items expression to get stream results from context
+    stream_results = eval_templated_object(gather_args.items, operand=operand)
+
+    if not isinstance(stream_results, list):
+        stream_results = list(stream_results) if stream_results else []
 
     # Apply drop_nulls if configured
     if gather_args.drop_nulls:
         stream_results = [r for r in stream_results if r is not None]
 
-    log.info("Gather materialized", result_count=len(stream_results))
+    count = len(stream_results)
+    log.info("Gather evaluated", count=count)
 
+    # Return count only - actual results remain in context
     return ActionOutcomeGather(
-        result=stream_results,
-        result_typename="list",
+        count=count,
+        result=count,  # Backwards compat: ACTIONS.gather_ref.result = count
     )
 
 
