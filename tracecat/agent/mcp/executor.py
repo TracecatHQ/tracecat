@@ -9,8 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from tracecat import config
-from tracecat.agent.mcp import MCPTokenClaims
+from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.contexts import ctx_role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -20,10 +19,14 @@ from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
 )
-from tracecat.executor.service import get_workspace_variables
+from tracecat.executor.service import (
+    get_registry_artifacts_cached,
+    get_workspace_variables,
+)
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.identifiers import WorkflowUUID
+from tracecat.identifiers.workflow import generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.actions.service import RegistryActionsService
@@ -85,7 +88,7 @@ async def execute_action(
     resolved_context = await _resolve_context(action_name, args, claims)
 
     # Build minimal RunActionInput
-    run_input = _build_run_input(action_name, args, claims)
+    run_input = _build_run_input(action_name, args)
 
     # Get tarball URI for registry environment
     tarball_uri = await _get_tarball_uri(role)
@@ -197,7 +200,6 @@ async def _resolve_context(
 def _build_run_input(
     action_name: str,
     args: dict[str, Any],
-    claims: MCPTokenClaims,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner."""
     # Create minimal action statement
@@ -207,11 +209,12 @@ def _build_run_input(
         args=args,
     )
 
-    # Create minimal run context
+    # Create minimal run context with properly formatted IDs
+    wf_id = WorkflowUUID.new_uuid4()
     run_context = RunContext(
-        wf_id=WorkflowUUID.new_uuid4(),
-        wf_run_id=WorkflowUUID.new_uuid4(),
-        wf_exec_id=str(uuid4()),
+        wf_id=wf_id,
+        wf_run_id=uuid4(),
+        wf_exec_id=generate_exec_id(wf_id),
         environment="default",
     )
 
@@ -223,11 +226,11 @@ def _build_run_input(
 
 
 async def _get_tarball_uri(role) -> str | None:
-    """Get the tarball URI for the current registry version."""
-    if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
-        return None
+    """Get the tarball URI for the current registry version.
 
-    from tracecat.executor.service import get_registry_artifacts_cached
+    Works for both remote and local registries - both should have tarball_uri
+    in the DB after sync.
+    """
 
     try:
         artifacts = await get_registry_artifacts_cached(role)

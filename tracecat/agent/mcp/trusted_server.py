@@ -18,6 +18,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from tracecat.agent.mcp.executor import execute_action
+from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.tokens import verify_mcp_token
 
 mcp = FastMCP("tracecat-actions")
@@ -40,6 +41,7 @@ async def execute_action_tool(
         JSON-encoded result from the action
     """
     claims = verify_mcp_token(auth_token)
+    action_name = normalize_mcp_tool_name(action_name)
     result = await execute_action(action_name, args, claims)
     return json.dumps(result, default=str)
 

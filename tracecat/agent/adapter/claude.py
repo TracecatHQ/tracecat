@@ -15,7 +15,7 @@ from typing import Any, Literal, TypedDict, cast
 from claude_agent_sdk.types import StreamEvent
 
 from tracecat.agent.adapter.base import BaseHarnessAdapter
-from tracecat.agent.mcp import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.types import (
     HarnessType,
     StreamEventType,

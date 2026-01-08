@@ -9,11 +9,51 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+import httpx
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 
 from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
 from tracecat.logger import logger
+
+
+class _UDSClientFactory:
+    """Factory for creating httpx AsyncClient with Unix Domain Socket transport.
+
+    Implements the McpHttpClientFactory protocol expected by StreamableHttpTransport.
+
+    Note: FastMCP passes additional kwargs beyond the protocol (e.g., follow_redirects),
+    so we accept **kwargs to handle them gracefully.
+    """
+
+    def __init__(self, socket_path: str) -> None:
+        self._socket_path = socket_path
+
+    def __call__(
+        self,
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+        **kwargs: Any,
+    ) -> httpx.AsyncClient:
+        """Create an AsyncClient configured for UDS transport."""
+        return httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=self._socket_path),
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            **kwargs,
+        )
+
+
+def _create_uds_transport(socket_path: str) -> StreamableHttpTransport:
+    """Create a StreamableHttpTransport that connects via Unix socket."""
+    return StreamableHttpTransport(
+        url="http://localhost/mcp",
+        httpx_client_factory=_UDSClientFactory(socket_path),
+    )
 
 
 async def create_proxy_mcp_server(
@@ -37,9 +77,6 @@ async def create_proxy_mcp_server(
     tools: list[SdkMcpTool] = []
 
     for action_name, defn in allowed_actions.items():
-        # Convert action name to MCP-compatible tool name
-        tool_name = action_name.replace(".", "__")
-
         # Create handler with captured variables
         def make_handler(
             captured_action_name: str,
@@ -47,13 +84,22 @@ async def create_proxy_mcp_server(
             captured_socket_path: str,
         ) -> Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]:
             async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+                import sys
+
+                print(
+                    f"[PROXY] Forwarding tool call: action_name={captured_action_name}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 logger.info(
                     "Proxy forwarding tool call",
                     action_name=captured_action_name,
                 )
 
                 try:
-                    async with Client(captured_socket_path) as client:
+                    # Connect via HTTP over Unix socket
+                    transport = _create_uds_transport(captured_socket_path)
+                    async with Client(transport) as client:
                         call_result = await client.call_tool(
                             "execute_action_tool",
                             {
@@ -86,6 +132,9 @@ async def create_proxy_mcp_server(
 
             return _handler
 
+        # Convert action name to MCP-compatible tool name
+        tool_name = action_name_to_mcp_tool_name(action_name)
+
         handler = make_handler(action_name, auth_token, trusted_socket_path)
         decorated = tool(tool_name, defn.description, defn.parameters_json_schema)(
             handler
@@ -104,7 +153,7 @@ async def create_proxy_mcp_server(
     )
 
     return create_sdk_mcp_server(
-        name="tracecat-proxy",
+        name="tracecat-registry",
         version="1.0.0",
         tools=tools,
     )

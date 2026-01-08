@@ -8,7 +8,15 @@ from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 
 
-def _tool_name_to_action_name(tool_name: str) -> str:
+def action_name_to_mcp_tool_name(action_name: str) -> str:
+    """Convert action name (dots) to MCP tool name format (underscores).
+
+    Example: tools.slack.post_message -> tools__slack__post_message
+    """
+    return action_name.replace(".", "__")
+
+
+def mcp_tool_name_to_action_name(tool_name: str) -> str:
     """Convert MCP tool name (underscores) back to action name (dots).
 
     Example: tools__slack__post_message -> tools.slack.post_message
@@ -22,7 +30,8 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     MCP tool naming convention: mcp__{server_name}__{tool_name}
 
     Handles Tracecat proxy tools:
-    - mcp__tracecat-proxy__tools__slack__post_message -> tools.slack.post_message
+    - mcp__tracecat-registry__tools__slack__post_message -> tools.slack.post_message
+    - mcp.tracecat-registry.core.cases.create_case -> core.cases.create_case
 
     Other MCP tool names are returned as-is.
 
@@ -32,12 +41,15 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     Returns:
         Human-readable action/tool name
     """
-    # Handle full MCP tool names with Tracecat proxy server prefix
-    if mcp_tool_name.startswith("mcp__tracecat-proxy__"):
-        tool_part = mcp_tool_name.replace("mcp__tracecat-proxy__", "")
-        return _tool_name_to_action_name(tool_part)
-    # Return as-is for other tool names
-    return mcp_tool_name
+    # Handle dot-separated format (persisted messages)
+    if mcp_tool_name.startswith("mcp.tracecat-registry."):
+        return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
+
+    # Handle underscore-separated format (runtime MCP tool names)
+    tool_part = mcp_tool_name
+    if mcp_tool_name.startswith("mcp__tracecat-registry__"):
+        tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
+    return mcp_tool_name_to_action_name(tool_part)
 
 
 async def fetch_tool_definitions(
