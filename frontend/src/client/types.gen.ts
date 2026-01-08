@@ -1807,11 +1807,9 @@ export type DSLRunArgs = {
    */
   time_anchor?: string | null
   /**
-   * Registry version lock for action execution. Maps action names to version hashes.
+   * Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.
    */
-  registry_lock?: {
-    [key: string]: string
-  } | null
+  registry_lock?: RegistryLock | null
 }
 
 /**
@@ -3437,6 +3435,24 @@ export type RegistryActionValidationErrorInfo = {
 }
 
 /**
+ * Registry version lock with action-level bindings for O(1) resolution.
+ *
+ * Attributes:
+ * origins: Maps repository origin to pinned version string.
+ * Example: {"tracecat_registry": "2024.12.10.123456"}
+ * actions: Maps action name to its source origin.
+ * Example: {"core.transform.reshape": "tracecat_registry"}
+ */
+export type RegistryLock = {
+  origins: {
+    [key: string]: string
+  }
+  actions: {
+    [key: string]: string
+  }
+}
+
+/**
  * OAuth secret for a provider.
  */
 export type RegistryOAuthSecret_Input = {
@@ -3667,9 +3683,7 @@ export type RunActionInput = {
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
-  registry_lock?: {
-    [key: string]: string
-  } | null
+  registry_lock: RegistryLock
 }
 
 /**

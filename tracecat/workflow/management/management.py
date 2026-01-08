@@ -510,14 +510,11 @@ class WorkflowsManagementService(BaseService):
         title = params.title or now
         description = params.description or f"New workflow created {now}"
 
-        # Initialize registry_lock with latest versions
-        registry_lock = await self._get_latest_registry_lock()
-
+        # registry_lock will be resolved when workflow is committed with actions
         workflow = Workflow(
             title=title,
             description=description,
             workspace_id=self.role.workspace_id,
-            registry_lock=registry_lock,
         )
         # When we create a workflow, we automatically create a webhook
         # Add the Workflow to the session first to generate an ID
@@ -648,8 +645,11 @@ class WorkflowsManagementService(BaseService):
         if self.role.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
 
-        # Initialize registry_lock with latest versions
-        registry_lock = await self._get_latest_registry_lock()
+        # Resolve registry_lock with action bindings from the DSL
+        action_names = {action.action for action in dsl.actions}
+        lock_service = RegistryLockService(self.session, self.role)
+        resolved_lock = await lock_service.resolve_lock_with_bindings(action_names)
+        registry_lock = resolved_lock.model_dump()
 
         entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
@@ -757,17 +757,6 @@ class WorkflowsManagementService(BaseService):
             self.session.add(action)
         await self.session.flush()
         return actions
-
-    async def _get_latest_registry_lock(self) -> dict[str, str] | None:
-        """Get the latest registry versions lock.
-
-        Returns:
-            dict[str, str] | None: Maps origin -> version string, or None if
-            no versions exist yet (e.g., during initial setup before first sync).
-        """
-        lock_service = RegistryLockService(self.session, self.role)
-        lock = await lock_service.get_latest_versions_lock()
-        return lock if lock else None
 
     @staticmethod
     @activity.defn

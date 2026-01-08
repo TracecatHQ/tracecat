@@ -54,7 +54,7 @@ class WorkflowDefinitionsService(BaseService):
         dsl: DSLInput,
         *,
         alias: str | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
         commit: bool = True,
     ) -> WorkflowDefinition:
         """Create a new workflow definition.
