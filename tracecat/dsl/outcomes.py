@@ -15,13 +15,9 @@ Design Goals:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeGuard
 
 from pydantic import BaseModel, Field, TypeAdapter
-
-if TYPE_CHECKING:
-    pass
-
 
 # -----------------------------------------------------------------------------
 # ResultRef: Placeholder for future large-payload externalization
@@ -272,32 +268,49 @@ def dict_to_outcome(data: dict[str, Any]) -> ActionOutcome:
     return ActionOutcomeAdapter.validate_python(data)
 
 
-def is_success(outcome: ActionOutcome) -> bool:
+def is_success(
+    outcome: ActionOutcome,
+) -> TypeGuard[ActionOutcomeSuccess | ActionOutcomeScatter | ActionOutcomeGather]:
     """Check if an outcome represents successful execution.
 
     Returns True for success, scatter, and gather outcomes since they all
     represent successful execution of their respective actions.
+
+    This is a TypeGuard that narrows the type to the union of all successful
+    outcome types.
     """
     return outcome.status in ("success", "scatter", "gather")
 
 
-def is_error(outcome: ActionOutcome) -> bool:
-    """Check if an outcome represents an error."""
+def is_error(outcome: ActionOutcome) -> TypeGuard[ActionOutcomeError]:
+    """Check if an outcome represents an error.
+
+    This is a TypeGuard that narrows the type to ActionOutcomeError.
+    """
     return outcome.status == "error"
 
 
-def is_skipped(outcome: ActionOutcome) -> bool:
-    """Check if an outcome represents a skipped action."""
+def is_skipped(outcome: ActionOutcome) -> TypeGuard[ActionOutcomeSkipped]:
+    """Check if an outcome represents a skipped action.
+
+    This is a TypeGuard that narrows the type to ActionOutcomeSkipped.
+    """
     return outcome.status == "skipped"
 
 
-def is_scatter(outcome: ActionOutcome) -> bool:
-    """Check if an outcome is from a scatter action."""
+def is_scatter(outcome: ActionOutcome) -> TypeGuard[ActionOutcomeScatter]:
+    """Check if an outcome is from a scatter action.
+
+    This is a TypeGuard that narrows the type to ActionOutcomeScatter.
+    """
     return isinstance(outcome, ActionOutcomeScatter)
 
 
-def is_gather(outcome: ActionOutcome) -> bool:
-    """Check if an outcome is from a gather action."""
+def is_gather(outcome: ActionOutcome) -> TypeGuard[ActionOutcomeGather]:
+    """Check if an outcome is from a gather action.
+
+    This is a TypeGuard that narrows the type to ActionOutcomeGather.
+    """
     return isinstance(outcome, ActionOutcomeGather)
 
 
