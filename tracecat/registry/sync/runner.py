@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -378,7 +379,6 @@ class RegistrySyncRunner:
         Returns:
             S3 URI of the uploaded tarball.
         """
-        from datetime import UTC, datetime
 
         # Generate version string
         if commit_sha:
