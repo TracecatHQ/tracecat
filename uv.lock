@@ -3961,7 +3961,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiocache", specifier = ">=0.12" },
+    { name = "aiocache", specifier = "==0.12.3" },
     { name = "alembic", specifier = "==1.13.2" },
     { name = "alembic-postgresql-enum", specifier = "==1.7.0" },
     { name = "alembic-utils", specifier = "==0.8.4" },
