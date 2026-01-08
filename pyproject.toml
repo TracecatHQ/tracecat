@@ -77,6 +77,8 @@ dependencies = [
     # Security: CVE-2025-66471 - urllib3 streaming API vulnerability
     "urllib3==2.6.0",
     "claude-agent-sdk==0.1.18",
+    "aiohttp==3.13.3",
+    "pynacl==1.6.2",
 ]
 dynamic = ["version"]
 
