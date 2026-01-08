@@ -654,3 +654,20 @@ TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
 In Docker, packages are copied to /app/packages/tracecat-registry.
 In development with editable install, falls back to checking relative to the installed package.
 """
+
+# === DSL Workflow Optimization === #
+TRACECAT__USE_SINGLE_ACTIVITY = os.environ.get(
+    "TRACECAT__USE_SINGLE_ACTIVITY", "true"
+).lower() in ("true", "1")
+"""Use single-activity pattern for action execution.
+
+When True, uses handle_action_statement_activity which bundles:
+- run_if evaluation
+- scatter/gather handling
+- action execution
+
+This reduces Temporal history events from ~4 per action to 1.
+
+When False (default), uses the legacy multi-activity pattern with
+separate local activities for expression evaluation.
+"""

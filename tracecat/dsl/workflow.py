@@ -70,6 +70,8 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.outcomes import (
         ActionOutcome,
+        dict_to_outcome,
+        is_error,
         to_task_result_dict,
     )
     from tracecat.dsl.outcomes import (
@@ -111,6 +113,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
+    from tracecat.executor.schemas import HandleActionStatementInput
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
@@ -762,10 +765,24 @@ class DSLWorkflow:
                         "Running action",
                         task_ref=task.ref,
                         runtime_config=self.runtime_config,
+                        use_single_activity=config.TRACECAT__USE_SINGLE_ACTIVITY,
                     )
-                    action_result = await self._run_action(task)
-            logger.trace("Action completed successfully", action_result=action_result)
-            outcome = outcome_success(result=action_result)
+                    if config.TRACECAT__USE_SINGLE_ACTIVITY:
+                        # Single-activity pattern: returns ActionOutcome directly
+                        outcome = await self._run_action_single_activity(task)
+                        if is_error(outcome):
+                            # Convert error outcome to exception for proper error handling
+                            raise ApplicationError(
+                                str(outcome.error),
+                                outcome.error,
+                                non_retryable=True,
+                                type=outcome.error_typename,
+                            )
+                    else:
+                        # Legacy multi-activity pattern
+                        action_result = await self._run_action(task)
+                        outcome = outcome_success(result=action_result)
+            logger.trace("Action completed successfully", outcome=outcome)
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
@@ -1213,6 +1230,7 @@ class DSLWorkflow:
         ctx_logical_time.set(self._compute_logical_time())
 
     async def _run_action(self, task: ActionStatement) -> Any:
+        """Execute an action using the legacy multi-activity pattern."""
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
@@ -1262,6 +1280,66 @@ class DSLWorkflow:
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
         )
+
+    async def _run_action_single_activity(self, task: ActionStatement) -> ActionOutcome:
+        """Execute an action using the single-activity pattern.
+
+        This method uses handle_action_statement_activity which bundles:
+        - run_if evaluation
+        - scatter/gather handling
+        - action execution
+
+        Returns ActionOutcome directly, reducing history events from ~4 to 1.
+        """
+        stream_id = ctx_stream_id.get()
+        new_context = self._build_action_context(task, stream_id)
+
+        # Inject current logical_time into the workflow context for FN.now() etc.
+        if env_context := new_context.get(ExprContext.ENV):
+            if workflow_ctx := env_context.get("workflow"):
+                workflow_ctx["logical_time"] = self._compute_logical_time()
+
+        # Check if action has environment override
+        run_context = self.run_context
+        if task.environment is not None:
+            # Evaluate the environment expression
+            self._set_logical_time_context()
+            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            # Create a new run context with the overridden environment
+            run_context = self.run_context.model_copy(
+                update={"environment": evaluated_env}
+            )
+
+        # Tells us where to get the redis stream
+        session_id = (
+            workflow.uuid4() if PlatformAction.is_streamable(task.action) else None
+        )
+
+        arg = HandleActionStatementInput(
+            task=task,
+            run_context=run_context,
+            exec_context=new_context,
+            stream_id=stream_id,
+            logical_time=self._compute_logical_time(),
+            registry_lock=self.registry_lock,
+            interaction_context=ctx_interaction.get(),
+            session_id=session_id,
+        )
+
+        # Dispatch to ExecutorWorker on shared-action-queue
+        # Returns dict that we convert to ActionOutcome
+        result_dict = await workflow.execute_activity(
+            "handle_action_statement_activity",
+            args=(arg, self.role),
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.max_attempts,
+            ),
+        )
+        return dict_to_outcome(result_dict)
 
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None
