@@ -32,6 +32,7 @@ from tracecat.registry.actions.schemas import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -330,6 +331,14 @@ async def test_template_action_fetches_nested_secrets(
             wf_exec_id=generate_test_exec_id("test_template_action_with_secrets"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.template_action": "tracecat_registry",
+                "testing.udf_with_secret": "tracecat_registry",
+                "testing.nested_template_action": "tracecat_registry",
+            },
         ),
     )
     result = await run_action_test(input=input, role=test_role)
@@ -792,6 +801,13 @@ async def test_template_action_with_vars_expressions(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.test_vars": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
+        ),
     )
     result1 = await run_action_test(input=input1, role=test_role)
     assert result1 == {
@@ -815,6 +831,13 @@ async def test_template_action_with_vars_expressions(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.test_vars": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
+        ),
     )
     result2 = await run_action_test(input=input2, role=test_role)
     assert result2 == {
@@ -837,6 +860,13 @@ async def test_template_action_with_vars_expressions(
             wf_exec_id=generate_test_exec_id("test_template_action_vars_partial"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.test_vars": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
         ),
     )
     result3 = await run_action_test(input=input3, role=test_role)
@@ -931,6 +961,13 @@ async def test_template_action_with_multi_level_fallback_chain(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.test_fallback_chain": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
+        ),
     )
     result1 = await run_action_test(input=input1, role=test_role)
     assert result1 == "http://input-url.com", (
@@ -950,6 +987,13 @@ async def test_template_action_with_multi_level_fallback_chain(
             wf_exec_id=generate_test_exec_id("test_fallback_chain_vars"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.test_fallback_chain": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
         ),
     )
     result2 = await run_action_test(input=input2, role=test_role)
@@ -975,6 +1019,13 @@ async def test_template_action_with_multi_level_fallback_chain(
             wf_exec_id=generate_test_exec_id("test_fallback_chain_default"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.test_fallback_chain": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
         ),
     )
     result3 = await run_action_test(input=input3, role=test_role)

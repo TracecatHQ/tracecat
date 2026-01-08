@@ -41,6 +41,7 @@ from tracecat.registry.actions.service import (
     RegistryActionsService,
     validate_action_template,
 )
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
 from tracecat.validation.service import validate_dsl
@@ -644,6 +645,13 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
             ),
             exec_context=create_default_execution_context(),
             run_context=mock_run_context,
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={
+                    "testing.oauth.optional_oauth_test": "tracecat_registry",
+                    "core.transform.reshape": "tracecat_registry",
+                },
+            ),
         )
         return await run_action_test(input, test_role)
 
@@ -761,6 +769,13 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={
+                "testing.oauth.required_oauth_test": "tracecat_registry",
+                "core.transform.reshape": "tracecat_registry",
+            },
+        ),
     )
 
     # Should raise error when required credential is missing
