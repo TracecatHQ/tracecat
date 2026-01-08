@@ -494,6 +494,7 @@ class TestExecuteWithSyncedRegistry:
         input_data = run_action_input_factory(
             action="core.transform.reshape",
             args=args,
+            registry_lock={"tracecat_registry": sync_result.version.version},
         )
 
         # Create resolved context for execution
@@ -880,13 +881,16 @@ class TestMultitenantWorkloads:
         # Create inputs with workspace-specific values
         value_a = {"workspace": "A", "tenant_id": str(workspace_a_id)}
         value_b = {"workspace": "B", "tenant_id": str(workspace_b_id)}
+        registry_lock = {"tracecat_registry": sync_result.version.version}
         input_a = create_run_input(
             workspace_id=workspace_a_id,
             value=value_a,
+            registry_lock=registry_lock,
         )
         input_b = create_run_input(
             workspace_id=workspace_b_id,
             value=value_b,
+            registry_lock=registry_lock,
         )
 
         # Create resolved contexts for both workspaces
@@ -1009,12 +1013,14 @@ class TestMultitenantWorkloads:
 
         # Create multiple inputs for the same workspace
         workspace_id = test_role.workspace_id
+        registry_lock = {"tracecat_registry": sync_result.version.version}
         inputs_and_contexts = []
         for i in range(5):
             value = {"request_id": i, "workspace": str(workspace_id)}
             inp = create_run_input(
                 workspace_id=workspace_id,
                 value=value,
+                registry_lock=registry_lock,
             )
             resolved_ctx = ResolvedContext(
                 secrets={},
