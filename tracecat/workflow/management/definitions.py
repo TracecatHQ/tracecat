@@ -89,7 +89,7 @@ class WorkflowDefinitionsService(BaseService):
             content=dsl.model_dump(exclude_unset=True),
             version=version,
             alias=alias,
-            registry_lock=registry_lock,
+            registry_lock=registry_lock.model_dump() if registry_lock else None,
         )
         self.session.add(defn)
         if commit:
