@@ -1,4 +1,4 @@
-import os
+import base64
 
 import aioboto3
 from temporalio.client import Client, Plugin
@@ -32,7 +32,12 @@ async def _retrieve_temporal_api_key(arn: str) -> str:
     session = aioboto3.Session()
     async with session.client(service_name="secretsmanager") as client:
         response = await client.get_secret_value(SecretId=arn)
-        return response["SecretString"]
+        secret_string = response.get("SecretString")
+        if not secret_string and response.get("SecretBinary"):
+            secret_string = base64.b64decode(response["SecretBinary"]).decode("utf-8")
+        if not secret_string:
+            raise RuntimeError("Temporal API key secret is empty")
+        return secret_string
 
 
 @retry(

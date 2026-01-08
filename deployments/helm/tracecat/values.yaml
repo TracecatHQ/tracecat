@@ -1,3 +1,29 @@
+# Core secrets (REQUIRED)
+secrets:
+  # Name of existing Kubernetes Secret containing:
+  # - dbEncryptionKey: URL-safe base64 key for DB encryption
+  # - serviceKey: Service-to-service auth key (hex)
+  # - signingSecret: Webhook signing secret (hex)
+  # - userAuthSecret: Password reset/email verification token secret (hex)
+  existingSecret: ""
+
+  # (Optional) Name of existing Kubernetes Secret for OAuth containing:
+  # - oauthClientId: Google OAuth client ID
+  # - oauthClientSecret: Google OAuth client secret
+  oauthSecret: ""
+
+# Backend image configuration
+image:
+  repository: ghcr.io/tracecathq/tracecat
+  pullPolicy: IfNotPresent
+  # tag: "" # Defaults to Chart.AppVersion
+
+# Frontend image configuration
+uiImage:
+  repository: ghcr.io/tracecathq/tracecat-ui
+  pullPolicy: IfNotPresent
+  # tag: "" # Defaults to Chart.AppVersion
+
 securityContext:
   fsGroup: 1001
   runAsUser: 1001
@@ -12,6 +38,7 @@ ingress:
 urls:
   publicApp: ""
   publicApi: ""
+  # Only used to rewrite presigned URLs (defaults to /s3 when minio is enabled).
   publicS3: ""
 
 tracecat:
@@ -24,9 +51,12 @@ tracecat:
     disableNsjail: false
 
   blobStorage:
+    # Optional override for S3-compatible endpoints (leave empty for AWS S3).
     endpoint: ""
     buckets:
+      # Defaults to tracecat-attachments if unset.
       attachments: ""
+      # Defaults to tracecat-registry if unset.
       registry: ""
 
   saml:
@@ -162,13 +192,17 @@ externalPostgres:
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
     existingSecret: null  # Contains `username` and `password`.
+    # Username to use with secretArn (if omitted, the ARN secret must include `username`).
+    username: ""
+    # SecretString should be JSON with `password` (and optional `username`) or a raw password when username is set.
     secretArn: null
 
 externalRedis:
   enabled: false
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
-    existingSecret: null  # Contains `url`
+    existingSecret: null  # Contains `url` (raw string)
+    # SecretString should be the raw Redis URL.
     secretArn: null
 
 externalS3:
@@ -176,7 +210,7 @@ externalS3:
   endpoint: ""
   region: ""
   auth:
-    existingSecret: null  # Contains `accessKeyId` and `secretAccessKey`.
+    existingSecret: null  # Contains `accessKeyId` and `secretAccessKey` (optional for IRSA/IAM roles).
 
 externalTemporal:
   enabled: false
@@ -184,4 +218,6 @@ externalTemporal:
   clusterQueue: ""
   clusterNamespace: ""
   auth:
-    existingSecret: null  # Contains `apiKey`
+    existingSecret: null  # Contains `apiKey` (raw string)
+    # SecretString should be the raw API key.
+    secretArn: null

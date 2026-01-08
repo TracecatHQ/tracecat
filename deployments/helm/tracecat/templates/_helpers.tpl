@@ -198,8 +198,10 @@ Public S3 URL - used for presigned URLs
 {{- define "tracecat.publicS3Url" -}}
 {{- if .Values.urls.publicS3 }}
 {{- .Values.urls.publicS3 }}
-{{- else }}
+{{- else if .Values.minio.enabled }}
 {{- printf "https://%s/s3" .Values.ingress.host }}
+{{- else }}
+{{- "" }}
 {{- end }}
 {{- end }}
 
@@ -216,10 +218,12 @@ Internal Blob Storage URL
 {{- define "tracecat.blobStorageEndpoint" -}}
 {{- if .Values.tracecat.blobStorage.endpoint }}
 {{- .Values.tracecat.blobStorage.endpoint }}
+{{- else if .Values.externalS3.enabled }}
+{{- .Values.externalS3.endpoint | default "" }}
 {{- else if .Values.minio.enabled }}
 {{- printf "http://%s:9000" .Values.minio.fullnameOverride }}
 {{- else }}
-{{- fail "tracecat.blobStorage.endpoint is required when minio is disabled" }}
+{{- fail "tracecat.blobStorage.endpoint or externalS3.enabled is required when minio is disabled" }}
 {{- end }}
 {{- end }}
 
@@ -280,7 +284,7 @@ Common environment variables shared across all backend services
 - name: TRACECAT__APP_ENV
   value: {{ .Values.tracecat.appEnv | quote }}
 - name: TRACECAT__FEATURE_FLAGS
-  value: {{ .Values.tracecat.featureFlags | quote }}
+  value: {{ .Values.enterprise.featureFlags | quote }}
 {{- end }}
 
 {{/*
@@ -293,14 +297,57 @@ Temporal environment variables (shared by api, worker, executor)
   value: {{ include "tracecat.temporalNamespace" . | quote }}
 - name: TEMPORAL__CLUSTER_QUEUE
   value: {{ include "tracecat.temporalQueue" . | quote }}
+{{- if .Values.externalTemporal.enabled }}
+{{- if .Values.externalTemporal.auth.secretArn }}
+- name: TEMPORAL__API_KEY__ARN
+  value: {{ .Values.externalTemporal.auth.secretArn | quote }}
+{{- else if .Values.externalTemporal.auth.existingSecret }}
+- name: TEMPORAL__API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalTemporal.auth.existingSecret }}
+      key: apiKey
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
 Blob storage environment variables
 */}}
 {{- define "tracecat.env.blobStorage" -}}
+{{- $endpoint := include "tracecat.blobStorageEndpoint" . }}
+{{- if $endpoint }}
 - name: TRACECAT__BLOB_STORAGE_ENDPOINT
-  value: {{ include "tracecat.blobStorageEndpoint" . | quote }}
+  value: {{ $endpoint | quote }}
+{{- end }}
+{{- if .Values.tracecat.blobStorage.buckets.attachments }}
+- name: TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS
+  value: {{ .Values.tracecat.blobStorage.buckets.attachments | quote }}
+{{- end }}
+{{- if .Values.tracecat.blobStorage.buckets.registry }}
+- name: TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
+  value: {{ .Values.tracecat.blobStorage.buckets.registry | quote }}
+{{- end }}
+{{- if .Values.externalS3.enabled }}
+{{- if .Values.externalS3.region }}
+- name: AWS_REGION
+  value: {{ .Values.externalS3.region | quote }}
+- name: AWS_DEFAULT_REGION
+  value: {{ .Values.externalS3.region | quote }}
+{{- end }}
+{{- if .Values.externalS3.auth.existingSecret }}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalS3.auth.existingSecret }}
+      key: accessKeyId
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalS3.auth.existingSecret }}
+      key: secretAccessKey
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -308,12 +355,12 @@ PostgreSQL environment variables
 Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret credentials
 */}}
 {{- define "tracecat.env.postgres" -}}
-{{- $secretName := include "tracecat.postgres.secretName" . }}
 {{- $host := include "tracecat.postgres.host" . }}
 {{- $port := include "tracecat.postgres.port" . }}
 {{- $database := include "tracecat.postgres.database" . }}
 {{- $sslMode := include "tracecat.postgres.sslMode" . }}
-{{- if $secretName }}
+{{- if .Values.postgres.enabled }}
+{{- $secretName := include "tracecat.postgres.secretName" . }}
 - name: TRACECAT__POSTGRES_USER
   valueFrom:
     secretKeyRef:
@@ -326,6 +373,44 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
       key: password
 - name: TRACECAT__DB_URI
   value: "postgresql+psycopg://$(TRACECAT__POSTGRES_USER):$(TRACECAT__POSTGRES_PASSWORD)@{{ $host }}:{{ $port }}/{{ $database }}?sslmode={{ $sslMode }}"
+{{- else if .Values.externalPostgres.enabled }}
+{{- if .Values.externalPostgres.auth.secretArn }}
+{{- if .Values.externalPostgres.auth.username }}
+- name: TRACECAT__DB_USER
+  value: {{ .Values.externalPostgres.auth.username | quote }}
+{{- end }}
+- name: TRACECAT__DB_PASS__ARN
+  value: {{ .Values.externalPostgres.auth.secretArn | quote }}
+- name: TRACECAT__DB_ENDPOINT
+  value: {{ $host | quote }}
+- name: TRACECAT__DB_PORT
+  value: {{ $port | quote }}
+- name: TRACECAT__DB_NAME
+  value: {{ $database | quote }}
+- name: TRACECAT__DB_SSLMODE
+  value: {{ $sslMode | quote }}
+{{- else if .Values.externalPostgres.auth.existingSecret }}
+- name: TRACECAT__DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      key: username
+- name: TRACECAT__DB_PASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      key: password
+- name: TRACECAT__DB_ENDPOINT
+  value: {{ $host | quote }}
+- name: TRACECAT__DB_PORT
+  value: {{ $port | quote }}
+- name: TRACECAT__DB_NAME
+  value: {{ $database | quote }}
+- name: TRACECAT__DB_SSLMODE
+  value: {{ $sslMode | quote }}
+{{- else }}
+{{- fail "externalPostgres.auth.existingSecret or externalPostgres.auth.secretArn is required when using external Postgres" }}
+{{- end }}
 {{- else }}
 {{- fail "PostgreSQL secret name is required" }}
 {{- end }}
@@ -342,14 +427,17 @@ Constructs REDIS_URL from computed host/port or from external secret
 - name: REDIS_URL
   value: "redis://{{ $host }}:{{ $port }}"
 {{- else if .Values.externalRedis.enabled }}
-{{- if .Values.externalRedis.auth.existingSecret }}
+{{- if .Values.externalRedis.auth.secretArn }}
+- name: REDIS_URL__ARN
+  value: {{ .Values.externalRedis.auth.secretArn | quote }}
+{{- else if .Values.externalRedis.auth.existingSecret }}
 - name: REDIS_URL
   valueFrom:
     secretKeyRef:
       name: {{ .Values.externalRedis.auth.existingSecret }}
       key: url
 {{- else }}
-{{- fail "externalRedis.auth.existingSecret is required when using external Redis" }}
+{{- fail "externalRedis.auth.existingSecret or externalRedis.auth.secretArn is required when using external Redis" }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -359,11 +447,11 @@ API service environment variables
 Merges: common + temporal + postgres + redis + api-specific
 */}}
 {{- define "tracecat.env.api" -}}
-{{- include "tracecat.env.common" . }}
-{{- include "tracecat.env.temporal" . }}
-{{- include "tracecat.env.blobStorage" . }}
-{{- include "tracecat.env.postgres" . }}
-{{- include "tracecat.env.redis" . }}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
+{{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
 - name: TRACECAT__API_ROOT_PATH
   value: "/api"
 - name: TRACECAT__API_URL
@@ -372,8 +460,11 @@ Merges: common + temporal + postgres + redis + api-specific
   value: {{ include "tracecat.publicAppUrl" . | quote }}
 - name: TRACECAT__PUBLIC_API_URL
   value: {{ include "tracecat.publicApiUrl" . | quote }}
+{{- $publicS3Url := include "tracecat.publicS3Url" . }}
+{{- if $publicS3Url }}
 - name: TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
-  value: {{ include "tracecat.publicS3Url" . | quote }}
+  value: {{ $publicS3Url | quote }}
+{{- end }}
 - name: TRACECAT__ALLOW_ORIGINS
   value: {{ .Values.tracecat.allowOrigins | quote }}
 - name: RUN_MIGRATIONS
@@ -420,10 +511,10 @@ Worker service environment variables
 Merges: common + temporal + postgres + redis + worker-specific
 */}}
 {{- define "tracecat.env.worker" -}}
-{{- include "tracecat.env.common" . }}
-{{- include "tracecat.env.temporal" . }}
-{{- include "tracecat.env.postgres" . }}
-{{- include "tracecat.env.redis" . }}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
 - name: TRACECAT__API_ROOT_PATH
   value: "/api"
 - name: TRACECAT__API_URL
@@ -447,11 +538,11 @@ Executor service environment variables
 Merges: common + temporal + postgres + redis + executor-specific
 */}}
 {{- define "tracecat.env.executor" -}}
-{{- include "tracecat.env.common" . }}
-{{- include "tracecat.env.temporal" . }}
-{{- include "tracecat.env.blobStorage" . }}
-{{- include "tracecat.env.postgres" . }}
-{{- include "tracecat.env.redis" . }}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
+{{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 {{- /* Context compression */}}
@@ -519,3 +610,108 @@ valueFrom:
     name: {{ .secretName }}
     key: {{ .key }}
 {{- end }}
+
+{{/*
+=============================================================================
+Validation Helpers
+=============================================================================
+*/}}
+
+{{/*
+Validate required secrets
+*/}}
+{{- define "tracecat.validateRequiredSecrets" -}}
+{{- if not .Values.secrets.existingSecret -}}
+{{- fail "secrets.existingSecret is required (K8s Secret with core credentials)" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate auth config on first install
+*/}}
+{{- define "tracecat.validateAuthConfig" -}}
+{{- if .Release.IsInstall -}}
+{{- if not .Values.tracecat.auth.superadminEmail -}}
+{{- fail "tracecat.auth.superadminEmail is required on first install" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate infrastructure dependencies
+*/}}
+{{- define "tracecat.validateInfrastructure" -}}
+{{- if and (not .Values.postgres.enabled) (not .Values.externalPostgres.enabled) -}}
+{{- fail "Either postgres.enabled or externalPostgres.enabled must be true" -}}
+{{- end -}}
+{{- if and (not .Values.redis.enabled) (not .Values.externalRedis.enabled) -}}
+{{- fail "Either redis.enabled or externalRedis.enabled must be true" -}}
+{{- end -}}
+{{- if and (not .Values.temporal.enabled) (not .Values.externalTemporal.enabled) -}}
+{{- fail "Either temporal.enabled or externalTemporal.enabled must be true" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+=============================================================================
+Secret Environment Variable Helpers
+=============================================================================
+*/}}
+
+{{/*
+Secret environment variables (shared by api, worker, executor)
+*/}}
+{{- define "tracecat.env.secrets" -}}
+- name: TRACECAT__DB_ENCRYPTION_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: dbEncryptionKey
+- name: TRACECAT__SERVICE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: serviceKey
+- name: TRACECAT__SIGNING_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: signingSecret
+{{- end -}}
+
+{{/*
+API-specific secret env vars (OAuth, user auth)
+*/}}
+{{- define "tracecat.env.secrets.api" -}}
+{{- include "tracecat.env.secrets" . }}
+- name: USER_AUTH_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: userAuthSecret
+{{- if .Values.secrets.oauthSecret }}
+- name: OAUTH_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.oauthSecret }}
+      key: oauthClientId
+      optional: true
+- name: OAUTH_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.oauthSecret }}
+      key: oauthClientSecret
+      optional: true
+{{- end }}
+{{- end -}}
+
+{{/*
+UI-specific secret env vars
+*/}}
+{{- define "tracecat.env.secrets.ui" -}}
+- name: TRACECAT__SERVICE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: serviceKey
+{{- end -}}
