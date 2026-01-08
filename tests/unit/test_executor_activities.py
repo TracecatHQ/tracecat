@@ -6,17 +6,28 @@ These tests cover the Temporal activity that handles action execution.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
+from tracecat.dsl.enums import PlatformAction
+from tracecat.dsl.outcomes import (
+    ActionOutcomeGather,
+    ActionOutcomeScatter,
+    ActionOutcomeSkipped,
+    ActionOutcomeSuccess,
+)
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
-from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.schemas import (
+    ExecutorActionErrorInfo,
+    HandleActionStatementInput,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 
 
@@ -297,3 +308,251 @@ class TestExecuteActionActivity:
             action_error_info = app_error.details[0]
             assert isinstance(action_error_info, ActionErrorInfo)
             assert action_error_info.stream_id == "test-stream-123"
+
+
+@pytest.fixture
+def mock_handle_action_input() -> HandleActionStatementInput:
+    """Create a mock HandleActionStatementInput for testing."""
+    from tracecat.dsl.schemas import (
+        ActionStatement as AS,
+    )
+    from tracecat.dsl.schemas import (
+        ExecutionContext,
+        InteractionContext,
+        StreamID,
+    )
+    from tracecat.dsl.schemas import (
+        RunContext as RC,
+    )
+
+    # Rebuild model with the required types in namespace
+    HandleActionStatementInput.model_rebuild(
+        _types_namespace={
+            "ActionStatement": AS,
+            "ExecutionContext": ExecutionContext,
+            "InteractionContext": InteractionContext,
+            "RunContext": RC,
+            "StreamID": StreamID,
+        }
+    )
+
+    wf_id = WorkflowUUID.new_uuid4()
+    return HandleActionStatementInput(
+        task=ActionStatement(
+            action="core.http_request",
+            args={"url": "https://example.com"},
+            ref="test_action",
+        ),
+        exec_context={},
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=f"{wf_id.short()}/exec_test",
+            wf_run_id=uuid.uuid4(),
+            environment="test",
+        ),
+        stream_id=None,
+        logical_time=datetime.now(),
+    )
+
+
+class TestHandleActionStatementActivity:
+    """Tests for handle_action_statement_activity."""
+
+    def test_handle_action_statement_activity_exists(self):
+        """Test that handle_action_statement_activity is included in activities."""
+        activities = ExecutorActivities.get_activities()
+        activity_names = [
+            getattr(a, "__temporal_activity_definition").name for a in activities
+        ]
+        assert "handle_action_statement_activity" in activity_names
+
+    @pytest.mark.anyio
+    async def test_successful_execution_returns_success_outcome(
+        self, mock_handle_action_input, mock_role
+    ):
+        """Test successful action execution returns ActionOutcomeSuccess."""
+        expected_result = {"status": "success", "data": [1, 2, 3]}
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.return_value = expected_result
+
+            result = await ExecutorActivities.handle_action_statement_activity(
+                mock_handle_action_input, mock_role
+            )
+
+            assert isinstance(result, ActionOutcomeSuccess)
+            assert result.status == "success"
+            assert result.result == expected_result
+
+    @pytest.mark.anyio
+    async def test_run_if_false_returns_skipped_outcome(
+        self, mock_handle_action_input, mock_role
+    ):
+        """Test that run_if=false returns ActionOutcomeSkipped."""
+        # Add run_if that evaluates to false
+        mock_handle_action_input.task = ActionStatement(
+            action="core.http_request",
+            args={"url": "https://example.com"},
+            ref="test_action",
+            run_if="false",  # Static false value
+        )
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities._evaluate_run_if", return_value=False),
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+
+            result = await ExecutorActivities.handle_action_statement_activity(
+                mock_handle_action_input, mock_role
+            )
+
+            assert isinstance(result, ActionOutcomeSkipped)
+            assert result.status == "skipped"
+            assert result.reason == "run_if condition false"
+
+    @pytest.mark.anyio
+    async def test_scatter_action_returns_scatter_outcome(
+        self, mock_handle_action_input, mock_role
+    ):
+        """Test that scatter action returns ActionOutcomeScatter."""
+        mock_handle_action_input.task = ActionStatement(
+            action=PlatformAction.TRANSFORM_SCATTER,
+            args={"collection": [1, 2, 3, 4, 5]},
+            ref="scatter_action",
+        )
+        # Add the collection to exec_context for evaluation
+        mock_handle_action_input.exec_context = {}
+
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch(
+                "tracecat.executor.activities.eval_templated_object",
+                return_value=[1, 2, 3, 4, 5],
+            ),
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+
+            result = await ExecutorActivities.handle_action_statement_activity(
+                mock_handle_action_input, mock_role
+            )
+
+            assert isinstance(result, ActionOutcomeScatter)
+            assert result.status == "scatter"
+            assert result.count == 5
+            assert result.result == 5
+
+    @pytest.mark.anyio
+    async def test_gather_action_returns_gather_outcome(
+        self, mock_handle_action_input, mock_role
+    ):
+        """Test that gather action returns ActionOutcomeGather."""
+        mock_handle_action_input.task = ActionStatement(
+            action=PlatformAction.TRANSFORM_GATHER,
+            args={"items": "${{ var.__stream_results__ }}"},
+            ref="gather_action",
+        )
+        # Add stream results to exec_context using ExprContext.LOCAL_VARS value ("var")
+        mock_handle_action_input.exec_context = {
+            "var": {"__stream_results__": ["result1", "result2", "result3"]}
+        }
+
+        with patch("tracecat.executor.activities.activity") as mock_activity:
+            mock_activity.info.return_value = MagicMock(attempt=1)
+
+            result = await ExecutorActivities.handle_action_statement_activity(
+                mock_handle_action_input, mock_role
+            )
+
+            assert isinstance(result, ActionOutcomeGather)
+            assert result.status == "gather"
+            assert result.result == ["result1", "result2", "result3"]
+
+    @pytest.mark.anyio
+    async def test_gather_action_drops_nulls_when_configured(
+        self, mock_handle_action_input, mock_role
+    ):
+        """Test that gather action drops nulls when drop_nulls=true."""
+        mock_handle_action_input.task = ActionStatement(
+            action=PlatformAction.TRANSFORM_GATHER,
+            args={"items": "${{ var.__stream_results__ }}", "drop_nulls": True},
+            ref="gather_action",
+        )
+        mock_handle_action_input.exec_context = {
+            "var": {"__stream_results__": ["result1", None, "result2", None]}
+        }
+
+        with patch("tracecat.executor.activities.activity") as mock_activity:
+            mock_activity.info.return_value = MagicMock(attempt=1)
+
+            result = await ExecutorActivities.handle_action_statement_activity(
+                mock_handle_action_input, mock_role
+            )
+
+            assert isinstance(result, ActionOutcomeGather)
+            assert result.result == ["result1", "result2"]
+
+    @pytest.mark.anyio
+    async def test_unexpected_error_raises_application_error(
+        self, mock_handle_action_input, mock_role
+    ):
+        """Test that unexpected errors in action execution raise ApplicationError."""
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = RuntimeError("Unexpected crash")
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.handle_action_statement_activity(
+                    mock_handle_action_input, mock_role
+                )
+
+            app_error = exc_info.value
+            assert app_error.type == "RuntimeError"
+            assert app_error.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_context_variables_are_set(self, mock_handle_action_input, mock_role):
+        """Test that context variables are properly set."""
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+            patch("tracecat.executor.activities.ctx_run") as mock_ctx_run,
+            patch("tracecat.executor.activities.ctx_role") as mock_ctx_role,
+            patch("tracecat.executor.activities.ctx_logical_time") as mock_ctx_time,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.return_value = {"result": "ok"}
+
+            await ExecutorActivities.handle_action_statement_activity(
+                mock_handle_action_input, mock_role
+            )
+
+            mock_ctx_run.set.assert_called_once_with(
+                mock_handle_action_input.run_context
+            )
+            mock_ctx_role.set.assert_called_once_with(mock_role)
+            mock_ctx_time.set.assert_called_once_with(
+                mock_handle_action_input.logical_time
+            )
