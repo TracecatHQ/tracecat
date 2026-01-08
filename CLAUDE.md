@@ -139,6 +139,11 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 
 ## Development Guidelines
 
+### Dependency Management and Security
+- **Always pin exact versions** in `pyproject.toml` (e.g., `package==1.2.3` not `package>=1.2.3`) to prevent supply chain attacks
+- When resolving merge conflicts in dependencies, ensure exact version pins are preserved
+- Security fixes should update the pinned version to the specific patched version, not use range constraints
+
 ### Python Standards
 - Use Python 3.11+ type hints with builtin types (`list`, `dict`, `set`)
 - Follow Google Python style guide
