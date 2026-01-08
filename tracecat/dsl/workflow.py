@@ -659,6 +659,7 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
+                    outcome = outcome_success(result=action_result)
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
@@ -708,6 +709,7 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
+                    outcome = outcome_success(result=action_result)
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
@@ -760,6 +762,7 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
+                    outcome = outcome_success(result=action_result)
                 case _:
                     # Below this point, we're executing the task
                     use_action_statement_activity = is_feature_enabled(
