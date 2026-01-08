@@ -18,6 +18,9 @@ from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
 from tracecat.logger import logger
 
+# Hardcoded socket path for security - prevents path injection attacks
+TRUSTED_MCP_SOCKET_PATH = "/var/run/tracecat/mcp.sock"
+
 
 class _UDSClientFactory:
     """Factory for creating httpx AsyncClient with Unix Domain Socket transport.
@@ -59,7 +62,6 @@ def _create_uds_transport(socket_path: str) -> StreamableHttpTransport:
 async def create_proxy_mcp_server(
     allowed_actions: dict[str, MCPToolDefinition],
     auth_token: str,
-    trusted_socket_path: str,
 ) -> McpSdkServerConfig:
     """Create proxy MCP server from pre-provided tool definitions.
 
@@ -69,7 +71,6 @@ async def create_proxy_mcp_server(
     Args:
         allowed_actions: Dict mapping action names to their definitions.
         auth_token: JWT token for authenticating with trusted server.
-        trusted_socket_path: Path to the trusted MCP server's Unix socket.
 
     Returns:
         McpSdkServerConfig ready for use with Claude agent.
@@ -81,24 +82,16 @@ async def create_proxy_mcp_server(
         def make_handler(
             captured_action_name: str,
             captured_auth_token: str,
-            captured_socket_path: str,
         ) -> Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]:
             async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-                import sys
-
-                print(
-                    f"[PROXY] Forwarding tool call: action_name={captured_action_name}",
-                    file=sys.stderr,
-                    flush=True,
-                )
                 logger.info(
                     "Proxy forwarding tool call",
                     action_name=captured_action_name,
                 )
 
                 try:
-                    # Connect via HTTP over Unix socket
-                    transport = _create_uds_transport(captured_socket_path)
+                    # Connect via HTTP over Unix socket (hardcoded path for security)
+                    transport = _create_uds_transport(TRUSTED_MCP_SOCKET_PATH)
                     async with Client(transport) as client:
                         call_result = await client.call_tool(
                             "execute_action_tool",
@@ -135,7 +128,7 @@ async def create_proxy_mcp_server(
         # Convert action name to MCP-compatible tool name
         tool_name = action_name_to_mcp_tool_name(action_name)
 
-        handler = make_handler(action_name, auth_token, trusted_socket_path)
+        handler = make_handler(action_name, auth_token)
         decorated = tool(tool_name, defn.description, defn.parameters_json_schema)(
             handler
         )

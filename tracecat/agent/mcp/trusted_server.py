@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 from tracecat.agent.mcp.executor import execute_action
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.tokens import verify_mcp_token
+from tracecat.logger import logger
 
 mcp = FastMCP("tracecat-actions")
 
@@ -40,10 +41,25 @@ async def execute_action_tool(
     Returns:
         JSON-encoded result from the action
     """
-    claims = verify_mcp_token(auth_token)
-    action_name = normalize_mcp_tool_name(action_name)
-    result = await execute_action(action_name, args, claims)
-    return json.dumps(result, default=str)
+    try:
+        claims = verify_mcp_token(auth_token)
+    except ValueError as e:
+        logger.warning("MCP token verification failed", error=str(e))
+        return json.dumps({"error": "Authentication failed"})
+
+    normalized_action_name = normalize_mcp_tool_name(action_name)
+
+    try:
+        result = await execute_action(normalized_action_name, args, claims)
+        return json.dumps(result, default=str)
+    except Exception as e:
+        logger.error(
+            "Action execution failed",
+            action_name=normalized_action_name,
+            workspace_id=str(claims.role.workspace_id),
+            error=str(e),
+        )
+        return json.dumps({"error": "Action execution failed"})
 
 
 app = mcp.http_app(path="/mcp")

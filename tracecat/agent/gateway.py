@@ -7,7 +7,6 @@ via JWT tokens minted by the agent executor.
 
 from __future__ import annotations
 
-import logging
 from uuid import UUID
 
 from fastapi import Request
@@ -21,6 +20,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.logger import logger
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -30,8 +30,6 @@ from tracecat.db.engine import get_async_session_context_manager
 ALLOWED_PROVIDERS = frozenset(
     {"openai", "anthropic", "bedrock", "custom-model-provider"}
 )
-
-logger = logging.getLogger("llm_gateway")
 
 
 # -----------------------------------------------------------------------------
@@ -47,8 +45,9 @@ async def get_provider_credentials(
     """Fetch provider credentials using AgentManagementService."""
     # Validate workspace_id before parsing
     if not workspace_id:
+        logger.warning("Missing workspace_id in token")
         raise ProxyException(
-            message="Missing workspace_id in token",
+            message="Authentication failed",
             type="auth_error",
             param=None,
             code=401,
@@ -57,8 +56,11 @@ async def get_provider_credentials(
     try:
         workspace_uuid = UUID(workspace_id)
     except ValueError as e:
+        logger.warning(
+            "Invalid workspace_id format in token", workspace_id=workspace_id
+        )
         raise ProxyException(
-            message="Invalid workspace_id in token",
+            message="Authentication failed",
             type="auth_error",
             param=None,
             code=401,
@@ -95,18 +97,15 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     try:
         claims = verify_llm_token(api_key)
     except ValueError as e:
-        logger.warning(f"LLM token validation failed: {e}")
+        logger.warning("LLM token validation failed", error=str(e))
         raise ProxyException(
-            message=f"Invalid LLM token: {e}",
+            message="Authentication failed",
             type="auth_error",
             param=None,
             code=401,
         ) from e
 
-    logger.info(
-        f"Authenticated via LLM token: workspace={claims.workspace_id}, "
-        f"session={claims.session_id}, model={claims.model}"
-    )
+    logger.info("Authenticated via LLM token", session_id=claims.session_id)
 
     return UserAPIKeyAuth(
         api_key="llm-token",
@@ -143,8 +142,19 @@ class TracecatCallbackHandler(CustomLogger):
             "use_workspace_credentials", False
         )
 
-        # Use model from token metadata (trusted)
-        model = user_api_key_dict.metadata.get("model") or data.get("model", "")
+        # Use model from token metadata (trusted, required claim) - ignore request
+        model = user_api_key_dict.metadata.get("model")
+        if not model:
+            logger.warning(
+                "Model not found in token metadata", workspace_id=workspace_id
+            )
+            raise ProxyException(
+                message="Invalid request configuration",
+                type="auth_error",
+                param=None,
+                code=401,
+            )
+        data["model"] = model
 
         # Get provider from model
         provider = _get_provider_for_model(model)
@@ -155,8 +165,13 @@ class TracecatCallbackHandler(CustomLogger):
         )
 
         if not creds:
+            logger.warning(
+                "No credentials configured for provider",
+                workspace_id=workspace_id,
+                provider=provider,
+            )
             raise ProxyException(
-                message=f"No credentials configured for provider '{provider}'",
+                message="Provider credentials not configured",
                 type="auth_error",
                 param=None,
                 code=401,
@@ -191,7 +206,10 @@ class TracecatCallbackHandler(CustomLogger):
                 data["response_format"] = response_format
 
         logger.info(
-            f"Injected credentials: workspace={workspace_id}, provider={provider}, model={model}"
+            "Injected credentials for LLM call",
+            workspace_id=workspace_id,
+            provider=provider,
+            model=model,
         )
 
         return data
@@ -213,8 +231,9 @@ def _get_provider_for_model(model: str) -> str:
         return "custom-model-provider"
 
     if model not in MODEL_CONFIGS:
+        logger.warning("Model not found in allowed models", model=model)
         raise ProxyException(
-            message=f"Model '{model}' not found in allowed models",
+            message="Invalid model configuration",
             type="invalid_request_error",
             param=None,
             code=400,
@@ -223,8 +242,9 @@ def _get_provider_for_model(model: str) -> str:
     provider = MODEL_CONFIGS[model].provider
 
     if provider not in ALLOWED_PROVIDERS:
+        logger.warning("Provider not allowed", provider=provider, model=model)
         raise ProxyException(
-            message=f"Provider '{provider}' not allowed",
+            message="Invalid model configuration",
             type="invalid_request_error",
             param=None,
             code=400,
@@ -242,8 +262,11 @@ def _inject_provider_credentials(
     if provider == "openai":
         api_key = creds.get("OPENAI_API_KEY")
         if not api_key:
+            logger.warning(
+                "Required credential key missing for provider", provider=provider
+            )
             raise ProxyException(
-                message="OPENAI_API_KEY not found in credentials",
+                message="Provider credentials incomplete",
                 type="auth_error",
                 param=None,
                 code=401,
@@ -253,8 +276,11 @@ def _inject_provider_credentials(
     elif provider == "anthropic":
         api_key = creds.get("ANTHROPIC_API_KEY")
         if not api_key:
+            logger.warning(
+                "Required credential key missing for provider", provider=provider
+            )
             raise ProxyException(
-                message="ANTHROPIC_API_KEY not found in credentials",
+                message="Provider credentials incomplete",
                 type="auth_error",
                 param=None,
                 code=401,
@@ -268,15 +294,19 @@ def _inject_provider_credentials(
             access_key = creds.get("AWS_ACCESS_KEY_ID")
             secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
             if not access_key or not secret_key:
+                logger.warning(
+                    "Required credential keys missing for provider", provider=provider
+                )
                 raise ProxyException(
-                    message="AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY required for Bedrock",
+                    message="Provider credentials incomplete",
                     type="auth_error",
                     param=None,
                     code=401,
                 )
             data["aws_access_key_id"] = access_key
             data["aws_secret_access_key"] = secret_key
-        data["aws_region_name"] = creds.get("AWS_REGION")
+        if region := creds.get("AWS_REGION"):
+            data["aws_region_name"] = region
         if arn := creds.get("AWS_MODEL_ARN"):
             data["model"] = f"bedrock/{arn}"
 
@@ -290,8 +320,9 @@ def _inject_provider_credentials(
             data["model"] = model_name
 
     else:
+        logger.warning("Unsupported provider requested", provider=provider)
         raise ProxyException(
-            message=f"Unsupported provider: {provider}",
+            message="Invalid provider configuration",
             type="invalid_request_error",
             param=None,
             code=400,
@@ -336,5 +367,7 @@ def _build_response_format(output_type: str | dict) -> dict | None:
             },
         }
 
-    logger.warning(f"Unknown output_type: {output_type}, skipping response_format")
+    logger.warning(
+        "Unknown output_type, skipping response_format", output_type=output_type
+    )
     return None
