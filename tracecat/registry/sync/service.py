@@ -160,7 +160,9 @@ class RegistrySyncService(BaseService):
 
         # Step 3: Generate version string if not provided
         if target_version is None:
-            target_version = self._generate_version_string(commit_sha=commit_sha)
+            target_version = self._generate_version_string(
+                origin=db_repo.origin, commit_sha=commit_sha
+            )
 
         # Step 4: Check if version already exists
         versions_service = RegistryVersionsService(self.session, self.role)
@@ -324,19 +326,27 @@ class RegistrySyncService(BaseService):
 
     def _generate_version_string(
         self,
+        origin: str,
         commit_sha: str | None,
     ) -> str:
         """Generate a version string for a registry sync.
 
         Format depends on origin type:
         - Git: commit SHA prefix (e.g., "abc1234")
-        - Builtin/Local: timestamp-based (e.g., "2024.01.15.123456")
+        - Builtin: package version (e.g., "0.53.13")
+        - Local: timestamp-based (e.g., "2024.01.15.123456")
         """
         if commit_sha:
-            # Use first 7 characters of commit SHA
+            # Use first 7 characters of commit SHA for git repos
             return commit_sha[:7]
 
-        # Fallback to timestamp-based version
+        if origin == DEFAULT_REGISTRY_ORIGIN:
+            # Builtin registry uses package version
+            import tracecat_registry
+
+            return tracecat_registry.__version__
+
+        # Local registries use timestamp-based version
         now = datetime.now(UTC)
         return now.strftime("%Y.%m.%d.%H%M%S")
 
@@ -468,7 +478,9 @@ class RegistrySyncService(BaseService):
 
         # Generate version string if not provided
         if target_version is None:
-            target_version = self._generate_version_string(commit_sha=commit_sha)
+            target_version = self._generate_version_string(
+                origin=db_repo.origin, commit_sha=commit_sha
+            )
 
         # Check if version already exists
         versions_service = RegistryVersionsService(self.session, self.role)
