@@ -17,7 +17,6 @@ urls:
 tracecat:
   appEnv: production
   logLevel: ""
-  featureFlags: ""
   allowOrigins: ""
   sentryDsn: ""
 
@@ -47,6 +46,11 @@ tracecat:
     types: "basic,saml"
     allowedDomains: ""
     superadminEmail: ""
+
+enterprise:
+  # Modifying the following flags requires a Tracecat Enterprise License.
+  # Features activated by feature flags may be gated behind a license key in the future.
+  featureFlags: ""
 
 ui:
   replicas: 1
