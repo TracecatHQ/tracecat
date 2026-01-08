@@ -99,7 +99,7 @@ async def execute_action(
         input=run_input,
         role=role,
         resolved_context=resolved_context,
-        tarball_uri=tarball_uri,
+        tarball_uris=[tarball_uri] if tarball_uri else None,
         timeout=float(timeout_seconds),
         force_sandbox=True,
     )

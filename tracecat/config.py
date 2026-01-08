@@ -29,15 +29,6 @@ TRACECAT__EXECUTOR_URL = os.environ.get(
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT", "4000"))
 """Port for the embedded LiteLLM proxy subprocess."""
 
-TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
-    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 900.0
-)
-"""Timeout for the executor client in seconds (default 900s).
-
-The `httpx.Client` default is 5s, which doesn't work for long-running actions.
-This value is also used when waiting for Ray task execution so the outbound
-client timeout and Ray task await timeout remain aligned.
-"""
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
 
