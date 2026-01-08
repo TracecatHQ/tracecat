@@ -6,6 +6,7 @@ dispatched from DSL workflows.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -30,6 +31,47 @@ from tracecat.exceptions import (
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.storage.object import get_object_storage
+
+
+async def _maybe_externalize_result(
+    result: Any,
+    input: RunActionInput,
+) -> Any:
+    """Externalize action result if over threshold.
+
+    Large results are stored in blob storage and replaced with an ObjectRef.
+    Small results are returned unchanged.
+
+    Args:
+        result: The action execution result
+        input: The RunActionInput containing execution context
+
+    Returns:
+        Either the original result (if small) or ObjectRef dict (if externalized)
+    """
+    storage = get_object_storage()
+
+    # Build storage key: results/{wf_exec_id}/{task_ref}/{stream_id}/{uuid}.json
+    wf_exec_id = input.run_context.wf_exec_id
+    task_ref = input.task.ref
+    stream_id = input.stream_id or "root"
+    unique_id = uuid.uuid4().hex[:12]
+    key = f"results/{wf_exec_id}/{task_ref}/{stream_id}/{unique_id}.json"
+
+    stored = await storage.store(key, result, kind="action_result")
+
+    if stored.is_externalized:
+        # Return ObjectRef as dict so it can be detected during hydration
+        logger.debug(
+            "Action result externalized",
+            key=key,
+            task_ref=task_ref,
+            size_bytes=stored.ref.size_bytes if stored.ref else 0,
+        )
+        return stored.ref.model_dump(mode="json") if stored.ref else result
+
+    return result
 
 
 class ExecutorActivities:
@@ -59,6 +101,7 @@ class ExecutorActivities:
         - Rate limit retries (tenacity)
         - for_each loop execution (via dispatch_action)
         - Sandboxed pool execution
+        - Result externalization for large payloads
 
         This replaces the HTTP-based run_action_activity from dsl/action.py.
         Secrets/variables are still handled inside the sandbox (Phase 2 will move them here).
@@ -100,7 +143,9 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    return await dispatch_action(backend=backend, input=input)
+                    result = await dispatch_action(backend=backend, input=input)
+                    # Externalize large results to blob storage
+                    return await _maybe_externalize_result(result, input)
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__

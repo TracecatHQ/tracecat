@@ -60,6 +60,7 @@ from tracecat.registry.actions.schemas import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
+from tracecat.storage.object import hydrate_execution_context
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -723,6 +724,10 @@ async def prepare_resolved_context(
             logical_time=logical_time,
             has_interaction=input.interaction_context is not None,
         )
+
+        # Hydrate externalized values (ObjectRefs) in context before expression evaluation
+        # This fetches large payloads from S3/MinIO that were externalized during action execution
+        context = await hydrate_execution_context(context)
 
         # Evaluate templated args (now with logical_time and interaction context set)
         evaluated_args = evaluate_templated_args(task, context)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
@@ -40,6 +41,7 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
+from tracecat.storage.object import get_object_storage
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -867,6 +869,24 @@ class WorkflowExecutionsService:
         # Add execution type search attribute
         pairs.append(execution_type.to_temporal_search_attr_pair())
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
+
+        # Externalize large trigger inputs to blob storage
+        # This prevents workflow history bloat for workflows with large trigger payloads
+        if trigger_inputs is not None:
+            storage = get_object_storage()
+            unique_id = uuid.uuid4().hex[:12]
+            key = f"triggers/{wf_exec_id}/{unique_id}.json"
+            stored = await storage.store(key, trigger_inputs, kind="trigger")
+            if stored.is_externalized and stored.ref:
+                # Replace trigger_inputs with ObjectRef for workflow history
+                trigger_inputs = stored.ref.model_dump(mode="json")
+                logger.debug(
+                    "Trigger inputs externalized",
+                    key=key,
+                    wf_exec_id=wf_exec_id,
+                    size_bytes=stored.ref.size_bytes,
+                )
+
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
