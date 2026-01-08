@@ -8,18 +8,23 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.service import dispatch_action
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistryActionCreate,
@@ -27,9 +32,88 @@ from tracecat.registry.actions.schemas import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
+from tracecat.registry.versions.schemas import RegistryVersionManifestAction
+from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+
+TEST_VERSION = "test-version"
+
+
+async def create_manifest_for_actions(
+    session: AsyncSession,
+    repo_id: UUID,
+    actions: list[BoundRegistryAction],
+) -> RegistryLock:
+    """Create a RegistryVersion with manifest for the given actions."""
+    from sqlalchemy import select
+
+    from tracecat.db.models import RegistryRepository
+
+    result = await session.execute(
+        select(RegistryRepository).where(RegistryRepository.id == repo_id)
+    )
+    repo = result.scalar_one()
+    origin = repo.origin
+
+    manifest_actions = {}
+    action_bindings = {}
+
+    for bound_action in actions:
+        action_create = RegistryActionCreate.from_bound(bound_action, repo_id)
+        action_name = f"{action_create.namespace}.{action_create.name}"
+        manifest_action = RegistryVersionManifestAction.from_action_create(
+            action_create
+        )
+        manifest_actions[action_name] = manifest_action.model_dump(mode="json")
+        action_bindings[action_name] = origin
+
+    # Add core.transform.reshape
+    core_reshape_impl = {
+        "type": "udf",
+        "url": origin,
+        "module": "tracecat_registry._internal.actions",
+        "name": "reshape",
+    }
+    manifest_actions["core.transform.reshape"] = {
+        "namespace": "core.transform",
+        "name": "reshape",
+        "action_type": "udf",
+        "description": "Transform data",
+        "interface": {"expects": {}, "returns": None},
+        "implementation": core_reshape_impl,
+    }
+    action_bindings["core.transform.reshape"] = origin
+
+    manifest = {"schema_version": "1.0", "actions": manifest_actions}
+
+    rv = RegistryVersion(
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        repository_id=repo_id,
+        version=TEST_VERSION,
+        manifest=manifest,
+        tarball_uri="s3://test/test.tar.gz",
+    )
+    session.add(rv)
+    await session.commit()
+
+    versions_svc = RegistryVersionsService(session)
+    await versions_svc.populate_index_from_manifest(rv, commit=True)
+
+    return RegistryLock(
+        origins={origin: TEST_VERSION},
+        actions=action_bindings,
+    )
+
+
+def make_registry_lock(action: str, origin: str = "tracecat_registry") -> RegistryLock:
+    """Helper to create a RegistryLock for a single action (for unit tests with mocks)."""
+    return RegistryLock(
+        origins={origin: TEST_VERSION},
+        actions={action: origin},
+    )
 
 
 @pytest.fixture
@@ -118,6 +202,11 @@ async def test_template_action_two_steps_via_direct_backend(
         RegistryActionCreate.from_bound(repo.get("testing.two_step_math"), db_repo_id)
     )
 
+    # Create manifest for the test actions
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [repo.get("testing.two_step_math")]
+    )
+
     # Create and run the action
     input = RunActionInput(
         task=ActionStatement(
@@ -127,6 +216,7 @@ async def test_template_action_two_steps_via_direct_backend(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        registry_lock=registry_lock,
     )
 
     # Act
@@ -195,6 +285,10 @@ async def test_template_action_step_results_accessible(
         RegistryActionCreate.from_bound(repo.get("testing.step_data_flow"), db_repo_id)
     )
 
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [repo.get("testing.step_data_flow")]
+    )
+
     input = RunActionInput(
         task=ActionStatement(
             ref="test",
@@ -203,6 +297,7 @@ async def test_template_action_step_results_accessible(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        registry_lock=registry_lock,
     )
 
     result = await run_template_test(input, test_role)
@@ -266,6 +361,10 @@ async def test_template_action_returns_expression_evaluated(
         RegistryActionCreate.from_bound(repo.get("testing.complex_returns"), db_repo_id)
     )
 
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [repo.get("testing.complex_returns")]
+    )
+
     input = RunActionInput(
         task=ActionStatement(
             ref="test",
@@ -274,6 +373,7 @@ async def test_template_action_returns_expression_evaluated(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        registry_lock=registry_lock,
     )
 
     result = await run_template_test(input, test_role)
@@ -357,6 +457,10 @@ async def test_template_action_with_secrets_in_top_level_args(
             RegistryActionCreate.from_bound(repo.get("testing.secret_user"), db_repo_id)
         )
 
+        registry_lock = await create_manifest_for_actions(
+            session, db_repo_id, [repo.get("testing.secret_user")]
+        )
+
         # Pass the secret expression in the top-level args
         # This allows collect_expressions to find and resolve it
         input = RunActionInput(
@@ -367,6 +471,7 @@ async def test_template_action_with_secrets_in_top_level_args(
             ),
             exec_context=create_default_execution_context(),
             run_context=mock_run_context,
+            registry_lock=registry_lock,
         )
 
         result = await run_template_test(input, test_role)
@@ -454,6 +559,12 @@ async def test_nested_template_actions(
         RegistryActionCreate.from_bound(repo.get("testing.outer_quad"), db_repo_id)
     )
 
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [repo.get("testing.inner_double"), repo.get("testing.outer_quad")],
+    )
+
     input = RunActionInput(
         task=ActionStatement(
             ref="test",
@@ -462,6 +573,7 @@ async def test_nested_template_actions(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        registry_lock=registry_lock,
     )
 
     result = await run_template_test(input, test_role)
@@ -514,6 +626,10 @@ async def test_template_action_for_each(
         RegistryActionCreate.from_bound(repo.get("testing.add_ten"), db_repo_id)
     )
 
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [repo.get("testing.add_ten")]
+    )
+
     # Create input with for_each
     input = RunActionInput(
         task=ActionStatement(
@@ -524,6 +640,7 @@ async def test_template_action_for_each(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        registry_lock=registry_lock,
     )
 
     result = await run_template_test(input, test_role)
