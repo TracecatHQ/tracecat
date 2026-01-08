@@ -15,20 +15,6 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.service import BaseService
 
-# Actions that are interface-only (handled by workflow scheduler, not executor).
-# These define an interface in the registry but raise ActionIsInterfaceError when called directly.
-# Note: PlatformAction includes ai.action which IS a real UDF, so we can't use it directly.
-INTERFACE_ONLY_ACTIONS: frozenset[str] = frozenset(
-    {
-        PlatformAction.CHILD_WORKFLOW_EXECUTE,  # core.workflow.execute
-        PlatformAction.TRANSFORM_SCATTER,  # core.transform.scatter
-        PlatformAction.TRANSFORM_GATHER,  # core.transform.gather
-        PlatformAction.AI_AGENT,  # ai.agent
-        PlatformAction.AI_PRESET_AGENT,  # ai.preset_agent
-        # NOTE: ai.action is NOT included - it's a real UDF executed via the registry
-    }
-)
-
 
 class RegistryLockService(BaseService):
     """Service for resolving and managing registry version locks.
@@ -101,7 +87,9 @@ class RegistryLockService(BaseService):
 
         # 3. Build action -> origin mapping using BFS to include template step actions
         actions: dict[str, str] = {}
-        queue: deque[str] = deque(sorted(action_names - INTERFACE_ONLY_ACTIONS))
+        queue: deque[str] = deque(
+            sorted(action_names - PlatformAction.interface_actions())
+        )
 
         while queue:
             action_name = queue.popleft()
@@ -138,7 +126,7 @@ class RegistryLockService(BaseService):
                 )
                 if impl.type == "template" and impl.template_action is not None:
                     for step in impl.template_action.definition.steps:
-                        if step.action in INTERFACE_ONLY_ACTIONS:
+                        if PlatformAction.is_interface(step.action):
                             continue
                         if step.action not in actions:
                             queue.append(step.action)
