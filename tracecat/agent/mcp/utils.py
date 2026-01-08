@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
+from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
 from tracecat.registry.actions.service import RegistryActionsService
 
 
@@ -76,7 +76,6 @@ async def fetch_tool_definitions(
 
         # Build a lookup map by full action name
         action_map = {f"{ra.namespace}.{ra.name}": ra for ra in registry_actions}
-
         for action_name in action_names:
             try:
                 ra = action_map.get(action_name)
@@ -87,24 +86,15 @@ async def fetch_tool_definitions(
                     )
                     continue
 
-                bound = svc.get_bound(ra, mode="execution")
-
-                # Extract JSON schema based on action type
-                if bound.is_template and bound.template_action:
-                    expects = bound.template_action.definition.expects
-                    model_cls = create_expectation_model(
-                        expects,
-                        action_name.replace(".", "__"),
-                    )
-                    json_schema = model_cls.model_json_schema()
-                elif bound.args_cls:
-                    json_schema = bound.args_cls.model_json_schema()
-                else:
-                    json_schema = {"type": "object", "properties": {}}
+                # Use pre-computed interface from RegistryAction
+                interface = RegistryActionInterfaceValidator.validate_python(
+                    ra.interface
+                )
+                json_schema = interface["expects"]
 
                 definitions[action_name] = MCPToolDefinition(
                     name=action_name,
-                    description=bound.description or f"Execute {action_name}",
+                    description=ra.description or f"Execute {action_name}",
                     parameters_json_schema=json_schema,
                 )
 

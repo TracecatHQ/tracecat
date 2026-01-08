@@ -101,80 +101,8 @@ aiohttp==3.13.3 \
     --hash=sha256:fc353029f176fd2b3ec6cfc71be166aba1936fe5d73dd1992ce289ca6647a9aa
     # via
     #   aiobotocore
-    #   tracecat
-aiohttp==3.13.2 \
-    --hash=sha256:0740f31a60848d6edb296a0df827473eede90c689b8f9f2a4cdde74889eb2254 \
-    --hash=sha256:088912a78b4d4f547a1f19c099d5a506df17eacec3c6f4375e2831ec1d995742 \
-    --hash=sha256:0a3d54e822688b56e9f6b5816fb3de3a3a64660efac64e4c2dc435230ad23bad \
-    --hash=sha256:0db1e24b852f5f664cd728db140cf11ea0e82450471232a394b3d1a540b0f906 \
-    --hash=sha256:1237c1375eaef0db4dcd7c2559f42e8af7b87ea7d295b118c60c36a6e61cb811 \
-    --hash=sha256:16f15a4eac3bc2d76c45f7ebdd48a65d41b242eb6c31c2245463b40b34584ded \
-    --hash=sha256:20b10bbfbff766294fe99987f7bb3b74fdd2f1a2905f2562132641ad434dcf98 \
-    --hash=sha256:228a1cd556b3caca590e9511a89444925da87d35219a49ab5da0c36d2d943a6a \
-    --hash=sha256:23fb0783bc1a33640036465019d3bba069942616a6a2353c6907d7fe1ccdaf4e \
-    --hash=sha256:2475391c29230e063ef53a66669b7b691c9bfc3f1426a0f7bcdf1216bdbac38b \
-    --hash=sha256:27e569eb9d9e95dbd55c0fc3ec3a9335defbf1d8bc1d20171a49f3c4c607b93e \
-    --hash=sha256:2e1a9bea6244a1d05a4e57c295d69e159a5c50d8ef16aa390948ee873478d9a5 \
-    --hash=sha256:364e25edaabd3d37b1db1f0cbcee8c73c9a3727bfa262b83e5e4cf3489a2a9dc \
-    --hash=sha256:39d02cb6025fe1aabca329c5632f48c9532a3dabccd859e7e2f110668972331f \
-    --hash=sha256:40176a52c186aefef6eb3cad2cdd30cd06e3afbe88fe8ab2af9c0b90f228daca \
-    --hash=sha256:4356474ad6333e41ccefd39eae869ba15a6c5299c9c01dfdcfdd5c107be4363e \
-    --hash=sha256:4ebf9cfc9ba24a74cf0718f04aac2a3bbe745902cc7c5ebc55c0f3b5777ef213 \
-    --hash=sha256:5276807b9de9092af38ed23ce120539ab0ac955547b38563a9ba4f5b07b95293 \
-    --hash=sha256:550bf765101ae721ee1d37d8095f47b1f220650f85fe1af37a90ce75bab89d04 \
-    --hash=sha256:56d36e80d2003fa3fc0207fac644216d8532e9504a785ef9a8fd013f84a42c61 \
-    --hash=sha256:585542825c4bc662221fb257889e011a5aa00f1ae4d75d1d246a5225289183e3 \
-    --hash=sha256:5b927cf9b935a13e33644cbed6c8c4b2d0f25b713d838743f8fe7191b33829c4 \
-    --hash=sha256:5d7f02042c1f009ffb70067326ef183a047425bb2ff3bc434ead4dd4a4a66a2b \
-    --hash=sha256:66bac29b95a00db411cd758fea0e4b9bdba6d549dfe333f9a945430f5f2cc5a6 \
-    --hash=sha256:7519bdc7dfc1940d201651b52bf5e03f5503bda45ad6eacf64dda98be5b2b6be \
-    --hash=sha256:78cd586d8331fb8e241c2dd6b2f4061778cc69e150514b39a9e28dd050475661 \
-    --hash=sha256:7a653d872afe9f33497215745da7a943d1dc15b728a9c8da1c3ac423af35178e \
-    --hash=sha256:8709a0f05d59a71f33fd05c17fc11fcb8c30140506e13c2f5e8ee1b8964e1b45 \
-    --hash=sha256:88d6c017966a78c5265d996c19cdb79235be5e6412268d7e2ce7dee339471b7a \
-    --hash=sha256:8aa7c807df234f693fed0ecd507192fc97692e61fee5702cdc11155d2e5cadc8 \
-    --hash=sha256:93655083005d71cd6c072cdab54c886e6570ad2c4592139c3fb967bfc19e4694 \
-    --hash=sha256:9434bc0d80076138ea986833156c5a48c9c7a8abb0c96039ddbb4afc93184169 \
-    --hash=sha256:94f05348c4406450f9d73d38efb41d669ad6cd90c7ee194810d0eefbfa875a7a \
-    --hash=sha256:96581619c57419c3d7d78703d5b78c1e5e5fc0172d60f555bdebaced82ded19a \
-    --hash=sha256:98c4fb90bb82b70a4ed79ca35f656f4281885be076f3f970ce315402b53099ae \
-    --hash=sha256:9eb3e33fdbe43f88c3c75fa608c25e7c47bbd80f48d012763cb67c47f39a7e16 \
-    --hash=sha256:9ec49dff7e2b3c85cdeaa412e9d438f0ecd71676fde61ec57027dd392f00c693 \
-    --hash=sha256:a2713a95b47374169409d18103366de1050fe0ea73db358fc7a7acb2880422d4 \
-    --hash=sha256:a4b88ebe35ce54205c7074f7302bd08a4cb83256a3e0870c72d6f68a3aaf8e49 \
-    --hash=sha256:a88d13e7ca367394908f8a276b89d04a3652044612b9a408a0bb22a5ed976a1a \
-    --hash=sha256:ac6cde5fba8d7d8c6ac963dbb0256a9854e9fafff52fbcc58fdf819357892c3e \
-    --hash=sha256:ae32f24bbfb7dbb485a24b30b1149e2f200be94777232aeadba3eecece4d0aa4 \
-    --hash=sha256:b009194665bcd128e23eaddef362e745601afa4641930848af4c8559e88f18f9 \
-    --hash=sha256:b1e56bab2e12b2b9ed300218c351ee2a3d8c8fdab5b1ec6193e11a817767e47b \
-    --hash=sha256:ba2715d842ffa787be87cbfce150d5e88c87a98e0b62e0f5aa489169a393dbbb \
-    --hash=sha256:bb7fb776645af5cc58ab804c58d7eba545a97e047254a52ce89c157b5af6cd0b \
-    --hash=sha256:c038a8fdc8103cd51dbd986ecdce141473ffd9775a7a8057a6ed9c3653478011 \
-    --hash=sha256:c20423ce14771d98353d2e25e83591fa75dfa90a3c1848f3d7c68243b4fbded3 \
-    --hash=sha256:c5c94825f744694c4b8db20b71dba9a257cd2ba8e010a803042123f3a25d50d7 \
-    --hash=sha256:cf00e5db968c3f67eccd2778574cf64d8b27d95b237770aa32400bd7a1ca4f6c \
-    --hash=sha256:d23b5fe492b0805a50d3371e8a728a9134d8de5447dce4c885f5587294750734 \
-    --hash=sha256:d8a9b889aeabd7a4e9af0b7f4ab5ad94d42e7ff679aaec6d0db21e3b639ad58d \
-    --hash=sha256:e0c8e31cfcc4592cb200160344b2fb6ae0f9e4effe06c644b5a125d4ae5ebe23 \
-    --hash=sha256:e1b4951125ec10c70802f2cb09736c895861cd39fd9dcb35107b4dc8ae6220b8 \
-    --hash=sha256:e67446b19e014d37342f7195f592a2a948141d15a312fe0e700c2fd2f03124f6 \
-    --hash=sha256:e7c952aefdf2460f4ae55c5e9c3e80aa72f706a6317e06020f80e96253b1accd \
-    --hash=sha256:e96eb1a34396e9430c19d8338d2ec33015e4a87ef2b4449db94c22412e25ccdf \
-    --hash=sha256:ec7534e63ae0f3759df3a1ed4fa6bc8f75082a924b590619c0dd2f76d7043caa \
-    --hash=sha256:eeacf451c99b4525f700f078becff32c32ec327b10dcf31306a8a52d78166de7 \
-    --hash=sha256:f10d9c0b0188fe85398c61147bbd2a657d616c876863bfeff43376e0e3134673 \
-    --hash=sha256:f2bef8237544f4e42878c61cef4e2839fee6346dc60f5739f876a9c50be7fcdb \
-    --hash=sha256:f33c8748abef4d8717bb20e8fb1b3e07c6adacb7fd6beaae971a764cf5f30d61 \
-    --hash=sha256:f7c183e786e299b5d6c49fb43a769f8eb8e04a2726a2bd5887b98b5cc2d67940 \
-    --hash=sha256:fa4dcb605c6f82a80c7f95713c2b11c3b8e9893b3ebd2bc9bde93165ed6107be \
-    --hash=sha256:fa89cb11bc71a63b69568d5b8a25c3ca25b6d54c15f907ca1c130d72f320b76b \
-    --hash=sha256:fe242cd381e0fb65758faf5ad96c2e460df6ee5b2de1072fe97e4127927e00b4 \
-    --hash=sha256:fe91b87fc295973096251e2d25a811388e7d8adf3bd2b97ef6ae78bc4ac6c476 \
-    --hash=sha256:ff0a7b0a82a7ab905cbda74006318d1b12e37c797eb1b0d4eb3e316cf47f658f \
-    --hash=sha256:ff15c147b2ad66da1f2cbb0622313f2242d8e6e8f9b79b5206c84523a4473248
-    # via
-    #   aiobotocore
     #   litellm
+    #   tracecat
 aioitertools==0.13.0 \
     --hash=sha256:0be0292b856f08dfac90e31f4739432f4cb6d7520ab9eb73e143f4f2fa5259be \
     --hash=sha256:620bd241acc0bbb9ec819f1ab215866871b4bbd1f73836a55f799200ee86950c
@@ -541,27 +469,9 @@ claude-agent-sdk==0.1.18 \
     --hash=sha256:983f15e51253f40c55136a86d7cc63e023a3576428b05fa1459093d461b2d215 \
     --hash=sha256:9e45b4e3c20c072c3e3325fa60bab9a4b5a7cbbce64ca274b8d7d0af42dd9dd8
     # via tracecat
-<<<<<<< HEAD
-<<<<<<< HEAD
 click==8.2.1 \
     --hash=sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202 \
     --hash=sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b
-=======
-<<<<<<< HEAD
-click==8.3.1 \
-    --hash=sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a \
-    --hash=sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6
-=======
-click==8.2.1 \
-    --hash=sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202 \
-    --hash=sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b
->>>>>>> 8cf002c1 (feat(agent-harness): add model settings to custom auth)
->>>>>>> 6162d2cf (feat(agent-harness): add model settings to custom auth)
-=======
-click==8.3.1 \
-    --hash=sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a \
-    --hash=sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6
->>>>>>> 21512a15 (feat(agent-harness): remove standalone litellm docker service)
     # via
     #   litellm
     #   rich-toolkit
@@ -2894,23 +2804,9 @@ sqlalchemy==2.0.45 \
     #   fastapi-users-db-sqlalchemy
     #   tracecat
     #   tracecat-registry
-<<<<<<< HEAD
 sse-starlette==3.0.4 \
     --hash=sha256:32c80ef0d04506ced4b0b6ab8fe300925edc37d26f666afb1874c754895f5dc3 \
     --hash=sha256:5e34286862e96ead0eb70f5ddd0bd21ab1f6473a8f44419dd267f431611383dd
-=======
-sse-starlette==3.1.2 \
-    --hash=sha256:55eff034207a83a0eb86de9a68099bd0157838f0b8b999a1b742005c71e33618 \
-    --hash=sha256:cd800dd349f4521b317b9391d3796fa97b71748a4da9b9e00aafab32dda375c8
-<<<<<<< HEAD
-=======
-sse-starlette==3.1.1 \
-    --hash=sha256:bb38f71ae74cfd86b529907a9fda5632195dfa6ae120f214ea4c890c7ee9d436 \
-    --hash=sha256:bffa531420c1793ab224f63648c059bcadc412bf9fdb1301ac8de1cf9a67b7fb
->>>>>>> 8cf002c1 (feat(agent-harness): add model settings to custom auth)
->>>>>>> 6162d2cf (feat(agent-harness): add model settings to custom auth)
-=======
->>>>>>> 21512a15 (feat(agent-harness): remove standalone litellm docker service)
     # via mcp
 starlette==0.49.3 \
     --hash=sha256:1c14546f299b5901a1ea0e34410575bc33bbd741377a10484a54445588d00284 \

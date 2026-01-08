@@ -13,14 +13,13 @@ from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.contexts import ctx_role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.action_runner import get_action_runner
+from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
     ActionImplementation,
-    ExecutorActionErrorInfo,
+    ExecutorResultFailure,
     ResolvedContext,
 )
 from tracecat.executor.service import (
-    get_registry_artifacts_cached,
     get_workspace_variables,
 )
 from tracecat.expressions.common import ExprContext
@@ -79,9 +78,6 @@ async def execute_action(
 
     logger.info(
         "Executing action via ActionRunner",
-        action_name=action_name,
-        workspace_id=str(role.workspace_id),
-        run_id=claims.run_id,
     )
 
     # Resolve context
@@ -90,34 +86,18 @@ async def execute_action(
     # Build minimal RunActionInput
     run_input = _build_run_input(action_name, args)
 
-    # Get tarball URI for registry environment
-    tarball_uri = await _get_tarball_uri(role)
-
     # Execute via ActionRunner with nsjail sandbox
-    runner = get_action_runner()
-    result = await runner.execute_action(
+    backend = EphemeralBackend()
+    result = await backend.execute(
         input=run_input,
         role=role,
         resolved_context=resolved_context,
-        tarball_uris=[tarball_uri] if tarball_uri else None,
         timeout=float(timeout_seconds),
-        force_sandbox=True,
     )
 
     # Handle result
-    if isinstance(result, ExecutorActionErrorInfo):
-        logger.error(
-            "Action execution failed",
-            action_name=action_name,
-            error=str(result),
-        )
-        raise ActionExecutionError(str(result))
-
-    logger.info(
-        "Action executed successfully",
-        action_name=action_name,
-        workspace_id=str(role.workspace_id),
-    )
+    if isinstance(result, ExecutorResultFailure):
+        raise ActionExecutionError(result.error.message)
     return result
 
 
@@ -181,8 +161,8 @@ async def _resolve_context(
     executor_token = mint_executor_token(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
-        wf_id=claims.run_id or "mcp-execution",
-        wf_exec_id=claims.session_id or "mcp-session",
+        wf_id="wf_agent",
+        wf_exec_id="wf_agent_exec",
     )
 
     return ResolvedContext(
@@ -191,8 +171,8 @@ async def _resolve_context(
         action_impl=action_impl,
         evaluated_args=dict(evaluated_args),
         workspace_id=str(role.workspace_id),
-        workflow_id=claims.run_id or "mcp-execution",
-        run_id=claims.session_id or "mcp-session",
+        workflow_id="wf_agent",
+        run_id="wf_agent_run",
         executor_token=executor_token,
     )
 
@@ -223,20 +203,3 @@ def _build_run_input(
         run_context=run_context,
         exec_context={},
     )
-
-
-async def _get_tarball_uri(role) -> str | None:
-    """Get the tarball URI for the current registry version.
-
-    Works for both remote and local registries - both should have tarball_uri
-    in the DB after sync.
-    """
-
-    try:
-        artifacts = await get_registry_artifacts_cached(role)
-        if artifacts:
-            return artifacts[0].tarball_uri
-    except Exception as e:
-        logger.warning("Failed to get registry artifacts", error=str(e))
-
-    return None

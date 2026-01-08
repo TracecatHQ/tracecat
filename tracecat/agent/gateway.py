@@ -19,7 +19,6 @@ from tracecat.agent.config import MODEL_CONFIGS
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 
 # -----------------------------------------------------------------------------
@@ -74,13 +73,10 @@ async def get_provider_credentials(
         workspace_id=workspace_uuid,
     )
 
-    async with get_async_session_context_manager() as session:
-        service = AgentManagementService(session=session, role=role)
-
+    async with AgentManagementService.with_session(role=role) as service:
         if use_workspace_creds:
             return await service.get_workspace_provider_credentials(provider)
-        else:
-            return await service.get_provider_credentials(provider)
+        return await service.get_provider_credentials(provider)
 
 
 # -----------------------------------------------------------------------------
@@ -109,8 +105,6 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
 
     return UserAPIKeyAuth(
         api_key="llm-token",
-        team_id=claims.workspace_id,
-        user_id=f"agent-session:{claims.session_id}",
         metadata={
             "workspace_id": claims.workspace_id,
             "session_id": claims.session_id,
@@ -139,7 +133,7 @@ class TracecatCallbackHandler(CustomLogger):
         """Inject credentials and model settings before LLM call."""
         workspace_id: str = user_api_key_dict.metadata.get("workspace_id", "")
         use_workspace_creds: bool = user_api_key_dict.metadata.get(
-            "use_workspace_credentials", False
+            "use_workspace_credentials", True
         )
 
         # Use model from token metadata (trusted, required claim) - ignore request
