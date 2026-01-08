@@ -6,10 +6,13 @@ from uuid import UUID
 
 import pytest
 from pydantic import BaseModel, SecretStr, ValidationError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
 import tracecat.config as config
+from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
@@ -31,6 +34,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistryActionCreate,
@@ -43,8 +47,74 @@ from tracecat.registry.actions.service import (
 )
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
+from tracecat.registry.versions.schemas import RegistryVersionManifestAction
+from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
 from tracecat.validation.service import validate_dsl
+
+TEST_VERSION = "test-version"
+
+
+async def create_manifest_for_actions(
+    session: AsyncSession,
+    repo_id: UUID,
+    actions: list[BoundRegistryAction],
+) -> RegistryLock:
+    """Create a RegistryVersion with manifest for the given actions."""
+    result = await session.execute(
+        select(RegistryRepository).where(RegistryRepository.id == repo_id)
+    )
+    repo = result.scalar_one()
+    origin = repo.origin
+
+    manifest_actions = {}
+    action_bindings = {}
+
+    for bound_action in actions:
+        action_create = RegistryActionCreate.from_bound(bound_action, repo_id)
+        action_name = f"{action_create.namespace}.{action_create.name}"
+        manifest_action = RegistryVersionManifestAction.from_action_create(
+            action_create
+        )
+        manifest_actions[action_name] = manifest_action.model_dump(mode="json")
+        action_bindings[action_name] = origin
+
+    # Add core.transform.reshape
+    core_reshape_impl = {
+        "type": "udf",
+        "url": origin,
+        "module": "tracecat_registry._internal.actions",
+        "name": "reshape",
+    }
+    manifest_actions["core.transform.reshape"] = {
+        "namespace": "core.transform",
+        "name": "reshape",
+        "action_type": "udf",
+        "description": "Transform data",
+        "interface": {"expects": {}, "returns": None},
+        "implementation": core_reshape_impl,
+    }
+    action_bindings["core.transform.reshape"] = origin
+
+    manifest = {"schema_version": "1.0", "actions": manifest_actions}
+
+    rv = RegistryVersion(
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        repository_id=repo_id,
+        version=TEST_VERSION,
+        manifest=manifest,
+        tarball_uri="s3://test/test.tar.gz",
+    )
+    session.add(rv)
+    await session.commit()
+
+    versions_svc = RegistryVersionsService(session)
+    await versions_svc.populate_index_from_manifest(rv, commit=True)
+
+    return RegistryLock(
+        origins={origin: TEST_VERSION},
+        actions=action_bindings,
+    )
 
 
 async def run_action_test(input: RunActionInput, role) -> Any:
@@ -616,24 +686,79 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
         ),
     )
 
-    # Register the test template action
+    # Create a second template action with required OAuth credential
+    test_action_required = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test Required OAuth",
+            description="Test required AC OAuth credential",
+            name="required_oauth_test",
+            namespace="testing.oauth",
+            display_group="Testing",
+            expects={
+                "message": ExpectedField(
+                    type="str",
+                    description="A test message",
+                )
+            },
+            secrets=[
+                RegistryOAuthSecret(
+                    provider_id="microsoft_teams",
+                    grant_type="authorization_code",
+                    optional=False,  # Required
+                ),
+            ],
+            steps=[
+                ActionStep(
+                    ref="get_token",
+                    action="core.transform.reshape",
+                    args={
+                        "value": {
+                            "ac_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}",
+                        }
+                    },
+                )
+            ],
+            returns="${{ steps.get_token.result }}",
+        ),
+    )
+
+    # Register both template actions
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(test_action)
+    repo.register_template_action(test_action_required)
 
-    # Validate the template action
+    # Validate both template actions
     bound_action = repo.get("testing.oauth.optional_oauth_test")
     validation_errors = await validate_action_template(bound_action, repo)
     assert len(validation_errors) == 0, (
         f"Template validation failed: {validation_errors}"
     )
 
+    bound_action_required = repo.get("testing.oauth.required_oauth_test")
+    validation_errors_required = await validate_action_template(
+        bound_action_required, repo, check_db=False
+    )
+    assert len(validation_errors_required) == 0, (
+        f"Template validation failed: {validation_errors_required}"
+    )
+
+    # Create both actions in the database
     ra_service = RegistryActionsService(session, role=test_role)
     await ra_service.create_action(
         RegistryActionCreate.from_bound(bound_action, db_repo_id)
     )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(bound_action_required, db_repo_id)
+    )
 
-    # Helper function to run the action
+    # Create manifest for both test actions
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action, bound_action_required]
+    )
+
+    # Helper function to run the optional action
     async def run_test_action():
         input = RunActionInput(
             task=ActionStatement(
@@ -645,13 +770,7 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
             ),
             exec_context=create_default_execution_context(),
             run_context=mock_run_context,
-            registry_lock=RegistryLock(
-                origins={"tracecat_registry": "test-version"},
-                actions={
-                    "testing.oauth.optional_oauth_test": "tracecat_registry",
-                    "core.transform.reshape": "tracecat_registry",
-                },
-            ),
+            registry_lock=registry_lock,
         )
         return await run_action_test(input, test_role)
 
@@ -708,57 +827,6 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
     assert result["message"] == "test message"
 
     # Test 3: Required credential missing should fail
-    test_action_required = TemplateAction(
-        type="action",
-        definition=TemplateActionDefinition(
-            title="Test Required OAuth",
-            description="Test required AC OAuth credential",
-            name="required_oauth_test",
-            namespace="testing.oauth",
-            display_group="Testing",
-            expects={
-                "message": ExpectedField(
-                    type="str",
-                    description="A test message",
-                )
-            },
-            secrets=[
-                RegistryOAuthSecret(
-                    provider_id="microsoft_teams",
-                    grant_type="authorization_code",
-                    optional=False,  # Required
-                ),
-            ],
-            steps=[
-                ActionStep(
-                    ref="get_token",
-                    action="core.transform.reshape",
-                    args={
-                        "value": {
-                            "ac_token": "${{ SECRETS.microsoft_teams_oauth.MICROSOFT_TEAMS_USER_TOKEN }}",
-                        }
-                    },
-                )
-            ],
-            returns="${{ steps.get_token.result }}",
-        ),
-    )
-
-    repo.register_template_action(test_action_required)
-
-    # Validate the required template action
-    bound_action_required = repo.get("testing.oauth.required_oauth_test")
-    validation_errors_required = await validate_action_template(
-        bound_action_required, repo, check_db=False
-    )
-    assert len(validation_errors_required) == 0, (
-        f"Template validation failed: {validation_errors_required}"
-    )
-
-    await ra_service.create_action(
-        RegistryActionCreate.from_bound(bound_action_required, db_repo_id)
-    )
-
     input_required = RunActionInput(
         task=ActionStatement(
             ref="test_required",
@@ -769,13 +837,7 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
         ),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test-version"},
-            actions={
-                "testing.oauth.required_oauth_test": "tracecat_registry",
-                "core.transform.reshape": "tracecat_registry",
-            },
-        ),
+        registry_lock=registry_lock,
     )
 
     # Should raise error when required credential is missing
