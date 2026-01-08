@@ -25,9 +25,6 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionManifestAction,
 )
 
-# Cache instance for clearing
-_manifest_cache = Cache(Cache.MEMORY)
-
 
 def _build_impl_index(
     manifest: RegistryVersionManifest,
@@ -281,4 +278,4 @@ async def _collect_secrets_recursive(
 
 async def clear_cache() -> None:
     """Clear the manifest cache. Useful for testing."""
-    await _manifest_cache.clear()
+    await _get_manifest_entry.cache.clear()  # type: ignore[attr-defined]
