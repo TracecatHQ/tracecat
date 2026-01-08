@@ -117,6 +117,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
@@ -761,13 +762,16 @@ class DSLWorkflow:
                     )
                 case _:
                     # Below this point, we're executing the task
+                    use_action_statement_activity = is_feature_enabled(
+                        FeatureFlag.ACTION_STATEMENT_ACTIVITY
+                    )
                     logger.trace(
                         "Running action",
                         task_ref=task.ref,
                         runtime_config=self.runtime_config,
-                        use_single_activity=config.TRACECAT__USE_SINGLE_ACTIVITY,
+                        use_action_statement_activity=use_action_statement_activity,
                     )
-                    if config.TRACECAT__USE_SINGLE_ACTIVITY:
+                    if use_action_statement_activity:
                         # Single-activity pattern: returns ActionOutcome directly
                         outcome = await self._run_action_single_activity(task)
                         if is_error(outcome):
