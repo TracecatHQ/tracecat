@@ -44,6 +44,7 @@ from tracecat.executor.service import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.service import RegistrySyncService
@@ -254,6 +255,9 @@ def run_action_input_factory():
         registry_lock: dict[str, str] | None = None,
     ) -> RunActionInput:
         wf_id = WorkflowUUID.new_uuid4()
+        # Build proper RegistryLock with origins and action mappings
+        origins = registry_lock or {"tracecat_registry": "test-version"}
+        actions = {action: list(origins.keys())[0]}
         return RunActionInput(
             task=ActionStatement(
                 action=action,
@@ -267,7 +271,7 @@ def run_action_input_factory():
                 wf_run_id=uuid.uuid4(),
                 environment="default",
             ),
-            registry_lock=registry_lock,
+            registry_lock=RegistryLock(origins=origins, actions=actions),
         )
 
     return _create
@@ -405,7 +409,7 @@ class TestExecuteWithSyncedRegistry:
     """Tests for action execution using synced registry tarballs.
 
     Note: These tests mock the artifact resolution functions because:
-    1. The EphemeralBackend internally calls get_registry_artifacts_cached/for_lock
+    1. The EphemeralBackend internally calls get_registry_artifacts_for_lock
     2. Those functions use their own DB sessions (can't see uncommitted data)
     3. Mocking separates concerns: sync tests verify DB, execution tests verify execution
     """
@@ -485,15 +489,6 @@ class TestExecuteWithSyncedRegistry:
         # Commit the data so subprocess can see it
         await committing_session.commit()
 
-        # Create mock artifacts from sync result
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
-            )
-        ]
-
         # Create input for core.transform.reshape action
         args = {"value": {"input": "test_value"}}
         input_data = run_action_input_factory(
@@ -540,11 +535,6 @@ class TestExecuteWithSyncedRegistry:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             result = await backend.execute(
@@ -707,15 +697,6 @@ class TestFailureScenarios:
         key = uri_parts[1]
         minio_client.remove_object(bucket, key)
 
-        # Create mock artifacts pointing to the deleted tarball
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,  # Points to deleted object
-            )
-        ]
-
         # Create input
         args = {"value": {"test": True}}
         input_data = run_action_input_factory(args=args)
@@ -758,11 +739,6 @@ class TestFailureScenarios:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             # Currently raises HTTPStatusError for missing tarball
@@ -830,9 +806,13 @@ class TestMultitenantWorkloads:
             registry_lock: dict[str, str] | None = None,
         ) -> RunActionInput:
             wf_id = WorkflowUUID.new_uuid4()
+            action = "core.transform.reshape"
+            # Build proper RegistryLock with origins and action mappings
+            origins = registry_lock or {"tracecat_registry": "test-version"}
+            actions = {action: list(origins.keys())[0]}
             return RunActionInput(
                 task=ActionStatement(
-                    action="core.transform.reshape",
+                    action=action,
                     args={"value": value},
                     ref="test_action",
                 ),
@@ -843,7 +823,7 @@ class TestMultitenantWorkloads:
                     wf_run_id=uuid.uuid4(),
                     environment="default",
                 ),
-                registry_lock=registry_lock,
+                registry_lock=RegistryLock(origins=origins, actions=actions),
             )
 
         return _create
@@ -939,15 +919,6 @@ class TestMultitenantWorkloads:
             executor_token="mock-token-for-testing",
         )
 
-        # Create mock artifacts for both workspaces
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
-            )
-        ]
-
         # Execute via EphemeralBackend
         backend = EphemeralBackend()
 
@@ -971,11 +942,6 @@ class TestMultitenantWorkloads:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             # Run both executions concurrently
@@ -1066,15 +1032,6 @@ class TestMultitenantWorkloads:
             )
             inputs_and_contexts.append((inp, resolved_ctx))
 
-        # Create mock artifacts
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
-            )
-        ]
-
         # Execute via EphemeralBackend
         backend = EphemeralBackend()
 
@@ -1098,11 +1055,6 @@ class TestMultitenantWorkloads:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             results = await asyncio.gather(

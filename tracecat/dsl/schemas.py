@@ -21,6 +21,7 @@ from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteraction, InteractionContext
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -307,8 +308,8 @@ class RunActionInput(BaseModel):
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""
-    registry_lock: dict[str, str] | None = None
-    """Registry version lock from workflow definition. Maps origin -> version."""
+    registry_lock: RegistryLock
+    """Registry version lock from workflow definition. Required and must be non-empty."""
 
     @model_validator(mode="before")
     @classmethod

@@ -8,9 +8,12 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.service import BaseService
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
+    ResolveRegistryLockActivityInputs,
     WorkflowDefinitionActivityResult,
 )
 
@@ -110,4 +113,27 @@ async def get_workflow_definition_activity(
             logger.error(msg)
             raise TracecatException(msg)
         dsl = DSLInput(**defn.content)
-    return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=defn.registry_lock)
+    # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
+    registry_lock = (
+        RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
+    )
+    return WorkflowDefinitionActivityResult(dsl=dsl, registry_lock=registry_lock)
+
+
+@activity.defn
+async def resolve_registry_lock_activity(
+    input: ResolveRegistryLockActivityInputs,
+) -> RegistryLock:
+    """Resolve registry lock with action bindings for a set of actions.
+
+    This activity is called at workflow start if no lock is provided,
+    ensuring all trigger paths have a valid registry lock.
+    """
+    async with RegistryLockService.with_session(role=input.role) as service:
+        lock = await service.resolve_lock_with_bindings(input.action_names)
+    logger.info(
+        "Resolved registry lock",
+        num_origins=len(lock.origins),
+        num_actions=len(lock.actions),
+    )
+    return lock

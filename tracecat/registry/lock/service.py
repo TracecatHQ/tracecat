@@ -1,4 +1,4 @@
-"""Service for computing and managing registry version locks."""
+"""Service for resolving and managing registry version locks."""
 
 from __future__ import annotations
 
@@ -6,12 +6,14 @@ from sqlalchemy import select
 
 from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.exceptions import RegistryError
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.service import BaseService
 
 
 class RegistryLockService(BaseService):
-    """Service for computing and managing registry version locks.
+    """Service for resolving and managing registry version locks.
 
     Registry locks map repository origins to specific version strings,
     allowing workflows to pin their dependent registry versions for
@@ -20,21 +22,31 @@ class RegistryLockService(BaseService):
 
     service_name = "registry_lock"
 
-    async def get_latest_versions_lock(self) -> RegistryLock:
-        """Get lock mapping each repository origin to its latest version.
+    async def resolve_lock_with_bindings(
+        self,
+        action_names: set[str],
+    ) -> RegistryLock:
+        """Resolve registry lock with action-level bindings.
 
-        Queries all RegistryRepositories and finds the most recent
-        RegistryVersion for each (by created_at, with id as tiebreaker).
+        For each action in the workflow, determines which registry origin
+        contains it and builds a mapping for O(1) resolution at execution time.
+
+        Args:
+            action_names: All action names used in the workflow
 
         Returns:
-            RegistryLock: Maps origin -> version string.
-            Example: {"tracecat_registry": "2024.12.10.123456", "git+ssh://...": "abc1234"}
-            Returns empty dict if no versions exist.
+            RegistryLock with origins and action bindings
+
+        Raises:
+            RegistryError: If an action is not found in any registry or is ambiguous
         """
-        # Use PostgreSQL DISTINCT ON to get exactly one row per repository,
-        # ordered by created_at DESC, id DESC for deterministic tiebreaking
+        # 1. Get latest versions for all repos with full manifest
         statement = (
-            select(RegistryRepository.origin, RegistryVersion.version)
+            select(
+                RegistryRepository.origin,
+                RegistryVersion.version,
+                RegistryVersion.manifest,
+            )
             .join(
                 RegistryVersion,
                 RegistryVersion.repository_id == RegistryRepository.id,
@@ -54,46 +66,41 @@ class RegistryLockService(BaseService):
         result = await self.session.execute(statement)
         rows = result.all()
 
-        lock: RegistryLock = {str(origin): str(version) for origin, version in rows}
+        # 2. Build origins dict and parse manifests
+        origins: dict[str, str] = {}
+        origin_manifests: dict[str, RegistryVersionManifest] = {}
 
-        self.logger.debug("Computed latest versions lock", num_repos=len(lock))
-
-        return lock
-
-    async def get_version_lock_for_repositories(
-        self,
-        repository_ids: list[str],
-    ) -> RegistryLock:
-        """Get lock for specific repositories only.
-
-        Args:
-            repository_ids: List of repository IDs to get versions for
-
-        Returns:
-            RegistryLock: Maps origin -> version string for requested repos.
-        """
-        if not repository_ids:
-            return {}
-
-        # Use PostgreSQL DISTINCT ON to get exactly one row per repository,
-        # ordered by created_at DESC, id DESC for deterministic tiebreaking
-        statement = (
-            select(RegistryRepository.origin, RegistryVersion.version)
-            .join(
-                RegistryVersion,
-                RegistryVersion.repository_id == RegistryRepository.id,
+        for origin, version, manifest_dict in rows:
+            origin_str = str(origin)
+            origins[origin_str] = str(version)
+            origin_manifests[origin_str] = RegistryVersionManifest.model_validate(
+                manifest_dict
             )
-            .where(
-                RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
-                RegistryVersion.repository_id.in_(repository_ids),
-            )
-            .distinct(RegistryVersion.repository_id)
-            .order_by(
-                RegistryVersion.repository_id,
-                RegistryVersion.created_at.desc(),
-                RegistryVersion.id.desc(),
-            )
+
+        # 3. Build action -> origin mapping
+        actions: dict[str, str] = {}
+        for action_name in action_names:
+            matching_origins: list[str] = []
+            for origin_str, manifest in origin_manifests.items():
+                if action_name in manifest.actions:
+                    matching_origins.append(origin_str)
+
+            if len(matching_origins) == 0:
+                raise RegistryError(
+                    f"Action '{action_name}' not found in any registry. "
+                    f"Available registries: {list(origins.keys())}"
+                )
+            if len(matching_origins) > 1:
+                raise RegistryError(
+                    f"Ambiguous action '{action_name}' found in multiple registries: "
+                    f"{matching_origins}. Please specify the registry explicitly."
+                )
+            actions[action_name] = matching_origins[0]
+
+        self.logger.debug(
+            "Resolved lock with bindings",
+            num_origins=len(origins),
+            num_actions=len(actions),
         )
 
-        result = await self.session.execute(statement)
-        return {str(origin): str(version) for origin, version in result.all()}
+        return RegistryLock(origins=origins, actions=actions)
