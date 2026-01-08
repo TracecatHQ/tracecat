@@ -278,7 +278,7 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
             options={"require": list(LLM_REQUIRED_CLAIMS)},
         )
     except PyJWTError as exc:
-        raise ValueError(f"Invalid LLM token: {exc}") from exc
+        raise ValueError("Invalid LLM token") from exc
 
     if payload.get("sub") != LLM_TOKEN_SUBJECT:
         raise ValueError("Invalid LLM token subject")
@@ -286,4 +286,4 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
     try:
         return LLMTokenClaims.model_validate(payload)
     except ValidationError as exc:
-        raise ValueError(f"Invalid LLM token claims: {exc}") from exc
+        raise ValueError("Invalid LLM token claims") from exc

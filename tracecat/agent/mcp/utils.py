@@ -46,10 +46,12 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
 
     # Handle underscore-separated format (runtime MCP tool names)
-    tool_part = mcp_tool_name
     if mcp_tool_name.startswith("mcp__tracecat-registry__"):
         tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
-    return mcp_tool_name_to_action_name(tool_part)
+        return mcp_tool_name_to_action_name(tool_part)
+
+    # Other MCP tool names returned as-is
+    return mcp_tool_name
 
 
 async def fetch_tool_definitions(

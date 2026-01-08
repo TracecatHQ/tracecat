@@ -45,12 +45,31 @@ async def get_provider_credentials(
     use_workspace_creds: bool = False,
 ) -> dict[str, str] | None:
     """Fetch provider credentials using AgentManagementService."""
+    # Validate workspace_id before parsing
+    if not workspace_id:
+        raise ProxyException(
+            message="Missing workspace_id in token",
+            type="auth_error",
+            param=None,
+            code=401,
+        )
+
+    try:
+        workspace_uuid = UUID(workspace_id)
+    except ValueError as e:
+        raise ProxyException(
+            message="Invalid workspace_id in token",
+            type="auth_error",
+            param=None,
+            code=401,
+        ) from e
+
     # Create a service role for the workspace
     role = Role(
         type="service",
         user_id=None,
         service_id="tracecat-llm-gateway",
-        workspace_id=UUID(workspace_id),
+        workspace_id=workspace_uuid,
     )
 
     async with get_async_session_context_manager() as session:
