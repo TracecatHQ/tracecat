@@ -14,7 +14,7 @@ from asyncpg.exceptions import (
     UndefinedTableError,
 )
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
@@ -177,6 +177,28 @@ class BaseTablesService(BaseWorkspaceService):
                 normalised[column_name] = value
 
         return normalised
+
+    def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine:
+        """Map SqlType to SQLAlchemy column types for safe binding."""
+        match sql_type:
+            case SqlType.TEXT | SqlType.SELECT:
+                return sa.String()
+            case SqlType.INTEGER:
+                return sa.BigInteger()
+            case SqlType.NUMERIC:
+                return sa.Numeric()
+            case SqlType.DATE:
+                return sa.Date()
+            case SqlType.BOOLEAN:
+                return sa.Boolean()
+            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+                return sa.TIMESTAMP(timezone=True)
+            case SqlType.JSONB | SqlType.MULTI_SELECT:
+                return JSONB()
+            case SqlType.UUID:
+                return sa.UUID()
+            case _:
+                return sa.String()
 
     async def list_tables(self) -> Sequence[Table]:
         """List all lookup tables for a workspace.
@@ -1476,6 +1498,11 @@ class BaseTablesService(BaseWorkspaceService):
             normalised_row = self._normalize_row_inputs(table, row)
             rows_by_columns[frozenset(normalised_row.keys())].append(normalised_row)
 
+        column_type_map = {
+            column.name: self._sa_type_for_column(SqlType(column.type))
+            for column in table.columns
+        }
+
         conn = await self.session.connection()
 
         total_affected = 0
@@ -1495,7 +1522,13 @@ class BaseTablesService(BaseWorkspaceService):
         # Iterate over groups and execute separate INSERT/UPSERT statements.
         for col_set, group_rows in rows_by_columns.items():
             # Sanitize column identifiers for this group
-            cols = [sa.column(self._sanitize_identifier(col)) for col in col_set]
+            cols = [
+                sa.column(
+                    self._sanitize_identifier(col),
+                    type_=column_type_map.get(col),
+                )
+                for col in col_set
+            ]
             table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
 
             if not upsert:
