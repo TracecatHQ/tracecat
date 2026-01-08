@@ -33,8 +33,6 @@ with workflow.unsafe.imports_passed_through():
         SkipStrategy,
         StreamErrorHandlingStrategy,
     )
-    from tracecat.dsl.outcomes import skipped as outcome_skipped
-    from tracecat.dsl.outcomes import to_task_result_dict
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -336,14 +334,8 @@ class DSLScheduler:
             # We do not need to queue any downstream tasks.
             return await self._handle_gather(task, stmt, is_skipping=True)
 
-        # Store the skipped outcome in the context so it's available for expressions
-        # This ensures ${{ ACTIONS.ref.status }} returns "skipped" for skipped tasks
-        context = self.get_context(task.stream_id)
-        skip_outcome = outcome_skipped(reason="skip propagation or run_if condition")
-        context[ExprContext.ACTIONS][ref] = to_task_result_dict(skip_outcome)
-        self.logger.trace(
-            "Stored skipped outcome for task", ref=ref, stream_id=task.stream_id
-        )
+        # NOTE: Skipped tasks are NOT stored in context for backwards compatibility.
+        # Tests expect ${{ ACTIONS.ref }} to not exist for skipped tasks.
 
         # If we skip a task, we need to mark all its outgoing edges as skipped
         all_edges = {
