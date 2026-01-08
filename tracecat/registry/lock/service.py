@@ -2,14 +2,32 @@
 
 from __future__ import annotations
 
+from collections import deque
+
 from sqlalchemy import select
 
 from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import RegistryError
+from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.service import BaseService
+
+# Actions that are interface-only (handled by workflow scheduler, not executor).
+# These define an interface in the registry but raise ActionIsInterfaceError when called directly.
+# Note: PlatformAction includes ai.action which IS a real UDF, so we can't use it directly.
+INTERFACE_ONLY_ACTIONS: frozenset[str] = frozenset(
+    {
+        PlatformAction.CHILD_WORKFLOW_EXECUTE,  # core.workflow.execute
+        PlatformAction.TRANSFORM_SCATTER,  # core.transform.scatter
+        PlatformAction.TRANSFORM_GATHER,  # core.transform.gather
+        PlatformAction.AI_AGENT,  # ai.agent
+        PlatformAction.AI_PRESET_AGENT,  # ai.preset_agent
+        # NOTE: ai.action is NOT included - it's a real UDF executed via the registry
+    }
+)
 
 
 class RegistryLockService(BaseService):
@@ -31,11 +49,15 @@ class RegistryLockService(BaseService):
         For each action in the workflow, determines which registry origin
         contains it and builds a mapping for O(1) resolution at execution time.
 
+        This method recursively discovers template step actions, ensuring all
+        actions needed for execution (including nested template steps) are
+        included in the lock.
+
         Args:
-            action_names: All action names used in the workflow
+            action_names: Top-level action names used in the workflow
 
         Returns:
-            RegistryLock with origins and action bindings
+            RegistryLock with origins and action bindings for all actions
 
         Raises:
             RegistryError: If an action is not found in any registry or is ambiguous
@@ -77,9 +99,17 @@ class RegistryLockService(BaseService):
                 manifest_dict
             )
 
-        # 3. Build action -> origin mapping
+        # 3. Build action -> origin mapping using BFS to include template step actions
         actions: dict[str, str] = {}
-        for action_name in action_names:
+        queue: deque[str] = deque(sorted(action_names - INTERFACE_ONLY_ACTIONS))
+
+        while queue:
+            action_name = queue.popleft()
+
+            # Skip if already resolved
+            if action_name in actions:
+                continue
+
             matching_origins: list[str] = []
             for origin_str, manifest in origin_manifests.items():
                 if action_name in manifest.actions:
@@ -95,7 +125,31 @@ class RegistryLockService(BaseService):
                     f"Ambiguous action '{action_name}' found in multiple registries: "
                     f"{matching_origins}. Please specify the registry explicitly."
                 )
-            actions[action_name] = matching_origins[0]
+
+            resolved_origin = matching_origins[0]
+            actions[action_name] = resolved_origin
+
+            # If this is a template action, add its step actions to the queue
+            manifest = origin_manifests[resolved_origin]
+            manifest_action = manifest.actions.get(action_name)
+            if manifest_action is not None:
+                impl = RegistryActionImplValidator.validate_python(
+                    manifest_action.implementation
+                )
+                if impl.type == "template" and impl.template_action is not None:
+                    for step in impl.template_action.definition.steps:
+                        if step.action in INTERFACE_ONLY_ACTIONS:
+                            continue
+                        if step.action not in actions:
+                            queue.append(step.action)
+
+        # Only keep origins that are actually needed for the resolved actions.
+        used_origins = set(actions.values())
+        origins = {
+            origin: version
+            for origin, version in origins.items()
+            if origin in used_origins
+        }
 
         self.logger.debug(
             "Resolved lock with bindings",

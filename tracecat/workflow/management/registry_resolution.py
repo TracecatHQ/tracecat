@@ -15,6 +15,20 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
+# Actions that are interface-only (handled by workflow scheduler, not executor).
+# These define an interface in the registry but raise ActionIsInterfaceError when called directly.
+# Note: PlatformAction includes ai.action which IS a real UDF, so we can't use it directly.
+INTERFACE_ONLY_ACTIONS: frozenset[str] = frozenset(
+    {
+        PlatformAction.CHILD_WORKFLOW_EXECUTE,  # core.workflow.execute
+        PlatformAction.TRANSFORM_SCATTER,  # core.transform.scatter
+        PlatformAction.TRANSFORM_GATHER,  # core.transform.gather
+        PlatformAction.AI_AGENT,  # ai.agent
+        PlatformAction.AI_PRESET_AGENT,  # ai.preset_agent
+        # NOTE: ai.action is NOT included - it's a real UDF executed via the registry
+    }
+)
+
 
 @dataclass(frozen=True)
 class RegistryActionResolutionError:
@@ -47,7 +61,7 @@ async def resolve_action_origins_from_lock(
         stmt.action
         for stmt in dsl.actions
         if stmt.action
-        not in PlatformAction  # Platform actions aren't resolved via registry
+        not in INTERFACE_ONLY_ACTIONS  # Interface-only actions aren't resolved via registry
     }
     if not roots:
         return {}, []
@@ -222,6 +236,9 @@ async def resolve_action_origins_from_lock(
                 )
                 continue
             for step in impl.template_action.definition.steps:
+                # Skip interface-only actions (handled by workflow scheduler, not registry)
+                if step.action in INTERFACE_ONLY_ACTIONS:
+                    continue
                 if step.action not in resolved:
                     queue.append(step.action)
 
