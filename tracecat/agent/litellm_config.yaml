@@ -47,5 +47,6 @@ general_settings:
   database_url: null
 
 litellm_settings:
-  callbacks: tracecat.agent.gateway.callback_handler
+  callbacks:
+    - tracecat.agent.gateway.callback_handler
   drop_params: true
