@@ -68,6 +68,16 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
+    from tracecat.dsl.outcomes import (
+        ActionOutcome,
+        to_task_result_dict,
+    )
+    from tracecat.dsl.outcomes import (
+        error as outcome_error,
+    )
+    from tracecat.dsl.outcomes import (
+        success as outcome_success,
+    )
     from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
@@ -623,7 +633,8 @@ class DSLWorkflow:
         """
         stream_id = ctx_stream_id.get()
         logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
-        task_result = TaskResult(result=None, result_typename=type(None).__name__)
+        # Initialize with a default success outcome (will be updated on error)
+        outcome: ActionOutcome = outcome_success(result=None)
 
         try:
             # Handle timing control flow logic
@@ -754,9 +765,7 @@ class DSLWorkflow:
                     )
                     action_result = await self._run_action(task)
             logger.trace("Action completed successfully", action_result=action_result)
-            task_result.update(
-                result=action_result, result_typename=type(action_result).__name__
-            )
+            outcome = outcome_success(result=action_result)
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
@@ -768,12 +777,12 @@ class DSLWorkflow:
                 case ApplicationError(details=details) if details:
                     err_info = details[0]
                     err_type = cause.type or err_type
-                    task_result.update(error=err_info, error_typename=err_type)
+                    outcome = outcome_error(err=err_info, error_typename=err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
                     raise cause from e
                 case _:
                     self.logger.warning("Unexpected error cause", cause=cause)
-                    task_result.update(error=e.message, error_typename=err_type)
+                    outcome = outcome_error(err=e.message, error_typename=err_type)
                     raise ApplicationError(
                         e.message, non_retryable=True, type=err_type
                     ) from cause
@@ -781,12 +790,13 @@ class DSLWorkflow:
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__
             detail = e.detail or "Error occurred when handling an expression"
+            outcome = outcome_error(err=detail, error_typename=err_type)
             raise ApplicationError(detail, non_retryable=True, type=err_type) from e
 
         except ValidationError as e:
             logger.warning("Runtime validation error", error=e.errors())
-            task_result.update(
-                error=e.errors(), error_typename=ValidationError.__name__
+            outcome = outcome_error(
+                err=e.errors(), error_typename=ValidationError.__name__
             )
             raise e
         except Exception as e:
@@ -797,13 +807,17 @@ class DSLWorkflow:
                 error=msg,
                 type=err_type,
             )
-            task_result.update(error=msg, error_typename=err_type)
+            outcome = outcome_error(err=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            logger.trace("Setting action result", task_result=task_result)
+            # Convert ActionOutcome to dict for storage in context
+            # This maintains backwards compatibility with expressions
+            task_result_dict = to_task_result_dict(outcome)
+            logger.trace("Setting action result", outcome=outcome)
             context = self.get_context(stream_id)
-            context[ExprContext.ACTIONS][task.ref] = task_result
-        return task_result
+            context[ExprContext.ACTIONS][task.ref] = task_result_dict
+        # Return as TaskResult-compatible dict (cast for type checker)
+        return task_result_dict  # type: ignore[return-value]
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",
