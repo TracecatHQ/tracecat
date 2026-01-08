@@ -1,11 +1,17 @@
-"""MCP utility functions for tool name normalization and definition fetching."""
+"""MCP utility functions for tool name normalization and definition fetching.
+
+This module provides pure utility functions for MCP tool name conversion
+that can be imported without pulling in heavy dependencies (DB, logging).
+
+The fetch_tool_definitions() function requires DB access and uses lazy imports.
+"""
 
 from __future__ import annotations
 
-from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
-from tracecat.registry.actions.service import RegistryActionsService
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tracecat.agent.mcp.types import MCPToolDefinition
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -62,12 +68,21 @@ async def fetch_tool_definitions(
     Called by the job creator (who has DB access) before launching proxy.
     Returns dict mapping action names to their full definitions.
 
+    Note: This function uses lazy imports to avoid pulling in DB dependencies
+    when only the pure utility functions are needed.
+
     Args:
         action_names: List of action names to fetch definitions for.
 
     Returns:
         Dict mapping action names to MCPToolDefinition objects.
     """
+    # Lazy imports - only orchestrator calls this function
+    from tracecat.agent.mcp.types import MCPToolDefinition
+    from tracecat.logger import logger
+    from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
+    from tracecat.registry.actions.service import RegistryActionsService
+
     definitions: dict[str, MCPToolDefinition] = {}
 
     async with RegistryActionsService.with_session() as svc:

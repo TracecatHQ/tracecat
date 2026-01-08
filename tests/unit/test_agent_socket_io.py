@@ -19,12 +19,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tracecat.agent.runtime import ClaudeAgentRuntime
 from tracecat.agent.sandbox.protocol import (
     RuntimeEventEnvelope,
     RuntimeEventEnvelopeTA,
     RuntimeInitPayload,
 )
+from tracecat.agent.sandbox.runtime import ClaudeAgentRuntime
 from tracecat.agent.sandbox.socket_io import SocketStreamWriter
 from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.types import AgentConfig

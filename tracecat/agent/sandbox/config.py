@@ -1,13 +1,19 @@
 """NSJail configuration generation for agent runtime sandbox.
 
 This module generates protobuf-format nsjail configurations specifically
-for running the ClaudeAgentRuntime in an isolated sandbox.
+for running the minimal agent runtime in an isolated sandbox.
 
-Key differences from Python sandbox (tracecat/sandbox/executor.py):
-- Network enabled (for LiteLLM gateway access)
-- Long-running process with socket communication
-- Claude SDK session storage mount
-- Entry point is the agent runtime module
+Security model:
+- Network ISOLATED (clone_newnet: true) - no direct network access
+- All tool execution via MCP socket to trusted server outside sandbox
+- Uses same base rootfs as action sandbox (Python 3.12)
+- Site-packages mounted read-only for Claude SDK deps
+- minimal_runtime.py + shared/ copied to /work at spawn time
+
+Key design (same pattern as action sandbox):
+- Copy runtime code to /work at spawn time (not baked into rootfs)
+- Mount site-packages read-only for deps
+- Single source of truth for runtime code
 """
 
 from __future__ import annotations
@@ -51,15 +57,10 @@ class AgentSandboxConfig:
     Attributes:
         resources: Resource limits for the sandbox.
         env_vars: Environment variables to inject into the sandbox.
-        allowed_network_hosts: Set of allowed network destinations (host:port format).
-            Network namespace isolation is always enabled. Only these specific
-            endpoints will be reachable (e.g., {"litellm-gateway:8080"}).
-            Empty set means no network access.
     """
 
     resources: AgentResourceLimits = field(default_factory=AgentResourceLimits)
     env_vars: dict[str, str] = field(default_factory=dict)
-    allowed_network_hosts: set[str] = field(default_factory=set)
 
 
 # Minimal base environment for sandboxed agent processes
@@ -70,6 +71,10 @@ AGENT_SANDBOX_BASE_ENV = {
     "PYTHONUNBUFFERED": "1",
     "LANG": "C.UTF-8",
     "LC_ALL": "C.UTF-8",
+    # Required for Python to find libpython3.12.so in nsjail sandbox
+    "LD_LIBRARY_PATH": "/usr/local/lib:/usr/lib:/lib",
+    # PYTHONPATH set to /work so Python finds copied tracecat.agent.shared
+    "PYTHONPATH": "/work:/site-packages",
 }
 
 
@@ -97,9 +102,28 @@ def _validate_path(path: Path, name: str) -> None:
         name: Human-readable name for error messages.
 
     Raises:
-        AgentSandboxValidationError: If path contains dangerous characters.
+        AgentSandboxValidationError: If path contains dangerous characters or traversal.
     """
     path_str = str(path)
+
+    # Check for null bytes (can truncate paths in C-based tools)
+    if "\x00" in path_str:
+        raise AgentSandboxValidationError(f"Invalid {name} path: contains null byte")
+
+    # Check for path traversal attempts
+    # Resolve to absolute and check it doesn't escape expected boundaries
+    try:
+        resolved = path.resolve()
+        # After resolution, ".." should not appear in the path
+        if ".." in str(resolved):
+            raise AgentSandboxValidationError(
+                f"Invalid {name} path: contains path traversal after resolution"
+            )
+    except (OSError, ValueError) as e:
+        raise AgentSandboxValidationError(
+            f"Invalid {name} path: failed to resolve - {e}"
+        ) from e
+
     # Characters that could break protobuf text format parsing
     dangerous_chars = {'"', "'", "\n", "\r", "\\", "{", "}"}
     found_chars = [c for c in dangerous_chars if c in path_str]
@@ -108,24 +132,33 @@ def _validate_path(path: Path, name: str) -> None:
             f"Invalid {name} path: contains dangerous characters {found_chars!r}"
         )
 
-
-# Entrypoint module invoked by nsjail
-ENTRYPOINT_MODULE = "tracecat.agent.sandbox.entrypoint"
+    # Reject raw ".." components even before resolution (defense in depth)
+    path_parts = path_str.split("/")
+    if ".." in path_parts:
+        raise AgentSandboxValidationError(
+            f"Invalid {name} path: contains '..' path traversal component"
+        )
 
 
 def build_agent_nsjail_config(
     rootfs: Path,
+    job_dir: Path,
     socket_dir: Path,
-    control_socket_name: str,
     config: AgentSandboxConfig,
+    site_packages_dir: Path,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
+    Uses the same rootfs as action sandbox. Runtime code (minimal_runtime.py
+    and shared/) is copied to job_dir before calling this function.
+
     Args:
-        rootfs: Path to the sandbox rootfs.
-        socket_dir: Directory containing Unix sockets (will be bind-mounted).
-        control_socket_name: Name of the control socket file in socket_dir.
+        rootfs: Path to the sandbox rootfs (same as action sandbox).
+        job_dir: Directory containing copied runtime code and config.
+        socket_dir: Directory containing Unix sockets (control.sock, mcp.sock).
+            Mounted at /var/run/tracecat in the sandbox.
         config: Agent sandbox configuration.
+        site_packages_dir: Path to site-packages with Claude SDK deps.
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -135,7 +168,9 @@ def build_agent_nsjail_config(
     """
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
+    _validate_path(job_dir, "job_dir")
     _validate_path(socket_dir, "socket_dir")
+    _validate_path(site_packages_dir, "site_packages_dir")
 
     lines = [
         'name: "agent_sandbox"',
@@ -143,7 +178,7 @@ def build_agent_nsjail_config(
         'hostname: "agent"',
         "keep_env: false",
         "",
-        "# Namespace isolation - network namespace always enabled for security",
+        "# Namespace isolation - network isolated for security",
         "clone_newnet: true",
         "clone_newuser: true",
         "clone_newns: true",
@@ -155,7 +190,7 @@ def build_agent_nsjail_config(
         f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
         f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
         "",
-        "# Rootfs mounts - read-only base system",
+        "# Rootfs mounts - read-only base system (same rootfs as action sandbox)",
         f'mount {{ src: "{rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
         f'mount {{ src: "{rootfs}/lib" dst: "/lib" is_bind: true rw: false }}',
         f'mount {{ src: "{rootfs}/bin" dst: "/bin" is_bind: true rw: false }}',
@@ -178,6 +213,8 @@ def build_agent_nsjail_config(
     lines.extend(
         [
             "",
+            'mount { dst: "/proc" fstype: "proc" rw: false }',
+            "",
             "# /dev essentials",
             'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',
             'mount { src: "/dev/urandom" dst: "/dev/urandom" is_bind: true rw: false }',
@@ -187,8 +224,15 @@ def build_agent_nsjail_config(
             "# Temporary filesystems",
             'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
             "",
-            "# Socket directory - for orchestrator communication",
-            f'mount {{ src: "{socket_dir}" dst: "/sockets" is_bind: true rw: true }}',
+            "# Job directory - contains copied runtime code",
+            f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
+            "",
+            "# Site-packages - Claude SDK and other deps (read-only)",
+            f'mount {{ src: "{site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}',
+            "",
+            "# Socket directory - contains control.sock and mcp.sock",
+            "# Mounted at /var/run/tracecat to match hardcoded paths in minimal_runtime",
+            f'mount {{ src: "{socket_dir}" dst: "/var/run/tracecat" is_bind: true rw: true }}',
             "",
             "# Agent home directory with Claude SDK session storage",
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
@@ -209,14 +253,13 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # Execution settings - agent runtime entry point
-    socket_path = f"/sockets/{control_socket_name}"
+    # Execution settings - minimal agent runtime (copied to /work)
     lines.extend(
         [
             "",
-            "# Execution - agent runtime entry point",
-            'cwd: "/home/agent"',
-            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-m" arg: "{ENTRYPOINT_MODULE}" arg: "--socket" arg: "{socket_path}" }}',
+            "# Execution - minimal agent runtime (copied to /work at spawn time)",
+            'cwd: "/work"',
+            'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runtime.py" }',
         ]
     )
 
