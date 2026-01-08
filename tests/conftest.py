@@ -8,6 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
 
+# Set workflow return strategy BEFORE importing tracecat modules
+# test_workflows.py was written when we returned the full context by default
+# This must happen before any tracecat imports to ensure config reads the correct value
+os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+
 import aioboto3
 import pytest
 import tracecat_registry.integrations.aws_boto3 as boto3_module
@@ -198,7 +203,7 @@ def db() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def registry_version_with_manifest(db: None) -> Iterator[None]:
+def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None]:
     """Session-scoped fixture to create a RegistryVersion with manifest for core actions.
 
     This enables versioned action resolution in workflow tests. The manifest includes
@@ -210,290 +215,325 @@ def registry_version_with_manifest(db: None) -> Iterator[None]:
 
     from tracecat.db.models import RegistryRepository, RegistryVersion
 
-    # Use sync engine to avoid event loop conflicts
-    sync_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
+    def _seed_registry_version(sync_db_uri: str) -> None:
+        # Use sync engine to avoid event loop conflicts.
+        sync_db_uri = sync_db_uri.replace("+asyncpg", "+psycopg")
+        sync_engine = create_engine(sync_db_uri)
 
-    with Session(sync_engine) as session:
-        # Create a registry repository for core actions
-        origin = "tracecat_registry"
-        repo = session.scalar(
-            select(RegistryRepository).where(RegistryRepository.origin == origin)
-        )
-        if repo is None:
-            repo = RegistryRepository(
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-                origin=origin,
-            )
-            session.add(repo)
-            try:
-                session.commit()
-            except IntegrityError:
-                session.rollback()
-                repo = session.scalar(
-                    select(RegistryRepository).where(
-                        RegistryRepository.origin == origin
-                    )
+        with Session(sync_engine) as session:
+            # Create a registry repository for core actions
+            origin = "tracecat_registry"
+            repo = session.scalar(
+                select(RegistryRepository).where(
+                    RegistryRepository.organization_id
+                    == config.TRACECAT__DEFAULT_ORG_ID,
+                    RegistryRepository.origin == origin,
                 )
-                if repo is None:
-                    raise
-            else:
-                session.refresh(repo)
-
-        # Create manifest with core actions used in tests
-        manifest_actions = {}
-
-        # Core transform actions
-        core_transform_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.transform",
-            "name": "reshape",
-        }
-        manifest_actions["core.transform.reshape"] = {
-            "namespace": "core.transform",
-            "name": "reshape",
-            "action_type": "udf",
-            "description": "Reshapes the input value to the output",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": core_transform_impl,
-        }
-
-        # core.http_request
-        http_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.http",
-            "name": "http_request",
-        }
-        manifest_actions["core.http_request"] = {
-            "namespace": "core",
-            "name": "http_request",
-            "action_type": "udf",
-            "description": "Make an HTTP request",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": http_impl,
-        }
-
-        # core.workflow.execute
-        wf_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.workflow",
-            "name": "execute",
-        }
-        manifest_actions["core.workflow.execute"] = {
-            "namespace": "core.workflow",
-            "name": "execute",
-            "action_type": "udf",
-            "description": "Execute a child workflow",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": wf_impl,
-        }
-
-        # core.transform.filter
-        filter_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.transform",
-            "name": "filter",
-        }
-        manifest_actions["core.transform.filter"] = {
-            "namespace": "core.transform",
-            "name": "filter",
-            "action_type": "udf",
-            "description": "Filter a collection",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": filter_impl,
-        }
-
-        # core.transform.transform (alias for reshape in some tests)
-        transform_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.transform",
-            "name": "reshape",
-        }
-        manifest_actions["core.transform.transform"] = {
-            "namespace": "core.transform",
-            "name": "transform",
-            "action_type": "udf",
-            "description": "Transform data",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": transform_impl,
-        }
-
-        # core.send_email (used in some template tests)
-        email_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.email",
-            "name": "send_email",
-        }
-        manifest_actions["core.send_email"] = {
-            "namespace": "core",
-            "name": "send_email",
-            "action_type": "udf",
-            "description": "Send an email",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": email_impl,
-        }
-
-        # core.open_case
-        open_case_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.cases",
-            "name": "open_case",
-        }
-        manifest_actions["core.open_case"] = {
-            "namespace": "core",
-            "name": "open_case",
-            "action_type": "udf",
-            "description": "Open a case",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": open_case_impl,
-        }
-
-        # core.table.lookup
-        table_lookup_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.table",
-            "name": "lookup",
-        }
-        manifest_actions["core.table.lookup"] = {
-            "namespace": "core.table",
-            "name": "lookup",
-            "action_type": "udf",
-            "description": "Lookup table value",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": table_lookup_impl,
-        }
-
-        # core.table.insert
-        table_insert_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.table",
-            "name": "insert",
-        }
-        manifest_actions["core.table.insert"] = {
-            "namespace": "core.table",
-            "name": "insert",
-            "action_type": "udf",
-            "description": "Insert table row",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": table_insert_impl,
-        }
-
-        # core.script.run_python
-        script_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.script",
-            "name": "run_python",
-        }
-        manifest_actions["core.script.run_python"] = {
-            "namespace": "core.script",
-            "name": "run_python",
-            "action_type": "udf",
-            "description": "Run a Python script",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": script_impl,
-        }
-
-        # core.ai.extract
-        ai_extract_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.ai",
-            "name": "extract",
-        }
-        manifest_actions["core.ai.extract"] = {
-            "namespace": "core.ai",
-            "name": "extract",
-            "action_type": "udf",
-            "description": "AI extraction",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": ai_extract_impl,
-        }
-
-        # core.transform.map
-        map_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.core.transform",
-            "name": "map",
-        }
-        manifest_actions["core.transform.map"] = {
-            "namespace": "core.transform",
-            "name": "map",
-            "action_type": "udf",
-            "description": "Map over items",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": map_impl,
-        }
-
-        # integrations.sinks.webhook
-        webhook_impl = {
-            "type": "udf",
-            "url": origin,
-            "module": "tracecat_registry.integrations.sinks",
-            "name": "webhook",
-        }
-        manifest_actions["integrations.sinks.webhook"] = {
-            "namespace": "integrations.sinks",
-            "name": "webhook",
-            "action_type": "udf",
-            "description": "Send webhook",
-            "interface": {"expects": {}, "returns": None},
-            "implementation": webhook_impl,
-        }
-
-        manifest = {"schema_version": "1.0", "actions": manifest_actions}
-
-        # Create RegistryVersion with manifest
-        version = "test-version"
-        rv = session.scalar(
-            select(RegistryVersion).where(
-                RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
-                RegistryVersion.repository_id == repo.id,
-                RegistryVersion.version == version,
             )
-        )
-        if rv is None:
-            rv = RegistryVersion(
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-                repository_id=repo.id,
-                version=version,
-                manifest=manifest,
-                tarball_uri="s3://test/test.tar.gz",
-            )
-            session.add(rv)
-            try:
-                session.commit()
-            except IntegrityError:
-                session.rollback()
-                rv = session.scalar(
-                    select(RegistryVersion).where(
-                        RegistryVersion.organization_id
-                        == config.TRACECAT__DEFAULT_ORG_ID,
-                        RegistryVersion.repository_id == repo.id,
-                        RegistryVersion.version == version,
-                    )
+            if repo is None:
+                repo = RegistryRepository(
+                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    origin=origin,
                 )
-                if rv is None:
-                    raise
+                session.add(repo)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    repo = session.scalar(
+                        select(RegistryRepository).where(
+                            RegistryRepository.organization_id
+                            == config.TRACECAT__DEFAULT_ORG_ID,
+                            RegistryRepository.origin == origin,
+                        )
+                    )
+                    if repo is None:
+                        raise
+                else:
+                    session.refresh(repo)
+
+            # Create manifest with core actions used in tests
+            manifest_actions = {}
+
+            # Core transform actions
+            core_transform_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "reshape",
+            }
+            manifest_actions["core.transform.reshape"] = {
+                "namespace": "core.transform",
+                "name": "reshape",
+                "action_type": "udf",
+                "description": "Reshapes the input value to the output",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": core_transform_impl,
+            }
+
+            # core.http_request
+            http_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.http",
+                "name": "http_request",
+            }
+            manifest_actions["core.http_request"] = {
+                "namespace": "core",
+                "name": "http_request",
+                "action_type": "udf",
+                "description": "Make an HTTP request",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": http_impl,
+            }
+
+            # core.workflow.execute
+            wf_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.workflow",
+                "name": "execute",
+            }
+            manifest_actions["core.workflow.execute"] = {
+                "namespace": "core.workflow",
+                "name": "execute",
+                "action_type": "udf",
+                "description": "Execute a child workflow",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": wf_impl,
+            }
+
+            # core.transform.filter
+            filter_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "filter",
+            }
+            manifest_actions["core.transform.filter"] = {
+                "namespace": "core.transform",
+                "name": "filter",
+                "action_type": "udf",
+                "description": "Filter a collection",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": filter_impl,
+            }
+
+            # core.transform.transform (alias for reshape in some tests)
+            transform_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "reshape",
+            }
+            manifest_actions["core.transform.transform"] = {
+                "namespace": "core.transform",
+                "name": "transform",
+                "action_type": "udf",
+                "description": "Transform data",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": transform_impl,
+            }
+
+            # core.send_email (used in some template tests)
+            email_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.email",
+                "name": "send_email",
+            }
+            manifest_actions["core.send_email"] = {
+                "namespace": "core",
+                "name": "send_email",
+                "action_type": "udf",
+                "description": "Send an email",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": email_impl,
+            }
+
+            # core.open_case
+            open_case_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.cases",
+                "name": "open_case",
+            }
+            manifest_actions["core.open_case"] = {
+                "namespace": "core",
+                "name": "open_case",
+                "action_type": "udf",
+                "description": "Open a case",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": open_case_impl,
+            }
+
+            # core.table.lookup
+            table_lookup_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.table",
+                "name": "lookup",
+            }
+            manifest_actions["core.table.lookup"] = {
+                "namespace": "core.table",
+                "name": "lookup",
+                "action_type": "udf",
+                "description": "Lookup table value",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": table_lookup_impl,
+            }
+
+            # core.table.insert
+            table_insert_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.table",
+                "name": "insert",
+            }
+            manifest_actions["core.table.insert"] = {
+                "namespace": "core.table",
+                "name": "insert",
+                "action_type": "udf",
+                "description": "Insert table row",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": table_insert_impl,
+            }
+
+            # core.table.insert_row
+            table_insert_row_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.table",
+                "name": "insert_row",
+            }
+            manifest_actions["core.table.insert_row"] = {
+                "namespace": "core.table",
+                "name": "insert_row",
+                "action_type": "udf",
+                "description": "Insert a row into a table",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": table_insert_row_impl,
+            }
+
+            # core.script.run_python
+            script_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.script",
+                "name": "run_python",
+            }
+            manifest_actions["core.script.run_python"] = {
+                "namespace": "core.script",
+                "name": "run_python",
+                "action_type": "udf",
+                "description": "Run a Python script",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": script_impl,
+            }
+
+            # core.ai.extract
+            ai_extract_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ai",
+                "name": "extract",
+            }
+            manifest_actions["core.ai.extract"] = {
+                "namespace": "core.ai",
+                "name": "extract",
+                "action_type": "udf",
+                "description": "AI extraction",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": ai_extract_impl,
+            }
+
+            # core.transform.map
+            map_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "map",
+            }
+            manifest_actions["core.transform.map"] = {
+                "namespace": "core.transform",
+                "name": "map",
+                "action_type": "udf",
+                "description": "Map over items",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": map_impl,
+            }
+
+            # integrations.sinks.webhook
+            webhook_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.integrations.sinks",
+                "name": "webhook",
+            }
+            manifest_actions["integrations.sinks.webhook"] = {
+                "namespace": "integrations.sinks",
+                "name": "webhook",
+                "action_type": "udf",
+                "description": "Send webhook",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": webhook_impl,
+            }
+
+            manifest = {"schema_version": "1.0", "actions": manifest_actions}
+
+            # Create RegistryVersion with manifest
+            version = "test-version"
+            rv = session.scalar(
+                select(RegistryVersion).where(
+                    RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+                    RegistryVersion.repository_id == repo.id,
+                    RegistryVersion.version == version,
+                )
+            )
+            if rv is None:
+                rv = RegistryVersion(
+                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    repository_id=repo.id,
+                    version=version,
+                    manifest=manifest,
+                    tarball_uri="s3://test/test.tar.gz",
+                )
+                session.add(rv)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    rv = session.scalar(
+                        select(RegistryVersion).where(
+                            RegistryVersion.organization_id
+                            == config.TRACECAT__DEFAULT_ORG_ID,
+                            RegistryVersion.repository_id == repo.id,
+                            RegistryVersion.version == version,
+                        )
+                    )
+                    if rv is None:
+                        raise
+                else:
+                    session.refresh(rv)
             else:
-                session.refresh(rv)
-        else:
-            rv.manifest = manifest
-            rv.tarball_uri = "s3://test/test.tar.gz"
-            session.commit()
-        logger.info(
-            "Created registry version with manifest",
-            extra={"version": version, "num_actions": len(manifest_actions)},
-        )
+                rv.manifest = manifest
+                rv.tarball_uri = "s3://test/test.tar.gz"
+                session.commit()
+            logger.info(
+                "Created registry version with manifest",
+                extra={
+                    "db_uri": sync_db_uri,
+                    "version": version,
+                    "num_actions": len(manifest_actions),
+                },
+            )
+
+        sync_engine.dispose()
+
+    # Seed both the per-test database and the default engine DB (used by services via with_session()).
+    target_uris = {TEST_DB_CONFIG.test_url_sync, config.TRACECAT__DB_URI}
+    for uri in sorted(target_uris):
+        _seed_registry_version(uri)
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
@@ -570,10 +610,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
         # Force compression for local unit tests
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
-
-    # test_workflows.py was written when we returned the full context by default
-    monkeysession.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
-    monkeysession.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
 
     # Add Homebrew path for macOS development environments
     monkeysession.setattr(
