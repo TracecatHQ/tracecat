@@ -252,27 +252,43 @@ class TestTaskResultCompatibility:
     def test_to_task_result_dict_success(self):
         outcome = success(result=42)
         d = to_task_result_dict(outcome)
-        assert d["status"] == "success"
-        assert d["result"] == 42
-        assert d["result_typename"] == "int"
+        # Only TaskResult fields, no status
+        assert d == {"result": 42, "result_typename": "int"}
+        assert "status" not in d  # Backwards compat: no new fields
+
+    def test_to_task_result_dict_success_with_interaction(self):
+        outcome = success(
+            result="ok",
+            interaction={"type": "confirm"},
+            interaction_id="int-123",
+            interaction_type="confirm",
+        )
+        d = to_task_result_dict(outcome)
+        assert d["result"] == "ok"
+        assert d["interaction"] == {"type": "confirm"}
+        assert d["interaction_id"] == "int-123"
+        assert d["interaction_type"] == "confirm"
 
     def test_to_task_result_dict_error(self):
         outcome = error(err="oops", error_typename="str")
         d = to_task_result_dict(outcome)
-        assert d["status"] == "error"
         assert d["error"] == "oops"
+        assert d["error_typename"] == "str"
         # Backwards compat fields
         assert d["result"] is None
         assert d["result_typename"] == "NoneType"
+        assert "status" not in d
 
     def test_to_task_result_dict_skipped(self):
         outcome = skipped(reason="test")
         d = to_task_result_dict(outcome)
-        assert d["status"] == "skipped"
-        assert d["reason"] == "test"
-        # Backwards compat fields
+        # Backwards compat fields only
         assert d["result"] is None
+        assert d["result_typename"] == "NoneType"
         assert d["error"] is None
+        assert d["error_typename"] is None
+        assert "status" not in d
+        assert "reason" not in d  # reason is not a TaskResult field
 
 
 class TestResultRef:

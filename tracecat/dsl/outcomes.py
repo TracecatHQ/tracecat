@@ -432,32 +432,61 @@ def to_task_result_dict(outcome: ActionOutcome) -> dict[str, Any]:
     """Convert an ActionOutcome to a TaskResult-compatible dict.
 
     This provides backwards compatibility for code expecting TaskResult structure.
-    The resulting dict includes the `status` field for discrimination but also
-    includes all the fields that TaskResult expects.
+    Only includes the original TaskResult fields to avoid breaking existing tests
+    and code that checks for exact dict structure.
 
     Args:
         outcome: An ActionOutcome instance.
 
     Returns:
-        A dict compatible with both TaskResult and ActionOutcome access patterns.
+        A dict with only TaskResult fields: result, result_typename, error,
+        error_typename, interaction, interaction_id, interaction_type.
     """
-    base = outcome.model_dump()
+    if isinstance(outcome, ActionOutcomeSuccess):
+        result: dict[str, Any] = {
+            "result": outcome.result,
+            "result_typename": outcome.result_typename,
+        }
+        # Only include interaction fields if present
+        if outcome.interaction is not None:
+            result["interaction"] = outcome.interaction
+        if outcome.interaction_id is not None:
+            result["interaction_id"] = outcome.interaction_id
+        if outcome.interaction_type is not None:
+            result["interaction_type"] = outcome.interaction_type
+        return result
 
-    # Ensure backwards-compatible fields are present
-    if isinstance(
-        outcome, (ActionOutcomeSuccess, ActionOutcomeScatter, ActionOutcomeGather)
-    ):
-        # These already have result/result_typename from model_dump
-        pass
-    elif isinstance(outcome, ActionOutcomeError):
-        # Add result fields for backwards compat (they're properties, not fields)
-        base["result"] = None
-        base["result_typename"] = "NoneType"
-    elif isinstance(outcome, ActionOutcomeSkipped):
-        # Add result and error fields for backwards compat
-        base["result"] = None
-        base["result_typename"] = "NoneType"
-        base["error"] = None
-        base["error_typename"] = None
+    if isinstance(outcome, ActionOutcomeError):
+        return {
+            "result": None,
+            "result_typename": "NoneType",
+            "error": outcome.error,
+            "error_typename": outcome.error_typename,
+        }
 
-    return base
+    if isinstance(outcome, ActionOutcomeSkipped):
+        return {
+            "result": None,
+            "result_typename": "NoneType",
+            "error": None,
+            "error_typename": None,
+        }
+
+    if isinstance(outcome, ActionOutcomeScatter):
+        return {
+            "result": outcome.result,
+            "result_typename": outcome.result_typename,
+        }
+
+    if isinstance(outcome, ActionOutcomeGather):
+        result = {
+            "result": outcome.result,
+            "result_typename": outcome.result_typename,
+        }
+        if outcome.error is not None:
+            result["error"] = outcome.error
+            result["error_typename"] = outcome.error_typename
+        return result
+
+    # Fallback for unknown types
+    return outcome.model_dump()
