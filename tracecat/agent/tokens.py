@@ -134,12 +134,15 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
     except ValidationError as exc:
         raise ValueError("MCP token role claim is invalid") from exc
 
-    return MCPTokenClaims(
-        role=role,
-        run_id=payload.get("run_id"),
-        session_id=payload.get("session_id"),
-        allowed_actions=allowed_actions_payload,
-    )
+    try:
+        return MCPTokenClaims(
+            role=role,
+            run_id=payload.get("run_id"),
+            session_id=payload.get("session_id"),
+            allowed_actions=allowed_actions_payload,
+        )
+    except ValidationError as exc:
+        raise ValueError("Invalid MCP token claims") from exc
 
 
 # -----------------------------------------------------------------------------
