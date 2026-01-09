@@ -5,6 +5,7 @@ Uses InMemoryObjectStorage as the test double - no mocks needed.
 
 import pytest
 
+from tracecat.expressions.common import ExprContext
 from tracecat.storage.object import (
     HydrationCache,
     InMemoryObjectStorage,
@@ -359,31 +360,31 @@ class TestHydrateExecutionContext:
     async def test_hydrate_context_without_refs(self):
         """Test hydrating context without any ObjectRefs."""
         context = {
-            "TRIGGER": {"event": "test", "data": {"foo": "bar"}},
-            "ACTIONS": {
+            ExprContext.TRIGGER: {"event": "test", "data": {"foo": "bar"}},
+            ExprContext.ACTIONS: {
                 "action1": {"result": {"success": True}},
                 "action2": {"result": [1, 2, 3]},
             },
         }
         result = await hydrate_execution_context(context)
 
-        assert result["TRIGGER"] == {"event": "test", "data": {"foo": "bar"}}
-        assert result["ACTIONS"]["action1"]["result"] == {"success": True}
-        assert result["ACTIONS"]["action2"]["result"] == [1, 2, 3]
+        assert result[ExprContext.TRIGGER] == {"event": "test", "data": {"foo": "bar"}}
+        assert result[ExprContext.ACTIONS]["action1"]["result"] == {"success": True}
+        assert result[ExprContext.ACTIONS]["action2"]["result"] == [1, 2, 3]
 
     @pytest.mark.anyio
     async def test_hydrate_preserves_other_context_keys(self):
         """Test that hydration preserves other context keys."""
         context = {
-            "TRIGGER": {"data": 1},
-            "ACTIONS": {},
-            "ENV": {"key": "value"},
-            "SECRETS": {"api_key": "secret"},
+            ExprContext.TRIGGER: {"data": 1},
+            ExprContext.ACTIONS: {},
+            ExprContext.ENV: {"key": "value"},
+            ExprContext.SECRETS: {"api_key": "secret"},
         }
         result = await hydrate_execution_context(context)
 
-        assert result["ENV"] == {"key": "value"}
-        assert result["SECRETS"] == {"api_key": "secret"}
+        assert result[ExprContext.ENV] == {"key": "value"}
+        assert result[ExprContext.SECRETS] == {"api_key": "secret"}
 
 
 class TestDependencyInjection:
