@@ -213,7 +213,15 @@ class ClaudeAgentRuntime:
             for line in new_lines:
                 if line.strip():  # Skip empty lines
                     # Parse to determine visibility, but send raw line for SDK resume
-                    line_data = orjson.loads(line)
+                    try:
+                        line_data = orjson.loads(line)
+                    except orjson.JSONDecodeError:
+                        print(
+                            f"[RUNTIME] Failed to parse line: {line}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        continue
                     internal = self._is_internal_session_line(line_data)
 
                     # On continuation, mark the continuation prompt (first user message) as internal

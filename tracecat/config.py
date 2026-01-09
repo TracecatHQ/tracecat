@@ -427,15 +427,6 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
-TRACECAT__DISABLE_AGENT_NSJAIL = os.environ.get(
-    "TRACECAT__DISABLE_AGENT_NSJAIL", "true"
-).lower() in ("true", "1")
-"""Disable nsjail sandbox for agent runtime.
-
-When True (default), agent runs in-process without sandbox isolation.
-When False, spawns ClaudeAgentRuntime inside nsjail with full OS-level isolation.
-"""
-
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"

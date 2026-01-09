@@ -29,6 +29,32 @@ from tracecat.agent.sandbox.exceptions import AgentSandboxValidationError
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
+    """Check for null bytes and control characters that could affect sandbox behavior.
+
+    Null bytes can truncate strings in C-based tools like nsjail. Control characters
+    could affect sandbox behavior in unexpected ways.
+
+    Args:
+        value: String value to check.
+
+    Returns:
+        Tuple of (is_dangerous, reason). If is_dangerous is False, reason is None.
+    """
+    if "\x00" in value:
+        return True, "contains null byte"
+
+    for char in value:
+        code = ord(char)
+        # Control chars 0x01-0x1F (except tab 0x09, newline 0x0A, CR 0x0D) and DEL 0x7F
+        if code < 0x20 and code not in (0x09, 0x0A, 0x0D):
+            return True, f"contains control character 0x{code:02x}"
+        if code == 0x7F:
+            return True, "contains DEL control character"
+
+    return False, None
+
+
 @dataclass(frozen=True)
 class AgentResourceLimits:
     """Resource limits for agent sandbox execution.
@@ -94,6 +120,23 @@ def _validate_env_key(key: str) -> None:
         )
 
 
+def _validate_env_value(key: str, value: str) -> None:
+    """Validate environment variable value is safe for sandbox execution.
+
+    Args:
+        key: Environment variable name (for error messages).
+        value: Environment variable value to validate.
+
+    Raises:
+        AgentSandboxValidationError: If value contains dangerous characters.
+    """
+    is_dangerous, reason = _contains_dangerous_chars(value)
+    if is_dangerous:
+        raise AgentSandboxValidationError(
+            f"Invalid environment variable value for {key!r}: {reason}"
+        )
+
+
 def _validate_path(path: Path, name: str) -> None:
     """Validate path is safe for protobuf config interpolation.
 
@@ -106,9 +149,10 @@ def _validate_path(path: Path, name: str) -> None:
     """
     path_str = str(path)
 
-    # Check for null bytes (can truncate paths in C-based tools)
-    if "\x00" in path_str:
-        raise AgentSandboxValidationError(f"Invalid {name} path: contains null byte")
+    # Check for null bytes and control characters
+    is_dangerous, reason = _contains_dangerous_chars(path_str)
+    if is_dangerous:
+        raise AgentSandboxValidationError(f"Invalid {name} path: {reason}")
 
     # Check for path traversal attempts
     # Resolve to absolute and check it doesn't escape expected boundaries
@@ -276,12 +320,13 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
         Dictionary of environment variables to pass to nsjail.
 
     Raises:
-        AgentSandboxValidationError: If any env var key is invalid.
+        AgentSandboxValidationError: If any env var key or value is invalid.
     """
     env_map: dict[str, str] = {**AGENT_SANDBOX_BASE_ENV}
 
     for key, value in config.env_vars.items():
         _validate_env_key(key)
+        _validate_env_value(key, value)
         if key in AGENT_SANDBOX_BASE_ENV:
             raise AgentSandboxValidationError(
                 f"Cannot override protected env var: {key}"

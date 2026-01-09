@@ -25,7 +25,7 @@ from tracecat.agent.sandbox.protocol import (
     RuntimeInitPayload,
 )
 from tracecat.agent.sandbox.runtime import ClaudeAgentRuntime
-from tracecat.agent.sandbox.socket_io import SocketStreamWriter
+from tracecat.agent.sandbox.socket_io import SocketStreamWriter, read_message
 from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.types import AgentConfig
 
@@ -72,7 +72,7 @@ class TestRuntimeSocketCommunication:
         self,
         mock_claude_sdk_client: MagicMock,
     ) -> None:
-        """Test that runtime streams events correctly over Unix socket."""
+        """Test that runtime streams done event correctly over Unix socket."""
         with tempfile.TemporaryDirectory() as tmpdir:
             socket_path = Path(tmpdir) / "test.sock"
 
@@ -89,10 +89,11 @@ class TestRuntimeSocketCommunication:
                 ) -> None:
                     try:
                         while True:
-                            line = await reader.readline()
-                            if not line:
+                            try:
+                                _, payload = await read_message(reader)
+                            except asyncio.IncompleteReadError:
                                 break
-                            envelope = RuntimeEventEnvelopeTA.validate_json(line)
+                            envelope = RuntimeEventEnvelopeTA.validate_json(payload)
                             received_events.append(envelope)
                             if envelope.type == "done":
                                 runtime_done.set()
@@ -118,11 +119,11 @@ class TestRuntimeSocketCommunication:
                 # Create and run runtime with mocked SDK
                 with (
                     patch(
-                        "tracecat.agent.runtime.ClaudeSDKClient",
+                        "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.runtime.create_proxy_mcp_server",
+                        "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
                         AsyncMock(return_value={}),
                     ),
                 ):
@@ -133,17 +134,9 @@ class TestRuntimeSocketCommunication:
                 # Wait for done event
                 await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
 
-                # Verify events
-                assert len(received_events) >= 2  # user_message + done
-
-                # First should be user message
-                first = received_events[0]
-                assert first.type == "event"
-                assert first.event is not None
-                assert first.event.type == StreamEventType.USER_MESSAGE
-                assert first.event.text == "Say hello"
-
-                # Last should be done
+                # Verify done event was received
+                # With empty receive_response, runtime sends only "done"
+                assert len(received_events) >= 1
                 last = received_events[-1]
                 assert last.type == "done"
 
@@ -165,6 +158,7 @@ class TestRuntimeSocketCommunication:
 
             # Mock SDK to yield a stream event
             mock_stream_event = MagicMock()
+            mock_stream_event.session_id = "test-session"
             mock_stream_event.event = {
                 "type": "content_block_delta",
                 "index": 0,
@@ -190,10 +184,11 @@ class TestRuntimeSocketCommunication:
             ) -> None:
                 try:
                     while True:
-                        line = await reader.readline()
-                        if not line:
+                        try:
+                            _, payload = await read_message(reader)
+                        except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(line)
+                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
                         received_events.append(envelope)
                         if envelope.type == "done":
                             runtime_done.set()
@@ -208,23 +203,23 @@ class TestRuntimeSocketCommunication:
             )
 
             try:
-                reader, writer = await asyncio.open_unix_connection(str(socket_path))
+                _, writer = await asyncio.open_unix_connection(str(socket_path))
                 socket_writer = SocketStreamWriter(writer)
 
                 with (
                     patch(
-                        "tracecat.agent.runtime.ClaudeSDKClient",
+                        "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.runtime.create_proxy_mcp_server",
+                        "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
                         AsyncMock(return_value={}),
                     ),
                     patch(
-                        "tracecat.agent.runtime.ClaudeSDKAdapter",
+                        "tracecat.agent.sandbox.runtime.ClaudeSDKAdapter",
                         return_value=mock_adapter,
                     ),
-                    patch("tracecat.agent.runtime.StreamEvent", MagicMock),
+                    patch("tracecat.agent.sandbox.runtime.StreamEvent", MagicMock),
                 ):
                     runtime = ClaudeAgentRuntime(socket_writer)
                     payload = make_init_payload()
@@ -232,12 +227,11 @@ class TestRuntimeSocketCommunication:
 
                 await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
 
-                # Should have user_message, text_delta, done
+                # Should have stream_event (text_delta) and done
                 event_types = [
                     (e.type, e.event.type if e.event else None) for e in received_events
                 ]
-                assert ("event", StreamEventType.USER_MESSAGE) in event_types
-                assert ("event", StreamEventType.TEXT_DELTA) in event_types
+                assert ("stream_event", StreamEventType.TEXT_DELTA) in event_types
                 assert ("done", None) in event_types
 
             finally:
@@ -267,10 +261,11 @@ class TestRuntimeSocketCommunication:
             ) -> None:
                 try:
                     while True:
-                        line = await reader.readline()
-                        if not line:
+                        try:
+                            _, payload = await read_message(reader)
+                        except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(line)
+                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
                         received_events.append(envelope)
                         if envelope.type == "done":
                             runtime_done.set()
@@ -290,11 +285,11 @@ class TestRuntimeSocketCommunication:
 
                 with (
                     patch(
-                        "tracecat.agent.runtime.ClaudeSDKClient",
+                        "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.runtime.create_proxy_mcp_server",
+                        "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
                         AsyncMock(return_value={}),
                     ),
                     pytest.raises(ValueError, match="SDK connection failed"),
@@ -334,10 +329,13 @@ class TestRuntimeSocketCommunication:
             ) -> None:
                 try:
                     while True:
-                        line = await asyncio.wait_for(reader.readline(), timeout=5.0)
-                        if not line:
+                        try:
+                            _, payload = await asyncio.wait_for(
+                                read_message(reader), timeout=5.0
+                            )
+                        except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(line)
+                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
                         received_events.append(envelope)
                 except TimeoutError:
                     pass
