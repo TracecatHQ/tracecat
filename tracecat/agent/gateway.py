@@ -7,7 +7,7 @@ via JWT tokens minted by the agent executor.
 
 from __future__ import annotations
 
-from uuid import UUID
+import uuid
 
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
@@ -19,6 +19,7 @@ from tracecat.agent.config import MODEL_CONFIGS
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
+from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
 
 # -----------------------------------------------------------------------------
@@ -37,40 +38,17 @@ ALLOWED_PROVIDERS = frozenset(
 
 
 async def get_provider_credentials(
-    workspace_id: str,
+    workspace_id: uuid.UUID,
     provider: str,
     use_workspace_creds: bool = False,
 ) -> dict[str, str] | None:
     """Fetch provider credentials using AgentManagementService."""
-    # Validate workspace_id before parsing
-    if not workspace_id:
-        logger.warning("Missing workspace_id in token")
-        raise ProxyException(
-            message="Authentication failed",
-            type="auth_error",
-            param=None,
-            code=401,
-        )
-
-    try:
-        workspace_uuid = UUID(workspace_id)
-    except ValueError as e:
-        logger.warning(
-            "Invalid workspace_id format in token", workspace_id=workspace_id
-        )
-        raise ProxyException(
-            message="Authentication failed",
-            type="auth_error",
-            param=None,
-            code=401,
-        ) from e
-
     # Create a service role for the workspace
     role = Role(
         type="service",
         user_id=None,
         service_id="tracecat-llm-gateway",
-        workspace_id=workspace_uuid,
+        workspace_id=workspace_id,
     )
 
     async with AgentManagementService.with_session(role=role) as service:
@@ -155,7 +133,9 @@ class TracecatCallbackHandler(CustomLogger):
 
         # Fetch credentials via AgentManagementService
         creds = await get_provider_credentials(
-            workspace_id, provider, use_workspace_creds
+            workspace_id=WorkspaceID(workspace_id),
+            provider=provider,
+            use_workspace_creds=use_workspace_creds,
         )
 
         if not creds:

@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.backends.ephemeral import EphemeralBackend
@@ -72,9 +73,14 @@ async def execute_action(
             f"Action '{action_name}' is not in allowed actions for this token"
         )
 
-    # Set role context
-    ctx_role.set(claims.role)
-    role = claims.role
+    # Reconstruct Role from token claims on the trusted side
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=claims.workspace_id,
+        user_id=claims.user_id,
+    )
+    ctx_role.set(role)
 
     logger.info(
         "Executing action via ActionRunner",
@@ -111,7 +117,13 @@ async def _resolve_context(
     Runs on the trusted side with DB access. The resulting ResolvedContext
     is passed to ActionRunner for subprocess execution.
     """
-    role = claims.role
+    # Reconstruct Role from claims (same as in execute_action)
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=claims.workspace_id,
+        user_id=claims.user_id,
+    )
 
     # Get action implementation from DB
     async with RegistryActionsService.with_session() as service:

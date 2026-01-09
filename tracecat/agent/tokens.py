@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from tracecat import config
 from tracecat.agent.types import OutputType
-from tracecat.auth.types import Role
+from tracecat.identifiers import UserID, WorkspaceID
 
 # -----------------------------------------------------------------------------
 # MCP Token (for tool execution)
@@ -39,16 +39,23 @@ MCP_REQUIRED_CLAIMS = (
     "sub",
     "iat",
     "exp",
-    "role",
+    "workspace_id",
     "allowed_actions",
     "session_id",
 )
 
 
 class MCPTokenClaims(BaseModel):
-    """Claims extracted from a verified MCP token."""
+    """Claims extracted from a verified MCP token.
 
-    role: Role
+    Contains minimal identity info needed for action execution.
+    The Role is reconstructed on the trusted side in the executor.
+    """
+
+    workspace_id: WorkspaceID
+    """Workspace UUID for authorization context."""
+    user_id: UserID | None = None
+    """Optional user ID for audit/traceability."""
     session_id: uuid.UUID
     """Agent session ID for traceability."""
     allowed_actions: list[str]
@@ -57,20 +64,26 @@ class MCPTokenClaims(BaseModel):
 
 def mint_mcp_token(
     *,
-    role: Role,
+    workspace_id: WorkspaceID,
     allowed_actions: list[str],
     session_id: uuid.UUID,
+    user_id: UserID | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
-    """Create a signed MCP JWT containing role and allowed actions.
+    """Create a signed MCP JWT containing workspace identity and allowed actions.
 
     This token is minted by the AgentExecutor (trusted) and passed to the
     jailed runtime. The runtime cannot decode or modify it - it's opaque.
 
+    The token contains minimal identity info (workspace_id, user_id) rather than
+    a full Role object. The Role is reconstructed on the trusted side when the
+    token is verified, providing better security isolation.
+
     Args:
-        role: The Role for authorization context
+        workspace_id: Workspace UUID for authorization context
         allowed_actions: Set of allowed action names
-        session_id: Agent session ID for traceability.
+        session_id: Agent session ID for traceability
+        user_id: Optional user ID for audit/traceability
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -88,10 +101,13 @@ def mint_mcp_token(
         "sub": MCP_TOKEN_SUBJECT,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
-        "role": role.model_dump(mode="json"),
+        "workspace_id": str(workspace_id),
         "allowed_actions": allowed_actions,
         "session_id": str(session_id),
     }
+
+    if user_id is not None:
+        payload["user_id"] = str(user_id)
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 
@@ -103,7 +119,7 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
         token: The JWT string to verify
 
     Returns:
-        MCPTokenClaims containing role and allowed_actions
+        MCPTokenClaims containing workspace identity and allowed_actions
 
     Raises:
         ValueError: If token is invalid or missing required claims
@@ -126,29 +142,8 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
     if payload.get("sub") != MCP_TOKEN_SUBJECT:
         raise ValueError("Invalid MCP token subject")
 
-    role_payload = payload.get("role")
-    if role_payload is None:
-        raise ValueError("MCP token missing role claim")
-
-    allowed_actions_payload = payload.get("allowed_actions")
-    if allowed_actions_payload is None:
-        raise ValueError("MCP token missing allowed_actions claim")
-
     try:
-        role = Role.model_validate(role_payload)
-    except ValidationError as exc:
-        raise ValueError("MCP token role claim is invalid") from exc
-
-    session_id = payload.get("session_id")
-    if session_id is None:
-        raise ValueError("MCP token missing wf_exec_id claim")
-
-    try:
-        return MCPTokenClaims(
-            role=role,
-            session_id=session_id,
-            allowed_actions=allowed_actions_payload,
-        )
+        return MCPTokenClaims.model_validate(payload)
     except ValidationError as exc:
         raise ValueError("Invalid MCP token claims") from exc
 
@@ -180,7 +175,7 @@ class LLMTokenClaims(BaseModel):
     """
 
     # Identity
-    workspace_id: uuid.UUID = Field(..., description="Workspace UUID")
+    workspace_id: WorkspaceID = Field(..., description="Workspace UUID")
     session_id: uuid.UUID = Field(..., description="Agent session UUID")
 
     # Model configuration
@@ -208,7 +203,7 @@ class LLMTokenClaims(BaseModel):
 
 def mint_llm_token(
     *,
-    workspace_id: uuid.UUID,
+    workspace_id: WorkspaceID,
     session_id: uuid.UUID,
     model: str,
     model_settings: dict[str, Any] | None = None,

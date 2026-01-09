@@ -56,7 +56,7 @@ async def execute_action_tool(
         logger.error(
             "Action execution failed",
             action_name=normalized_action_name,
-            workspace_id=str(claims.role.workspace_id),
+            workspace_id=str(claims.workspace_id),
             error=str(e),
         )
         return json.dumps({"error": "Action execution failed"})
