@@ -24,11 +24,11 @@ Usage:
 from __future__ import annotations
 
 import hashlib
-import json
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+import orjson
 from pydantic import BaseModel, Field, model_validator
 
 from tracecat import config
@@ -301,7 +301,7 @@ class S3ObjectStorage(ObjectStorage):
 
 
 def serialize_object(data: Any) -> bytes:
-    """Serialize data to JSON bytes.
+    """Serialize data to JSON bytes using orjson.
 
     Args:
         data: Any JSON-serializable data
@@ -309,11 +309,11 @@ def serialize_object(data: Any) -> bytes:
     Returns:
         UTF-8 encoded JSON bytes
     """
-    return json.dumps(data, default=str, separators=(",", ":")).encode("utf-8")
+    return orjson.dumps(data, default=str)
 
 
 def deserialize_object(content: bytes) -> Any:
-    """Deserialize JSON bytes to Python object.
+    """Deserialize JSON bytes to Python object using orjson.
 
     Args:
         content: UTF-8 encoded JSON bytes
@@ -321,7 +321,7 @@ def deserialize_object(content: bytes) -> Any:
     Returns:
         Deserialized Python object
     """
-    return json.loads(content.decode("utf-8"))
+    return orjson.loads(content)
 
 
 def compute_sha256(content: bytes) -> str:
