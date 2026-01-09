@@ -40,7 +40,6 @@ from tracecat.agent.adapter.claude import ClaudeSDKAdapter
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import (
-    action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
 )
 from tracecat.agent.sandbox.exceptions import AgentSandboxValidationError
@@ -351,7 +350,6 @@ class ClaudeAgentRuntime:
             # Build MCP servers config and tool whitelist
             # We only allow MCP tools - Claude's default toolset (Bash, Read, etc.) is disabled
             mcp_servers: dict[str, Any] = {}
-            allowed_tools: list[str] = []
 
             # Create proxy MCP server for Tracecat registry tools
             if self.registry_tools:
@@ -360,12 +358,6 @@ class ClaudeAgentRuntime:
                     auth_token=payload.jwt_token,
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
-                # Whitelist each registry tool
-                # Format: mcp__{server}__{tool}
-                # e.g., tools.slack.post_message -> mcp__tracecat-registry__tools__slack__post_message
-                for action_name in self.registry_tools:
-                    mcp_tool_name = action_name_to_mcp_tool_name(action_name)
-                    allowed_tools.append(f"mcp__tracecat-registry__{mcp_tool_name}")
 
             # Add user-defined MCP servers
             if payload.config.mcp_servers:
@@ -376,8 +368,6 @@ class ClaudeAgentRuntime:
                         "url": server_config["url"],
                         "headers": server_config.get("headers", {}),
                     }
-                    # Whitelist all tools from user MCP servers
-                    allowed_tools.append(f"mcp__{server_name}__*")
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to logger for nsjail capture."""
@@ -407,7 +397,6 @@ class ClaudeAgentRuntime:
             logger.debug(
                 "Creating ClaudeSDKClient",
                 mcp_servers=list(mcp_servers.keys()),
-                allowed_tools=allowed_tools,
             )
             client = ClaudeSDKClient(options=options)
             logger.debug("Client created, entering context")
