@@ -119,7 +119,9 @@ async def create_proxy_mcp_server(
                         error=str(e),
                     )
                     return {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
+                        "content": [
+                            {"type": "text", "text": "Error: Proxy request failed"}
+                        ],
                         "isError": True,
                     }
 

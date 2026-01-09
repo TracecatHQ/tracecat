@@ -75,11 +75,7 @@ async def run_sandboxed_runtime(socket_path: str) -> None:
     except Exception as e:
         print(f"[ENTRYPOINT] ERROR: {e}", file=sys.stderr, flush=True)
         logger.exception("Runtime error", error=str(e))
-        await socket_writer.send_error(str(e))
         raise
-    finally:
-        await socket_writer.send_done()
-        await socket_writer.close()
 
 
 def main() -> None:

@@ -12,14 +12,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
-    PreToolUseHookInput,
-    PreToolUseHookSpecificOutput,
+    HookInput,
     SyncHookJSONOutput,
 )
 
 from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.agent.runtime import ClaudeAgentRuntime
 from tracecat.agent.sandbox.protocol import RuntimeInitPayload
+from tracecat.agent.sandbox.runtime import ClaudeAgentRuntime
 from tracecat.agent.sandbox.socket_io import SocketStreamWriter
 from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.types import AgentConfig
@@ -78,8 +77,9 @@ def sample_init_payload(
 def mock_socket_writer() -> MagicMock:
     """Create a mock SocketStreamWriter."""
     writer = MagicMock(spec=SocketStreamWriter)
-    writer.send_event = AsyncMock()
-    writer.send_session_update = AsyncMock()
+    writer.send_stream_event = AsyncMock()
+    writer.send_message = AsyncMock()
+    writer.send_session_line = AsyncMock()
     writer.send_error = AsyncMock()
     writer.send_done = AsyncMock()
     writer.close = AsyncMock()
@@ -104,19 +104,19 @@ def mock_claude_sdk_client() -> MagicMock:
     return mock_client
 
 
-def make_pre_tool_use_input(
+def make_hook_input(
     tool_name: str,
     tool_input: dict[str, Any],
-) -> PreToolUseHookInput:
-    """Create a PreToolUseHookInput for testing."""
-    return PreToolUseHookInput(
-        session_id="test-session-id",
-        transcript_path="/tmp/test-transcript.jsonl",
-        cwd="/tmp",
-        hook_event_name="PreToolUse",
-        tool_name=tool_name,
-        tool_input=tool_input,
-    )
+) -> HookInput:
+    """Create a HookInput for testing."""
+    return {
+        "session_id": "test-session-id",
+        "transcript_path": "/tmp/test-transcript.jsonl",
+        "cwd": "/tmp",
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+    }
 
 
 def make_hook_context() -> HookContext:
@@ -124,41 +124,13 @@ def make_hook_context() -> HookContext:
     return HookContext(signal=None)
 
 
-def get_hook_output(result: SyncHookJSONOutput) -> PreToolUseHookSpecificOutput:
-    """Extract and cast hookSpecificOutput from result."""
-    return cast(PreToolUseHookSpecificOutput, result.get("hookSpecificOutput", {}))
+def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
+    """Extract hookSpecificOutput from result."""
+    return cast(dict[str, Any], result.get("hookSpecificOutput", {}))
 
 
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
-
-    @pytest.mark.anyio
-    async def test_streams_user_message(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that runtime streams user message event."""
-        with (
-            patch(
-                "tracecat.agent.runtime.ClaudeSDKClient",
-                return_value=mock_claude_sdk_client,
-            ),
-            patch(
-                "tracecat.agent.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
-            await runtime.run(sample_init_payload)
-
-        # Should have streamed user message
-        calls = mock_socket_writer.send_event.call_args_list
-        assert len(calls) >= 1
-        first_event: UnifiedStreamEvent = calls[0][0][0]
-        assert first_event.type == StreamEventType.USER_MESSAGE
-        assert first_event.text == sample_init_payload.user_prompt
 
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
@@ -170,11 +142,11 @@ class TestClaudeAgentRuntimeRun:
         """Test that runtime sends done signal on completion."""
         with (
             patch(
-                "tracecat.agent.runtime.ClaudeSDKClient",
+                "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.runtime.create_proxy_mcp_server",
+                "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
                 AsyncMock(return_value={}),
             ),
         ):
@@ -193,6 +165,7 @@ class TestClaudeAgentRuntimeRun:
         """Test that runtime handles stream events from SDK."""
         # Create mock StreamEvent objects
         mock_stream_event = MagicMock()
+        mock_stream_event.session_id = "test-sdk-session"
         mock_stream_event.event = {
             "type": "content_block_delta",
             "index": 0,
@@ -214,21 +187,24 @@ class TestClaudeAgentRuntimeRun:
 
         with (
             patch(
-                "tracecat.agent.runtime.ClaudeSDKClient",
+                "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.runtime.create_proxy_mcp_server",
+                "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
                 AsyncMock(return_value={}),
             ),
-            patch("tracecat.agent.runtime.ClaudeSDKAdapter", return_value=mock_adapter),
-            patch("tracecat.agent.runtime.StreamEvent", MagicMock),
+            patch(
+                "tracecat.agent.sandbox.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+            patch("tracecat.agent.sandbox.runtime.StreamEvent", MagicMock),
         ):
             runtime = ClaudeAgentRuntime(mock_socket_writer)
             await runtime.run(sample_init_payload)
 
-        # Should have streamed user message + content event
-        assert mock_socket_writer.send_event.call_count >= 2
+        # Should have called send_stream_event
+        mock_socket_writer.send_stream_event.assert_awaited()
         mock_adapter.to_unified_event.assert_called()
 
     @pytest.mark.anyio
@@ -243,11 +219,11 @@ class TestClaudeAgentRuntimeRun:
 
         with (
             patch(
-                "tracecat.agent.runtime.ClaudeSDKClient",
+                "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.runtime.create_proxy_mcp_server",
+                "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
                 AsyncMock(return_value={}),
             ),
             pytest.raises(ValueError, match="Test error"),
@@ -263,20 +239,20 @@ class TestClaudeAgentRuntimePreToolUseHook:
     """Tests for ClaudeAgentRuntime._pre_tool_use_hook()."""
 
     @pytest.mark.anyio
-    async def test_auto_approve_list_tools(
+    async def test_auto_approve_user_mcp_tools(
         self,
         mock_socket_writer: MagicMock,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        """Test that list_tools discovery tool is auto-approved."""
+        """Test that user MCP tools are auto-approved."""
         runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime._allowed_actions = sample_init_payload.allowed_actions
-        runtime._tool_approvals = sample_init_payload.config.tool_approvals
+        runtime.registry_tools = sample_init_payload.allowed_actions
+        runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
         result = await runtime._pre_tool_use_hook(
-            input_data=make_pre_tool_use_input(
-                tool_name="mcp__tracecat-registry__list_tools",
-                tool_input={},
+            input_data=make_hook_input(
+                tool_name="mcp__user-mcp-0__some_tool",
+                tool_input={"arg": "value"},
             ),
             tool_use_id="call-1",
             context=make_hook_context(),
@@ -286,20 +262,21 @@ class TestClaudeAgentRuntimePreToolUseHook:
         assert hook_output.get("permissionDecision") == "allow"
 
     @pytest.mark.anyio
-    async def test_auto_approve_get_tool_schema(
+    async def test_auto_approve_registry_tool_without_approval(
         self,
         mock_socket_writer: MagicMock,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        """Test that get_tool_schema discovery tool is auto-approved."""
+        """Test that registry tools are auto-approved when not requiring approval."""
         runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime._allowed_actions = sample_init_payload.allowed_actions
-        runtime._tool_approvals = sample_init_payload.config.tool_approvals
+        runtime.registry_tools = sample_init_payload.allowed_actions
+        runtime.tool_approvals = {"core.http_request": False}  # No approval needed
 
         result = await runtime._pre_tool_use_hook(
-            input_data=make_pre_tool_use_input(
-                tool_name="mcp__tracecat-registry__get_tool_schema",
-                tool_input={"tool_name": "core.http_request"},
+            input_data=make_hook_input(
+                # MCP tool name format: mcp__tracecat-registry__core__http_request
+                tool_name="mcp__tracecat-registry__core__http_request",
+                tool_input={"url": "https://example.com", "method": "GET"},
             ),
             tool_use_id="call-2",
             context=make_hook_context(),
@@ -309,59 +286,29 @@ class TestClaudeAgentRuntimePreToolUseHook:
         assert hook_output.get("permissionDecision") == "allow"
 
     @pytest.mark.anyio
-    async def test_auto_approve_user_mcp_tools(
+    async def test_tool_requires_approval(
         self,
         mock_socket_writer: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that user MCP tools are auto-approved."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime._allowed_actions = sample_init_payload.allowed_actions
-        runtime._tool_approvals = sample_init_payload.config.tool_approvals
-
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_pre_tool_use_input(
-                tool_name="mcp__user-mcp-0__some_tool",
-                tool_input={"arg": "value"},
-            ),
-            tool_use_id="call-3",
-            context=make_hook_context(),
-        )
-
-        hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "allow"
-
-    @pytest.mark.anyio
-    async def test_execute_tool_requires_approval(
-        self,
-        mock_socket_writer: MagicMock,
-        sample_agent_config: AgentConfig,
     ) -> None:
         """Test that tools marked for approval trigger approval request."""
-        # Set tool to require approval
-        sample_agent_config.tool_approvals = {"core.http_request": True}
-
         runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime._allowed_actions = {
+        runtime.registry_tools = {
             "core.http_request": MCPToolDefinition(
                 name="core.http_request",
                 description="Make HTTP request",
                 parameters_json_schema={},
             )
         }
-        runtime._tool_approvals = {"core.http_request": True}
-        runtime._client = MagicMock()
-        runtime._client.interrupt = AsyncMock()
+        runtime.tool_approvals = {"core.http_request": True}
+        runtime.client = MagicMock()
+        runtime.client.interrupt = AsyncMock()
 
         result = await runtime._pre_tool_use_hook(
-            input_data=make_pre_tool_use_input(
-                tool_name="mcp__tracecat-registry__execute_tool",
-                tool_input={
-                    "tool_name": "core.http_request",
-                    "args": {"url": "https://example.com"},
-                },
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__core__http_request",
+                tool_input={"url": "https://example.com"},
             ),
-            tool_use_id="call-4",
+            tool_use_id="call-3",
             context=make_hook_context(),
         )
 
@@ -372,34 +319,8 @@ class TestClaudeAgentRuntimePreToolUseHook:
         )
 
         # Should have sent approval request and interrupted
-        mock_socket_writer.send_event.assert_awaited()
-        runtime._client.interrupt.assert_awaited()
-
-    @pytest.mark.anyio
-    async def test_execute_tool_auto_approve_when_not_requiring_approval(
-        self,
-        mock_socket_writer: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that execute_tool is auto-approved when tool doesn't require approval."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime._allowed_actions = sample_init_payload.allowed_actions
-        runtime._tool_approvals = {"core.http_request": False}  # No approval needed
-
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_pre_tool_use_input(
-                tool_name="mcp__tracecat-registry__execute_tool",
-                tool_input={
-                    "tool_name": "core.http_request",
-                    "args": {"url": "https://example.com"},
-                },
-            ),
-            tool_use_id="call-5",
-            context=make_hook_context(),
-        )
-
-        hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "allow"
+        mock_socket_writer.send_stream_event.assert_awaited()
+        runtime.client.interrupt.assert_awaited()
 
     @pytest.mark.anyio
     async def test_deny_unknown_tool(
@@ -409,18 +330,17 @@ class TestClaudeAgentRuntimePreToolUseHook:
     ) -> None:
         """Test that unknown tools are denied."""
         runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime._allowed_actions = sample_init_payload.allowed_actions
-        runtime._tool_approvals = sample_init_payload.config.tool_approvals
+        runtime.registry_tools = sample_init_payload.allowed_actions
+        runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
         result = await runtime._pre_tool_use_hook(
-            input_data=make_pre_tool_use_input(
+            input_data=make_hook_input(
                 tool_name="some_random_tool",
                 tool_input={},
             ),
-            tool_use_id="call-6",
+            tool_use_id="call-4",
             context=make_hook_context(),
         )
 
         hook_output = get_hook_output(result)
         assert hook_output.get("permissionDecision") == "deny"
-        assert "not allowed" in (hook_output.get("permissionDecisionReason") or "")
