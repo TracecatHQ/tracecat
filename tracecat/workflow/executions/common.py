@@ -5,8 +5,9 @@ import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.compression import get_compression_payload_codec
-from tracecat.ee.interactions.service import InteractionService
+from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import (
@@ -14,7 +15,6 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
 )
-from tracecat.workflow.management.management import WorkflowsManagementService
 
 SCHEDULED_EVENT_TYPES = (
     EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,
@@ -72,18 +72,11 @@ HISTORY_TO_WF_EVENT_TYPE = {
 }
 
 
-UTILITY_ACTIONS = {
-    "get_schedule_activity",
-    "validate_trigger_inputs_activity",
-    "validate_action_activity",
-    "parse_wait_until_activity",
-    "evaluate_single_expression_activity",
-    "resolve_agent_preset_config_activity",
-    "normalize_trigger_inputs_activity",
-    WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
-    WorkflowsManagementService.get_error_handler_workflow_id.__name__,
-    InteractionService.create_interaction_activity.__name__,
-    InteractionService.update_interaction_activity.__name__,
+# Activities that use RunActionInput schema (allowlist approach)
+# Only these activities should be parsed as RunActionInput
+ACTION_ACTIVITIES = {
+    ExecutorActivities.execute_action_activity.__name__,
+    DSLActivities.noop_gather_action_activity.__name__,
 }
 
 
@@ -103,8 +96,9 @@ def is_error_event(event: HistoryEvent) -> bool:
     return event.event_type in ERROR_EVENT_TYPES
 
 
-def is_utility_activity(activity_name: str) -> bool:
-    return activity_name in UTILITY_ACTIONS
+def is_action_activity(activity_name: str) -> bool:
+    """Check if the activity uses RunActionInput schema."""
+    return activity_name in ACTION_ACTIVITIES
 
 
 async def get_result(event: HistoryEvent) -> Any:

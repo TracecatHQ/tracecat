@@ -263,13 +263,20 @@ def run_action_input_factory():
     """Factory for creating RunActionInput objects for testing."""
     from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
     from tracecat.identifiers.workflow import WorkflowUUID
+    from tracecat.registry.lock.types import RegistryLock
 
     def _create(
         action: str = "core.transform",
         args: dict | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
     ) -> RunActionInput:
         wf_id = WorkflowUUID.new_uuid4()
+        # Provide a default registry lock for testing
+        if registry_lock is None:
+            registry_lock = RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={action: "tracecat_registry"},
+            )
         return RunActionInput(
             task=ActionStatement(
                 action=action,

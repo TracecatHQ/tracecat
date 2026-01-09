@@ -21,6 +21,7 @@ from tracecat.executor.backends.pool import (
 from tracecat.executor.backends.pool.pool import get_available_cpus
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
 
 
 @pytest.fixture
@@ -50,6 +51,10 @@ def mock_run_action_input() -> RunActionInput:
             wf_exec_id=f"{wf_id.short()}/exec_test",
             wf_run_id=uuid.uuid4(),
             environment="test",
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
         ),
     )
 

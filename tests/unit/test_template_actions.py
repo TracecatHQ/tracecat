@@ -5,13 +5,17 @@ import uuid
 from importlib.machinery import ModuleSpec
 from types import ModuleType
 from typing import Any
+from uuid import UUID
 
 import pytest
 from pydantic import BaseModel, SecretStr, TypeAdapter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.schemas import (
     ActionStatement,
     RunActionInput,
@@ -32,11 +36,88 @@ from tracecat.registry.actions.schemas import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
+from tracecat.registry.versions.schemas import RegistryVersionManifestAction
+from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
+
+TEST_VERSION = "test-version"
+
+
+async def create_manifest_for_actions(
+    session: AsyncSession,
+    repo_id: UUID,
+    actions: list[BoundRegistryAction],
+) -> RegistryLock:
+    """Create a RegistryVersion with manifest for the given actions.
+
+    Returns a RegistryLock that can be used in RunActionInput.
+    """
+    # Query the repository to get the origin
+    result = await session.execute(
+        select(RegistryRepository).where(RegistryRepository.id == repo_id)
+    )
+    repo = result.scalar_one()
+    origin = repo.origin
+
+    # Build manifest actions dict
+    manifest_actions = {}
+    action_bindings = {}
+
+    for bound_action in actions:
+        action_create = RegistryActionCreate.from_bound(bound_action, repo_id)
+        action_name = f"{action_create.namespace}.{action_create.name}"
+        manifest_action = RegistryVersionManifestAction.from_action_create(
+            action_create
+        )
+        manifest_actions[action_name] = manifest_action.model_dump(mode="json")
+        action_bindings[action_name] = origin
+
+    # Add core.transform.reshape which is often used in tests
+    core_reshape_impl = {
+        "type": "udf",
+        "url": origin,  # Required field
+        "module": "tracecat_registry._internal.actions",
+        "name": "reshape",
+    }
+    manifest_actions["core.transform.reshape"] = {
+        "namespace": "core.transform",
+        "name": "reshape",
+        "action_type": "udf",
+        "description": "Transform data",
+        "interface": {"expects": {}, "returns": None},
+        "implementation": core_reshape_impl,
+    }
+    action_bindings["core.transform.reshape"] = origin
+
+    manifest = {
+        "schema_version": "1.0",
+        "actions": manifest_actions,
+    }
+
+    # Create RegistryVersion
+    rv = RegistryVersion(
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        repository_id=repo_id,
+        version=TEST_VERSION,
+        manifest=manifest,
+        tarball_uri="s3://test/test.tar.gz",
+    )
+    session.add(rv)
+    await session.commit()
+
+    # Populate index from manifest
+    versions_svc = RegistryVersionsService(session)
+    await versions_svc.populate_index_from_manifest(rv, commit=True)
+
+    return RegistryLock(
+        origins={origin: TEST_VERSION},
+        actions=action_bindings,
+    )
 
 
 async def run_action_test(input: RunActionInput, role) -> Any:
@@ -266,17 +347,25 @@ async def test_template_action_fetches_nested_secrets(
 
     assert "testing.template_action" in repo
 
+    # Create RegistryAction records in the database for all testing.* actions
     ra_service = RegistryActionsService(session, role=test_role)
-    # create actions for each step
-    action_names = {step.action for step in template_action.definition.steps} | {
-        "testing.template_action",
-    }
-    for action_name in action_names:
-        if action_name.startswith("testing"):
-            step_create_params = RegistryActionCreate.from_bound(
-                repo.get(action_name), db_repo_id
-            )
-            await ra_service.create_action(step_create_params)
+    actions_to_register = [
+        repo.get("testing.template_action"),
+        repo.get("testing.template_action_registered"),
+        repo.get("testing.has_secret"),
+    ]
+    for bound_action in actions_to_register:
+        await ra_service.create_action(
+            RegistryActionCreate.from_bound(bound_action, db_repo_id)
+        )
+
+    # Create manifest for all actions (template actions and their step actions)
+    # The create_manifest_for_actions helper will properly set up the database
+    # with manifest entries and return a RegistryLock that maps actions to origins
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, actions_to_register
+    )
+
     # Add secrets to the db
     sec_service = SecretsService(session, role=test_role)
     # Add secret for the UDF
@@ -331,6 +420,7 @@ async def test_template_action_fetches_nested_secrets(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result = await run_action_test(input=input, role=test_role)
     assert result == {
@@ -772,11 +862,16 @@ async def test_template_action_with_vars_expressions(
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(template_action)
 
-    # Register the action in the database
+    # Register the action in the database and create manifest
     ra_service = RegistryActionsService(session, role=test_role)
     bound_action = repo.get(template_action.definition.action)
     action_create_params = RegistryActionCreate.from_bound(bound_action, db_repo_id)
     await ra_service.create_action(action_create_params)
+
+    # Create manifest for the test actions
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action]
+    )
 
     # Test case 1: Without inputs, should use VARS defaults
     input1 = RunActionInput(
@@ -792,6 +887,7 @@ async def test_template_action_with_vars_expressions(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result1 = await run_action_test(input=input1, role=test_role)
     assert result1 == {
@@ -815,6 +911,7 @@ async def test_template_action_with_vars_expressions(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result2 = await run_action_test(input=input2, role=test_role)
     assert result2 == {
@@ -838,6 +935,7 @@ async def test_template_action_with_vars_expressions(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result3 = await run_action_test(input=input3, role=test_role)
     assert result3 == {
@@ -911,11 +1009,16 @@ async def test_template_action_with_multi_level_fallback_chain(
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(template_action)
 
-    # Register the action in the database
+    # Register the action in the database and create manifest
     ra_service = RegistryActionsService(session, role=test_role)
     bound_action = repo.get(template_action.definition.action)
     action_create_params = RegistryActionCreate.from_bound(bound_action, db_repo_id)
     await ra_service.create_action(action_create_params)
+
+    # Create manifest for the test actions
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action]
+    )
 
     # Test case 1: inputs.url provided -> should use inputs.url (first in chain)
     input1 = RunActionInput(
@@ -931,6 +1034,7 @@ async def test_template_action_with_multi_level_fallback_chain(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result1 = await run_action_test(input=input1, role=test_role)
     assert result1 == "http://input-url.com", (
@@ -951,6 +1055,7 @@ async def test_template_action_with_multi_level_fallback_chain(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result2 = await run_action_test(input=input2, role=test_role)
     assert result2 == "http://vars-url.com", (
@@ -976,6 +1081,7 @@ async def test_template_action_with_multi_level_fallback_chain(
             wf_run_id=uuid.uuid4(),
             environment="default",
         ),
+        registry_lock=registry_lock,
     )
     result3 = await run_action_test(input=input3, role=test_role)
     assert result3 == "http://default-url.com", (

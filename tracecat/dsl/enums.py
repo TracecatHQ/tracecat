@@ -17,6 +17,22 @@ class PlatformAction(StrEnum):
             cls.AI_ACTION,
         )
 
+    @classmethod
+    def interface_actions(cls) -> frozenset[str]:
+        return frozenset(
+            (
+                cls.CHILD_WORKFLOW_EXECUTE,
+                cls.TRANSFORM_SCATTER,
+                cls.TRANSFORM_GATHER,
+                cls.AI_AGENT,
+                cls.AI_PRESET_AGENT,
+            )
+        )
+
+    @classmethod
+    def is_interface(cls, action: str) -> bool:
+        return action in cls.interface_actions()
+
 
 class FailStrategy(StrEnum):
     ISOLATED = "isolated"

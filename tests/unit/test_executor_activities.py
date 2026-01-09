@@ -18,6 +18,7 @@ from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
 
 
 @pytest.fixture
@@ -35,9 +36,10 @@ def mock_role() -> Role:
 def mock_run_action_input() -> RunActionInput:
     """Create a mock RunActionInput for testing."""
     wf_id = WorkflowUUID.new_uuid4()
+    action_name = "core.http_request"
     return RunActionInput(
         task=ActionStatement(
-            action="core.http_request",
+            action=action_name,
             args={"url": "https://example.com"},
             ref="test_action",
         ),
@@ -47,6 +49,10 @@ def mock_run_action_input() -> RunActionInput:
             wf_exec_id=f"{wf_id.short()}/exec_test",
             wf_run_id=uuid.uuid4(),
             environment="test",
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={action_name: "tracecat_registry"},
         ),
     )
 

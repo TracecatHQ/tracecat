@@ -16,6 +16,7 @@ from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
 from tracecat.webhooks.schemas import WebhookRead
@@ -138,7 +139,14 @@ class WorkflowDefinitionActivityResult(BaseModel):
     """
 
     dsl: DSLInput
-    registry_lock: dict[str, str] | None = None
+    registry_lock: RegistryLock | None = None
+
+
+class ResolveRegistryLockActivityInputs(BaseModel):
+    """Inputs for resolve_registry_lock_activity."""
+
+    role: Role
+    action_names: set[str]
 
 
 class ResolveWorkflowAliasActivityInputs(BaseModel):

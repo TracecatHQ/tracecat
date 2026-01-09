@@ -41,6 +41,7 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import get_object_storage
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
@@ -695,7 +696,7 @@ class WorkflowExecutionsService:
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
@@ -727,7 +728,7 @@ class WorkflowExecutionsService:
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -762,7 +763,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new draft workflow execution.
 
@@ -792,7 +793,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -820,7 +821,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
