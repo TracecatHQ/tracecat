@@ -11225,6 +11225,8 @@ export const $Role = {
         "tracecat-bootstrap",
         "tracecat-cli",
         "tracecat-executor",
+        "tracecat-llm-gateway",
+        "tracecat-mcp",
         "tracecat-runner",
         "tracecat-schedule-runner",
         "tracecat-service",

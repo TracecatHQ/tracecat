@@ -22,7 +22,6 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
-
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
 
@@ -40,6 +39,7 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",
     "tracecat-cli",
+    "tracecat-llm-gateway",
     "tracecat-runner",
     "tracecat-schedule-runner",
     "tracecat-ui",

@@ -15,6 +15,7 @@ from typing import Any, Literal, TypedDict, cast
 from claude_agent_sdk.types import StreamEvent
 
 from tracecat.agent.adapter.base import BaseHarnessAdapter
+from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.types import (
     HarnessType,
     StreamEventType,
@@ -173,11 +174,13 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             tool_call_id = content_block.get("id")
             if tool_call_id is None:
                 raise ValueError("Claude tool_use block missing required 'id' field")
+            raw_tool_name = content_block.get("name", "unknown")
+            normalized_tool_name = normalize_mcp_tool_name(raw_tool_name)
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_START,
                 part_id=index,
                 tool_call_id=tool_call_id,
-                tool_name=content_block.get("name", "unknown"),
+                tool_name=normalized_tool_name,
                 tool_input={},
             )
         else:
@@ -251,11 +254,14 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 raise ValueError(
                     "Missing tool_call_id in context for tool_use stop event"
                 )
+            # Normalize tool name for display
+            raw_tool_name = (state.tool_name if state else None) or "unknown"
+            normalized_tool_name = normalize_mcp_tool_name(raw_tool_name)
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_STOP,
                 part_id=index,
                 tool_call_id=tool_call_id,
-                tool_name=(state.tool_name if state else None) or "unknown",
+                tool_name=normalized_tool_name,
                 tool_input=args,
             )
         else:
