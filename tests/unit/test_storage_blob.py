@@ -52,7 +52,8 @@ class TestS3Operations:
         mock_client.head_bucket.assert_called_once_with(Bucket="test-bucket")
         mock_client.create_bucket.assert_called_once_with(Bucket="test-bucket")
 
-    def test_get_storage_client_minio_uses_endpoint_and_env(self, monkeypatch):
+    @pytest.mark.anyio
+    async def test_get_storage_client_minio_uses_endpoint_and_env(self, monkeypatch):
         """get_storage_client for MinIO uses endpoint and MINIO_* env creds."""
         from tracecat.storage import blob as blob_module
 
@@ -73,11 +74,11 @@ class TestS3Operations:
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
-            sentinel_client = object()
-            mock_session.client.return_value = sentinel_client
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
 
-            client = get_storage_client()
-            assert client is sentinel_client
+            async with get_storage_client() as client:
+                assert client is mock_client
             mock_session.client.assert_called_once_with(
                 "s3",
                 endpoint_url="http://localhost:9002",
@@ -85,7 +86,8 @@ class TestS3Operations:
                 aws_secret_access_key="password",
             )
 
-    def test_get_storage_client_s3_defaults(self, monkeypatch):
+    @pytest.mark.anyio
+    async def test_get_storage_client_s3_defaults(self, monkeypatch):
         """get_storage_client for S3 uses default session client without endpoint."""
         from tracecat.storage import blob as blob_module
 
@@ -95,11 +97,11 @@ class TestS3Operations:
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
-            sentinel_client = object()
-            mock_session.client.return_value = sentinel_client
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
 
-            client = get_storage_client()
-            assert client is sentinel_client
+            async with get_storage_client() as client:
+                assert client is mock_client
             mock_session.client.assert_called_once_with("s3")
 
     @pytest.mark.anyio
