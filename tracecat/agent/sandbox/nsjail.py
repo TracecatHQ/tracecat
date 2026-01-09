@@ -28,6 +28,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from tracecat.agent.sandbox.config import (
@@ -45,6 +46,33 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+
+
+@dataclass(frozen=True)
+class JailedRuntimeResult:
+    """Result from spawning a jailed runtime.
+
+    Contains the subprocess and optional job directory for cleanup.
+    Callers should call cleanup_jailed_runtime() after the process completes.
+    """
+
+    process: asyncio.subprocess.Process
+    """The spawned subprocess."""
+
+    job_dir: Path | None
+    """Temp directory for nsjail job (None in direct subprocess mode)."""
+
+
+def cleanup_jailed_runtime(result: JailedRuntimeResult) -> None:
+    """Clean up resources from a jailed runtime after the process completes.
+
+    Safe to call multiple times. Best effort - logs warnings on failure.
+
+    Args:
+        result: The JailedRuntimeResult from spawn_jailed_runtime().
+    """
+    if result.job_dir is not None:
+        _cleanup_job_dir(result.job_dir)
 
 
 def _get_site_packages_dir() -> Path:
@@ -72,7 +100,7 @@ async def spawn_jailed_runtime(
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
-) -> asyncio.subprocess.Process:
+) -> JailedRuntimeResult:
     """Spawn the agent runtime inside an NSJail sandbox (or direct subprocess for testing).
 
     This is the entrypoint for the orchestrator to spawn a jailed runtime.
@@ -94,7 +122,9 @@ async def spawn_jailed_runtime(
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
 
     Returns:
-        The spawned subprocess. Caller is responsible for managing lifecycle.
+        JailedRuntimeResult containing the subprocess and job directory.
+        Caller is responsible for managing lifecycle and calling
+        cleanup_jailed_runtime() after the process completes.
 
     Raises:
         AgentSandboxExecutionError: If process fails to spawn.
@@ -108,12 +138,14 @@ async def spawn_jailed_runtime(
         # Start trusted MCP server on socket_dir / "mcp.sock"
         # Create control socket at socket_dir / "control.sock"
 
-        process = await spawn_jailed_runtime(socket_dir=socket_dir)
-
-        # Wait for runtime to connect to control socket
-        # Send RuntimeInitPayload
-        # Stream events until done
-        # Cleanup
+        result = await spawn_jailed_runtime(socket_dir=socket_dir)
+        try:
+            # Wait for runtime to connect to control socket
+            # Send RuntimeInitPayload
+            # Stream events until done
+            await result.process.wait()
+        finally:
+            cleanup_jailed_runtime(result)
         ```
     """
     if config is None:
@@ -137,7 +169,7 @@ async def spawn_jailed_runtime(
 
 async def _spawn_direct_runtime(
     socket_dir: Path,
-) -> asyncio.subprocess.Process:
+) -> JailedRuntimeResult:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
     This bypasses nsjail and runs ClaudeAgentRuntime directly in the current
@@ -167,7 +199,7 @@ async def _spawn_direct_runtime(
         env=os.environ.copy(),
     )
 
-    return process
+    return JailedRuntimeResult(process=process, job_dir=None)
 
 
 async def _spawn_nsjail_runtime(
@@ -175,7 +207,7 @@ async def _spawn_nsjail_runtime(
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
-) -> asyncio.subprocess.Process:
+) -> JailedRuntimeResult:
     """Spawn the agent runtime inside an NSJail sandbox (production mode).
 
     The runtime uses tracecat.agent.sandbox.entrypoint which is available via
@@ -243,7 +275,8 @@ async def _spawn_nsjail_runtime(
             env=env_map,
         )
 
-        return process
+        # Return result with job_dir for caller to clean up after process completes
+        return JailedRuntimeResult(process=process, job_dir=job_dir)
 
     except Exception as e:
         # Clean up job directory on spawn failure

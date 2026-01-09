@@ -26,7 +26,12 @@ from tracecat.agent.sandbox.exceptions import (
     AgentSandboxTimeoutError,
     AgentSandboxValidationError,
 )
-from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime, wait_for_process
+from tracecat.agent.sandbox.nsjail import (
+    JailedRuntimeResult,
+    cleanup_jailed_runtime,
+    spawn_jailed_runtime,
+    wait_for_process,
+)
 from tracecat.agent.sandbox.protocol import (
     RuntimeEventEnvelope,
     RuntimeEventEnvelopeTA,
@@ -55,6 +60,8 @@ __all__ = [
     "AgentSandboxValidationError",
     # NSJail spawning
     "is_nsjail_available",
+    "JailedRuntimeResult",
+    "cleanup_jailed_runtime",
     "spawn_jailed_runtime",
     "wait_for_process",
     # Protocol

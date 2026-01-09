@@ -13,6 +13,7 @@ Key design principles:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import uuid
@@ -66,18 +67,16 @@ class ClaudeAgentRuntime:
     - Session persistence (SDK session files)
     - Message persistence (chat history)
     - Approval flow coordination
-
-    NOTE: Does NOT inherit from AgentRuntime ABC (in types.py) to avoid
-    importing pydantic-ai and other heavy deps.
     """
 
     def __init__(self, socket_writer: SocketStreamWriter):
         self._socket_writer = socket_writer
         self._session_id: uuid.UUID | None = None
-        self._registry_tools: dict[str, MCPToolDefinition] | None = None
-        self._tool_approvals: dict[str, bool] | None = None
+        # Public for testing - these represent runtime configuration
+        self.registry_tools: dict[str, MCPToolDefinition] | None = None
+        self.tool_approvals: dict[str, bool] | None = None
         self._pending_approval_tool_ids: set[str] = set()
-        self._client: ClaudeSDKClient | None = None
+        self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
@@ -108,15 +107,19 @@ class ClaudeAgentRuntime:
         claude_dir = Path.home() / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"
 
-    def _write_session_file(
+    async def _write_session_file(
         self,
         sdk_session_id: str,
         sdk_session_data: str,
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
         session_file_path = self._get_session_file_path(sdk_session_id)
-        session_file_path.parent.mkdir(parents=True, exist_ok=True)
-        session_file_path.write_text(sdk_session_data)
+
+        def _write() -> None:
+            session_file_path.parent.mkdir(parents=True, exist_ok=True)
+            session_file_path.write_text(sdk_session_data)
+
+        await asyncio.to_thread(_write)
         print(
             f"[RUNTIME] Wrote session file: {session_file_path}",
             file=sys.stderr,
@@ -203,7 +206,8 @@ class ClaudeAgentRuntime:
             return
 
         try:
-            lines = session_file.read_text().splitlines()
+            file_content = await asyncio.to_thread(session_file.read_text)
+            lines = file_content.splitlines()
             new_lines = lines[self._last_seen_line_index :]
 
             for line in new_lines:
@@ -259,9 +263,9 @@ class ClaudeAgentRuntime:
             flush=True,
         )
 
-        if self._client is not None:
+        if self.client is not None:
             self._was_interrupted = True
-            await self._client.interrupt()
+            await self.client.interrupt()
 
     async def _pre_tool_use_hook(
         self,
@@ -284,13 +288,13 @@ class ClaudeAgentRuntime:
 
         action_name = normalize_mcp_tool_name(tool_name)
         requires_approval = (
-            self._tool_approvals is not None
-            and self._tool_approvals.get(action_name) is True
+            self.tool_approvals is not None
+            and self.tool_approvals.get(action_name) is True
         )
         # Auto-approve user MCP server tools
         if tool_name.startswith("mcp__user-mcp-") or (
-            self._registry_tools is not None
-            and action_name in self._registry_tools
+            self.registry_tools is not None
+            and action_name in self.registry_tools
             and not requires_approval
         ):
             print(
@@ -341,13 +345,15 @@ class ClaudeAgentRuntime:
         self._session_id = payload.session_id
 
         # Use resolved tool definitions from orchestrator
-        self._registry_tools = payload.allowed_actions
-        self._tool_approvals = payload.config.tool_approvals
+        self.registry_tools = payload.allowed_actions
+        self.tool_approvals = payload.config.tool_approvals
 
         # Write session file locally if resuming
         resume_session_id: str | None = None
         if payload.sdk_session_id and payload.sdk_session_data:
-            self._write_session_file(payload.sdk_session_id, payload.sdk_session_data)
+            await self._write_session_file(
+                payload.sdk_session_id, payload.sdk_session_data
+            )
             resume_session_id = payload.sdk_session_id
 
         try:
@@ -357,16 +363,16 @@ class ClaudeAgentRuntime:
             allowed_tools: list[str] = []
 
             # Create proxy MCP server for Tracecat registry tools
-            if self._registry_tools:
+            if self.registry_tools:
                 proxy_config = await create_proxy_mcp_server(
-                    allowed_actions=self._registry_tools,
+                    allowed_actions=self.registry_tools,
                     auth_token=payload.jwt_token,
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
                 # Whitelist each registry tool
                 # Format: mcp__{server}__{tool}
                 # e.g., tools.slack.post_message -> mcp__tracecat-registry__tools__slack__post_message
-                for action_name in self._registry_tools:
+                for action_name in self.registry_tools:
                     mcp_tool_name = action_name_to_mcp_tool_name(action_name)
                     allowed_tools.append(f"mcp__tracecat-registry__{mcp_tool_name}")
 
@@ -425,7 +431,7 @@ class ClaudeAgentRuntime:
                 flush=True,
             )
             async with client:
-                self._client = client
+                self.client = client
 
                 # On approval continuation, send hidden continuation prompt
                 # On normal turn (fresh or resume), send the user's prompt
@@ -469,8 +475,11 @@ class ClaudeAgentRuntime:
                                     self._sdk_session_id
                                 )
                                 if session_file.exists():
+                                    file_content = await asyncio.to_thread(
+                                        session_file.read_text
+                                    )
                                     self._last_seen_line_index = len(
-                                        session_file.read_text().splitlines()
+                                        file_content.splitlines()
                                     )
                             print(
                                 f"[RUNTIME] Captured SDK session ID: {self._sdk_session_id}",
@@ -541,5 +550,5 @@ class ClaudeAgentRuntime:
             await self._socket_writer.send_error(str(e))
             raise
         finally:
-            self._client = None
+            self.client = None
             await self._socket_writer.send_done()

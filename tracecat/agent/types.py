@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import (
@@ -26,8 +25,6 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.tools import Tool as _PATool
 
-    from tracecat.agent.sandbox.protocol import RuntimeInitPayload
-    from tracecat.agent.sandbox.socket_io import SocketStreamWriter
     from tracecat.agent.stream.writers import StreamWriter
     from tracecat.chat.schemas import ChatMessage
 
@@ -222,53 +219,3 @@ class DeferredToolResults:
 
     calls: dict[str, Any] = field(default_factory=dict)
     """Map of tool call IDs to results for externally executed tools."""
-
-
-class AgentRuntime(ABC):
-    """Abstract base class for sandboxed agent runtimes.
-
-    Agent runtimes execute inside an NSJail sandbox without database access.
-    All I/O happens via Unix sockets:
-    - Control socket: Receives RuntimeInitPayload, streams events back
-    - MCP socket: Tool execution via trusted MCP server
-
-    The orchestrator (outside the sandbox) handles:
-    - Session persistence
-    - Message persistence
-    - Approval flow coordination
-
-    Implementations:
-    - ClaudeAgentRuntime: Uses Claude Agent SDK
-    """
-
-    _socket_writer: SocketStreamWriter
-
-    @property
-    def socket_writer(self) -> SocketStreamWriter:
-        """Socket writer for streaming events to orchestrator."""
-        return self._socket_writer
-
-    @abstractmethod
-    async def run(self, payload: RuntimeInitPayload) -> None:
-        """Run an agent with the given initialization payload.
-
-        This is the main entry point for sandboxed execution.
-        Called after receiving init payload from orchestrator via socket.
-
-        The runtime should:
-        1. Parse the payload for config, tools, and session data
-        2. Set up the agent with MCP proxy for tool calls
-        3. Execute the agent loop
-        4. Stream events back to orchestrator via socket_writer
-        5. Handle approval requests by interrupting and streaming APPROVAL_REQUEST
-        6. Call socket_writer.send_done() when complete
-
-        Args:
-            payload: Initialization payload from orchestrator containing
-                session info, config, tools, and optional resume data.
-
-        Note:
-            This method should not return a value. All output is streamed
-            via socket_writer.
-        """
-        ...
