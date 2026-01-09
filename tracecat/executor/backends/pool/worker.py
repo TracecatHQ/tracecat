@@ -41,6 +41,7 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 # =============================================================================
 from tracecat import config  # noqa: E402
 from tracecat.auth.types import Role  # noqa: E402
+from tracecat.contexts import ctx_role  # noqa: E402
 from tracecat.dsl.schemas import RunActionInput  # noqa: E402
 from tracecat.executor.minimal_runner import run_action_minimal_async  # noqa: E402
 from tracecat.executor.schemas import (  # noqa: E402
@@ -128,6 +129,9 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
 
         # Ensure tarball paths are in sys.path for custom registry modules
         _ensure_tarball_paths_in_sys_path()
+
+        # Set the role context for actions that need it (e.g., core.cases, core.table)
+        ctx_role.set(role)
 
         # Execute action using minimal runner (no DB access, explicit context)
         start = time.monotonic()
