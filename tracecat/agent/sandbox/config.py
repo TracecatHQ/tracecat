@@ -282,6 +282,10 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
 
     for key, value in config.env_vars.items():
         _validate_env_key(key)
+        if key in AGENT_SANDBOX_BASE_ENV:
+            raise AgentSandboxValidationError(
+                f"Cannot override protected env var: {key}"
+            )
         env_map[key] = value
 
     return env_map

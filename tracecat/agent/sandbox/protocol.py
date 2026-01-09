@@ -34,7 +34,6 @@ class RuntimeInitPayload:
 
     # Session context
     session_id: uuid.UUID
-    mcp_socket_path: str  # Path to trusted MCP server socket
     jwt_token: str  # JWT for MCP auth
     config: AgentConfig
     user_prompt: str

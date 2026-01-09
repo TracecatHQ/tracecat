@@ -63,7 +63,6 @@ def sample_init_payload(
     """Create a sample init payload for testing."""
     return RuntimeInitPayload(
         session_id=uuid.uuid4(),
-        mcp_socket_path="/sockets/mcp.sock",
         jwt_token="test-jwt-token",
         config=sample_agent_config,
         user_prompt="Hello, how are you?",

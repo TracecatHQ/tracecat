@@ -30,13 +30,10 @@ from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.types import AgentConfig
 
 
-def make_init_payload(
-    mcp_socket_path: str,
-) -> RuntimeInitPayload:
+def make_init_payload() -> RuntimeInitPayload:
     """Create a minimal init payload for testing."""
     return RuntimeInitPayload(
         session_id=uuid.uuid4(),
-        mcp_socket_path=mcp_socket_path,
         jwt_token="test-jwt-token",
         config=AgentConfig(
             model_name="claude-3-5-sonnet-20241022",
@@ -130,7 +127,7 @@ class TestRuntimeSocketCommunication:
                     ),
                 ):
                     runtime = ClaudeAgentRuntime(socket_writer)
-                    payload = make_init_payload(mcp_socket_path="/tmp/mcp.sock")
+                    payload = make_init_payload()
                     await runtime.run(payload)
 
                 # Wait for done event
@@ -230,7 +227,7 @@ class TestRuntimeSocketCommunication:
                     patch("tracecat.agent.runtime.StreamEvent", MagicMock),
                 ):
                     runtime = ClaudeAgentRuntime(socket_writer)
-                    payload = make_init_payload(mcp_socket_path="/tmp/mcp.sock")
+                    payload = make_init_payload()
                     await runtime.run(payload)
 
                 await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
@@ -303,7 +300,7 @@ class TestRuntimeSocketCommunication:
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):
                     runtime = ClaudeAgentRuntime(socket_writer)
-                    payload = make_init_payload(mcp_socket_path="/tmp/mcp.sock")
+                    payload = make_init_payload()
                     await runtime.run(payload)
 
                 await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
