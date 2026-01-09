@@ -138,7 +138,6 @@ class RuntimeEventEnvelope:
         return cls(type="done")
 
 
-# TypeAdapters for JSON parsing (dataclasses don't have built-in JSON support)
 RuntimeInitPayloadTA: TypeAdapter[RuntimeInitPayload] = TypeAdapter(RuntimeInitPayload)
 RuntimeEventEnvelopeTA: TypeAdapter[RuntimeEventEnvelope] = TypeAdapter(
     RuntimeEventEnvelope

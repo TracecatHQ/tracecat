@@ -34,14 +34,7 @@ async def run_sandboxed_runtime(socket_path: str) -> None:
     Args:
         socket_path: Path to the orchestrator's Unix socket.
     """
-    import sys
-
-    print(
-        f"[ENTRYPOINT] Starting sandboxed runtime, socket={socket_path}",
-        file=sys.stderr,
-        flush=True,
-    )
-    logger.info("Connecting to orchestrator socket", socket_path=socket_path)
+    logger.info("Starting sandboxed runtime", socket_path=socket_path)
 
     # Connect to orchestrator
     reader, writer = await asyncio.open_unix_connection(socket_path)
@@ -54,11 +47,6 @@ async def run_sandboxed_runtime(socket_path: str) -> None:
             raise RuntimeError("No init payload received from orchestrator")
 
         payload = RuntimeInitPayloadTA.validate_json(init_data)
-        print(
-            f"[ENTRYPOINT] Received init payload, session_id={payload.session_id}",
-            file=sys.stderr,
-            flush=True,
-        )
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),
@@ -66,14 +54,13 @@ async def run_sandboxed_runtime(socket_path: str) -> None:
         )
 
         # Instantiate and run the runtime
-        print("[ENTRYPOINT] Creating ClaudeAgentRuntime", file=sys.stderr, flush=True)
+        logger.debug("Creating ClaudeAgentRuntime")
         runtime = ClaudeAgentRuntime(socket_writer)
-        print("[ENTRYPOINT] Running runtime...", file=sys.stderr, flush=True)
+        logger.debug("Running runtime")
         await runtime.run(payload)
-        print("[ENTRYPOINT] Runtime completed", file=sys.stderr, flush=True)
+        logger.info("Runtime completed")
 
     except Exception as e:
-        print(f"[ENTRYPOINT] ERROR: {e}", file=sys.stderr, flush=True)
         logger.exception("Runtime error", error=str(e))
         raise
 

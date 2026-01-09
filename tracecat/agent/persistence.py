@@ -9,14 +9,7 @@ from tracecat.logger import logger
 
 
 class DBMessageStore:
-    """Message store for persisting chat messages to the database."""
-
     async def load(self, session_id: uuid.UUID) -> list[ChatMessage]:
-        """Load chat messages for a session.
-
-        Only loads CHAT_MESSAGE kind by default to avoid exposing internal
-        messages (approvals, system messages, etc.) to callers.
-        """
         async with ChatService.with_session() as svc:
             try:
                 message_history = await svc.list_messages(
@@ -42,6 +35,5 @@ class DBMessageStore:
         *,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:
-        """Store messages to the database."""
         async with ChatService.with_session() as svc:
             await svc.append_messages(session_id, messages, kind=kind)
