@@ -4,8 +4,11 @@ Uses InMemoryObjectStorage as the test double - no mocks needed.
 """
 
 import pytest
+from pydantic import TypeAdapter
 
 from tracecat.storage.object import (
+    ExternalObject,
+    InlineObject,
     InMemoryObjectStorage,
     ObjectRef,
     StoredObject,
@@ -36,18 +39,6 @@ class TestObjectRef:
         assert ref.sha256 == "abc123"
         assert ref.content_type == "application/json"
         assert ref.encoding == "json"
-        assert ref.kind is None
-
-    def test_object_ref_with_kind(self):
-        """Test ObjectRef with optional kind field."""
-        ref = ObjectRef(
-            bucket="bucket",
-            key="key",
-            size_bytes=100,
-            sha256="hash",
-            kind="action_result",
-        )
-        assert ref.kind == "action_result"
 
     def test_object_ref_serialization_roundtrip(self):
         """Test ObjectRef can be serialized and deserialized."""
@@ -56,7 +47,6 @@ class TestObjectRef:
             key="key",
             size_bytes=100,
             sha256="deadbeef",
-            kind="trigger",
         )
         data = ref.model_dump()
         restored = ObjectRef.model_validate(data)
@@ -64,31 +54,103 @@ class TestObjectRef:
         assert restored.bucket == ref.bucket
         assert restored.key == ref.key
         assert restored.sha256 == ref.sha256
-        assert restored.kind == ref.kind
 
 
 class TestStoredObject:
-    """Tests for StoredObject dataclass."""
+    """Tests for StoredObject tagged union (InlineObject | ExternalObject)."""
 
-    def test_inline_stored_object(self):
-        """Test StoredObject for inline data."""
-        stored = StoredObject(data={"foo": "bar"}, ref=None)
+    def test_inline_object(self):
+        """Test InlineObject for inline data."""
+        stored = InlineObject(data={"foo": "bar"})
+        assert stored.type == "inline"
         assert stored.data == {"foo": "bar"}
-        assert stored.ref is None
-        assert not stored.is_externalized
+        assert isinstance(stored, InlineObject)
 
-    def test_externalized_stored_object(self):
-        """Test StoredObject for externalized data."""
+    def test_inline_object_with_none_value(self):
+        """Test InlineObject can hold None as a valid value."""
+        stored = InlineObject(data=None)
+        assert stored.type == "inline"
+        assert stored.data is None
+        assert isinstance(stored, InlineObject)
+
+    def test_external_object(self):
+        """Test ExternalObject for externalized data."""
         ref = ObjectRef(
             bucket="bucket",
             key="key",
             size_bytes=1000,
             sha256="hash",
         )
-        stored = StoredObject(data=None, ref=ref)
-        assert stored.data is None
+        stored = ExternalObject(ref=ref)
+        assert stored.type == "external"
         assert stored.ref is ref
-        assert stored.is_externalized
+        assert isinstance(stored, ExternalObject)
+
+    def test_pattern_matching(self):
+        """Test pattern matching works with the tagged union."""
+        inline = InlineObject(data=42)
+        external = ExternalObject(
+            ref=ObjectRef(bucket="b", key="k", size_bytes=10, sha256="h")
+        )
+
+        # Test inline matching
+        match inline:
+            case InlineObject(data=d):
+                assert d == 42
+            case ExternalObject():
+                pytest.fail("Should not match ExternalObject")
+
+        # Test external matching
+        match external:
+            case InlineObject():
+                pytest.fail("Should not match InlineObject")
+            case ExternalObject(ref=r):
+                assert r.bucket == "b"
+
+    def test_type_adapter_validation(self):
+        """Test TypeAdapter can validate StoredObject from dict."""
+        adapter = TypeAdapter(StoredObject)
+
+        # Validate inline object from dict
+        inline_dict = {"type": "inline", "data": {"foo": "bar"}}
+        inline = adapter.validate_python(inline_dict)
+        assert isinstance(inline, InlineObject)
+        assert inline.data == {"foo": "bar"}
+
+        # Validate external object from dict
+        external_dict = {
+            "type": "external",
+            "ref": {
+                "backend": "s3",
+                "bucket": "test",
+                "key": "test.json",
+                "size_bytes": 100,
+                "sha256": "abc123",
+            },
+        }
+        external = adapter.validate_python(external_dict)
+        assert isinstance(external, ExternalObject)
+        assert external.ref.bucket == "test"
+
+    def test_type_adapter_json_roundtrip(self):
+        """Test TypeAdapter can serialize and deserialize StoredObject."""
+        adapter = TypeAdapter(StoredObject)
+
+        # Test inline roundtrip
+        inline = InlineObject(data={"key": "value"})
+        json_bytes = adapter.dump_json(inline)
+        restored = adapter.validate_json(json_bytes)
+        assert isinstance(restored, InlineObject)
+        assert restored.data == {"key": "value"}
+
+        # Test external roundtrip
+        external = ExternalObject(
+            ref=ObjectRef(bucket="b", key="k", size_bytes=10, sha256="h")
+        )
+        json_bytes = adapter.dump_json(external)
+        restored = adapter.validate_json(json_bytes)
+        assert isinstance(restored, ExternalObject)
+        assert restored.ref.bucket == "b"
 
 
 class TestInMemoryObjectStorage:
@@ -102,9 +164,8 @@ class TestInMemoryObjectStorage:
 
         stored = await storage.store("key", data)
 
+        assert isinstance(stored, InlineObject)
         assert stored.data == data
-        assert stored.ref is None
-        assert not stored.is_externalized
 
     @pytest.mark.anyio
     async def test_retrieve_inline_data(self):
@@ -125,19 +186,10 @@ class TestInMemoryObjectStorage:
             size_bytes=100,
             sha256="hash",
         )
-        stored = StoredObject(ref=ref)
+        stored = ExternalObject(ref=ref)
 
         with pytest.raises(NotImplementedError):
             await storage.retrieve(stored)
-
-    @pytest.mark.anyio
-    async def test_store_with_kind(self):
-        """Test store with kind parameter."""
-        storage = InMemoryObjectStorage()
-        stored = await storage.store("key", {"data": 1}, kind="action_result")
-
-        assert stored.data == {"data": 1}
-        assert not stored.is_externalized
 
 
 class TestSerializationHelpers:

@@ -10,14 +10,17 @@ Usage:
 
     # Store data (may externalize if over threshold)
     stored = await storage.store("results/my-key", large_data)
-    if stored.is_externalized:
-        # Data was externalized, use stored.ref
-        pass
-    else:
-        # Data was kept inline, use stored.data
-        pass
 
-    # Retrieve data (works for both inline and externalized)
+    # Pattern match on the result
+    match stored:
+        case InlineObject(data=data):
+            # Data was kept inline
+            pass
+        case ExternalObject(ref=ref):
+            # Data was externalized to blob storage
+            pass
+
+    # Or simply retrieve (works for both variants)
     data = await storage.retrieve(stored)
 """
 
@@ -26,10 +29,10 @@ from __future__ import annotations
 import hashlib
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import orjson
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Discriminator, Field
 
 from tracecat import config
 from tracecat.logger import logger
@@ -68,38 +71,35 @@ class ObjectRef(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     """When the object was stored."""
 
-    kind: (
-        Literal["action_result", "trigger", "scatter_manifest", "return_value"] | None
-    ) = None
-    """Optional classification of the externalized data."""
+
+class InlineObject(BaseModel):
+    """Data stored inline (not externalized)."""
+
+    type: Literal["inline"] = Field(default="inline", frozen=True)
+    """Discriminator for tagged union."""
+
+    data: Any
+    """The inline data. Can be any JSON-serializable value, including None."""
 
 
-class StoredObject(BaseModel):
-    """Result of a store operation.
+class ExternalObject(BaseModel):
+    """Data externalized to blob storage."""
 
-    Either data is inline (ref=None, data=value) or externalized (ref=ObjectRef, data=None).
-    Exactly one of data or ref must be set.
-    """
+    type: Literal["external"] = Field(default="external", frozen=True)
+    """Discriminator for tagged union."""
 
-    data: Any | None = None
-    """The data if kept inline, None if externalized."""
+    ref: ObjectRef
+    """Reference to the externalized data in blob storage."""
 
-    ref: ObjectRef | None = None
-    """Reference to externalized data, None if inline."""
 
-    @property
-    def is_externalized(self) -> bool:
-        """Whether the data was externalized to blob storage."""
-        return self.ref is not None
+StoredObject = Annotated[
+    InlineObject | ExternalObject,
+    Discriminator("type"),
+]
+"""Result of a store operation. Either inline data or an external reference.
 
-    @model_validator(mode="after")
-    def _validate_data_or_ref(self) -> StoredObject:
-        """Ensure exactly one of data or ref is set."""
-        if self.data is None and self.ref is None:
-            raise ValueError("Either data or ref must be set")
-        if self.data is not None and self.ref is not None:
-            raise ValueError("Only one of data or ref can be set, not both")
-        return self
+Uses 'type' field as discriminator for Pydantic validation with TypeAdapter.
+"""
 
 
 # === Interface === #
@@ -116,16 +116,12 @@ class ObjectStorage(ABC):
         self,
         key: str,
         data: Any,
-        *,
-        kind: Literal["action_result", "trigger", "scatter_manifest", "return_value"]
-        | None = None,
     ) -> StoredObject:
         """Store data, potentially externalizing if over threshold.
 
         Args:
             key: Storage key (e.g., "results/wf-123/action-1/uuid.json")
             data: The data to store (must be JSON-serializable)
-            kind: Optional classification of the data
 
         Returns:
             StoredObject with either inline data or an ObjectRef
@@ -163,22 +159,21 @@ class InMemoryObjectStorage(ObjectStorage):
         self,
         key: str,
         data: Any,
-        *,
-        kind: Literal["action_result", "trigger", "scatter_manifest", "return_value"]
-        | None = None,
     ) -> StoredObject:
         """Store data inline (never externalizes)."""
-        del key, kind  # Unused in inline storage
-        return StoredObject(data=data, ref=None)
+        del key  # Unused in inline storage
+        return InlineObject(data=data)
 
     async def retrieve(self, stored: StoredObject) -> Any:
         """Return inline data from StoredObject."""
-        if stored.is_externalized:
-            raise NotImplementedError(
-                "InMemoryObjectStorage does not support externalized references. "
-                "This ref was created by a different storage backend."
-            )
-        return stored.data
+        match stored:
+            case InlineObject(data=data):
+                return data
+            case ExternalObject():
+                raise NotImplementedError(
+                    "InMemoryObjectStorage does not support externalized references. "
+                    "This ref was created by a different storage backend."
+                )
 
 
 class S3ObjectStorage(ObjectStorage):
@@ -206,9 +201,6 @@ class S3ObjectStorage(ObjectStorage):
         self,
         key: str,
         data: Any,
-        *,
-        kind: Literal["action_result", "trigger", "scatter_manifest", "return_value"]
-        | None = None,
     ) -> StoredObject:
         """Store data, externalizing if over threshold."""
         # Serialize to JSON
@@ -223,7 +215,7 @@ class S3ObjectStorage(ObjectStorage):
                 size_bytes=size_bytes,
                 threshold_bytes=self.threshold_bytes,
             )
-            return StoredObject(data=data, ref=None)
+            return InlineObject(data=data)
 
         # Externalize to S3
         sha256 = compute_sha256(serialized)
@@ -240,12 +232,11 @@ class S3ObjectStorage(ObjectStorage):
         )
 
         logger.info(
-            "Externalized large payload to S3",
+            "Externalized large object to S3",
             key=key,
             bucket=self.bucket,
             size_bytes=size_bytes,
             threshold_bytes=self.threshold_bytes,
-            kind=kind,
         )
 
         ref = ObjectRef(
@@ -256,45 +247,41 @@ class S3ObjectStorage(ObjectStorage):
             sha256=sha256,
             content_type="application/json",
             encoding="json",
-            kind=kind,
         )
 
-        return StoredObject(data=None, ref=ref)
+        return ExternalObject(ref=ref)
 
     async def retrieve(self, stored: StoredObject) -> Any:
         """Retrieve data from StoredObject (inline or from S3)."""
-        # Return inline data directly
-        if not stored.is_externalized:
-            return stored.data
+        match stored:
+            case InlineObject(data=data):
+                return data
+            case ExternalObject(ref=ref):
+                if ref.backend != "s3":
+                    raise ValueError(
+                        f"S3ObjectStorage cannot retrieve from backend: {ref.backend}"
+                    )
 
-        ref = stored.ref
-        assert ref is not None  # Guaranteed by is_externalized check
+                from tracecat.storage import blob
 
-        if ref.backend != "s3":
-            raise ValueError(
-                f"S3ObjectStorage cannot retrieve from backend: {ref.backend}"
-            )
+                content = await blob.download_file(key=ref.key, bucket=ref.bucket)
 
-        from tracecat.storage import blob
+                # Verify integrity
+                actual_sha256 = compute_sha256(content)
+                if actual_sha256 != ref.sha256:
+                    raise ValueError(
+                        f"Integrity check failed for {ref.key}: "
+                        f"expected {ref.sha256}, got {actual_sha256}"
+                    )
 
-        content = await blob.download_file(key=ref.key, bucket=ref.bucket)
+                logger.debug(
+                    "Retrieved externalized payload from S3",
+                    key=ref.key,
+                    bucket=ref.bucket,
+                    size_bytes=len(content),
+                )
 
-        # Verify integrity
-        actual_sha256 = compute_sha256(content)
-        if actual_sha256 != ref.sha256:
-            raise ValueError(
-                f"Integrity check failed for {ref.key}: "
-                f"expected {ref.sha256}, got {actual_sha256}"
-            )
-
-        logger.debug(
-            "Retrieved externalized payload from S3",
-            key=ref.key,
-            bucket=ref.bucket,
-            size_bytes=len(content),
-        )
-
-        return deserialize_object(content)
+                return deserialize_object(content)
 
 
 # === Serialization Helpers === #
