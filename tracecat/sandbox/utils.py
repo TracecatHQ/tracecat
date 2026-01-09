@@ -9,14 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from tracecat.config import (
-    TRACECAT__DISABLE_AGENT_NSJAIL,
     TRACECAT__DISABLE_NSJAIL,
     TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 
 
-def is_nsjail_available(*, for_agent: bool = False) -> bool:
+def is_nsjail_available() -> bool:
     """Check if nsjail sandbox is available and configured.
 
     This function is used by both the Python script sandbox and the agent
@@ -30,12 +29,8 @@ def is_nsjail_available(*, for_agent: bool = False) -> bool:
         True if nsjail can be used, False otherwise.
     """
     # Check the appropriate disable flag
-    if for_agent:
-        if TRACECAT__DISABLE_AGENT_NSJAIL:
-            return False
-    else:
-        if TRACECAT__DISABLE_NSJAIL:
-            return False
+    if TRACECAT__DISABLE_NSJAIL:
+        return False
 
     nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)
     rootfs_path = Path(TRACECAT__SANDBOX_ROOTFS_PATH)
