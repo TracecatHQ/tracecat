@@ -427,6 +427,13 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "agent-action-queue")
+"""Task queue for the AgentWorker (Temporal workflow queue).
+
+This is the dedicated queue for agent workflow execution, separate from the main
+tracecat-task-queue used by DSLWorkflow.
+"""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"

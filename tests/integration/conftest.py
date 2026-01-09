@@ -13,12 +13,17 @@ from __future__ import annotations
 import importlib
 import shutil
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
+from tracecat.db.models import User
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 
 # =============================================================================
@@ -327,6 +332,133 @@ def resolved_context_factory():
             workflow_id=str(uuid.uuid4()),
             run_id=str(uuid.uuid4()),
             executor_token="mock-token-for-testing",
+        )
+
+    return _create
+
+
+# =============================================================================
+# Committing Session Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+async def committing_session(db) -> AsyncGenerator[AsyncSession, None]:
+    """Create a session that makes real commits (not savepoints).
+
+    This fixture is needed for tests that spawn subprocesses or Temporal activities
+    that need to read data from the database. The standard `session` fixture uses
+    savepoint mode which prevents other processes from seeing the data.
+
+    IMPORTANT: This fixture makes real commits to the test database.
+    Data cleanup is handled by the test database fixture at session end.
+    """
+    async_engine = create_async_engine(
+        TEST_DB_CONFIG.test_url,
+        poolclass=NullPool,
+    )
+
+    async with AsyncSession(async_engine, expire_on_commit=False) as session:
+        yield session
+
+    await async_engine.dispose()
+
+
+async def _create_test_user(session: AsyncSession, user_id: uuid.UUID) -> User:
+    """Create a test user in the database if it doesn't exist."""
+    from sqlalchemy import select
+
+    # Check if user already exists
+    result = await session.execute(select(User).where(User.id == user_id))  # pyright: ignore[reportArgumentType]
+    existing_user = result.scalars().first()
+
+    if existing_user:
+        return existing_user
+
+    # Create new user
+    user = User(
+        id=user_id,
+        email=f"test-{user_id}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+# =============================================================================
+# Agent Worker Fixtures
+# =============================================================================
+
+# Fixed UUIDs for deterministic user/workspace IDs in agent tests
+_AGENT_USER_A_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
+_AGENT_USER_B_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
+_AGENT_WORKSPACE_A_ID = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+_AGENT_WORKSPACE_B_ID = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
+
+
+@pytest.fixture
+async def agent_user_a(committing_session: AsyncSession) -> User:
+    """Create test user A for agent tests (committed to DB)."""
+    return await _create_test_user(committing_session, _AGENT_USER_A_ID)
+
+
+@pytest.fixture
+async def agent_user_b(committing_session: AsyncSession) -> User:
+    """Create test user B for agent tests (committed to DB)."""
+    return await _create_test_user(committing_session, _AGENT_USER_B_ID)
+
+
+@pytest.fixture
+def role_workspace_agent_a(agent_user_a: User) -> Role:
+    """Role for agent workspace A testing with real user in DB."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=_AGENT_WORKSPACE_A_ID,
+        user_id=agent_user_a.id,
+    )
+
+
+@pytest.fixture
+def role_workspace_agent_b(agent_user_b: User) -> Role:
+    """Role for agent workspace B testing with real user in DB."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=_AGENT_WORKSPACE_B_ID,
+        user_id=agent_user_b.id,
+    )
+
+
+@pytest.fixture
+def agent_executor_input_factory():
+    """Factory for creating AgentExecutorInput objects for testing."""
+    from tracecat.agent.executor.activity import AgentExecutorInput
+    from tracecat.agent.types import AgentConfig
+
+    def _create(
+        role: Role,
+        user_prompt: str = "Test prompt",
+        model_name: str = "claude-3-5-sonnet-20241022",
+    ) -> AgentExecutorInput:
+        return AgentExecutorInput(
+            session_id=uuid.uuid4(),
+            workspace_id=role.workspace_id or uuid.uuid4(),
+            user_prompt=user_prompt,
+            config=AgentConfig(
+                model_name=model_name,
+                model_provider="anthropic",
+            ),
+            role=role,
+            jwt_token="mock-jwt-token",
+            litellm_auth_token="mock-llm-token",
+            litellm_base_url="http://localhost:4000",
         )
 
     return _create

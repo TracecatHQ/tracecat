@@ -235,7 +235,14 @@ class TestClaudeAgentRuntimeRun:
 
 
 class TestClaudeAgentRuntimePreToolUseHook:
-    """Tests for ClaudeAgentRuntime._pre_tool_use_hook()."""
+    """Tests for ClaudeAgentRuntime._pre_tool_use_hook().
+
+    The hook uses these rules:
+    1. Auto-approve if it's a user MCP tool (starts with mcp__user-mcp-)
+    2. Auto-approve if action is in registry_tools AND doesn't require approval
+    3. Deny with reason if requires_approval is True
+    4. Deny without reason otherwise (tool not allowed)
+    """
 
     @pytest.mark.anyio
     async def test_auto_approve_user_mcp_tools(
@@ -248,6 +255,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
+        # MCP tool format: mcp__tracecat-registry__core__http_request
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
                 tool_name="mcp__user-mcp-0__some_tool",
@@ -332,6 +340,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
+        # Tool not in registry and not a user MCP tool
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
                 tool_name="some_random_tool",

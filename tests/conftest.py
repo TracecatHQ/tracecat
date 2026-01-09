@@ -1137,3 +1137,48 @@ def mock_slack_secrets():
 
         mock_get.side_effect = side_effect
         yield mock_get
+
+
+# ---------------------------------------------------------------------------
+# Agent fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_agent_executor_input(test_role: Role):
+    """Create a mock AgentExecutorInput for testing."""
+    from tracecat.agent.executor.activity import AgentExecutorInput
+    from tracecat.agent.types import AgentConfig
+
+    return AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=test_role.workspace_id or uuid.uuid4(),
+        user_prompt="Test prompt",
+        config=AgentConfig(
+            model_name="claude-3-5-sonnet-20241022",
+            model_provider="anthropic",
+        ),
+        role=test_role,
+        jwt_token="mock-jwt-token",
+        litellm_auth_token="mock-llm-token",
+        litellm_base_url="http://localhost:4000",
+    )
+
+
+@pytest.fixture
+async def agent_session(session: AsyncSession, test_role: Role):
+    """Create a test agent session."""
+
+    from tracecat.db.models import AgentSession
+
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=test_role.workspace_id,
+        entity_type="chat",
+        entity_id=uuid.uuid4(),
+        harness_type="claude_code",
+    )
+    session.add(agent_session)
+    await session.commit()
+    await session.refresh(agent_session)
+    return agent_session

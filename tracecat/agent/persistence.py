@@ -1,16 +1,16 @@
 import uuid
 from collections.abc import Sequence
 
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ChatMessage
-from tracecat.chat.service import ChatService
 from tracecat.logger import logger
 
 
 class DBMessageStore:
     async def load(self, session_id: uuid.UUID) -> list[ChatMessage]:
-        async with ChatService.with_session() as svc:
+        async with AgentSessionService.with_session() as svc:
             try:
                 message_history = await svc.list_messages(
                     session_id, kinds=[MessageKind.CHAT_MESSAGE]
@@ -35,5 +35,5 @@ class DBMessageStore:
         *,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:
-        async with ChatService.with_session() as svc:
+        async with AgentSessionService.with_session() as svc:
             await svc.append_messages(session_id, messages, kind=kind)

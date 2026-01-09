@@ -28,9 +28,8 @@ class PersistableStreamingAgentDeps:
         workspace_id: uuid.UUID,
         *,
         persistent: bool = True,
-        namespace: str = "agent",
     ) -> PersistableStreamingAgentDeps:
-        stream = await AgentStream.new(session_id, workspace_id, namespace=namespace)
+        stream = await AgentStream.new(session_id, workspace_id)
         return cls(
             stream_writer=AgentStreamWriter(stream=stream),
             message_store=DBMessageStore() if persistent else None,
@@ -44,7 +43,6 @@ class PersistableStreamingAgentDeps:
             spec.session_id,
             spec.workspace_id,
             persistent=spec.persistent,
-            namespace=spec.namespace,
         )
 
 
@@ -54,7 +52,6 @@ class PersistableStreamingAgentDepsSpec(BaseModel):
     session_id: uuid.UUID
     workspace_id: uuid.UUID
     persistent: bool
-    namespace: str
 
     async def build(self) -> PersistableStreamingAgentDeps:
         """Reconstruct dependencies from this spec."""
@@ -75,7 +72,6 @@ class PersistableStreamingAgentDepsSpec(BaseModel):
         return cls(
             session_id=stream.session_id,
             workspace_id=stream.workspace_id,
-            namespace=stream.namespace,
             persistent=deps.message_store is not None,
         )
 

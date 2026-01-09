@@ -632,7 +632,7 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
     return new DefaultChatTransport({
       credentials: "include",
       prepareReconnectToStreamRequest: ({ id }) => {
-        const url = new URL(`/api/agent/sessions/${id}`, getBaseUrl())
+        const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
         url.searchParams.set("workspace_id", workspaceId)
         return {
           api: url.toString(),

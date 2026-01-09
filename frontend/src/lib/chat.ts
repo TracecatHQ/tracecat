@@ -1,9 +1,9 @@
 import type { QueryClient } from "@tanstack/react-query"
 import * as ai from "ai"
 import type {
+  AgentSessionEntity,
   BuiltinToolCallEvent,
   BuiltinToolResultEvent,
-  ChatEntity,
   FinalResultEvent,
   FunctionToolCallEvent,
   FunctionToolResultEvent,
@@ -27,7 +27,9 @@ export function isModelMessage(value: unknown): value is ModelMessage {
   )
 }
 
-export function isChatEntity(value: unknown): value is ChatEntity {
+export function isAgentSessionEntity(
+  value: unknown
+): value is AgentSessionEntity {
   return (
     value === "case" ||
     value === "agent_preset" ||
@@ -147,7 +149,7 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
   }
 }
 
-const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
+const UPDATE_ON_ACTIONS: Partial<Record<AgentSessionEntity, Array<string>>> = {
   case: ["core__cases__update_case", "core__cases__create_comment"],
   agent_preset_builder: ["update_agent_preset"],
 }
@@ -158,7 +160,7 @@ const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
  * Each entity type defines how to invalidate related queries when updates occur.
  */
 export const ENTITY_TO_INVALIDATION: Record<
-  ChatEntity,
+  AgentSessionEntity,
   {
     predicate: (toolName: string) => boolean
     handler: (

@@ -695,6 +695,7 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
+                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                     )
                     action_result: Any = await workflow.execute_child_workflow(
@@ -702,8 +703,8 @@ class DSLWorkflow:
                         arg=arg,
                         id=AgentWorkflowID(session_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                        # Propagate the parent workflow attributes to the child workflow
-                        task_queue=wf_info.task_queue,
+                        # Route to agent worker queue for session activities
+                        task_queue=config.TRACECAT__AGENT_QUEUE,
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,
@@ -748,6 +749,7 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
+                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
                     )
                     action_result = await workflow.execute_child_workflow(
@@ -755,7 +757,8 @@ class DSLWorkflow:
                         arg=arg,
                         id=AgentWorkflowID(session_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                        task_queue=wf_info.task_queue,
+                        # Route to agent worker queue for session activities
+                        task_queue=config.TRACECAT__AGENT_QUEUE,
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,
