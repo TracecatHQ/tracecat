@@ -223,6 +223,8 @@ class ApprovalService(BaseWorkspaceService):
         # Group approvals by session_id
         approvals_by_session: dict[uuid.UUID, list[tuple[Approval, User | None]]] = {}
         for approval, user in result.tuples().all():
+            if approval.session_id is None:
+                continue
             if approval.session_id not in approvals_by_session:
                 approvals_by_session[approval.session_id] = []
             approvals_by_session[approval.session_id].append((approval, user))
@@ -475,7 +477,7 @@ class ApprovalManager:
             )
             for approval in approvals
         ]
-        # Persist the approval state
+        # Persist the approval state (and chat messages atomically for chat namespace)
         await workflow.execute_activity(
             ApprovalManager.record_approval_requests,
             arg=PersistApprovalsActivityInputs(
@@ -490,6 +492,12 @@ class ApprovalManager:
         if not self._approvals:
             return None
         return DeferredToolResults(approvals=self._approvals)
+
+    def get_decision(
+        self, tool_call_id: str
+    ) -> bool | DeferredToolApprovalResult | None:
+        """Get the approval decision for a specific tool call ID."""
+        return self._approvals.get(tool_call_id)
 
     def validate_responses(self, approvals: ApprovalMap) -> None:
         """Validate that approval responses cover all expected tool calls."""
@@ -607,6 +615,7 @@ class ApprovalManager:
         - Creates placeholder records if they don't exist
         - Automatically sets approved_at timestamp based on status
         """
+
         if not input.decisions:
             return
 
@@ -640,7 +649,7 @@ class ApprovalManager:
                 )
 
                 # Build update payload - only include decision if it was explicitly set
-                update_data = {
+                update_data: dict[str, Any] = {
                     "status": status,
                     "reason": decision.reason,
                     "approved_by": decision.approved_by,
@@ -669,6 +678,7 @@ class ApprovalManager:
         - Upserts approvals (updates existing or creates new)
         - Resets approval state to PENDING if record already exists
         """
+
         if not input.approvals:
             return
 
@@ -708,7 +718,6 @@ class ApprovalManager:
                     )
                     # Reset approved_at manually
                     existing.approved_at = None
-                    await service.session.commit()
                 else:
                     # Create new approval record
                     await service.create_approval(

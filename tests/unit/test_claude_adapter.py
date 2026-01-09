@@ -47,7 +47,7 @@ def make_stream_event(
 
 def test_harness_name():
     """Test that adapter returns correct harness name."""
-    assert ClaudeSDKAdapter().harness_name == HarnessType.CLAUDE
+    assert ClaudeSDKAdapter().harness_name == HarnessType.CLAUDE_CODE
 
 
 # ==============================================================================

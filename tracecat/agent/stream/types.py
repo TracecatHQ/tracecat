@@ -104,9 +104,36 @@ class UnifiedStreamEvent(BaseModel):
         """
         return cls(type=StreamEventType.USER_MESSAGE, text=content)
 
+    @classmethod
+    def tool_result_event(
+        cls,
+        tool_call_id: str,
+        tool_name: str,
+        output: Any,
+        is_error: bool = False,
+    ) -> UnifiedStreamEvent:
+        """Factory method for creating tool result events.
+
+        Args:
+            tool_call_id: ID of the tool call this result is for.
+            tool_name: Name of the tool that was executed.
+            output: Result from tool execution (or error message).
+            is_error: Whether the result represents an error.
+
+        Returns:
+            A UnifiedStreamEvent with type TOOL_RESULT.
+        """
+        return cls(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            tool_output=output,
+            is_error=is_error,
+        )
+
 
 class HarnessType(str, Enum):
     """Supported agent harnesses."""
 
     PYDANTIC_AI = "pydantic-ai"
-    CLAUDE = "claude"
+    CLAUDE_CODE = "claude_code"

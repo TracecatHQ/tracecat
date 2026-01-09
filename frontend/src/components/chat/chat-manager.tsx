@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import type { ChatEntity } from "@/client"
+import type { AgentSessionEntity } from "@/client"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -12,7 +12,7 @@ import { ChatList } from "./chat-list"
 
 interface ChatManagerProps {
   workspaceId: string
-  entityType: ChatEntity
+  entityType: AgentSessionEntity
   entityId: string
   defaultChatId?: string
   className?: string

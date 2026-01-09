@@ -102,7 +102,7 @@ class ContentBlockStopEvent(TypedDict):
 class ClaudeSDKAdapter(BaseHarnessAdapter):
     """Adapter for converting Claude SDK stream events to unified format."""
 
-    harness_name = HarnessType.CLAUDE
+    harness_name = HarnessType.CLAUDE_CODE
 
     def __init__(self) -> None:
         self.context: dict[int, BlockState] = {}
