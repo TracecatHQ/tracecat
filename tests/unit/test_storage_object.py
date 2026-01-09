@@ -107,8 +107,17 @@ class TestInMemoryObjectStorage:
         assert not stored.is_externalized
 
     @pytest.mark.anyio
-    async def test_retrieve_raises_not_implemented(self):
-        """InMemoryObjectStorage.retrieve raises NotImplementedError."""
+    async def test_retrieve_inline_data(self):
+        """InMemoryObjectStorage.retrieve returns inline data."""
+        storage = InMemoryObjectStorage()
+        stored = await storage.store("key", {"test": "data"})
+
+        result = await storage.retrieve(stored)
+        assert result == {"test": "data"}
+
+    @pytest.mark.anyio
+    async def test_retrieve_raises_not_implemented_for_externalized(self):
+        """InMemoryObjectStorage.retrieve raises NotImplementedError for externalized refs."""
         storage = InMemoryObjectStorage()
         ref = ObjectRef(
             bucket="bucket",
@@ -116,9 +125,10 @@ class TestInMemoryObjectStorage:
             size_bytes=100,
             sha256="hash",
         )
+        stored = StoredObject(ref=ref)
 
         with pytest.raises(NotImplementedError):
-            await storage.retrieve(ref)
+            await storage.retrieve(stored)
 
     @pytest.mark.anyio
     async def test_store_with_kind(self):

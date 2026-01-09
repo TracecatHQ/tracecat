@@ -17,9 +17,8 @@ Usage:
         # Data was kept inline, use stored.data
         pass
 
-    # Retrieve externalized data
-    if stored.ref:
-        data = await storage.retrieve(stored.ref)
+    # Retrieve data (works for both inline and externalized)
+    data = await storage.retrieve(stored)
 """
 
 from __future__ import annotations
@@ -134,18 +133,18 @@ class ObjectStorage(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def retrieve(self, ref: ObjectRef) -> Any:
-        """Retrieve data from an ObjectRef.
+    async def retrieve(self, stored: StoredObject) -> Any:
+        """Retrieve data from a StoredObject.
 
         Args:
-            ref: Reference to the externalized data
+            stored: StoredObject with either inline data or an ObjectRef
 
         Returns:
-            The deserialized data
+            The data (either inline or fetched from storage)
 
         Raises:
-            ValueError: If integrity check fails
-            FileNotFoundError: If the object doesn't exist
+            ValueError: If integrity check fails (for externalized data)
+            FileNotFoundError: If the object doesn't exist (for externalized data)
         """
         raise NotImplementedError
 
@@ -172,13 +171,14 @@ class InMemoryObjectStorage(ObjectStorage):
         del key, kind  # Unused in inline storage
         return StoredObject(data=data, ref=None)
 
-    async def retrieve(self, ref: ObjectRef) -> Any:
-        """Not supported - InMemoryObjectStorage never creates refs."""
-        del ref  # Unused - we always raise
-        raise NotImplementedError(
-            "InMemoryObjectStorage does not support externalized references. "
-            "This ref was created by a different storage backend."
-        )
+    async def retrieve(self, stored: StoredObject) -> Any:
+        """Return inline data from StoredObject."""
+        if stored.is_externalized:
+            raise NotImplementedError(
+                "InMemoryObjectStorage does not support externalized references. "
+                "This ref was created by a different storage backend."
+            )
+        return stored.data
 
 
 class S3ObjectStorage(ObjectStorage):
@@ -261,8 +261,15 @@ class S3ObjectStorage(ObjectStorage):
 
         return StoredObject(data=None, ref=ref)
 
-    async def retrieve(self, ref: ObjectRef) -> Any:
-        """Retrieve and deserialize data from S3."""
+    async def retrieve(self, stored: StoredObject) -> Any:
+        """Retrieve data from StoredObject (inline or from S3)."""
+        # Return inline data directly
+        if not stored.is_externalized:
+            return stored.data
+
+        ref = stored.ref
+        assert ref is not None  # Guaranteed by is_externalized check
+
         if ref.backend != "s3":
             raise ValueError(
                 f"S3ObjectStorage cannot retrieve from backend: {ref.backend}"
