@@ -958,7 +958,7 @@ class TestErrorPropagation:
 
         # All should have response structure
         for result in results:
-            assert isinstance(result, (ExecutorResultSuccess, ExecutorResultFailure)), (
+            assert isinstance(result, ExecutorResultSuccess | ExecutorResultFailure), (
                 f"Result should be ExecutorResult, got {type(result)}"
             )
             assert hasattr(result, "type"), "Result should have 'type' field"

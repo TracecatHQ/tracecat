@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -102,13 +103,13 @@ class StoredObject:
 # === Protocol === #
 
 
-@runtime_checkable
-class ObjectStorage(Protocol):
+class ObjectStorage(ABC):
     """Pluggable storage backend for externalized objects.
 
     Implementations decide whether to externalize based on data size.
     """
 
+    @abstractmethod
     async def store(
         self,
         key: str,
@@ -127,8 +128,9 @@ class ObjectStorage(Protocol):
         Returns:
             StoredObject with either inline data or an ObjectRef
         """
-        ...
+        raise NotImplementedError
 
+    @abstractmethod
     async def retrieve(self, ref: ObjectRef) -> Any:
         """Retrieve data from an ObjectRef.
 
@@ -142,13 +144,13 @@ class ObjectStorage(Protocol):
             ValueError: If integrity check fails
             FileNotFoundError: If the object doesn't exist
         """
-        ...
+        raise NotImplementedError
 
 
 # === Implementations === #
 
 
-class InMemoryObjectStorage:
+class InMemoryObjectStorage(ObjectStorage):
     """In-memory storage - no externalization, results always inline.
 
     This is the default implementation that maintains current behavior.
@@ -157,7 +159,7 @@ class InMemoryObjectStorage:
 
     async def store(
         self,
-        key: str,  # noqa: ARG002
+        key: str,
         data: Any,
         *,
         kind: Literal["action_result", "trigger", "scatter_manifest", "return_value"]
@@ -176,7 +178,7 @@ class InMemoryObjectStorage:
         )
 
 
-class S3ObjectStorage:
+class S3ObjectStorage(ObjectStorage):
     """S3/MinIO storage with threshold-based externalization.
 
     Data below the threshold is kept inline. Data above the threshold
