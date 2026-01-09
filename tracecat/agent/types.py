@@ -19,6 +19,7 @@ from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.stream.types import ToolCallContent
 from tracecat.chat.enums import MessageKind
+from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
     from pydantic_ai import ModelResponse
@@ -153,7 +154,7 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
-    retries: int = 20  # Default max retries (avoids importing tracecat.config)
+    retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
 
