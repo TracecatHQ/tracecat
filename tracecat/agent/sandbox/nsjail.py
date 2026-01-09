@@ -156,7 +156,10 @@ async def spawn_jailed_runtime(
 
     # Direct subprocess mode for testing (no nsjail)
     if TRACECAT__DISABLE_NSJAIL:
-        return await _spawn_direct_runtime(socket_dir)
+        return await _spawn_direct_runtime(
+            control_socket_path=socket_dir / "control.sock",
+            mcp_socket_path=socket_dir / "mcp.sock",
+        )
 
     # NSJail mode for production
     return await _spawn_nsjail_runtime(
@@ -168,7 +171,8 @@ async def spawn_jailed_runtime(
 
 
 async def _spawn_direct_runtime(
-    socket_dir: Path,
+    control_socket_path: Path,
+    mcp_socket_path: Path,
 ) -> JailedRuntimeResult:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
@@ -176,9 +180,11 @@ async def _spawn_direct_runtime(
     Python environment. Used when TRACECAT__DISABLE_NSJAIL=true.
 
     WARNING: This mode has no isolation and should only be used for development/testing.
-    """
-    control_socket_path = socket_dir / "control.sock"
 
+    Args:
+        control_socket_path: Path to the control socket for orchestrator communication.
+        mcp_socket_path: Path to the trusted MCP server socket.
+    """
     cmd = [
         sys.executable,
         "-m",
@@ -189,14 +195,19 @@ async def _spawn_direct_runtime(
 
     logger.info(
         "Spawning agent runtime (direct subprocess - DEVELOPMENT MODE)",
-        socket_dir=str(socket_dir),
+        control_socket_path=str(control_socket_path),
+        mcp_socket_path=str(mcp_socket_path),
     )
+
+    # Pass MCP socket path via env since direct mode has no mount
+    env = os.environ.copy()
+    env["TRACECAT__MCP_SOCKET_PATH"] = str(mcp_socket_path)
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=os.environ.copy(),
+        env=env,
     )
 
     return JailedRuntimeResult(process=process, job_dir=None)
