@@ -285,6 +285,19 @@ def temp_cache_dir(tmp_path: Path) -> Path:
     return cache_dir
 
 
+@pytest.fixture
+def unique_version() -> str:
+    """Generate a unique version string for each test.
+
+    This ensures each test gets its own registry version and tarball,
+    avoiding issues with bucket cleanup removing tarballs while DB
+    records persist.
+    """
+    import tracecat_registry
+
+    return f"{tracecat_registry.__version__}-{uuid.uuid4().hex[:8]}"
+
+
 # =============================================================================
 # Test Class: Sync -> MinIO Integration
 # =============================================================================
@@ -462,6 +475,7 @@ class TestExecuteWithSyncedRegistry:
         run_action_input_factory,
         temp_cache_dir: Path,
         monkeypatch,
+        unique_version: str,
     ):
         """Verify action execution through EphemeralBackend with synced registry.
 
@@ -472,11 +486,13 @@ class TestExecuteWithSyncedRegistry:
         Uses committing_session and subprocess_db_env fixtures to ensure
         subprocess can read committed data from the test database.
         """
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -560,17 +576,20 @@ class TestExecuteWithSyncedRegistry:
         committing_builtin_repo,
         run_action_input_factory,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify action execution respects registry_lock for version pinning.
 
         Uses committing_session and subprocess_db_env fixtures to ensure
         subprocess can read committed data from the test database.
         """
-        # Sync registry to create version
+        # Sync registry to create version (use unique version to avoid cache collisions)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -841,6 +860,7 @@ class TestMultitenantWorkloads:
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify concurrent execution from different workspaces is isolated.
 
@@ -855,11 +875,13 @@ class TestMultitenantWorkloads:
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -983,6 +1005,7 @@ class TestMultitenantWorkloads:
         committing_builtin_repo,
         create_run_input,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify multiple concurrent requests from same workspace work correctly.
 
@@ -994,11 +1017,13 @@ class TestMultitenantWorkloads:
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -1092,6 +1117,7 @@ class TestMultitenantWorkloads:
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify different workspaces can use different registry versions via locks.
 
@@ -1103,11 +1129,13 @@ class TestMultitenantWorkloads:
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
