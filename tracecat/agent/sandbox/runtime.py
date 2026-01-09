@@ -191,6 +191,10 @@ class ClaudeAgentRuntime:
         (past _last_seen_line_index) to the orchestrator for persistence.
         The lines contain the full JSONL envelope (uuid, timestamp, parentUuid, etc.)
         needed for proper resume.
+
+        If a line fails to parse (e.g., incomplete write by SDK), we stop processing
+        at that point and keep the index there. The incomplete line will be retried
+        on the next call once the SDK finishes writing it.
         """
         if not self._sdk_session_id:
             return
@@ -205,25 +209,37 @@ class ClaudeAgentRuntime:
             new_lines = lines[self._last_seen_line_index :]
 
             for line in new_lines:
-                if line.strip():  # Skip empty lines
-                    # Parse to determine visibility, but send raw line for SDK resume
-                    try:
-                        line_data = orjson.loads(line)
-                    except orjson.JSONDecodeError:
-                        logger.warning("Failed to parse session line", line=line)
-                        continue
-                    internal = self._is_internal_session_line(line_data)
+                if not line.strip():
+                    # Empty line - advance index and continue
+                    self._last_seen_line_index += 1
+                    continue
 
-                    # On continuation, mark the continuation prompt (first user message) as internal
-                    if self._is_continuation and line_data.get("type") == "user":
-                        internal = True
-                        self._is_continuation = False
-
-                    await self._socket_writer.send_session_line(
-                        self._sdk_session_id, line, internal=internal
+                # Parse to determine visibility, but send raw line for SDK resume
+                try:
+                    line_data = orjson.loads(line)
+                except orjson.JSONDecodeError:
+                    # Stop at the first decode failure - this line may be incomplete
+                    # because the SDK is still writing it. We'll retry on the next pass.
+                    logger.debug(
+                        "Stopping at incomplete session line, will retry",
+                        line_index=self._last_seen_line_index,
                     )
+                    break
 
-            self._last_seen_line_index = len(lines)
+                internal = self._is_internal_session_line(line_data)
+
+                # On continuation, mark the continuation prompt (first user message) as internal
+                if self._is_continuation and line_data.get("type") == "user":
+                    internal = True
+                    self._is_continuation = False
+
+                await self._socket_writer.send_session_line(
+                    self._sdk_session_id, line, internal=internal
+                )
+
+                # Only advance the index after successfully processing the line
+                self._last_seen_line_index += 1
+
         except Exception as e:
             logger.warning("Failed to read session file", error=str(e))
 
@@ -320,7 +336,8 @@ class ClaudeAgentRuntime:
 
     def _build_system_prompt(self, instructions: str | None) -> str:
         """Build the system prompt for the agent."""
-        return f"You are a helpful assistant that helps users with security and IT automation operations in Tracecat. You can assist with workflows, cases, agents, lookup tables, and general workspace operations\n\n{instructions}"
+        base = "You are a helpful assistant that helps users with security and IT automation operations in Tracecat. You can assist with workflows, cases, agents, lookup tables, and general workspace operation"
+        return f"{base}\n\n{instructions}" if instructions else base
 
     async def run(self, payload: RuntimeInitPayload) -> None:
         """Run an agent with the given initialization payload.
