@@ -27,11 +27,10 @@ from __future__ import annotations
 import hashlib
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tracecat import config
 from tracecat.logger import logger
@@ -76,23 +75,32 @@ class ObjectRef(BaseModel):
     """Optional classification of the externalized data."""
 
 
-@dataclass
-class StoredObject:
+class StoredObject(BaseModel):
     """Result of a store operation.
 
     Either data is inline (ref=None, data=value) or externalized (ref=ObjectRef, data=None).
+    Exactly one of data or ref must be set.
     """
 
-    data: Any | None
+    data: Any | None = None
     """The data if kept inline, None if externalized."""
 
-    ref: ObjectRef | None
+    ref: ObjectRef | None = None
     """Reference to externalized data, None if inline."""
 
     @property
     def is_externalized(self) -> bool:
         """Whether the data was externalized to blob storage."""
         return self.ref is not None
+
+    @model_validator(mode="after")
+    def _validate_data_or_ref(self) -> StoredObject:
+        """Ensure exactly one of data or ref is set."""
+        if self.data is None and self.ref is None:
+            raise ValueError("Either data or ref must be set")
+        if self.data is not None and self.ref is not None:
+            raise ValueError("Only one of data or ref can be set, not both")
+        return self
 
 
 # === Interface === #
