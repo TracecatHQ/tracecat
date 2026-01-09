@@ -29,17 +29,12 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from tracecat import config
 from tracecat.logger import logger
-
-if TYPE_CHECKING:
-    from tracecat.dsl.schemas import ExecutionContext
-
-from tracecat.expressions.common import ExprContext
 
 # === Types === #
 
@@ -100,7 +95,7 @@ class StoredObject:
         return self.ref is not None
 
 
-# === Protocol === #
+# === Interface === #
 
 
 class ObjectStorage(ABC):
@@ -163,7 +158,7 @@ class InMemoryObjectStorage(ObjectStorage):
         data: Any,
         *,
         kind: Literal["action_result", "trigger", "scatter_manifest", "return_value"]
-        | None = None,  # noqa: ARG002
+        | None = None,
     ) -> StoredObject:
         """Store data inline (never externalizes)."""
         del key, kind  # Unused in inline storage
@@ -373,173 +368,3 @@ def reset_object_storage() -> None:
     """Reset object storage to None, forcing re-initialization on next get."""
     global _object_storage
     _object_storage = None
-
-
-# === Hydration === #
-
-
-def is_object_ref(value: Any) -> bool:
-    """Check if a value is an ObjectRef (or serialized ObjectRef dict).
-
-    Args:
-        value: Value to check
-
-    Returns:
-        True if value looks like an ObjectRef
-    """
-    if isinstance(value, ObjectRef):
-        return True
-    if isinstance(value, dict):
-        # Check for required ObjectRef fields
-        return (
-            value.get("backend") == "s3"
-            and "bucket" in value
-            and "key" in value
-            and "sha256" in value
-        )
-    return False
-
-
-def to_object_ref(value: Any) -> ObjectRef:
-    """Convert a value to ObjectRef.
-
-    Args:
-        value: ObjectRef instance or dict with ObjectRef fields
-
-    Returns:
-        ObjectRef instance
-
-    Raises:
-        ValueError: If value is not a valid ObjectRef
-    """
-    if isinstance(value, ObjectRef):
-        return value
-    if isinstance(value, dict) and is_object_ref(value):
-        return ObjectRef.model_validate(value)
-    raise ValueError(f"Cannot convert to ObjectRef: {type(value)}")
-
-
-class HydrationCache:
-    """Per-activity cache for hydrated objects.
-
-    Avoids repeated downloads of the same externalized data within an activity.
-    Cache key is (backend, bucket, key, sha256).
-    """
-
-    def __init__(self) -> None:
-        self._cache: dict[tuple[str, str, str, str], Any] = {}
-
-    def _make_key(self, ref: ObjectRef) -> tuple[str, str, str, str]:
-        return (ref.backend, ref.bucket, ref.key, ref.sha256)
-
-    def get(self, ref: ObjectRef) -> Any | None:
-        """Get cached value for ObjectRef, or None if not cached."""
-        key = self._make_key(ref)
-        return self._cache.get(key)
-
-    def set(self, ref: ObjectRef, value: Any) -> None:
-        """Cache a hydrated value."""
-        key = self._make_key(ref)
-        self._cache[key] = value
-
-    def has(self, ref: ObjectRef) -> bool:
-        """Check if ObjectRef is in cache."""
-        return self._make_key(ref) in self._cache
-
-
-async def hydrate_value(
-    value: Any,
-    storage: ObjectStorage,
-    cache: HydrationCache,
-) -> Any:
-    """Recursively hydrate ObjectRefs in a value.
-
-    Args:
-        value: Value to hydrate (may contain nested ObjectRefs)
-        storage: Storage backend to retrieve from
-        cache: Cache for hydrated values
-
-    Returns:
-        Value with ObjectRefs replaced by actual data
-    """
-    if is_object_ref(value):
-        ref = to_object_ref(value)
-
-        # Check cache first
-        cached = cache.get(ref)
-        if cached is not None:
-            logger.debug("Using cached hydrated value", key=ref.key)
-            return cached
-
-        # Retrieve from storage
-        data = await storage.retrieve(ref)
-        cache.set(ref, data)
-        logger.debug("Hydrated ObjectRef", key=ref.key, size_bytes=ref.size_bytes)
-        return data
-
-    if isinstance(value, dict):
-        return {k: await hydrate_value(v, storage, cache) for k, v in value.items()}
-
-    if isinstance(value, list):
-        return [await hydrate_value(item, storage, cache) for item in value]
-
-    # Primitive value, return as-is
-    return value
-
-
-async def hydrate_execution_context(
-    context: ExecutionContext,
-    storage: ObjectStorage | None = None,
-    cache: HydrationCache | None = None,
-) -> ExecutionContext:
-    """Hydrate externalized values in an execution context.
-
-    This function should be called inside activities/workers before expression
-    evaluation. It replaces ObjectRefs with actual data from storage.
-
-    The context is modified in-place and also returned for convenience.
-
-    Args:
-        context: Execution context dict (with ACTIONS, TRIGGER, etc.)
-        storage: Storage backend (defaults to get_object_storage())
-        cache: Hydration cache (creates new one if not provided)
-
-    Returns:
-        The hydrated context (same dict, modified in-place)
-
-    Example:
-        # Before expression evaluation in an activity
-        context = await hydrate_execution_context(context)
-        result = eval_templated_object(template, context)
-    """
-    if storage is None:
-        storage = get_object_storage()
-
-    if cache is None:
-        cache = HydrationCache()
-
-    # Hydrate TRIGGER if present
-    if ExprContext.TRIGGER in context:
-        context[ExprContext.TRIGGER] = await hydrate_value(
-            context[ExprContext.TRIGGER], storage, cache
-        )
-
-    # Hydrate ACTIONS results if present
-    if ExprContext.ACTIONS in context:
-        actions = context[ExprContext.ACTIONS]
-        for action_ref, action_data in actions.items():
-            if isinstance(action_data, dict) and "result" in action_data:
-                action_data["result"] = await hydrate_value(
-                    action_data["result"], storage, cache
-                )
-            else:
-                # Action data might be the result directly
-                actions[action_ref] = await hydrate_value(action_data, storage, cache)
-
-    logger.debug(
-        "Hydrated execution context",
-        trigger_hydrated=ExprContext.TRIGGER in context,
-        actions_count=len(context.get(ExprContext.ACTIONS, {})),
-    )
-
-    return context
