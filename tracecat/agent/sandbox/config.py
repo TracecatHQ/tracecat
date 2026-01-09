@@ -24,6 +24,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tracecat.agent.sandbox.exceptions import AgentSandboxValidationError
+from tracecat.config import (
+    TRACECAT__AGENT_SANDBOX_MEMORY_MB,
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+)
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -59,8 +63,12 @@ def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
 class AgentResourceLimits:
     """Resource limits for agent sandbox execution.
 
+    Defaults are read from environment variables:
+    - TRACECAT__AGENT_SANDBOX_MEMORY_MB: memory_mb (default 4096 = 4 GiB)
+    - TRACECAT__AGENT_SANDBOX_TIMEOUT: timeout_seconds and cpu_seconds (default 600s)
+
     Attributes:
-        memory_mb: Maximum memory in megabytes (default 4096 = 4 GiB).
+        memory_mb: Maximum memory in megabytes.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -68,12 +76,14 @@ class AgentResourceLimits:
         timeout_seconds: Maximum wall-clock execution time.
     """
 
-    memory_mb: int = 4096
-    cpu_seconds: int = 600
+    memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
+    cpu_seconds: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT)
     max_file_size_mb: int = 256
     max_open_files: int = 512
     max_processes: int = 128
-    timeout_seconds: int = 600
+    timeout_seconds: int = field(
+        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+    )
 
 
 @dataclass
