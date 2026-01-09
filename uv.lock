@@ -3945,6 +3945,8 @@ dev = [
     { name = "python-dotenv" },
     { name = "respx" },
     { name = "ruff" },
+    { name = "types-aioboto3", extra = ["s3", "sts"] },
+    { name = "types-boto3", extra = ["s3", "sts"] },
 ]
 
 [package.metadata]
@@ -4019,6 +4021,8 @@ dev = [
     { name = "python-dotenv", specifier = "==1.1.1" },
     { name = "respx", specifier = "==0.22.0" },
     { name = "ruff", specifier = "==0.13.0" },
+    { name = "types-aioboto3", extras = ["sts", "s3"], specifier = ">=15.0.0" },
+    { name = "types-boto3", extras = ["sts", "s3"], specifier = ">=1.39.0,<2.0.0" },
 ]
 
 [[package]]

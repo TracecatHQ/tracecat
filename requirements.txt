@@ -285,6 +285,13 @@ botocore==1.40.61 \
     #   aiobotocore
     #   boto3
     #   s3transfer
+botocore-stubs==1.42.15 \
+    --hash=sha256:4139df99bbedf6eb4347a463ff06cfd7cf20f70790662250af814aa6fd5f3132 \
+    --hash=sha256:f92cec51967135b21fe3e0e36c19451f5c49a2b9043350a7a204220eba61cae6
+    # via
+    #   types-aioboto3
+    #   types-aiobotocore
+    #   types-boto3
 cachetools==5.5.2 \
     --hash=sha256:1a661caa9175d26759571b2e19580f9d6393969e5dfca11fdb1f947a23e640d4 \
     --hash=sha256:d26a22bcc62eb95c3beabd9f1ee5e820d3d2704fe2967cbe350e20c8ffcd3f0a
@@ -2520,10 +2527,46 @@ typer==0.20.1 \
     # via
     #   fastapi-cli
     #   fastapi-cloud-cli
+types-aioboto3==15.5.0 \
+    --hash=sha256:5769a1c3df7ca1abedf3656ddf0b970c9b0436d0f88cf4686040b55cd2a02925 \
+    --hash=sha256:8aed7c9b6fe9b59e6ce74f7a6db7b8a9912a34c8f80ed639fac1fa59d6b20aa1
+types-aiobotocore==3.0.0 \
+    --hash=sha256:52c4f5c92b275ab54bd32fdbde8db8a2e561621bd742f0b0256b652f232e4bdb \
+    --hash=sha256:8b998ca1ff76b6767bda180a93b0b50fc8f6e15e47cdc99867a5ef44c9d73354
+    # via types-aioboto3
+types-aiobotocore-s3==2.25.2 \
+    --hash=sha256:151301e84bb2f1cbf30f0d1ef791bb75c141cfbfe47b93fd317b7f1ba3eb35e4 \
+    --hash=sha256:678aa425491af19bd6d011d59ecdbbb7ae7e95800efddcf4fd559ab72c94e194
+    # via types-aioboto3
+types-aiobotocore-sts==2.25.2 \
+    --hash=sha256:1342271243d03fd8d4a1eab566d9137f70ec723bb6ad613669c74152ac3a0427 \
+    --hash=sha256:487da184371dc9761fd3ed663d519f4a19f690d7dcc1fe8f551b6dd805f08549
+    # via types-aioboto3
+types-awscrt==0.30.0 \
+    --hash=sha256:362fd8f5eaebcfcd922cb9fd8274fb375df550319f78031ee3779eac0b9ecc79 \
+    --hash=sha256:8204126e01a00eaa4a746e7a0076538ca0e4e3f52408adec0ab9b471bb0bb64b
+    # via botocore-stubs
+types-boto3==1.42.15 \
+    --hash=sha256:5caec335d3a289afe9831c8cb4d6bb1f23305130dfa4a4a647553d3599df8d9b \
+    --hash=sha256:949c7ed848b3b0ce47c4433f0d2c50c59c424d986fc3e968b63a784c1586660d
+types-boto3-s3==1.42.10 \
+    --hash=sha256:2fed4c848c86bb3bab3c9f6b53fb4bb81b0824997f8c1807613a6721fadd637e \
+    --hash=sha256:c696bf939ed71588fa409f157c18587f192b1f931d728a1e5e596eafa25729e9
+    # via types-boto3
+types-boto3-sts==1.42.3 \
+    --hash=sha256:3661edbcbf4373034ec2f3f7b99932067d67df26c85bf8882c5c5c61323c1010 \
+    --hash=sha256:ac3b7b78e84a73b8ee36bd136eea01ac6d56b775da654481a9f8b204b0b83feb
+    # via types-boto3
 types-protobuf==6.32.1.20251210 \
     --hash=sha256:2641f78f3696822a048cfb8d0ff42ccd85c25f12f871fbebe86da63793692140 \
     --hash=sha256:c698bb3f020274b1a2798ae09dc773728ce3f75209a35187bd11916ebfde6763
     # via temporalio
+types-s3transfer==0.16.0 \
+    --hash=sha256:1c0cd111ecf6e21437cb410f5cddb631bfb2263b77ad973e79b9c6d0cb24e0ef \
+    --hash=sha256:b4636472024c5e2b62278c5b759661efeb52a81851cde5f092f24100b1ecb443
+    # via
+    #   types-aioboto3
+    #   types-boto3
 typing-extensions==4.15.0 \
     --hash=sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466 \
     --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548

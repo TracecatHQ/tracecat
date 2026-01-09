@@ -1,40 +1,49 @@
 """File upload and download functions for S3/MinIO."""
 
+from __future__ import annotations
+
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import aioboto3
-from aiobotocore.session import ClientCreatorContext
 from botocore.exceptions import ClientError
 
 from tracecat import config
 from tracecat.logger import logger
 
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
 
-# Core storage utility functions
-def get_storage_client() -> ClientCreatorContext:
+
+@asynccontextmanager
+async def get_storage_client() -> AsyncIterator[S3Client]:
     """Get a configured S3 client for either AWS S3 or MinIO.
 
     Uses environment variables for credentials:
     - For MinIO: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
     - For S3: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 
-    Returns:
-        Configured aioboto3 S3 client context manager
+    Yields:
+        Configured aioboto3 S3 client
     """
     session = aioboto3.Session()
 
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_PROTOCOL == "minio":
         # MinIO configuration - use MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
-        return session.client(
+        async with session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
             aws_access_key_id=os.environ.get("MINIO_ROOT_USER"),
             aws_secret_access_key=os.environ.get("MINIO_ROOT_PASSWORD"),
-        )
+        ) as client:
+            yield client
     else:
         # AWS S3 configuration - use AWS credentials from environment or default credential chain
-        return session.client("s3")
+        async with session.client("s3") as client:
+            yield client
 
 
 async def ensure_bucket_exists(bucket: str) -> None:
