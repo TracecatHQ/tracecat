@@ -70,6 +70,7 @@ from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -500,9 +501,9 @@ class DSLRunArgs(BaseModel):
             "or workflow start_time (for other triggers). Stored as UTC."
         ),
     )
-    registry_lock: dict[str, str] | None = Field(
+    registry_lock: RegistryLock | None = Field(
         default=None,
-        description="Registry version lock for action execution. Maps action names to version hashes.",
+        description="Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
     )
 
     @field_validator("wf_id", mode="before")

@@ -71,6 +71,7 @@ fi
 # List of files to update (hardcoded)
 FILES=(
     "tracecat/__init__.py"
+    "packages/tracecat-registry/tracecat_registry/__init__.py"
     "docker-compose.yml"
     "docs/tutorials/updating.mdx"
     "docs/self-hosting/deployment-options/docker-compose.mdx"

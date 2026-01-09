@@ -39,6 +39,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
+        resolve_registry_lock_activity,
     )
     from tracecat.workflow.management.management import WorkflowsManagementService
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -74,6 +75,7 @@ def get_activities() -> list[Callable]:
     activities: list[Callable] = [
         *DSLActivities.load(),
         get_workflow_definition_activity,
+        resolve_registry_lock_activity,
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         normalize_trigger_inputs_activity,

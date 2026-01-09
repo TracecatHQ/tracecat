@@ -260,15 +260,22 @@ def simple_action_input_factory() -> Callable[..., RunActionInput]:
     """
     from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
     from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
+    from tracecat.registry.lock.types import RegistryLock
 
     def _create(
         action: str = "core.transform.reshape",
         args: dict | None = None,
         ref: str = "benchmark_action",
-        registry_lock: dict[str, str] | None = None,
+        registry_lock: RegistryLock | None = None,
     ) -> RunActionInput:
         wf_id = WorkflowUUID.new_uuid4()
         exec_id = ExecutionUUID.new_uuid4()
+        # Provide a default registry lock for testing
+        if registry_lock is None:
+            registry_lock = RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={action: "tracecat_registry"},
+            )
         return RunActionInput(
             task=ActionStatement(
                 action=action,

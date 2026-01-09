@@ -122,11 +122,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
+        resolve_registry_lock_activity,
     )
     from tracecat.workflow.management.management import WorkflowsManagementService
     from tracecat.workflow.management.schemas import (
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
+        ResolveRegistryLockActivityInputs,
         ResolveWorkflowAliasActivityInputs,
         WorkflowDefinitionActivityResult,
     )
@@ -227,12 +229,13 @@ class DSLWorkflow:
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
         # Set DSL and registry_lock
+        registry_lock = None
         if args.dsl:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
             self.dsl = args.dsl
             # Use registry_lock from args if provided (e.g., from parent workflow)
-            self.registry_lock = args.registry_lock
+            registry_lock = args.registry_lock
             self.dispatch_type = "push"
         else:
             # Otherwise, fetch the latest workflow definition
@@ -240,7 +243,7 @@ class DSLWorkflow:
             try:
                 result = await self._get_workflow_definition(args.wf_id)
                 self.dsl = result.dsl
-                self.registry_lock = result.registry_lock
+                registry_lock = result.registry_lock
             except TracecatException as e:
                 self.logger.error("Failed to fetch workflow definition")
                 raise ApplicationError(
@@ -249,6 +252,23 @@ class DSLWorkflow:
                     type=e.__class__.__name__,
                 ) from e
             self.dispatch_type = "pull"
+
+        # Resolve registry lock if not provided or empty
+        # This ensures all trigger paths (schedules, child workflows, API) have a valid lock
+        if not registry_lock:
+            self.logger.debug("Resolving registry lock via activity")
+            action_names = {task.action for task in self.dsl.actions}
+            self.registry_lock = await workflow.execute_activity(
+                resolve_registry_lock_activity,
+                arg=ResolveRegistryLockActivityInputs(
+                    role=self.role,
+                    action_names=action_names,
+                ),
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+        else:
+            self.registry_lock = registry_lock
 
         # Log registry lock for debugging
         self.logger.debug(

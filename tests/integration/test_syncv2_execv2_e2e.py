@@ -44,6 +44,7 @@ from tracecat.executor.service import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.service import RegistrySyncService
@@ -254,6 +255,9 @@ def run_action_input_factory():
         registry_lock: dict[str, str] | None = None,
     ) -> RunActionInput:
         wf_id = WorkflowUUID.new_uuid4()
+        # Build proper RegistryLock with origins and action mappings
+        origins = registry_lock or {"tracecat_registry": "test-version"}
+        actions = {action: list(origins.keys())[0]}
         return RunActionInput(
             task=ActionStatement(
                 action=action,
@@ -267,7 +271,7 @@ def run_action_input_factory():
                 wf_run_id=uuid.uuid4(),
                 environment="default",
             ),
-            registry_lock=registry_lock,
+            registry_lock=RegistryLock(origins=origins, actions=actions),
         )
 
     return _create
@@ -279,6 +283,19 @@ def temp_cache_dir(tmp_path: Path) -> Path:
     cache_dir = tmp_path / "registry-cache"
     cache_dir.mkdir(parents=True)
     return cache_dir
+
+
+@pytest.fixture
+def unique_version() -> str:
+    """Generate a unique version string for each test.
+
+    This ensures each test gets its own registry version and tarball,
+    avoiding issues with bucket cleanup removing tarballs while DB
+    records persist.
+    """
+    import tracecat_registry
+
+    return f"{tracecat_registry.__version__}-{uuid.uuid4().hex[:8]}"
 
 
 # =============================================================================
@@ -405,7 +422,7 @@ class TestExecuteWithSyncedRegistry:
     """Tests for action execution using synced registry tarballs.
 
     Note: These tests mock the artifact resolution functions because:
-    1. The EphemeralBackend internally calls get_registry_artifacts_cached/for_lock
+    1. The EphemeralBackend internally calls get_registry_artifacts_for_lock
     2. Those functions use their own DB sessions (can't see uncommitted data)
     3. Mocking separates concerns: sync tests verify DB, execution tests verify execution
     """
@@ -458,6 +475,7 @@ class TestExecuteWithSyncedRegistry:
         run_action_input_factory,
         temp_cache_dir: Path,
         monkeypatch,
+        unique_version: str,
     ):
         """Verify action execution through EphemeralBackend with synced registry.
 
@@ -468,11 +486,13 @@ class TestExecuteWithSyncedRegistry:
         Uses committing_session and subprocess_db_env fixtures to ensure
         subprocess can read committed data from the test database.
         """
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -485,20 +505,12 @@ class TestExecuteWithSyncedRegistry:
         # Commit the data so subprocess can see it
         await committing_session.commit()
 
-        # Create mock artifacts from sync result
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
-            )
-        ]
-
         # Create input for core.transform.reshape action
         args = {"value": {"input": "test_value"}}
         input_data = run_action_input_factory(
             action="core.transform.reshape",
             args=args,
+            registry_lock={"tracecat_registry": sync_result.version.version},
         )
 
         # Create resolved context for execution
@@ -541,11 +553,6 @@ class TestExecuteWithSyncedRegistry:
                 "execute_action",
                 side_effect=execute_without_nsjail,
             ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
-            ),
         ):
             result = await backend.execute(
                 input_data, test_role, resolved_context=resolved_context, timeout=60.0
@@ -569,17 +576,20 @@ class TestExecuteWithSyncedRegistry:
         committing_builtin_repo,
         run_action_input_factory,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify action execution respects registry_lock for version pinning.
 
         Uses committing_session and subprocess_db_env fixtures to ensure
         subprocess can read committed data from the test database.
         """
-        # Sync registry to create version
+        # Sync registry to create version (use unique version to avoid cache collisions)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -707,15 +717,6 @@ class TestFailureScenarios:
         key = uri_parts[1]
         minio_client.remove_object(bucket, key)
 
-        # Create mock artifacts pointing to the deleted tarball
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,  # Points to deleted object
-            )
-        ]
-
         # Create input
         args = {"value": {"test": True}}
         input_data = run_action_input_factory(args=args)
@@ -758,11 +759,6 @@ class TestFailureScenarios:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             # Currently raises HTTPStatusError for missing tarball
@@ -830,9 +826,13 @@ class TestMultitenantWorkloads:
             registry_lock: dict[str, str] | None = None,
         ) -> RunActionInput:
             wf_id = WorkflowUUID.new_uuid4()
+            action = "core.transform.reshape"
+            # Build proper RegistryLock with origins and action mappings
+            origins = registry_lock or {"tracecat_registry": "test-version"}
+            actions = {action: list(origins.keys())[0]}
             return RunActionInput(
                 task=ActionStatement(
-                    action="core.transform.reshape",
+                    action=action,
                     args={"value": value},
                     ref="test_action",
                 ),
@@ -843,7 +843,7 @@ class TestMultitenantWorkloads:
                     wf_run_id=uuid.uuid4(),
                     environment="default",
                 ),
-                registry_lock=registry_lock,
+                registry_lock=RegistryLock(origins=origins, actions=actions),
             )
 
         return _create
@@ -860,6 +860,7 @@ class TestMultitenantWorkloads:
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify concurrent execution from different workspaces is isolated.
 
@@ -874,11 +875,13 @@ class TestMultitenantWorkloads:
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -900,13 +903,16 @@ class TestMultitenantWorkloads:
         # Create inputs with workspace-specific values
         value_a = {"workspace": "A", "tenant_id": str(workspace_a_id)}
         value_b = {"workspace": "B", "tenant_id": str(workspace_b_id)}
+        registry_lock = {"tracecat_registry": sync_result.version.version}
         input_a = create_run_input(
             workspace_id=workspace_a_id,
             value=value_a,
+            registry_lock=registry_lock,
         )
         input_b = create_run_input(
             workspace_id=workspace_b_id,
             value=value_b,
+            registry_lock=registry_lock,
         )
 
         # Create resolved contexts for both workspaces
@@ -939,15 +945,6 @@ class TestMultitenantWorkloads:
             executor_token="mock-token-for-testing",
         )
 
-        # Create mock artifacts for both workspaces
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
-            )
-        ]
-
         # Execute via EphemeralBackend
         backend = EphemeralBackend()
 
@@ -971,11 +968,6 @@ class TestMultitenantWorkloads:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             # Run both executions concurrently
@@ -1013,6 +1005,7 @@ class TestMultitenantWorkloads:
         committing_builtin_repo,
         create_run_input,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify multiple concurrent requests from same workspace work correctly.
 
@@ -1024,11 +1017,13 @@ class TestMultitenantWorkloads:
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(
@@ -1043,12 +1038,14 @@ class TestMultitenantWorkloads:
 
         # Create multiple inputs for the same workspace
         workspace_id = test_role.workspace_id
+        registry_lock = {"tracecat_registry": sync_result.version.version}
         inputs_and_contexts = []
         for i in range(5):
             value = {"request_id": i, "workspace": str(workspace_id)}
             inp = create_run_input(
                 workspace_id=workspace_id,
                 value=value,
+                registry_lock=registry_lock,
             )
             resolved_ctx = ResolvedContext(
                 secrets={},
@@ -1065,15 +1062,6 @@ class TestMultitenantWorkloads:
                 executor_token="mock-token-for-testing",
             )
             inputs_and_contexts.append((inp, resolved_ctx))
-
-        # Create mock artifacts
-        mock_artifacts = [
-            RegistryArtifactsContext(
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
-            )
-        ]
 
         # Execute via EphemeralBackend
         backend = EphemeralBackend()
@@ -1098,11 +1086,6 @@ class TestMultitenantWorkloads:
                 test_runner,
                 "execute_action",
                 side_effect=execute_without_nsjail,
-            ),
-            patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_cached",
-                new_callable=AsyncMock,
-                return_value=mock_artifacts,
             ),
         ):
             results = await asyncio.gather(
@@ -1134,6 +1117,7 @@ class TestMultitenantWorkloads:
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
+        unique_version: str,
     ):
         """Verify different workspaces can use different registry versions via locks.
 
@@ -1145,11 +1129,13 @@ class TestMultitenantWorkloads:
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO
+        # Sync registry to create tarball in MinIO (use unique version)
         async with RegistrySyncService.with_session(
             session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(committing_builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo, target_version=unique_version
+            )
 
         # Also upsert actions to RegistryAction table (required for subprocess execution)
         async with RegistryActionsService.with_session(

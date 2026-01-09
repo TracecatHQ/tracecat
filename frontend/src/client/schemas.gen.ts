@@ -5829,18 +5829,14 @@ export const $DSLRunArgs = {
     registry_lock: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/RegistryLock",
         },
         {
           type: "null",
         },
       ],
-      title: "Registry Lock",
       description:
-        "Registry version lock for action execution. Maps action names to version hashes.",
+        "Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
     },
   },
   type: "object",
@@ -10535,6 +10531,35 @@ export const $RegistryActionValidationErrorInfo = {
   title: "RegistryActionValidationErrorInfo",
 } as const
 
+export const $RegistryLock = {
+  properties: {
+    origins: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Origins",
+    },
+    actions: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Actions",
+    },
+  },
+  type: "object",
+  required: ["origins", "actions"],
+  title: "RegistryLock",
+  description: `Registry version lock with action-level bindings for O(1) resolution.
+
+Attributes:
+    origins: Maps repository origin to pinned version string.
+        Example: {"tracecat_registry": "2024.12.10.123456"}
+    actions: Maps action name to its source origin.
+        Example: {"core.transform.reshape": "tracecat_registry"}`,
+} as const
+
 export const $RegistryOAuthSecret_Input = {
   properties: {
     type: {
@@ -11281,22 +11306,11 @@ export const $RunActionInput = {
       title: "Session Id",
     },
     registry_lock: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Registry Lock",
+      $ref: "#/components/schemas/RegistryLock",
     },
   },
   type: "object",
-  required: ["task", "exec_context", "run_context"],
+  required: ["task", "exec_context", "run_context", "registry_lock"],
   title: "RunActionInput",
   description:
     "This object contains all the information needed to execute an action.",

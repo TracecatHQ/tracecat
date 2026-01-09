@@ -63,6 +63,15 @@ boto3 = [
 ]
 
 [[package]]
+name = "aiocache"
+version = "0.12.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/64/b945b8025a9d1e6e2138845f4022165d3b337f55f50984fbc6a4c0a1e355/aiocache-0.12.3.tar.gz", hash = "sha256:f528b27bf4d436b497a1d0d1a8f59a542c153ab1e37c3621713cb376d44c4713", size = 132196, upload-time = "2024-09-25T13:20:23.823Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/d7/15d67e05b235d1ed8c3ce61688fe4d84130e72af1657acadfaac3479f4cf/aiocache-0.12.3-py2.py3-none-any.whl", hash = "sha256:889086fc24710f431937b87ad3720a289f7fc31c4fd8b68e9f918b9bacd8270d", size = 28199, upload-time = "2024-09-25T13:20:22.688Z" },
+]
+
+[[package]]
 name = "aiofiles"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3875,6 +3884,7 @@ wheels = [
 name = "tracecat"
 source = { editable = "." }
 dependencies = [
+    { name = "aiocache" },
     { name = "aiohttp" },
     { name = "alembic" },
     { name = "alembic-postgresql-enum" },
@@ -3949,6 +3959,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiocache", specifier = "==0.12.3" },
     { name = "aiohttp", specifier = "==3.13.3" },
     { name = "alembic", specifier = "==1.13.2" },
     { name = "alembic-postgresql-enum", specifier = "==1.7.0" },

@@ -26,7 +26,6 @@ from tracecat.executor.schemas import (
 )
 from tracecat.executor.service import (
     RegistryArtifactsContext,
-    get_registry_artifacts_cached,
     get_registry_artifacts_for_lock,
 )
 from tracecat.logger import logger
@@ -76,9 +75,7 @@ class EphemeralBackend(ExecutorBackend):
         )
 
         # Get ALL tarball URIs for registry environment (deterministic ordering)
-        tarball_uris = await self._get_tarball_uris(
-            input, role, action_origin=resolved_context.action_impl.origin
-        )
+        tarball_uris = await self._get_tarball_uris(input)
 
         # Error out early if no tarballs resolved (unless local repository is enabled)
         if not tarball_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
@@ -122,16 +119,11 @@ class EphemeralBackend(ExecutorBackend):
     async def _get_tarball_uris(
         self,
         input: RunActionInput,
-        role: Role,
-        action_origin: str | None,
     ) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering).
 
         Args:
             input: The RunActionInput containing task and execution context
-            role: The Role for authorization
-            action_origin: The origin URL of the action's registry (e.g., 'tracecat_registry'
-                or 'git+ssh://...'), used to filter tarballs when no lock is present
 
         Returns:
             List of tarball URIs in deterministic order (tracecat_registry first,
@@ -141,42 +133,16 @@ class EphemeralBackend(ExecutorBackend):
             return []
 
         try:
-            # Note: empty dict {} is treated same as None (falsy in Python)
-            if input.registry_lock:
-                # Use ALL tarballs from lock
-                artifacts = await get_registry_artifacts_for_lock(input.registry_lock)
-                return self._sort_tarball_uris(artifacts)
-            else:
-                # Policy B1: action-origin + tracecat_registry only
-                logger.warning(
-                    "No registry_lock provided - execution may not be reproducible",
-                    action=input.task.action,
-                )
-                artifacts = await get_registry_artifacts_cached(role)
-                return self._filter_and_sort_tarball_uris(artifacts, action_origin)
+            artifacts = await get_registry_artifacts_for_lock(
+                input.registry_lock.origins
+            )
+            return self._sort_tarball_uris(artifacts)
         except Exception as e:
             logger.warning(
                 "Failed to load registry artifacts for ephemeral execution",
                 error=str(e),
             )
             return []
-
-    def _filter_and_sort_tarball_uris(
-        self,
-        artifacts: list[RegistryArtifactsContext],
-        action_origin: str | None,
-    ) -> list[str]:
-        """Policy B1: Filter to action-origin + tracecat_registry, then sort."""
-        filtered = []
-        for artifact in artifacts:
-            if not artifact.tarball_uri:
-                continue
-            # Include tracecat_registry (always) and action's origin (if different)
-            if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
-                filtered.append(artifact)
-            elif action_origin and artifact.origin == action_origin:
-                filtered.append(artifact)
-        return self._sort_tarball_uris(filtered)
 
     def _sort_tarball_uris(
         self, artifacts: list[RegistryArtifactsContext]
