@@ -266,6 +266,34 @@ TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
 )
 """Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
 
+# Bucket for workflow data (externalized results, triggers, etc.)
+TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", "tracecat-workflow"
+)
+"""Bucket for externalized workflow data (action results, triggers, etc.)."""
+
+# === Result Externalization Config === #
+TRACECAT__RESULT_EXTERNALIZATION_ENABLED = os.environ.get(
+    "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable externalization of large action results and triggers to S3/MinIO.
+
+When enabled, payloads exceeding the threshold are stored in blob storage with
+only a small reference kept in Temporal workflow history. This prevents history
+bloat for workflows with large payloads.
+
+Default: false (all results kept inline, current behavior).
+"""
+
+TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = int(
+    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", str(256 * 1024))
+)
+"""Threshold in bytes above which payloads are externalized to blob storage.
+
+Payloads smaller than this are kept inline in workflow history.
+Default: 262144 (256 KB).
+"""
+
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
     "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
