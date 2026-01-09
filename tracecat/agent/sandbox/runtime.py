@@ -7,7 +7,6 @@ Key design principles:
 - No database imports (no SQLAlchemy, no DB services)
 - No pydantic-ai imports
 - No tracecat.config imports (except what's absolutely needed)
-- No tracecat.logger (use print to stderr instead)
 - Minimal import footprint for fast cold start
 """
 
@@ -15,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -53,6 +51,7 @@ from tracecat.agent.stream.types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.logger import logger
 
 
 class ClaudeAgentRuntime:
@@ -120,11 +119,7 @@ class ClaudeAgentRuntime:
             session_file_path.write_text(sdk_session_data)
 
         await asyncio.to_thread(_write)
-        print(
-            f"[RUNTIME] Wrote session file: {session_file_path}",
-            file=sys.stderr,
-            flush=True,
-        )
+        logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
     def _is_internal_session_line(self, line_data: dict[str, Any]) -> bool:
@@ -216,11 +211,7 @@ class ClaudeAgentRuntime:
                     try:
                         line_data = orjson.loads(line)
                     except orjson.JSONDecodeError:
-                        print(
-                            f"[RUNTIME] Failed to parse line: {line}",
-                            file=sys.stderr,
-                            flush=True,
-                        )
+                        logger.warning("Failed to parse session line", line=line)
                         continue
                     internal = self._is_internal_session_line(line_data)
 
@@ -235,11 +226,7 @@ class ClaudeAgentRuntime:
 
             self._last_seen_line_index = len(lines)
         except Exception as e:
-            print(
-                f"[RUNTIME] Failed to read session file: {e}",
-                file=sys.stderr,
-                flush=True,
-            )
+            logger.warning("Failed to read session file", error=str(e))
 
     async def _handle_approval_request(
         self,
@@ -265,11 +252,7 @@ class ClaudeAgentRuntime:
         )
         await self._socket_writer.send_stream_event(approval_event)
 
-        print(
-            f"[RUNTIME] Approval request streamed for {tool_name}, interrupting",
-            file=sys.stderr,
-            flush=True,
-        )
+        logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
         if self.client is not None:
             self._was_interrupted = True
@@ -305,11 +288,7 @@ class ClaudeAgentRuntime:
             and action_name in self.registry_tools
             and not requires_approval
         ):
-            print(
-                f"[RUNTIME] Auto-approving tool: {tool_name}",
-                file=sys.stderr,
-                flush=True,
-            )
+            logger.debug("Auto-approving tool", tool_name=tool_name)
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -339,6 +318,10 @@ class ClaudeAgentRuntime:
                 "permissionDecision": "deny",
             }
         }
+
+    def _build_system_prompt(self, instructions: str | None) -> str:
+        """Build the system prompt for the agent."""
+        return f"You are a helpful assistant that helps users with security and IT automation operations in Tracecat. You can assist with workflows, cases, agents, lookup tables, and general workspace operations\n\n{instructions}"
 
     async def run(self, payload: RuntimeInitPayload) -> None:
         """Run an agent with the given initialization payload.
@@ -397,10 +380,10 @@ class ClaudeAgentRuntime:
                     allowed_tools.append(f"mcp__{server_name}__*")
 
             def handle_claude_stderr(line: str) -> None:
-                """Forward Claude CLI stderr to our stderr for nsjail capture."""
-                print(f"[CLAUDE-CLI] {line}", file=sys.stderr, flush=True)
+                """Forward Claude CLI stderr to logger for nsjail capture."""
+                logger.debug("Claude CLI output", output=line)
 
-            print("[RUNTIME] Building ClaudeAgentOptions", file=sys.stderr, flush=True)
+            logger.debug("Building ClaudeAgentOptions")
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
@@ -410,34 +393,24 @@ class ClaudeAgentRuntime:
                     "ANTHROPIC_BASE_URL": payload.litellm_base_url,
                 },
                 model=payload.config.model_name,
-                system_prompt=payload.config.instructions,
+                system_prompt=self._build_system_prompt(payload.config.instructions),
                 mcp_servers=mcp_servers,
                 stderr=handle_claude_stderr,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
                 },
             )
-            print(
-                f"[RUNTIME] Litellm base url: {payload.litellm_base_url}",
-                file=sys.stderr,
-                flush=True,
+            logger.debug(
+                "LiteLLM base URL configured", base_url=payload.litellm_base_url
             )
 
-            print("[RUNTIME] Creating ClaudeSDKClient", file=sys.stderr, flush=True)
-            print(
-                f"[RUNTIME] MCP servers: {list(mcp_servers.keys())}",
-                file=sys.stderr,
-                flush=True,
-            )
-            print(
-                f"[RUNTIME] Allowed tools: {allowed_tools}", file=sys.stderr, flush=True
+            logger.debug(
+                "Creating ClaudeSDKClient",
+                mcp_servers=list(mcp_servers.keys()),
+                allowed_tools=allowed_tools,
             )
             client = ClaudeSDKClient(options=options)
-            print(
-                "[RUNTIME] Client created, entering context...",
-                file=sys.stderr,
-                flush=True,
-            )
+            logger.debug("Client created, entering context")
             async with client:
                 self.client = client
 
@@ -446,32 +419,18 @@ class ClaudeAgentRuntime:
                 if payload.is_approval_continuation:
                     query_prompt = "[INTERNAL] End of Tool Call"
                     self._is_continuation = True
-                    print(
-                        "[RUNTIME] Approval continuation with hidden prompt",
-                        file=sys.stderr,
-                        flush=True,
-                    )
+                    logger.debug("Approval continuation with hidden prompt")
                 else:
                     query_prompt = payload.user_prompt
-                    print(
-                        "[RUNTIME] Normal turn with user prompt",
-                        file=sys.stderr,
-                        flush=True,
-                    )
+                    logger.debug("Normal turn with user prompt")
 
                 await client.query(query_prompt)
 
-                print(
-                    "[RUNTIME] Query sent, receiving response...",
-                    file=sys.stderr,
-                    flush=True,
-                )
+                logger.debug("Query sent, receiving response")
 
                 async for message in client.receive_response():
-                    print(
-                        f"[RUNTIME] Received message: {type(message).__name__}",
-                        file=sys.stderr,
-                        flush=True,
+                    logger.debug(
+                        "Received message", message_type=type(message).__name__
                     )
                     if isinstance(message, StreamEvent):
                         # Capture SDK session ID from first StreamEvent
@@ -489,10 +448,9 @@ class ClaudeAgentRuntime:
                                     self._last_seen_line_index = len(
                                         file_content.splitlines()
                                     )
-                            print(
-                                f"[RUNTIME] Captured SDK session ID: {self._sdk_session_id}",
-                                file=sys.stderr,
-                                flush=True,
+                            logger.debug(
+                                "Captured SDK session ID",
+                                sdk_session_id=self._sdk_session_id,
                             )
 
                         # Partial streaming delta - forward to UI
@@ -543,18 +501,14 @@ class ClaudeAgentRuntime:
                     elif isinstance(message, ResultMessage):
                         # Final result - emit any remaining lines
                         await self._emit_new_session_lines()
-                        print(
-                            f"[RUNTIME] ResultMessage: session_id={message.session_id}, turns={message.num_turns}",
-                            file=sys.stderr,
-                            flush=True,
+                        logger.info(
+                            "ResultMessage received",
+                            session_id=message.session_id,
+                            num_turns=message.num_turns,
                         )
 
         except Exception as e:
-            print(
-                f"[RUNTIME] Error in ClaudeAgentRuntime: {e}",
-                file=sys.stderr,
-                flush=True,
-            )
+            logger.exception("Error in ClaudeAgentRuntime", error=str(e))
             await self._socket_writer.send_error(str(e))
             raise
         finally:

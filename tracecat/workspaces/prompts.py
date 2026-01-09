@@ -12,7 +12,7 @@ class WorkspaceCopilotPrompts(BaseModel):
     def instructions(self) -> str:
         """Build the instructions for the workspace copilot."""
         return textwrap.dedent("""
-            You are a helpful workspace assistant that helps users with security and IT automation operations in Tracecat. You can assist with workflows, cases, agents, lookup tables, and general workspace operations. When describing yourself, focus on your capabilities and role as the Tracecat workspace assistant rather than specific implementation details.
+            You are a helpful workspace assistant that helps users with security and IT automation operations in Tracecat. You can assist with workflows, cases, agents, lookup tables, and general workspace operations
 
             <IMPORTANT>
             - Do not execute any actions or tools that are not explicitly requested by the user. You are an assistant, not a replacement for the user.

@@ -49,11 +49,12 @@ from tracecat.logger import logger
 
 
 @dataclass(frozen=True)
-class JailedRuntimeResult:
-    """Result from spawning a jailed runtime.
+class SpawnedRuntime:
+    """Result from spawning an agent runtime subprocess.
 
     Contains the subprocess and optional job directory for cleanup.
-    Callers should call cleanup_jailed_runtime() after the process completes.
+    Works for both nsjail (sandboxed) and direct (development) modes.
+    Callers should call cleanup_spawned_runtime() after the process completes.
     """
 
     process: asyncio.subprocess.Process
@@ -63,13 +64,13 @@ class JailedRuntimeResult:
     """Temp directory for nsjail job (None in direct subprocess mode)."""
 
 
-def cleanup_jailed_runtime(result: JailedRuntimeResult) -> None:
-    """Clean up resources from a jailed runtime after the process completes.
+def cleanup_spawned_runtime(result: SpawnedRuntime) -> None:
+    """Clean up resources from a spawned runtime after the process completes.
 
     Safe to call multiple times. Best effort - logs warnings on failure.
 
     Args:
-        result: The JailedRuntimeResult from spawn_jailed_runtime().
+        result: The SpawnedRuntime from spawn_jailed_runtime().
     """
     if result.job_dir is not None:
         _cleanup_job_dir(result.job_dir)
@@ -100,7 +101,7 @@ async def spawn_jailed_runtime(
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
-) -> JailedRuntimeResult:
+) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (or direct subprocess for testing).
 
     This is the entrypoint for the orchestrator to spawn a jailed runtime.
@@ -122,9 +123,9 @@ async def spawn_jailed_runtime(
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
 
     Returns:
-        JailedRuntimeResult containing the subprocess and job directory.
+        SpawnedRuntime containing the subprocess and job directory.
         Caller is responsible for managing lifecycle and calling
-        cleanup_jailed_runtime() after the process completes.
+        cleanup_spawned_runtime() after the process completes.
 
     Raises:
         AgentSandboxExecutionError: If process fails to spawn.
@@ -145,7 +146,7 @@ async def spawn_jailed_runtime(
             # Stream events until done
             await result.process.wait()
         finally:
-            cleanup_jailed_runtime(result)
+            cleanup_spawned_runtime(result)
         ```
     """
     if config is None:
@@ -173,7 +174,7 @@ async def spawn_jailed_runtime(
 async def _spawn_direct_runtime(
     control_socket_path: Path,
     mcp_socket_path: Path,
-) -> JailedRuntimeResult:
+) -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
     This bypasses nsjail and runs ClaudeAgentRuntime directly in the current
@@ -210,7 +211,7 @@ async def _spawn_direct_runtime(
         env=env,
     )
 
-    return JailedRuntimeResult(process=process, job_dir=None)
+    return SpawnedRuntime(process=process, job_dir=None)
 
 
 async def _spawn_nsjail_runtime(
@@ -218,7 +219,7 @@ async def _spawn_nsjail_runtime(
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
-) -> JailedRuntimeResult:
+) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (production mode).
 
     The runtime uses tracecat.agent.sandbox.entrypoint which is available via
@@ -287,7 +288,7 @@ async def _spawn_nsjail_runtime(
         )
 
         # Return result with job_dir for caller to clean up after process completes
-        return JailedRuntimeResult(process=process, job_dir=job_dir)
+        return SpawnedRuntime(process=process, job_dir=job_dir)
 
     except Exception as e:
         # Clean up job directory on spawn failure
