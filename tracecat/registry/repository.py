@@ -62,6 +62,41 @@ ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
 
 
+def get_custom_registry_target() -> Path:
+    """Get the target directory for installing custom registry packages.
+
+    This directory is used to isolate custom registry dependencies from the
+    main tracecat virtual environment, preventing dependency conflicts.
+    The directory is automatically added to sys.path so imports work.
+
+    Returns:
+        Path to the target directory for custom registry packages.
+    """
+    # Use PYTHONUSERBASE if set (production), otherwise ~/.local
+    base = os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
+    return Path(base)
+
+
+def ensure_custom_registry_path() -> None:
+    """Ensure the custom registry target directory is in sys.path.
+
+    This must be called before importing any custom registry modules to ensure
+    packages installed via --target are discoverable.
+
+    Uses site.addsitedir() instead of sys.path.insert() to properly process
+    .pth files from editable installs (uv pip install --editable).
+    """
+    import site
+
+    target = get_custom_registry_target()
+    target_str = str(target)
+    if target_str not in sys.path:
+        # Use addsitedir to process .pth files from editable installs
+        # This is required for local registries installed with --editable
+        site.addsitedir(target_str)
+        logger.debug("Added custom registry path via site.addsitedir", path=target_str)
+
+
 def iter_valid_files(
     base_path: Path | str,
     file_extensions: tuple[str, ...] = (".py",),
@@ -395,19 +430,21 @@ class Repository:
                     "Local repository is not a git repository, skipping commit SHA"
                 )
 
-            # Install the package in editable mode
-            extra_args = []
-            if config.TRACECAT__APP_ENV == "production":
-                # We set PYTHONUSERBASE in the prod Dockerfile
-                # Otherwise default to the user's home dir at ~/.local
-                python_user_base = (
-                    os.getenv("PYTHONUSERBASE")
-                    or Path.home().joinpath(".local").as_posix()
-                )
-                logger.debug(
-                    "Installing to PYTHONUSERBASE", python_user_base=python_user_base
-                )
-                extra_args = ["--target", python_user_base]
+            # Install the package in editable mode to the custom registry target.
+            # We use --target to isolate custom registry dependencies from the
+            # main tracecat venv, and --python to ensure compatibility with the
+            # current interpreter.
+            target_dir = get_custom_registry_target()
+            extra_args = [
+                "--python",
+                sys.executable,
+                "--target",
+                str(target_dir),
+            ]
+            logger.debug(
+                "Installing local repository to target",
+                target=str(target_dir),
+            )
 
             cmd = ["uv", "pip", "install", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
@@ -523,6 +560,11 @@ class Repository:
         Raises:
             ImportError: If there is an error importing the module
         """
+        # Ensure the custom registry target is in sys.path before importing.
+        # This is required because packages are installed to --target dir,
+        # which is separate from the main tracecat venv.
+        ensure_custom_registry_path()
+
         try:
             logger.info("Importing repository module", module_name=module_name)
             # We only need to call this at the root level because
@@ -986,10 +1028,30 @@ async def ensure_base_repository(
 async def install_remote_repository(
     repo_url: str, commit_sha: str, env: SshEnv
 ) -> None:
+    """Install a remote repository to the custom registry target directory.
+
+    Uses `uv pip install --target` instead of `uv add` to isolate custom
+    registry dependencies from the main tracecat virtual environment.
+    This prevents dependency conflicts between tracecat and user repositories.
+    """
     logger.info("Loading remote repository", url=repo_url, commit_sha=commit_sha)
 
-    cmd = ["uv", "add", "--refresh", f"{repo_url}@{commit_sha}"]
-    logger.debug("Installation command", cmd=cmd)
+    target_dir = get_custom_registry_target()
+    cmd = [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        sys.executable,
+        "--target",
+        str(target_dir),
+        "--refresh",
+        f"{repo_url}@{commit_sha}",
+    ]
+    logger.debug(
+        "Installation command",
+        cmd=cmd,
+    )
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd,
