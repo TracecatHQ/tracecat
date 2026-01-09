@@ -26,6 +26,9 @@ from tracecat.agent.stream.types import UnifiedStreamEvent
 # Header size: 1 byte msg_type + 4 bytes length
 HEADER_SIZE = 5
 
+# Max payload size to prevent DoS from compromised runtime (100 MiB)
+MAX_PAYLOAD_SIZE = 100 * 1024 * 1024
+
 
 class MessageType(IntEnum):
     """Message types for orchestrator-runtime protocol."""
@@ -66,12 +69,19 @@ async def read_message(
 
     Raises:
         RuntimeError: If message type is unknown or unexpected.
+        ValueError: If payload exceeds MAX_PAYLOAD_SIZE.
         asyncio.IncompleteReadError: If connection closed mid-read.
     """
     # Read header
     header = await reader.readexactly(HEADER_SIZE)
     msg_type_byte = header[0]
     payload_length = int.from_bytes(header[1:5], "big")
+
+    # Validate payload size to prevent DoS
+    if payload_length > MAX_PAYLOAD_SIZE:
+        raise ValueError(
+            f"Payload size {payload_length} exceeds max {MAX_PAYLOAD_SIZE}"
+        )
 
     # Validate message type
     try:
