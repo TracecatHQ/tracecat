@@ -698,7 +698,7 @@ class DSLScheduler:
         args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
         try:
-            collection = await workflow.execute_local_activity(
+            collection = await workflow.execute_activity(
                 DSLActivities.evaluate_templated_object_activity,
                 args=(args.collection, context),
                 start_to_close_timeout=timedelta(seconds=60),
@@ -1224,7 +1224,7 @@ class DSLScheduler:
             "Resolving expression", expression=expression, context=context
         )
         try:
-            return await workflow.execute_local_activity(
+            return await workflow.execute_activity(
                 DSLActivities.evaluate_single_expression_activity,
                 args=(expression, context),
                 start_to_close_timeout=timedelta(seconds=60),
