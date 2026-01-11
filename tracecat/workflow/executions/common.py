@@ -2,14 +2,21 @@ from typing import Any
 
 import orjson
 import temporalio.api.common.v1
+from pydantic import TypeAdapter, ValidationError
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.compression import get_compression_payload_codec
+from tracecat.dsl.schemas import TaskResult
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
+from tracecat.storage.object import (
+    ExternalObject,
+    InlineObject,
+    get_object_storage,
+)
 from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
@@ -101,7 +108,46 @@ def is_action_activity(activity_name: str) -> bool:
     return activity_name in ACTION_ACTIVITIES
 
 
+async def unwrap_action_result(task_result: TaskResult) -> Any:
+    """Unwrap TaskResult and materialize StoredObject for display.
+
+    With uniform envelope design, action results in Temporal history are stored as:
+    TaskResult(result=StoredObject, result_typename=..., error=..., ...)
+
+    This function extracts the actual data for UI display:
+    - Validates StoredObject using TypeAdapter with discriminated union
+    - For InlineObject: extracts 'data' directly
+    - For ExternalObject: fetches from S3/MinIO storage
+
+    Returns the original value unchanged if it doesn't match TaskResult structure.
+    """
+    # Handle collection_index for scatter items
+    collection_index = task_result.collection_index
+
+    match stored := task_result.result:
+        case InlineObject(data=data):
+            if collection_index is not None and isinstance(data, list):
+                return data[collection_index] if collection_index < len(data) else None
+            return data
+
+        case ExternalObject():
+            storage = get_object_storage()
+            data = await storage.retrieve(stored)
+            if collection_index is not None and isinstance(data, list):
+                return data[collection_index] if collection_index < len(data) else None
+            return data
+
+
+_task_result_validator: TypeAdapter[TaskResult] = TypeAdapter(TaskResult)
+
+
 async def get_result(event: HistoryEvent) -> Any:
+    """Extract and unwrap result from a completed workflow history event.
+
+    For activity completions, this unwraps TaskResult/StoredObject to return
+    the raw result data for UI display. Falls back to raw result for backward
+    compatibility with pre-TaskResult workflow history.
+    """
     match event.event_type:
         case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
             payload = event.workflow_execution_completed_event_attributes.result
@@ -113,7 +159,17 @@ async def get_result(event: HistoryEvent) -> Any:
             payload = event.workflow_execution_update_completed_event_attributes.outcome.success
         case _:
             raise ValueError("Event is not a completed event")
-    return await extract_first(payload)
+
+    result = await extract_first(payload)
+
+    # Try to unwrap TaskResult/StoredObject for display
+    # Fall back to raw result for backward compatibility
+    try:
+        task_result = _task_result_validator.validate_python(result)
+        return await unwrap_action_result(task_result)
+    except ValidationError:
+        # Pre-TaskResult format or non-action result - return as-is
+        return result
 
 
 def get_source_event_id(event: HistoryEvent) -> int | None:
