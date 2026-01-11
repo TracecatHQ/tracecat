@@ -28,6 +28,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     TaskResult,
 )
+from tracecat.dsl.v1.types import MaterializedContext
 from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
@@ -720,7 +721,9 @@ async def invoke_once(
     return action_result
 
 
-async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> Any:
+async def dispatch_action(
+    backend: ExecutorBackend, input: RunActionInput[MaterializedContext]
+) -> Any:
     """Dispatch action for execution.
 
     This function handles dispatching actions to be executed. It supports

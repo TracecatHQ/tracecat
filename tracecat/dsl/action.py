@@ -4,24 +4,14 @@ from collections.abc import Callable
 from typing import Any
 
 import dateparser
-from pydantic import BaseModel
 from temporalio import activity
 
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.schemas import ActionStatement, RunActionInput
-from tracecat.exceptions import RegistryError, TracecatExpressionError
+from tracecat.dsl.schemas import RunActionInput
+from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import eval_templated_object
-from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionValidateResponse
-from tracecat.validation.service import validate_registry_action_args
-
-
-class ValidateActionActivityInput(BaseModel):
-    role: Role
-    task: ActionStatement
 
 
 class DSLActivities:
@@ -41,37 +31,6 @@ class DSLActivities:
                 "__temporal_activity_definition",
             )
         ]
-
-    @staticmethod
-    @activity.defn
-    async def validate_action_activity(
-        input: ValidateActionActivityInput,
-    ) -> RegistryActionValidateResponse:
-        """Validate an action.
-        Goals:
-        - Validate the action arguments against the UDF spec.
-        - Return the validated arguments.
-        """
-        try:
-            async with get_async_session_context_manager() as session:
-                result = await validate_registry_action_args(
-                    session=session,
-                    action_name=input.task.action,
-                    args=input.task.args,
-                    action_ref=input.task.ref,
-                )
-
-                if result.status == "error":
-                    logger.warning(
-                        "Error validating UDF args",
-                        message=result.msg,
-                        details=result.detail,
-                    )
-                return RegistryActionValidateResponse.from_validation_result(result)
-        except KeyError as e:
-            raise RegistryError(
-                f"Action {input.task.action!r} not found in registry",
-            ) from e
 
     @staticmethod
     @activity.defn

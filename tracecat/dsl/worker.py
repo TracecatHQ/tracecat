@@ -57,6 +57,18 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
         SandboxRestrictions.invalid_module_members_default.children
     )
     del invalid_module_member_children["datetime"]
+
+    # Add tracecat to passthrough modules so all tracecat.* imports bypass sandbox
+    passthrough_modules = SandboxRestrictions.passthrough_modules_default | {
+        "tracecat",
+        "tracecat_registry",
+        "tracecat_ee",
+        "jsonpath_ng",
+        "pydantic",
+        "pydantic_core",
+        "dateparser",
+    }
+
     return SandboxedWorkflowRunner(
         restrictions=dataclasses.replace(
             SandboxRestrictions.default,
@@ -64,6 +76,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
                 SandboxRestrictions.invalid_module_members_default,
                 children=invalid_module_member_children,
             ),
+            passthrough_modules=passthrough_modules,
         )
     )
 

@@ -3,7 +3,17 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, ClassVar, Literal, NotRequired, Required, Self, TypedDict
+from typing import (
+    Any,
+    ClassVar,
+    Generic,
+    Literal,
+    NotRequired,
+    Required,
+    Self,
+    TypedDict,
+    TypeVar,
+)
 
 from pydantic import (
     BaseModel,
@@ -15,6 +25,12 @@ from pydantic_core import CoreSchema, core_schema
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
+from tracecat.dsl.v1.types import (
+    ExecutionContext as ExecutionContextV1,
+)
+from tracecat.dsl.v1.types import (
+    MaterializedContext,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
@@ -297,11 +313,20 @@ class StreamID(str):
 ROOT_STREAM = StreamID.new("<root>", 0)
 
 
-class RunActionInput(BaseModel):
+ContextType = TypeVar(
+    "ContextType",
+    ExecutionContext,
+    ExecutionContextV1,
+    MaterializedContext,
+    covariant=True,
+)
+
+
+class RunActionInput(Generic[ContextType], BaseModel):  # noqa: UP046
     """This object contains all the information needed to execute an action."""
 
     task: ActionStatement
-    exec_context: ExecutionContext
+    exec_context: ContextType
     run_context: RunContext
     # This gets passed in from the worker
     interaction_context: InteractionContext | None = None
