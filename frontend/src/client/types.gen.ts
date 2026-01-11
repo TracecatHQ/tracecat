@@ -1754,6 +1754,20 @@ export type DSLEntrypoint = {
 }
 
 /**
+ * DSL Environment context. Has metadata about the workflow.
+ */
+export type DSLEnvironment = {
+  workflow?: {
+    [key: string]: unknown
+  }
+  environment?: string
+  variables?: {
+    [key: string]: unknown
+  }
+  registry_version?: string
+}
+
+/**
  * DSL definition for a workflow.
  *
  * The difference between this and a normal workflow engine is that here,
@@ -1998,6 +2012,29 @@ export type EventGroup_TypeVar_ = {
 }
 
 /**
+ * Workflow execution context with typed fields.
+ *
+ * All fields are optional since contexts may be built incrementally.
+ * In practice, ACTIONS/TRIGGER/ENV are always present in workflow execution.
+ */
+export type ExecutionContext = {
+  ACTIONS: {
+    [key: string]: TaskResult
+  }
+  TRIGGER?: InlineObject | ExternalObject
+  ENV?: DSLEnvironment
+  SECRETS?: {
+    [key: string]: unknown
+  }
+  VARS?: {
+    [key: string]: unknown
+  }
+  var?: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * Execution type for a workflow execution.
  *
  * Distinguishes between draft (development) and published (production) executions.
@@ -2009,20 +2046,6 @@ export type ExpectedField = {
   description?: string | null
   default?: unknown | null
 }
-
-/**
- * Expression contexts.
- */
-export type ExprContext =
-  | "ACTIONS"
-  | "SECRETS"
-  | "VARS"
-  | "FN"
-  | "ENV"
-  | "TRIGGER"
-  | "var"
-  | "inputs"
-  | "steps"
 
 export type ExprType =
   | "generic"
@@ -2062,6 +2085,10 @@ export type ExpressionValidationResponse = {
   is_valid: boolean
   errors?: Array<ValidationError>
   tokens?: Array<SyntaxToken>
+}
+
+export type ExternalObject = {
+  [key: string]: unknown
 }
 
 /**
@@ -2423,6 +2450,10 @@ export type InferredColumn = {
    * Inferred SQL type for the column
    */
   field_type: SqlType
+}
+
+export type InlineObject = {
+  [key: string]: unknown
 }
 
 export type Integer = {
@@ -3680,9 +3711,7 @@ export type service_id =
  */
 export type RunActionInput = {
   task: ActionStatement
-  exec_context: {
-    [key: string]: unknown
-  }
+  exec_context: ExecutionContext
   run_context: RunContext
   interaction_context?: InteractionContext | null
   stream_id?: string
@@ -4405,6 +4434,24 @@ export type TaskPriorityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Result of executing a DSL node.
+ *
+ * With uniform envelope design, `result` is always a StoredObject:
+ * - InlineObject when data is small or externalization is disabled
+ * - ExternalObject when data is large and externalization is enabled
+ */
+export type TaskResult = {
+  result: InlineObject | ExternalObject
+  result_typename: string
+  error?: unknown | null
+  error_typename?: string | null
+  interaction?: unknown | null
+  interaction_id?: string | null
+  interaction_type?: string | null
+  collection_index?: number | null
 }
 
 /**

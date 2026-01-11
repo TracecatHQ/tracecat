@@ -26,7 +26,6 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.ext.parser  # noqa: F401
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
-    import tracecat_registry  # noqa
     from pydantic import ValidationError
     from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
     from tracecat_ee.agent.types import AgentWorkflowID
@@ -102,14 +101,17 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
-    from tracecat.expressions.common import ExprContext
-    from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
         exec_id_to_parts,
     )
     from tracecat.logger import logger
+    from tracecat.storage.object import (
+        ExternalObject,
+        InlineObject,
+        ObjectRef,
+    )
     from tracecat.validation.schemas import (
         DSLValidationResult,
         ValidationDetailListTA,
@@ -458,11 +460,19 @@ class DSLWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
 
+        # Store trigger inputs as StoredObject for uniform envelope
+        trigger_key = f"{self.wf_exec_id}/trigger.json"
+        trigger_stored = await workflow.execute_local_activity(
+            DSLActivities.store_workflow_payload_activity,
+            args=(trigger_key, trigger_inputs),
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
         # Prepare user facing context
-        self.context: ExecutionContext = {
-            ExprContext.ACTIONS: {},
-            ExprContext.TRIGGER: trigger_inputs,
-            ExprContext.ENV: DSLEnvironment(
+        self.context = ExecutionContext(
+            ACTIONS={},
+            TRIGGER=trigger_stored,
+            ENV=DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
                     "time_anchor": self.time_anchor,
@@ -474,7 +484,7 @@ class DSLWorkflow:
                 environment=self.runtime_config.environment,
                 variables={},
             ),
-        }
+        )
 
         # All the starting config has been consolidated, can safely set the run context
         # Internal facing context
@@ -527,7 +537,7 @@ class DSLWorkflow:
 
         try:
             self.logger.info("DSL workflow completed")
-            return self._handle_return()
+            return await self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(
                 f"Couldn't parse return value expression: {e}",
@@ -607,9 +617,11 @@ class DSLWorkflow:
         while True:
             # NOTE: This only works with successful results
             result = await self._execute_task(task)
-            ctx[ExprContext.ACTIONS][task.ref] = result
+            ctx["ACTIONS"][task.ref] = result
             self._set_logical_time_context()
-            retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
+            retry_until_result = await self._evaluate_expression_safe(
+                retry_until.strip(), ctx
+            )
             if not isinstance(retry_until_result, bool):
                 try:
                     retry_until_result = bool(retry_until_result)
@@ -643,7 +655,7 @@ class DSLWorkflow:
         """
         stream_id = ctx_stream_id.get()
         logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
-        task_result = TaskResult(result=None, result_typename=type(None).__name__)
+        task_result = TaskResult.from_result(None)
 
         try:
             # Handle timing control flow logic
@@ -668,8 +680,8 @@ class DSLWorkflow:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     self._set_logical_time_context()
-                    evaluated_args = eval_templated_object(
-                        task.args, operand=agent_operand
+                    evaluated_args = await self._evaluate_expression_safe(
+                        task.args, agent_operand
                     )
                     action_args = AgentActionArgs(**evaluated_args)
                     wf_info = workflow.info()
@@ -717,8 +729,8 @@ class DSLWorkflow:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     self._set_logical_time_context()
-                    evaluated_args = eval_templated_object(
-                        task.args, operand=agent_operand
+                    evaluated_args = await self._evaluate_expression_safe(
+                        task.args, agent_operand
                     )
                     preset_action_args = PresetAgentActionArgs(**evaluated_args)
 
@@ -773,10 +785,27 @@ class DSLWorkflow:
                         runtime_config=self.runtime_config,
                     )
                     action_result = await self._run_action(task)
-            logger.trace("Action completed successfully", action_result=action_result)
-            task_result.update(
-                result=action_result, result_typename=type(action_result).__name__
-            )
+                    # _run_action returns uniform envelope: {"stored": {...}, "result_typename": ...}
+                    # Use the pre-wrapped StoredObject directly instead of wrapping again
+                    stored_data = action_result["stored"]
+                    if stored_data.get("type") == "inline":
+                        stored_obj = InlineObject(data=stored_data["data"])
+                    else:
+                        stored_obj = ExternalObject(ref=ObjectRef(**stored_data["ref"]))
+                    task_result = TaskResult(
+                        result=stored_obj,
+                        result_typename=action_result["result_typename"],
+                    )
+                    logger.trace(
+                        "Action completed successfully", action_result=action_result
+                    )
+                    # action_result handled - skip with_result below
+                    action_result = None
+            if action_result is not None:
+                logger.trace(
+                    "Action completed successfully", action_result=action_result
+                )
+                task_result = task_result.with_result(action_result)
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
@@ -788,12 +817,12 @@ class DSLWorkflow:
                 case ApplicationError(details=details) if details:
                     err_info = details[0]
                     err_type = cause.type or err_type
-                    task_result.update(error=err_info, error_typename=err_type)
+                    task_result = task_result.with_error(err_info, err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
                     raise cause from e
                 case _:
                     self.logger.warning("Unexpected error cause", cause=cause)
-                    task_result.update(error=e.message, error_typename=err_type)
+                    task_result = task_result.with_error(e.message, err_type)
                     raise ApplicationError(
                         e.message, non_retryable=True, type=err_type
                     ) from cause
@@ -805,9 +834,7 @@ class DSLWorkflow:
 
         except ValidationError as e:
             logger.warning("Runtime validation error", error=e.errors())
-            task_result.update(
-                error=e.errors(), error_typename=ValidationError.__name__
-            )
+            task_result = task_result.with_error(e.errors(), ValidationError.__name__)
             raise e
         except Exception as e:
             err_type = e.__class__.__name__
@@ -817,12 +844,12 @@ class DSLWorkflow:
                 error=msg,
                 type=err_type,
             )
-            task_result.update(error=msg, error_typename=err_type)
+            task_result = task_result.with_error(msg, err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
             logger.trace("Setting action result", task_result=task_result)
             context = self.get_context(stream_id)
-            context[ExprContext.ACTIONS][task.ref] = task_result
+            context["ACTIONS"][task.ref] = task_result
         return task_result
 
     ERROR_TYPE_TO_MESSAGE = {
@@ -977,13 +1004,13 @@ class DSLWorkflow:
             ]
             return result
 
-    def _handle_return(self) -> Any:
+    async def _handle_return(self) -> Any:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
             match config.TRACECAT__WORKFLOW_RETURN_STRATEGY:
                 case "context":
                     self.logger.trace("Returning DSL context")
-                    self.context.pop(ExprContext.ENV, None)
+                    self.context.pop("ENV", None)
                     return self.context
                 case "minimal":
                     return self.run_context
@@ -992,12 +1019,12 @@ class DSLWorkflow:
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
         self._set_logical_time_context()
-        return eval_templated_object(self.dsl.returns, operand=self.context)
+        return await self._evaluate_expression_safe(self.dsl.returns, self.context)
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
         # Evaluate the workflow alias as a templated expression
         self._set_logical_time_context()
-        evaluated_alias = eval_templated_object(wf_alias, operand=self.get_context())
+        evaluated_alias = await self._evaluate_expression_safe(wf_alias)
         if not isinstance(evaluated_alias, str):
             raise TypeError(
                 f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
@@ -1218,6 +1245,32 @@ class DSLWorkflow:
         """Set ctx_logical_time for deterministic FN.now() in template evaluations."""
         ctx_logical_time.set(self._compute_logical_time())
 
+    async def _evaluate_expression_safe(
+        self,
+        obj: Any,
+        operand: ExecutionContext | None = None,
+    ) -> Any:
+        """Evaluate expression via activity to ensure StoredObjects are materialized.
+
+        With uniform envelope design, this ALWAYS uses an activity to materialize
+        StoredObjects before evaluation, ensuring workflow determinism.
+
+        Args:
+            obj: The template expression or object to evaluate
+            operand: Execution context. If None, uses get_context()
+
+        Returns:
+            The evaluated result
+        """
+        if operand is None:
+            operand = self.get_context()
+
+        return await workflow.execute_local_activity(
+            DSLActivities.evaluate_templated_object_activity,
+            args=(obj, operand),
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
@@ -1225,7 +1278,7 @@ class DSLWorkflow:
         new_context = self._build_action_context(task, stream_id)
 
         # Inject current logical_time into the workflow context for FN.now() etc.
-        if env_context := new_context.get(ExprContext.ENV):
+        if env_context := new_context.get("ENV"):
             if workflow_ctx := env_context.get("workflow"):
                 workflow_ctx["logical_time"] = self._compute_logical_time()
 
@@ -1234,7 +1287,9 @@ class DSLWorkflow:
         if task.environment is not None:
             # Evaluate the environment expression
             self._set_logical_time_context()
-            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            evaluated_env = await self._evaluate_expression_safe(
+                task.environment, new_context
+            )
             # Create a new run context with the overridden environment
             run_context = self.run_context.model_copy(
                 update={"environment": evaluated_env}

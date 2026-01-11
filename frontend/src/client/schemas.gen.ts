@@ -5678,6 +5678,32 @@ export const $DSLEntrypoint = {
   title: "DSLEntrypoint",
 } as const
 
+export const $DSLEnvironment = {
+  properties: {
+    workflow: {
+      additionalProperties: true,
+      type: "object",
+      title: "Workflow",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    variables: {
+      additionalProperties: true,
+      type: "object",
+      title: "Variables",
+    },
+    registry_version: {
+      type: "string",
+      title: "Registry Version",
+    },
+  },
+  type: "object",
+  title: "DSLEnvironment",
+  description: "DSL Environment context. Has metadata about the workflow.",
+} as const
+
 export const $DSLInput = {
   properties: {
     title: {
@@ -6510,6 +6536,61 @@ export const $EventGroup_TypeVar_ = {
   title: "EventGroup[TypeVar]",
 } as const
 
+export const $ExecutionContext = {
+  properties: {
+    ACTIONS: {
+      additionalProperties: {
+        $ref: "#/components/schemas/TaskResult",
+      },
+      type: "object",
+      title: "Actions",
+    },
+    TRIGGER: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/InlineObject",
+        },
+        {
+          $ref: "#/components/schemas/ExternalObject",
+        },
+      ],
+      title: "Trigger",
+      discriminator: {
+        propertyName: "type",
+        mapping: {
+          external: "#/components/schemas/ExternalObject",
+          inline: "#/components/schemas/InlineObject",
+        },
+      },
+    },
+    ENV: {
+      $ref: "#/components/schemas/DSLEnvironment",
+    },
+    SECRETS: {
+      additionalProperties: true,
+      type: "object",
+      title: "Secrets",
+    },
+    VARS: {
+      additionalProperties: true,
+      type: "object",
+      title: "Vars",
+    },
+    var: {
+      additionalProperties: true,
+      type: "object",
+      title: "Var",
+    },
+  },
+  type: "object",
+  required: ["ACTIONS"],
+  title: "ExecutionContext",
+  description: `Workflow execution context with typed fields.
+
+All fields are optional since contexts may be built incrementally.
+In practice, ACTIONS/TRIGGER/ENV are always present in workflow execution.`,
+} as const
+
 export const $ExecutionType = {
   type: "string",
   enum: ["draft", "published"],
@@ -6549,23 +6630,6 @@ export const $ExpectedField = {
   type: "object",
   required: ["type"],
   title: "ExpectedField",
-} as const
-
-export const $ExprContext = {
-  type: "string",
-  enum: [
-    "ACTIONS",
-    "SECRETS",
-    "VARS",
-    "FN",
-    "ENV",
-    "TRIGGER",
-    "var",
-    "inputs",
-    "steps",
-  ],
-  title: "ExprContext",
-  description: "Expression contexts.",
 } as const
 
 export const $ExprType = {
@@ -6692,6 +6756,11 @@ export const $ExpressionValidationResponse = {
   type: "object",
   required: ["is_valid"],
   title: "ExpressionValidationResponse",
+} as const
+
+export const $ExternalObject = {
+  additionalProperties: true,
+  type: "object",
 } as const
 
 export const $FeatureFlag = {
@@ -7655,6 +7724,11 @@ export const $InferredColumn = {
   required: ["csv_header", "field_name", "field_type"],
   title: "InferredColumn",
   description: "Inferred column mapping between CSV headers and table columns.",
+} as const
+
+export const $InlineObject = {
+  additionalProperties: true,
+  type: "object",
 } as const
 
 export const $Integer = {
@@ -11270,12 +11344,7 @@ export const $RunActionInput = {
       $ref: "#/components/schemas/ActionStatement",
     },
     exec_context: {
-      additionalProperties: true,
-      propertyNames: {
-        $ref: "#/components/schemas/ExprContext",
-      },
-      type: "object",
-      title: "Exec Context",
+      $ref: "#/components/schemas/ExecutionContext",
     },
     run_context: {
       $ref: "#/components/schemas/RunContext",
@@ -13570,6 +13639,103 @@ export const $TaskPriorityChangedEventRead = {
   required: ["task_id", "title", "old", "new", "created_at"],
   title: "TaskPriorityChangedEventRead",
   description: "Event for when a task priority is changed.",
+} as const
+
+export const $TaskResult = {
+  properties: {
+    result: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/InlineObject",
+        },
+        {
+          $ref: "#/components/schemas/ExternalObject",
+        },
+      ],
+      title: "Result",
+      discriminator: {
+        propertyName: "type",
+        mapping: {
+          external: "#/components/schemas/ExternalObject",
+          inline: "#/components/schemas/InlineObject",
+        },
+      },
+    },
+    result_typename: {
+      type: "string",
+      title: "Result Typename",
+    },
+    error: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    error_typename: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Typename",
+    },
+    interaction: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction",
+    },
+    interaction_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction Id",
+    },
+    interaction_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction Type",
+    },
+    collection_index: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Collection Index",
+    },
+  },
+  type: "object",
+  required: ["result", "result_typename"],
+  title: "TaskResult",
+  description: `Result of executing a DSL node.
+
+With uniform envelope design, \`result\` is always a StoredObject:
+- InlineObject when data is small or externalization is disabled
+- ExternalObject when data is large and externalization is enabled`,
 } as const
 
 export const $TaskStatusChangedEventRead = {

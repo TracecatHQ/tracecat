@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import orjson
-from pydantic import BaseModel, Discriminator, Field
+from pydantic import BaseModel, Discriminator, Field, model_serializer
 
 from tracecat import config
 from tracecat.logger import logger
@@ -72,20 +72,35 @@ class ObjectRef(BaseModel):
     """When the object was stored."""
 
 
-class InlineObject(BaseModel):
+class _StoredObjectBase(BaseModel):
+    """Base class for stored object types with shared serialization behavior.
+
+    Subclasses must define a `type` field as the discriminator.
+    """
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: Any) -> dict[str, Any]:
+        """Always include type field for discriminated union."""
+        result = handler(self)
+        # Access type from subclass (InlineObject or ExternalObject)
+        result["type"] = self.type  # pyright: ignore[reportAttributeAccessIssue]
+        return result
+
+
+class InlineObject(_StoredObjectBase):
     """Data stored inline (not externalized)."""
 
-    type: Literal["inline"] = Field(default="inline", frozen=True)
+    type: Literal["inline"] = "inline"
     """Discriminator for tagged union."""
 
     data: Any
     """The inline data. Can be any JSON-serializable value, including None."""
 
 
-class ExternalObject(BaseModel):
+class ExternalObject(_StoredObjectBase):
     """Data externalized to blob storage."""
 
-    type: Literal["external"] = Field(default="external", frozen=True)
+    type: Literal["external"] = "external"
     """Discriminator for tagged union."""
 
     ref: ObjectRef

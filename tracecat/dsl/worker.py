@@ -57,6 +57,15 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
         SandboxRestrictions.invalid_module_members_default.children
     )
     del invalid_module_member_children["datetime"]
+
+    # Pass through tracecat modules to avoid class identity mismatches
+    # when Pydantic validates discriminated unions (e.g., StoredObject = InlineObject | ExternalObject)
+    passthrough_modules = SandboxRestrictions.passthrough_modules_default | {
+        "tracecat",
+        "tracecat_ee",
+        "tracecat_registry",
+    }
+
     return SandboxedWorkflowRunner(
         restrictions=dataclasses.replace(
             SandboxRestrictions.default,
@@ -64,6 +73,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
                 SandboxRestrictions.invalid_module_members_default,
                 children=invalid_module_member_children,
             ),
+            passthrough_modules=passthrough_modules,
         )
     )
 

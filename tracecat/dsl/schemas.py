@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, ClassVar, Literal, NotRequired, Required, Self, TypedDict
+from typing import Any, ClassVar, Literal, NotRequired, Self, TypedDict
 
 from pydantic import (
     BaseModel,
@@ -16,13 +16,13 @@ from pydantic_core import CoreSchema, core_schema
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
 from tracecat.exceptions import TracecatValidationError
-from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteraction, InteractionContext
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.storage.object import InlineObject, StoredObject
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -30,20 +30,228 @@ ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
 TriggerInputs = Any
 """Trigger inputs JSON type."""
 
-ExecutionContext = dict[ExprContext, Any]
-"""Workflow execution context."""
+
+class ExecutionContext(TypedDict):
+    """Workflow execution context with typed fields.
+
+    All fields are optional since contexts may be built incrementally.
+    In practice, ACTIONS/TRIGGER/ENV are always present in workflow execution.
+    """
+
+    ACTIONS: dict[str, TaskResult]
+    """Action results keyed by action ref. TaskResult.result is StoredObject."""
+
+    TRIGGER: NotRequired[StoredObject]
+    """Trigger inputs wrapped in StoredObject (InlineObject or ExternalObject)."""
+
+    ENV: NotRequired[DSLEnvironment]
+    """Environment metadata about the workflow."""
+
+    SECRETS: NotRequired[dict[str, Any]]
+    """Secrets context."""
+
+    VARS: NotRequired[dict[str, Any]]
+    """Workspace variables."""
+
+    var: NotRequired[dict[str, Any]]
+    """Action-local variables, used in for_each loops."""
 
 
-class TaskResult[TResult: Any, TError: Any](TypedDict):
-    """Result of executing a DSL node."""
+class TemplateExecutionContext(TypedDict):
+    ENV: NotRequired[DSLEnvironment]
+    """Environment metadata about the workflow."""
 
-    result: Required[TResult]
-    result_typename: Required[str]
-    error: NotRequired[TError]
-    error_typename: NotRequired[str]
-    interaction: NotRequired[Any]
-    interaction_id: NotRequired[str]
-    interaction_type: NotRequired[str]
+    SECRETS: NotRequired[dict[str, Any]]
+    """Secrets context."""
+
+    VARS: NotRequired[dict[str, Any]]
+    """Workspace variables."""
+
+    inputs: dict[str, Any]
+    """Template action inputs."""
+
+    steps: dict[str, TaskResult]
+    """Template action step results."""
+
+
+class MaterializedTaskResult(TypedDict):
+    """TaskResult with StoredObject materialized to raw value.
+
+    Used after materialize_operand() retrieves data from storage.
+    """
+
+    result: Any
+    """The raw result value (not wrapped in StoredObject)."""
+
+    result_typename: str
+    """The Python type name of the result."""
+
+    error: Any | None
+    """Error details if execution failed."""
+
+    error_typename: str | None
+    """The Python type name of the error if one occurred."""
+
+    interaction: Any | None
+    """Interaction metadata for interactive actions."""
+
+    interaction_id: str | None
+    """ID of the interaction if this was an interactive action."""
+
+    interaction_type: str | None
+    """Type of interaction if this was an interactive action."""
+
+
+class MaterializedExecutionContext(TypedDict, total=False):
+    """ExecutionContext with all StoredObjects materialized to raw values.
+
+    Used as the output type of materialize_operand(). ACTIONS contains
+    MaterializedTaskResult (raw values) instead of TaskResult (StoredObject).
+    """
+
+    ACTIONS: dict[str, MaterializedTaskResult]
+    """Action results with raw values (not StoredObject)."""
+
+    TRIGGER: Any
+    """Raw trigger data (not wrapped in StoredObject)."""
+
+    ENV: DSLEnvironment
+    """Environment metadata about the workflow."""
+
+    SECRETS: dict[str, Any]
+    """Secrets context."""
+
+    VARS: dict[str, Any]
+    """Workspace variables."""
+
+    var: dict[str, Any]
+    """Action-local variables, used in for_each loops."""
+
+
+class TaskResult(BaseModel):
+    """Result of executing a DSL node.
+
+    With uniform envelope design, `result` is always a StoredObject:
+    - InlineObject when data is small or externalization is disabled
+    - ExternalObject when data is large and externalization is enabled
+    """
+
+    result: StoredObject
+    """The action result wrapped in StoredObject (InlineObject or ExternalObject)."""
+
+    result_typename: str
+    """The Python type name of the original result before wrapping."""
+
+    error: Any | None = None
+    """Error details if execution failed."""
+
+    error_typename: str | None = None
+    """The Python type name of the error if one occurred."""
+
+    interaction: Any | None = None
+    """Interaction metadata for interactive actions."""
+
+    interaction_id: str | None = None
+    """ID of the interaction if this was an interactive action."""
+
+    interaction_type: str | None = None
+    """Type of interaction if this was an interactive action."""
+
+    collection_index: int | None = None
+    """Index into a stored collection for scatter items.
+
+    When set, `result` contains the entire collection and this index specifies
+    which item from the collection this TaskResult represents. Used for
+    efficient storage of scatter collections.
+    """
+
+    @classmethod
+    def from_result(cls, result: Any, **kwargs: Any) -> Self:
+        """Create a TaskResult from a raw result value.
+
+        Wraps the result in InlineObject for uniform envelope.
+        Use this for creating TaskResult from raw Python values.
+
+        Args:
+            result: The raw result value to wrap
+            **kwargs: Additional fields (error, interaction, etc.)
+
+        Returns:
+            TaskResult with result wrapped in InlineObject
+        """
+        return cls(
+            result=InlineObject(data=result),
+            result_typename=type(result).__name__,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_collection_item(
+        cls, stored: StoredObject, index: int, item_typename: str
+    ) -> Self:
+        """Create a TaskResult referencing an item in a stored collection.
+
+        Used for scatter operations where the entire collection is stored once
+        and individual items are referenced by index.
+
+        Args:
+            stored: The StoredObject containing the entire collection
+            index: Index of this item within the collection
+            item_typename: Type name of the individual item
+
+        Returns:
+            TaskResult with collection_index set
+        """
+        return cls(
+            result=stored,
+            result_typename=item_typename,
+            collection_index=index,
+        )
+
+    def is_error(self) -> bool:
+        """Check if this result represents an error."""
+        return self.error is not None
+
+    def is_externalized(self) -> bool:
+        """Check if the result is stored externally (in S3/MinIO)."""
+        return self.result.type == "external"
+
+    def get_data(self) -> Any:
+        """Get the raw data from the StoredObject.
+
+        For InlineObject, returns the data directly.
+        For ExternalObject, raises an error (must be materialized first).
+        For collection items (collection_index set), returns the indexed item.
+        """
+        if self.result.type == "inline":
+            data = self.result.data
+            if self.collection_index is not None and isinstance(data, list):
+                return data[self.collection_index]
+            return data
+        raise ValueError(
+            "Cannot get data from ExternalObject. Use materialize_operand() first."
+        )
+
+    def with_result(self, result: Any) -> Self:
+        """Create a copy with a new result value (wrapped in InlineObject).
+
+        Use this instead of update() for Pydantic models.
+        """
+        return self.model_copy(
+            update={
+                "result": InlineObject(data=result),
+                "result_typename": type(result).__name__,
+            }
+        )
+
+    def with_error(self, error: Any, error_typename: str | None = None) -> Self:
+        """Create a copy with error information added."""
+        return self.model_copy(
+            update={
+                "error": error,
+                "error_typename": error_typename or type(error).__name__,
+            }
+        )
 
 
 class ActionRetryPolicy(BaseModel):

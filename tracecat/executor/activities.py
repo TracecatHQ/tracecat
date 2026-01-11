@@ -30,6 +30,7 @@ from tracecat.exceptions import (
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.storage.object import get_object_storage
 
 
 class ExecutorActivities:
@@ -100,7 +101,19 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    return await dispatch_action(backend=backend, input=input)
+                    result = await dispatch_action(backend=backend, input=input)
+
+                    # Always wrap result in StoredObject envelope
+                    # - get_object_storage() returns S3ObjectStorage when externalization is enabled
+                    #   (externalizes if above threshold), else InMemoryObjectStorage (always inline)
+                    storage = get_object_storage()
+                    key = f"{input.run_context.wf_exec_id}/{input.stream_id}/{task.ref}.json"
+                    stored = await storage.store(key, result)
+
+                    return {
+                        "stored": stored,  # Temporal serializes Pydantic models
+                        "result_typename": type(result).__name__,
+                    }
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__

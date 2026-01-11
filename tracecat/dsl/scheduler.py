@@ -646,7 +646,7 @@ class DSLScheduler:
         """Queue a skip stream for a task."""
         new_stream_id = StreamID.skip(task.ref, base_stream_id=stream_id)
         self.stream_hierarchy[new_stream_id] = stream_id
-        self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
+        self.streams[new_stream_id] = ExecutionContext(ACTIONS={})
         unreachable = {
             DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
             for dst, edge_type in self.adj[task.ref]
@@ -664,7 +664,7 @@ class DSLScheduler:
             "Creating skip stream", task=task, new_stream_id=new_stream_id
         )
         self.stream_hierarchy[new_stream_id] = stream_id
-        self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
+        self.streams[new_stream_id] = ExecutionContext(ACTIONS={})
         all_next = {
             DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
             for dst, edge_type in self.adj[task.ref]
@@ -741,21 +741,34 @@ class DSLScheduler:
             interval=args.interval,
         )
 
+        # Store the collection using activity for potential externalization
+        wf_info = workflow.info()
+        collection_key = (
+            f"{wf_info.workflow_id}/{curr_stream_id}/{task.ref}/collection.json"
+        )
+        stored_collection = await workflow.execute_activity(
+            DSLActivities.store_scatter_collection_activity,
+            args=(collection_key, list(collection)),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+
         # Create stream for each collection item
         async for i, item in cooperative(enumerate(collection)):
             new_stream_id = StreamID.new(task.ref, i, base_stream_id=curr_stream_id)
             streams.append(new_stream_id)
 
-            # Initialize stream with single item
+            # Initialize stream with indexed reference to stored collection
             self.stream_hierarchy[new_stream_id] = curr_stream_id
-            self.streams[new_stream_id] = {
-                ExprContext.ACTIONS: {
-                    task.ref: TaskResult(
-                        result=item,
-                        result_typename=type(item).__name__,
-                    ),
-                }
-            }
+            self.streams[new_stream_id] = ExecutionContext(
+                ACTIONS={
+                    task.ref: TaskResult.from_collection_item(
+                        stored=stored_collection,
+                        index=i,
+                        item_typename=type(item).__name__,
+                    )
+                },
+            )
 
             # Create tasks for all tasks in this stream
             # Calculate the task delay
@@ -804,14 +817,12 @@ class DSLScheduler:
                 # This is the number of execution streams that will be synchronized by this gather
                 size = len(self.task_streams[parent_scatter])
                 result = [Sentinel.GATHER_UNSET for _ in range(size)]
-                parent_action_context[gather_ref] = TaskResult(
-                    result=result,
-                    result_typename=type(result).__name__,
-                )
+                parent_action_context[gather_ref] = TaskResult.from_result(result)
 
             # Place an error object in the result
             # Do not pass the full object as some exceptions aren't serializable
-            parent_action_context[gather_ref]["result"][stream_idx] = err_info.details
+            # Access the raw list via get_data() and modify in place
+            parent_action_context[gather_ref].get_data()[stream_idx] = err_info.details
             self.logger.debug("Set error object as result", task=task)
         else:
             # Regular skip path
@@ -912,9 +923,7 @@ class DSLScheduler:
                     )
                     parent_action_context = self._get_action_context(parent_stream)
                     # We set this result if the corresponding scatter actually ran
-                    parent_action_context[task.ref] = TaskResult(
-                        result=[], result_typename="list"
-                    )
+                    parent_action_context[task.ref] = TaskResult.from_result([])
                 else:
                     self.logger.debug(
                         "Scatter not observed, skipping",
@@ -1008,12 +1017,10 @@ class DSLScheduler:
             # This is the number of execution streams that will be synchronized by this gather
             size = len(self.task_streams[parent_scatter])
             result = [Sentinel.GATHER_UNSET for _ in range(size)]
-            parent_action_context[gather_ref] = TaskResult(
-                result=result,
-                result_typename=type(result).__name__,
-            )
+            parent_action_context[gather_ref] = TaskResult.from_result(result)
 
-        parent_action_context[gather_ref]["result"][stream_idx] = items
+        # Access the raw list via get_data() and modify in place
+        parent_action_context[gather_ref].get_data()[stream_idx] = items
 
         if self.open_streams[parent_scatter] == 0:
             await self._handle_gather_result(
@@ -1047,17 +1054,14 @@ class DSLScheduler:
         # Inline filter for gather operation.
         # Keeps items unless drop_nulls is True and item is None.
         # Automatically remove unset values (Sentinel.IMPLODE_UNSET).
-        task_result = cast(
-            TaskResult[list[Any], list[ActionErrorInfo]],
-            parent_action_context.setdefault(
-                gather_ref, TaskResult(result=[], result_typename=list.__name__)
-            ),
-        )
+        if gather_ref not in parent_action_context:
+            parent_action_context[gather_ref] = TaskResult.from_result([])
+        task_result = parent_action_context[gather_ref]
 
-        # Generator
+        # Generator - access raw list via get_data()
         filtered_items = (
             item
-            for item in task_result["result"]
+            for item in task_result.get_data()
             if not (
                 (item == Sentinel.GATHER_UNSET)
                 or (gather_args.drop_nulls and item is None)
@@ -1123,9 +1127,11 @@ class DSLScheduler:
         )
 
         # Update the result with the filtered version
-        task_result.update(result=results)
+        task_result = task_result.with_result(results)
         if errors:
-            task_result.update(error=errors, error_typename=type(errors).__name__)
+            task_result = task_result.with_error(errors)
+        # Store updated task_result back to context
+        parent_action_context[gather_ref] = task_result
         self.logger.debug(
             "Gather complete. Go back up to parent stream",
             task=task,
@@ -1139,7 +1145,7 @@ class DSLScheduler:
 
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
-        return cast(dict[str, TaskResult], context[ExprContext.ACTIONS])
+        return cast(dict[str, TaskResult], context.get("ACTIONS", {}))
 
     def build_stream_aware_context(
         self, task: ActionStatement, stream_id: StreamID
@@ -1151,7 +1157,9 @@ class DSLScheduler:
             resolved_actions[action_ref] = self.get_stream_aware_action_result(
                 action_ref, stream_id
             )
-        return {**self._root_context, ExprContext.ACTIONS: resolved_actions}
+        return cast(
+            ExecutionContext, {**self._root_context, "ACTIONS": resolved_actions}
+        )
 
     def get_stream_aware_action_result(
         self, action_ref: str, stream_id: StreamID
@@ -1192,7 +1200,7 @@ class DSLScheduler:
         while curr_stream is not None:
             # Check if the action exists in the current stream
             if stream_context := self.streams.get(curr_stream):
-                actions_context = stream_context.get(ExprContext.ACTIONS, {})
+                actions_context = stream_context.get("ACTIONS", {})
                 if action_ref in actions_context:
                     self.logger.trace(
                         "Found action in stream",

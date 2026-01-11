@@ -270,8 +270,8 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
                 type=ExprType.ACTION,
                 loc=("expression", f"{ExprContext.ACTIONS.value}.{jsonpath}"),
             )
-        # Check prop
-        valid_props_list = list(TaskResult.__annotations__.keys())
+        # Check prop - TaskResult is a Pydantic model, use model_fields
+        valid_props_list = list(TaskResult.model_fields.keys())
         valid_properties = "|".join(valid_props_list)
         pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
         if not re.match(pattern, prop):
