@@ -768,8 +768,7 @@ class DSLScheduler:
                 task=new_scoped_task,
             )
             # This will queue the task for execution stream
-            coro = self._queue_tasks(new_scoped_task)
-            _ = asyncio.create_task(coro)
+            await self._queue_tasks(new_scoped_task)
 
         self.open_streams[task] = len(streams)
         # Get the next tasks to queue
