@@ -333,6 +333,10 @@ class DSLScheduler:
             # None to indicate that the stream is complete.
             # We do not need to queue any downstream tasks.
             return await self._handle_gather(task, stmt, is_skipping=True)
+
+        # NOTE: Skipped tasks are NOT stored in context for backwards compatibility.
+        # Tests expect ${{ ACTIONS.ref }} to not exist for skipped tasks.
+
         # If we skip a task, we need to mark all its outgoing edges as skipped
         all_edges = {
             DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)

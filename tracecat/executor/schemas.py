@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import json
 import traceback
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import UUID4, BaseModel, Field
+from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
 from tracecat.logger import logger
+
+if TYPE_CHECKING:
+    from tracecat.dsl.schemas import (
+        ActionStatement,
+        ExecutionContext,
+        InteractionContext,
+        RunContext,
+        StreamID,
+    )
 
 
 class ExecutorResultSuccess(BaseModel):
@@ -224,3 +234,43 @@ class ExecutorActionErrorInfo(BaseModel):
             function=tb.name,
             lineno=tb.lineno,
         )
+
+
+class HandleActionStatementInput(BaseModel):
+    """Complete input for handling an action statement in a single activity.
+
+    This schema contains everything needed to handle an action statement including:
+    - Evaluating run_if conditions
+    - Validating and evaluating arguments
+    - Executing the action
+    - Returning an ActionOutcome
+
+    By bundling all context into a single input, we reduce the number of
+    Temporal activity calls from ~4 per action to 1.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    task: ActionStatement
+    """The action statement to execute."""
+
+    run_context: RunContext
+    """Runtime context (wf_id, wf_exec_id, wf_run_id, environment)."""
+
+    exec_context: ExecutionContext
+    """Execution context (ACTIONS, TRIGGER, ENV, VARS, SECRETS, LOCAL_VARS)."""
+
+    stream_id: StreamID
+    """Current stream ID for scatter-gather tracking."""
+
+    logical_time: datetime
+    """Deterministic logical time for FN.now() and other time-based functions."""
+
+    registry_lock: dict[str, str] | None = None
+    """Version lock for deterministic action resolution across replays."""
+
+    interaction_context: InteractionContext | None = None
+    """Optional interaction context for interactive actions."""
+
+    session_id: uuid.UUID | None = None
+    """Optional session ID for streaming responses."""

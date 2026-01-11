@@ -68,6 +68,18 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
+    from tracecat.dsl.outcomes import (
+        ActionOutcome,
+        dict_to_outcome,
+        is_error,
+        to_task_result_dict,
+    )
+    from tracecat.dsl.outcomes import (
+        error as outcome_error,
+    )
+    from tracecat.dsl.outcomes import (
+        success as outcome_success,
+    )
     from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
@@ -101,9 +113,11 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
+    from tracecat.executor.schemas import HandleActionStatementInput
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
@@ -643,7 +657,8 @@ class DSLWorkflow:
         """
         stream_id = ctx_stream_id.get()
         logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
-        task_result = TaskResult(result=None, result_typename=type(None).__name__)
+        # Initialize with a default success outcome (will be updated on error)
+        outcome: ActionOutcome = outcome_success(result=None)
 
         try:
             # Handle timing control flow logic
@@ -664,6 +679,7 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
+                    outcome = outcome_success(result=action_result)
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
@@ -713,6 +729,7 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
+                    outcome = outcome_success(result=action_result)
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
@@ -765,18 +782,34 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
+                    outcome = outcome_success(result=action_result)
                 case _:
                     # Below this point, we're executing the task
+                    use_action_statement_activity = is_feature_enabled(
+                        FeatureFlag.ACTION_STATEMENT_ACTIVITY
+                    )
                     logger.trace(
                         "Running action",
                         task_ref=task.ref,
                         runtime_config=self.runtime_config,
+                        use_action_statement_activity=use_action_statement_activity,
                     )
-                    action_result = await self._run_action(task)
-            logger.trace("Action completed successfully", action_result=action_result)
-            task_result.update(
-                result=action_result, result_typename=type(action_result).__name__
-            )
+                    if use_action_statement_activity:
+                        # Single-activity pattern: returns ActionOutcome directly
+                        outcome = await self._run_action_single_activity(task)
+                        if is_error(outcome):
+                            # Convert error outcome to exception for proper error handling
+                            raise ApplicationError(
+                                str(outcome.error),
+                                outcome.error,
+                                non_retryable=True,
+                                type=outcome.error_typename,
+                            )
+                    else:
+                        # Legacy multi-activity pattern
+                        action_result = await self._run_action(task)
+                        outcome = outcome_success(result=action_result)
+            logger.trace("Action completed successfully", outcome=outcome)
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
@@ -788,12 +821,12 @@ class DSLWorkflow:
                 case ApplicationError(details=details) if details:
                     err_info = details[0]
                     err_type = cause.type or err_type
-                    task_result.update(error=err_info, error_typename=err_type)
+                    outcome = outcome_error(err=err_info, error_typename=err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
                     raise cause from e
                 case _:
                     self.logger.warning("Unexpected error cause", cause=cause)
-                    task_result.update(error=e.message, error_typename=err_type)
+                    outcome = outcome_error(err=e.message, error_typename=err_type)
                     raise ApplicationError(
                         e.message, non_retryable=True, type=err_type
                     ) from cause
@@ -801,12 +834,13 @@ class DSLWorkflow:
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__
             detail = e.detail or "Error occurred when handling an expression"
+            outcome = outcome_error(err=detail, error_typename=err_type)
             raise ApplicationError(detail, non_retryable=True, type=err_type) from e
 
         except ValidationError as e:
             logger.warning("Runtime validation error", error=e.errors())
-            task_result.update(
-                error=e.errors(), error_typename=ValidationError.__name__
+            outcome = outcome_error(
+                err=e.errors(), error_typename=ValidationError.__name__
             )
             raise e
         except Exception as e:
@@ -817,13 +851,17 @@ class DSLWorkflow:
                 error=msg,
                 type=err_type,
             )
-            task_result.update(error=msg, error_typename=err_type)
+            outcome = outcome_error(err=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            logger.trace("Setting action result", task_result=task_result)
+            # Convert ActionOutcome to dict for storage in context
+            # This maintains backwards compatibility with expressions
+            task_result_dict = to_task_result_dict(outcome)
+            logger.trace("Setting action result", outcome=outcome)
             context = self.get_context(stream_id)
-            context[ExprContext.ACTIONS][task.ref] = task_result
-        return task_result
+            context[ExprContext.ACTIONS][task.ref] = task_result_dict
+        # Return as TaskResult-compatible dict (cast for type checker)
+        return task_result_dict  # type: ignore[return-value]
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",
@@ -1219,6 +1257,7 @@ class DSLWorkflow:
         ctx_logical_time.set(self._compute_logical_time())
 
     async def _run_action(self, task: ActionStatement) -> Any:
+        """Execute an action using the legacy multi-activity pattern."""
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
         stream_id = ctx_stream_id.get()
@@ -1268,6 +1307,66 @@ class DSLWorkflow:
                 maximum_attempts=task.retry_policy.max_attempts,
             ),
         )
+
+    async def _run_action_single_activity(self, task: ActionStatement) -> ActionOutcome:
+        """Execute an action using the single-activity pattern.
+
+        This method uses handle_action_statement_activity which bundles:
+        - run_if evaluation
+        - scatter/gather handling
+        - action execution
+
+        Returns ActionOutcome directly, reducing history events from ~4 to 1.
+        """
+        stream_id = ctx_stream_id.get()
+        new_context = self._build_action_context(task, stream_id)
+
+        # Inject current logical_time into the workflow context for FN.now() etc.
+        if env_context := new_context.get(ExprContext.ENV):
+            if workflow_ctx := env_context.get("workflow"):
+                workflow_ctx["logical_time"] = self._compute_logical_time()
+
+        # Check if action has environment override
+        run_context = self.run_context
+        if task.environment is not None:
+            # Evaluate the environment expression
+            self._set_logical_time_context()
+            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            # Create a new run context with the overridden environment
+            run_context = self.run_context.model_copy(
+                update={"environment": evaluated_env}
+            )
+
+        # Tells us where to get the redis stream
+        session_id = (
+            workflow.uuid4() if PlatformAction.is_streamable(task.action) else None
+        )
+
+        arg = HandleActionStatementInput(
+            task=task,
+            run_context=run_context,
+            exec_context=new_context,
+            stream_id=stream_id,
+            logical_time=self._compute_logical_time(),
+            registry_lock=self.registry_lock,
+            interaction_context=ctx_interaction.get(),
+            session_id=session_id,
+        )
+
+        # Dispatch to ExecutorWorker on shared-action-queue
+        # Returns dict that we convert to ActionOutcome
+        result_dict = await workflow.execute_activity(
+            "handle_action_statement_activity",
+            args=(arg, self.role),
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.max_attempts,
+            ),
+        )
+        return dict_to_outcome(result_dict)
 
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None
