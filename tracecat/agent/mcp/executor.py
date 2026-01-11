@@ -94,7 +94,7 @@ async def execute_action(
 
     # Execute via ActionRunner with nsjail sandbox
     backend = EphemeralBackend()
-    result = await backend.execute(
+    execution = await backend.execute(
         input=run_input,
         role=role,
         resolved_context=resolved_context,
@@ -102,9 +102,9 @@ async def execute_action(
     )
 
     # Handle result
-    if isinstance(result, ExecutorResultFailure):
-        raise ActionExecutionError(result.error.message)
-    return result
+    if isinstance(execution, ExecutorResultFailure):
+        raise ActionExecutionError(execution.error.message)
+    return execution.result
 
 
 async def _resolve_context(

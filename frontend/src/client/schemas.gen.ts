@@ -4777,23 +4777,7 @@ export const $ChatMessage = {
     },
     message: {
       anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ModelRequest",
-            },
-            {
-              $ref: "#/components/schemas/ModelResponse",
-            },
-          ],
-          discriminator: {
-            propertyName: "kind",
-            mapping: {
-              request: "#/components/schemas/ModelRequest",
-              response: "#/components/schemas/ModelResponse",
-            },
-          },
-        },
+        {},
         {
           $ref: "#/components/schemas/UserMessage",
         },

@@ -1366,8 +1366,7 @@ export type ChatMessage = {
    * The deserialized message
    */
   message:
-    | ModelRequest
-    | ModelResponse
+    | unknown
     | UserMessage
     | AssistantMessage
     | SystemMessage
