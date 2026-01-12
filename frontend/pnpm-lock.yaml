@@ -250,6 +250,9 @@ importers:
       posthog-js:
         specifier: ^1.268.8
         version: 1.268.8
+      preact:
+        specifier: 10.27.3
+        version: 10.27.3
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -642,7 +645,6 @@ packages:
   '@biomejs/cli-darwin-arm64@2.2.4':
     resolution: {integrity: sha512-RJe2uiyaloN4hne4d2+qVj3d3gFJFbmrr5PYtkkjei1O9c+BjGXgpUPVbi8Pl8syumhzJjFsSIYkcLt2VlVLMA==}
     engines: {node: '>=14.21.3'}
-    cpu: [arm64]
     os: [darwin]
 
   '@biomejs/cli-darwin-x64@2.0.4':
@@ -5151,8 +5153,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  preact@10.27.2:
-    resolution: {integrity: sha512-5SYSgFKSyhCbk6SrXyMpqjb5+MQBgfvEKE/OC+PujcY34sOpqtr+0AZQtPYx5IA6VxynQ7rUPCtKzyovpj9Bpg==}
+  preact@10.27.3:
+    resolution: {integrity: sha512-ZieIP3zQHiQsNF3BA+SNVS8dcuRIg/nsxlkFbCMBLS2L1Ww4Bkxd9n6Md2A1crfTZsEbQPADV0neYmh/EElgeQ==}
 
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
@@ -11545,10 +11547,10 @@ snapshots:
       '@posthog/core': 1.2.2
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.27.2
+      preact: 10.27.3
       web-vitals: 4.2.4
 
-  preact@10.27.2: {}
+  preact@10.27.3: {}
 
   pretty-format@27.5.1:
     dependencies:

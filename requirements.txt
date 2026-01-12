@@ -210,9 +210,9 @@ attrs==25.4.0 \
     #   aiohttp
     #   jsonschema
     #   referencing
-authlib==1.6.5 \
-    --hash=sha256:3e0e0507807f842b02175507bdee8957a1d5707fd4afb17c32fb43fee90b6e3a \
-    --hash=sha256:6aaf9c79b7cc96c900f0b284061691c5d4e61221640a948fe690b556a6d6d10b
+authlib==1.6.6 \
+    --hash=sha256:45770e8e056d0f283451d9996fbb59b70d45722b45d854d58f32878d0a40c38e \
+    --hash=sha256:7d9e9bc535c13974313a87f53e8430eb6ea3d1cf6ae4f6efcd793f2e949143fd
     # via tracecat
 bcrypt==5.0.0 \
     --hash=sha256:0c418ca99fd47e9c59a301744d63328f17798b5947b0f791e9af3c1c499c2d0a \
@@ -620,6 +620,7 @@ fastapi==0.120.3 \
     --hash=sha256:17db50718ee86c9e01e54f9d8600abf130f6f762711cd0d8f02eb392668271ba \
     --hash=sha256:bfee21c98db9128dc425a686eafd14899e26e4471aab33076bff2427fd6dcd22
     # via
+    #   fastapi-sso
     #   fastapi-users
     #   tracecat
 fastapi-cli==0.0.20 \
@@ -630,6 +631,10 @@ fastapi-cloud-cli==0.8.0 \
     --hash=sha256:cf07c502528bfd9e6b184776659f05d9212811d76bbec9fbb6bf34bed4c7456f \
     --hash=sha256:e9f40bee671d985fd25d7a5409b56d4f103777bf8a0c6d746ea5fbf97a8186d9
     # via fastapi-cli
+fastapi-sso==0.19.0 \
+    --hash=sha256:629f00581f72ea7e57f7b8775f8d2c425629c428c194359a2b4ebaa6bcb8e12b \
+    --hash=sha256:d958c46cd9996234c7b162e192168b4c0807a248224a55b0f877d3a82a16a930
+    # via tracecat
 fastapi-users==15.0.2 \
     --hash=sha256:4cdcc471a5b9e48de3ec4e7dc97e7b7afb610dda5ec6d022d3ddc0a0c0699323 \
     --hash=sha256:e52f7124f44ac3042b3b0866476bcd5818513609b225b4e485e8ac69f8d49161
@@ -703,9 +708,9 @@ fastar==0.8.0 \
     --hash=sha256:fb9ee51e5bffe0dab3d3126d3a4fac8d8f7235cedcb4b8e74936087ce1c157f3 \
     --hash=sha256:fc645994d5b927d769121094e8a649b09923b3c13a8b0b98696d8f853f23c532
     # via fastapi-cloud-cli
-fickling==0.1.6 \
-    --hash=sha256:03cb5d7bd09f9169c7583d2079fad4b3b88b25f865ed0049172e5cb68582311d \
-    --hash=sha256:465d0069548bfc731bdd75a583cb4cf5a4b2666739c0f76287807d724b147ed3
+fickling==0.1.7 \
+    --hash=sha256:03d11db2fbb86eb40bdc12a3c4e7cac1dbb16e1207893511d7df0d91ae000899 \
+    --hash=sha256:cebee4df382e27b6e33fb98a4c76fee01a333609bb992a26e140673954e561e4
     # via
     #   polyfile
     #   tracecat
@@ -1034,6 +1039,7 @@ httpx==0.28.1 \
     #   anthropic
     #   fastapi
     #   fastapi-cloud-cli
+    #   fastapi-sso
     #   genai-prices
     #   google-genai
     #   httpx-oauth
@@ -1533,6 +1539,10 @@ numpy==2.4.0 \
     --hash=sha256:ecb0019d44f4cdb50b676c5d0cb4b1eae8e15d1ed3d3e6639f986fc92b2ec52c \
     --hash=sha256:f935c4493eda9069851058fa0d9e39dbf6286be690066509305e52912714dbb2
     # via pyarrow
+oauthlib==3.3.1 \
+    --hash=sha256:0f0f8aa759826a193cf66c12ea1af1637f87b9b4622d46e866952bb022e538c9 \
+    --hash=sha256:88119c938d2b8fb88561af5f6ee0eec8cc8d552b7bb1f712743136eb7523b7a1
+    # via fastapi-sso
 openai==2.14.0 \
     --hash=sha256:419357bedde9402d23bf8f2ee372fca1985a73348debba94bddff06f19459952 \
     --hash=sha256:7ea40aca4ffc4c4a776e77679021b47eec1160e341f42ae086ba949c9dcc9183
@@ -1907,6 +1917,7 @@ pydantic==2.12.5 \
     #   anthropic
     #   fastapi
     #   fastapi-cloud-cli
+    #   fastapi-sso
     #   genai-prices
     #   google-genai
     #   mcp
@@ -2008,6 +2019,7 @@ pyjwt==2.10.1 \
     --hash=sha256:3cc5772eb20009233caf06e9d8a0577824723b44e6648ee0a2aedb6cf9381953 \
     --hash=sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb
     # via
+    #   fastapi-sso
     #   fastapi-users
     #   mcp
     #   pygithub
@@ -2776,9 +2788,9 @@ tzlocal==5.3.1 \
     --hash=sha256:cceffc7edecefea1f595541dbd6e990cb1ea3d19bf01b2809f362a03dd7921fd \
     --hash=sha256:eb1a66c3ef5847adf7a834f1be0800581b683b5608e74f86ecbcef8ab91bb85d
     # via dateparser
-urllib3==2.6.2 \
-    --hash=sha256:016f9c98bb7e98085cb2b4b17b87d2c702975664e4f060c6532e64d1c1a5e797 \
-    --hash=sha256:ec21cddfe7724fc7cb4ba4bea7aa8e2ef36f607a4bab81aa6ce42a13dc3f03dd
+urllib3==2.6.3 \
+    --hash=sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed \
+    --hash=sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4
     # via
     #   botocore
     #   crowdstrike-falconpy
