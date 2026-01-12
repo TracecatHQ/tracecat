@@ -23,7 +23,7 @@ import type {
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
-import { pruneGraphObject, pruneReactFlowInstance } from "@/lib/workflow"
+import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
