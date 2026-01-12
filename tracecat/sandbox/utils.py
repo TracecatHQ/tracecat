@@ -21,10 +21,6 @@ def is_nsjail_available() -> bool:
     This function is used by both the Python script sandbox and the agent
     runtime sandbox to determine if nsjail isolation is available.
 
-    Args:
-        for_agent: If True, checks TRACECAT__DISABLE_AGENT_NSJAIL instead of
-            TRACECAT__DISABLE_NSJAIL.
-
     Returns:
         True if nsjail can be used, False otherwise.
     """

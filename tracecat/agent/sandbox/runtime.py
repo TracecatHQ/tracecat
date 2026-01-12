@@ -316,12 +316,15 @@ class ClaudeAgentRuntime:
 
         if requires_approval:
             # Requires approval - stream request and interrupt
-            if tool_use_id:
+            if tool_use_id is None:
+                raise ValueError("tool_use_id is required for approval request")
+            try:
                 await self._handle_approval_request(
-                    action_name,
-                    tool_input,
-                    tool_use_id,
+                    action_name, tool_input, tool_use_id
                 )
+            except Exception as e:
+                logger.error("Error handling approval request", error=str(e))
+                raise
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -329,7 +332,6 @@ class ClaudeAgentRuntime:
                     "permissionDecisionReason": f"Tool '{action_name}' requires approval. Request sent for review.",
                 }
             }
-
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
