@@ -502,6 +502,11 @@ async def update_comment(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
+    if comment.case_id != case.id:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Comment not found",
+        )
     await comments_svc.update_comment(case, comment, params)
 
 
@@ -529,6 +534,11 @@ async def delete_comment(
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
+        )
+    if comment.case_id != case.id:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Comment not found",
         )
     await comments_svc.delete_comment(case, comment)
 

@@ -1197,6 +1197,9 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatNotFoundError: If the comment doesn't exist
             TracecatAuthorizationError: If the user doesn't own the comment
         """
+        if comment.case_id != case.id:
+            raise TracecatNotFoundError("Comment not found")
+
         # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You cannot update this comment")
@@ -1247,6 +1250,8 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatNotFoundError: If the comment doesn't exist
             TracecatAuthorizationError: If the user doesn't own the comment
         """
+        if comment.case_id != case.id:
+            raise TracecatNotFoundError("Comment not found")
 
         # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
