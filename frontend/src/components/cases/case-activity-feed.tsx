@@ -19,6 +19,8 @@ import {
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  TagAddedEvent,
+  TagRemovedEvent,
   TaskAssigneeChangedEvent,
   TaskCreatedEvent,
   TaskDeletedEvent,
@@ -139,6 +141,14 @@ function ActivityFeedEvent({
 
         {event.type === "payload_changed" && (
           <PayloadChangedEvent event={event} actor={actor} />
+        )}
+
+        {/* Tag events */}
+        {event.type === "tag_added" && (
+          <TagAddedEvent event={event} actor={actor} />
+        )}
+        {event.type === "tag_removed" && (
+          <TagRemovedEvent event={event} actor={actor} />
         )}
         {/* Add a dot separator */}
         <InlineDotSeparator />

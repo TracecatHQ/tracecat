@@ -85,6 +85,7 @@ TableRowID = uuid.UUID
 InternalServiceID = Literal[
     "tracecat-api",
     "tracecat-bootstrap",
+    "tracecat-case-triggers",
     "tracecat-cli",
     "tracecat-executor",
     "tracecat-runner",

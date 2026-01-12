@@ -1993,6 +1993,7 @@ export type FeatureFlag =
   | "agent-presets"
   | "case-durations"
   | "case-tasks"
+  | "case-triggers"
 
 /**
  * Response model for feature flags.
@@ -3465,6 +3466,7 @@ export type Role = {
   service_id:
     | "tracecat-api"
     | "tracecat-bootstrap"
+    | "tracecat-case-triggers"
     | "tracecat-cli"
     | "tracecat-executor"
     | "tracecat-runner"
@@ -3478,6 +3480,7 @@ export type type3 = "user" | "service"
 export type service_id =
   | "tracecat-api"
   | "tracecat-bootstrap"
+  | "tracecat-case-triggers"
   | "tracecat-cli"
   | "tracecat-executor"
   | "tracecat-runner"
@@ -4589,7 +4592,7 @@ export type type4 = "schedule" | "webhook"
 /**
  * Trigger type for a workflow execution.
  */
-export type TriggerType = "manual" | "scheduled" | "webhook"
+export type TriggerType = "manual" | "scheduled" | "webhook" | "case_event"
 
 /**
  * Pydantic model for AI SDK UI Messages, used for validation between
@@ -4629,9 +4632,22 @@ export type UpdatedEventRead = {
    */
   wf_exec_id?: string | null
   type?: "case_updated"
-  field: "summary"
+  field:
+    | "summary"
+    | "description"
+    | "comment_added"
+    | "comment_removed"
+    | "comment_updated"
   old: string | null
   new: string | null
+  /**
+   * The ID of the comment for comment events.
+   */
+  comment_id?: string | null
+  /**
+   * The parent comment ID for reply comments.
+   */
+  parent_id?: string | null
   /**
    * The user who performed the action.
    */
@@ -4641,6 +4657,13 @@ export type UpdatedEventRead = {
    */
   created_at: string
 }
+
+export type field =
+  | "summary"
+  | "description"
+  | "comment_added"
+  | "comment_removed"
+  | "comment_updated"
 
 export type UserCreate = {
   email: string

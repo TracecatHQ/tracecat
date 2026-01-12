@@ -1,11 +1,13 @@
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
-from tracecat.cases.service import CaseCommentsService, CasesService
+from tracecat.cases.service import CaseCommentsService, CaseEventsService, CasesService
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatAuthorizationError
 
@@ -167,7 +169,7 @@ class TestCaseCommentsService:
 
         # Update comment
         updated_comment = await case_comments_service.update_comment(
-            created_comment, update_params
+            test_case, created_comment, update_params
         )
         assert updated_comment.content == update_params.content
 
@@ -210,7 +212,7 @@ class TestCaseCommentsService:
 
         # Should raise authorization error
         with pytest.raises(TracecatAuthorizationError):
-            await service2.update_comment(created_comment, update_params)
+            await service2.update_comment(test_case, created_comment, update_params)
 
         # Verify the comment wasn't updated
         retrieved_comment = await service1.get_comment(created_comment.id)
@@ -230,7 +232,7 @@ class TestCaseCommentsService:
         )
 
         # Delete the comment
-        await case_comments_service.delete_comment(created_comment)
+        await case_comments_service.delete_comment(test_case, created_comment)
 
         # Verify deletion
         deleted_comment = await case_comments_service.get_comment(created_comment.id)
@@ -268,8 +270,43 @@ class TestCaseCommentsService:
         # Try to delete the comment with a different user
         # Should raise authorization error
         with pytest.raises(TracecatAuthorizationError):
-            await service2.delete_comment(created_comment)
+            await service2.delete_comment(test_case, created_comment)
 
         # Verify the comment wasn't deleted
         retrieved_comment = await service1.get_comment(created_comment.id)
         assert retrieved_comment is not None
+
+    async def test_comment_dispatches_triggers(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+    ) -> None:
+        with patch.object(
+            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
+        ) as dispatch_mock:
+            created_comment = await case_comments_service.create_comment(
+                test_case, comment_create_params
+            )
+
+            await case_comments_service.update_comment(
+                test_case,
+                created_comment,
+                CaseCommentUpdate(content="Updated comment content"),
+            )
+
+            await case_comments_service.delete_comment(test_case, created_comment)
+
+        assert dispatch_mock.call_count == 3
+        dispatched_fields = [
+            call.kwargs["event"].data["field"] for call in dispatch_mock.call_args_list
+        ]
+        assert dispatched_fields == [
+            "comment_added",
+            "comment_updated",
+            "comment_removed",
+        ]
+        assert all(
+            call.kwargs["event"].type == CaseEventType.CASE_UPDATED
+            for call in dispatch_mock.call_args_list
+        )

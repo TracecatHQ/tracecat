@@ -502,7 +502,7 @@ async def update_comment(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    await comments_svc.update_comment(comment, params)
+    await comments_svc.update_comment(case, comment, params)
 
 
 @cases_router.delete(
@@ -530,7 +530,7 @@ async def delete_comment(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    await comments_svc.delete_comment(comment)
+    await comments_svc.delete_comment(case, comment)
 
 
 # Case Fields

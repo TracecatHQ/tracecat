@@ -9,3 +9,4 @@ class FeatureFlag(StrEnum):
     AGENT_PRESETS = "agent-presets"
     CASE_DURATIONS = "case-durations"
     CASE_TASKS = "case-tasks"
+    CASE_TRIGGERS = "case-triggers"

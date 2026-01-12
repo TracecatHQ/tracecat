@@ -317,13 +317,18 @@ async def update_comment(
         if not comment:
             raise ValueError(f"Comment with ID {comment_id} not found")
 
+        cases_service = CasesService(service.session, role=service.role)
+        case = await cases_service.get_case(comment.case_id)
+        if not case:
+            raise ValueError(f"Case with ID {comment.case_id} not found")
+
         params: dict[str, Any] = {}
         if content is not None:
             params["content"] = content
         if parent_id is not None:
             params["parent_id"] = UUID(parent_id)
         updated_comment = await service.update_comment(
-            comment, CaseCommentUpdate(**params)
+            case, comment, CaseCommentUpdate(**params)
         )
     return updated_comment.to_dict()
 

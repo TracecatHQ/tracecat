@@ -6443,6 +6443,7 @@ export const $FeatureFlag = {
     "agent-presets",
     "case-durations",
     "case-tasks",
+    "case-triggers",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
@@ -10750,6 +10751,7 @@ export const $Role = {
       enum: [
         "tracecat-api",
         "tracecat-bootstrap",
+        "tracecat-case-triggers",
         "tracecat-cli",
         "tracecat-executor",
         "tracecat-runner",
@@ -14272,7 +14274,7 @@ export const $Trigger = {
 
 export const $TriggerType = {
   type: "string",
-  enum: ["manual", "scheduled", "webhook"],
+  enum: ["manual", "scheduled", "webhook", "case_event"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
 } as const
@@ -14381,7 +14383,13 @@ export const $UpdatedEventRead = {
     },
     field: {
       type: "string",
-      const: "summary",
+      enum: [
+        "summary",
+        "description",
+        "comment_added",
+        "comment_removed",
+        "comment_updated",
+      ],
       title: "Field",
     },
     old: {
@@ -14405,6 +14413,32 @@ export const $UpdatedEventRead = {
         },
       ],
       title: "New",
+    },
+    comment_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Comment Id",
+      description: "The ID of the comment for comment events.",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+      description: "The parent comment ID for reply comments.",
     },
     user_id: {
       anyOf: [
