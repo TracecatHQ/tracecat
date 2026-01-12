@@ -34,14 +34,13 @@ def make_init_payload() -> RuntimeInitPayload:
     """Create a minimal init payload for testing."""
     return RuntimeInitPayload(
         session_id=uuid.uuid4(),
-        jwt_token="test-jwt-token",
+        mcp_auth_token="test-jwt-token",
         config=AgentConfig(
             model_name="claude-3-5-sonnet-20241022",
             model_provider="anthropic",
             instructions="You are a test assistant.",
         ),
         user_prompt="Say hello",
-        litellm_base_url="http://localhost:8080",
         litellm_auth_token="test-litellm-token",
         allowed_actions={},
     )
@@ -370,6 +369,88 @@ class TestRuntimeSocketCommunication:
                 assert len(session_updates) == 1
                 assert session_updates[0].sdk_session_id == "test-session-123"
                 assert session_updates[0].sdk_session_data == '{"message": "hello"}\n'
+
+            finally:
+                server.close()
+                await server.wait_closed()
+
+    @pytest.mark.anyio
+    async def test_log_event_streamed_over_socket(
+        self,
+    ) -> None:
+        """Test that log events are correctly streamed via socket."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            socket_path = Path(tmpdir) / "test.sock"
+
+            received_events: list[RuntimeEventEnvelope] = []
+
+            async def handle_client(
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ) -> None:
+                try:
+                    while True:
+                        try:
+                            _, payload = await asyncio.wait_for(
+                                read_message(reader), timeout=5.0
+                            )
+                        except asyncio.IncompleteReadError:
+                            break
+                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
+                        received_events.append(envelope)
+                except TimeoutError:
+                    pass
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
+
+            server = await asyncio.start_unix_server(
+                handle_client,
+                path=str(socket_path),
+            )
+
+            try:
+                _, writer = await asyncio.open_unix_connection(str(socket_path))
+                socket_writer = SocketStreamWriter(writer)
+
+                # Send log events with different levels
+                await socket_writer.send_log(
+                    "info", "Runtime initialized", model="gpt-4"
+                )
+                await socket_writer.send_log("debug", "Query sent", prompt_length=42)
+                await socket_writer.send_log("warning", "Slow response detected")
+                await socket_writer.send_log(
+                    "error", "Connection failed", error_code=500
+                )
+                await socket_writer.send_done()
+                await socket_writer.close()
+
+                # Give server time to receive
+                await asyncio.sleep(0.1)
+
+                # Verify log events were received
+                log_events = [e for e in received_events if e.type == "log"]
+                assert len(log_events) == 4
+
+                # Check first log event
+                assert log_events[0].log_level == "info"
+                assert log_events[0].log_message == "Runtime initialized"
+                assert log_events[0].log_extra == {"model": "gpt-4"}
+
+                # Check debug log
+                assert log_events[1].log_level == "debug"
+                assert log_events[1].log_message == "Query sent"
+                assert log_events[1].log_extra == {"prompt_length": 42}
+
+                # Check warning log
+                assert log_events[2].log_level == "warning"
+                assert log_events[2].log_message == "Slow response detected"
+                assert log_events[2].log_extra is None
+
+                # Check error log
+                assert log_events[3].log_level == "error"
+                assert log_events[3].log_message == "Connection failed"
+                assert log_events[3].log_extra == {"error_code": 500}
 
             finally:
                 server.close()

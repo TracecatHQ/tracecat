@@ -165,6 +165,21 @@ class SocketStreamWriter:
             RuntimeEventEnvelope.from_session_update(sdk_session_id, sdk_session_data)
         )
 
+    async def send_result(
+        self,
+        usage: dict | None = None,
+        num_turns: int | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        """Send final result with usage data from Claude SDK ResultMessage."""
+        await self._send(
+            RuntimeEventEnvelope.from_result(
+                usage=usage,
+                num_turns=num_turns,
+                duration_ms=duration_ms,
+            )
+        )
+
     async def send_error(self, error: str) -> None:
         """Send error event to the orchestrator."""
         await self._send(RuntimeEventEnvelope.from_error(error))
@@ -172,6 +187,21 @@ class SocketStreamWriter:
     async def send_done(self) -> None:
         """Send done event to signal completion."""
         await self._send(RuntimeEventEnvelope.done())
+
+    async def send_log(self, level: str, message: str, **extra: object) -> None:
+        """Send a structured log event to the orchestrator.
+
+        This forwards logs from inside the sandbox to the worker's logger,
+        providing visibility into sandbox execution.
+
+        Args:
+            level: Log level ("debug", "info", "warning", "error").
+            message: The log message.
+            **extra: Additional structured fields to include.
+        """
+        await self._send(
+            RuntimeEventEnvelope.from_log(level, message, extra if extra else None)
+        )
 
     async def close(self) -> None:
         """Close the socket connection."""

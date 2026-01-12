@@ -1,19 +1,20 @@
 """NSJail configuration generation for agent runtime sandbox.
 
 This module generates protobuf-format nsjail configurations specifically
-for running the minimal agent runtime in an isolated sandbox.
+for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network ISOLATED (clone_newnet: true) - no direct network access
+- Network shared (clone_newnet: false) for LiteLLM access on localhost:4000
+- Namespace isolation (PID, user, mount, IPC, UTS namespaces)
+- /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
-- Site-packages mounted read-only for Claude SDK deps
-- minimal_runtime.py + shared/ copied to /work at spawn time
+- Site-packages mounted read-only for Claude SDK deps and tracecat package
 
-Key design (same pattern as action sandbox):
-- Copy runtime code to /work at spawn time (not baked into rootfs)
-- Mount site-packages read-only for deps
-- Single source of truth for runtime code
+Key design:
+- Runtime executed via `python -m tracecat.agent.sandbox.entrypoint`
+- Mount site-packages read-only for deps (includes tracecat package)
+- Control socket at /var/run/tracecat/control.sock
 """
 
 from __future__ import annotations
@@ -28,6 +29,11 @@ from tracecat.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
 )
+
+# Well-known socket paths (internal to agent worker, not configurable)
+TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
+CONTROL_SOCKET_NAME = "control.sock"
+JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -103,14 +109,15 @@ class AgentSandboxConfig:
 AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "HOME": "/home/agent",
+    "USER": "agent",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
     "LANG": "C.UTF-8",
     "LC_ALL": "C.UTF-8",
     # Required for Python to find libpython3.12.so in nsjail sandbox
     "LD_LIBRARY_PATH": "/usr/local/lib:/usr/lib:/lib",
-    # PYTHONPATH set to /work so Python finds copied tracecat.agent.shared
-    "PYTHONPATH": "/work:/site-packages",
+    # PYTHONPATH: /app for tracecat package, /site-packages for dependencies
+    "PYTHONPATH": "/app:/site-packages",
 }
 
 
@@ -200,19 +207,18 @@ def build_agent_nsjail_config(
     socket_dir: Path,
     config: AgentSandboxConfig,
     site_packages_dir: Path,
+    tracecat_app_dir: Path,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
-    Uses the same rootfs as action sandbox. Runtime code (minimal_runtime.py
-    and shared/) is copied to job_dir before calling this function.
-
     Args:
         rootfs: Path to the sandbox rootfs (same as action sandbox).
-        job_dir: Directory containing copied runtime code and config.
-        socket_dir: Directory containing Unix sockets (control.sock, mcp.sock).
-            Mounted at /var/run/tracecat in the sandbox.
+        job_dir: Directory for job-specific data.
+        socket_dir: Directory containing the per-job control socket
+            (control.sock) created by the orchestrator.
         config: Agent sandbox configuration.
         site_packages_dir: Path to site-packages with Claude SDK deps.
+        tracecat_app_dir: Path to the tracecat app directory (mounted at /app).
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -225,6 +231,12 @@ def build_agent_nsjail_config(
     _validate_path(job_dir, "job_dir")
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
+    _validate_path(tracecat_app_dir, "tracecat_app_dir")
+
+    # Derive control socket path from socket_dir using well-known name
+    control_socket_path = socket_dir / CONTROL_SOCKET_NAME
+    _validate_path(control_socket_path, "control_socket_path")
+    # TRUSTED_MCP_SOCKET_PATH is a constant, no validation needed
 
     lines = [
         'name: "agent_sandbox"',
@@ -232,15 +244,16 @@ def build_agent_nsjail_config(
         'hostname: "agent"',
         "keep_env: false",
         "",
-        "# Namespace isolation - network isolated for security",
-        "clone_newnet: true",
+        "# Namespace isolation",
+        "# Note: clone_newnet is false to allow access to LiteLLM on localhost:4000",
+        "clone_newnet: false",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
         "clone_newipc: true",
         "clone_newuts: true",
         "",
-        "# UID/GID mapping - map container user to current user",
+        "# UID/GID mapping - map container user to sandbox user",
         f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
         f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
         "",
@@ -264,10 +277,15 @@ def build_agent_nsjail_config(
             f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
         )
 
+    # Mount /proc read-only. Combined with clone_newpid: true, the process
+    # only sees itself in /proc (PID 1 inside the namespace).
+    # Note: subset=pid option would be ideal but fails in Docker due to
+    # overmounts on /proc (e.g., /dev/null on /proc/kcore).
     lines.extend(
         [
             "",
-            'mount { dst: "/proc" fstype: "proc" rw: false }',
+            "# /proc - read-only, PID namespace isolated (process only sees itself)",
+            'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
             "",
             "# /dev essentials",
             'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',
@@ -284,9 +302,14 @@ def build_agent_nsjail_config(
             "# Site-packages - Claude SDK and other deps (read-only)",
             f'mount {{ src: "{site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}',
             "",
-            "# Socket directory - contains control.sock and mcp.sock",
-            "# Mounted at /var/run/tracecat to match hardcoded paths in minimal_runtime",
-            f'mount {{ src: "{socket_dir}" dst: "/var/run/tracecat" is_bind: true rw: true }}',
+            "# Tracecat app directory (read-only)",
+            f'mount {{ src: "{tracecat_app_dir}" dst: "/app" is_bind: true rw: false }}',
+            "",
+            "# Trusted MCP socket (read-only, shared across jobs)",
+            f'mount {{ src: "{TRUSTED_MCP_SOCKET_PATH.parent}" dst: "/var/run/tracecat" is_bind: true rw: false }}',
+            "",
+            "# Per-job control socket",
+            f'mount {{ src: "{control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
             "",
             "# Agent home directory with Claude SDK session storage",
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
@@ -307,13 +330,14 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # Execution settings - minimal agent runtime (copied to /work)
+    # Execution settings - run tracecat.agent.sandbox.entrypoint module
+    # The entrypoint connects to the control socket at the well-known jailed path
     lines.extend(
         [
             "",
-            "# Execution - minimal agent runtime (copied to /work at spawn time)",
+            "# Execution - agent runtime entrypoint module",
             'cwd: "/work"',
-            'exec_bin { path: "/usr/local/bin/python3" arg: "/work/minimal_runtime.py" }',
+            'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.agent.sandbox.entrypoint" }',
         ]
     )
 

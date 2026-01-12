@@ -23,7 +23,6 @@ subprocess instead of through nsjail. This is useful for:
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 import sys
 import tempfile
@@ -96,6 +95,19 @@ def _get_site_packages_dir() -> Path:
     raise AgentSandboxExecutionError("Could not find site-packages directory")
 
 
+def _get_tracecat_app_dir() -> Path:
+    """Get the tracecat application directory.
+
+    This finds the parent directory of the tracecat package, which is typically
+    /app in Docker or the project root in development.
+    """
+    import tracecat
+
+    # tracecat.__file__ is /app/tracecat/__init__.py, we want /app
+    tracecat_pkg = Path(tracecat.__file__).parent
+    return tracecat_pkg.parent
+
+
 async def spawn_jailed_runtime(
     socket_dir: Path,
     config: AgentSandboxConfig | None = None,
@@ -116,8 +128,7 @@ async def spawn_jailed_runtime(
     without nsjail (macOS, Windows, CI environments).
 
     Args:
-        socket_dir: Directory containing Unix sockets (control.sock, mcp.sock).
-            Mounted at /var/run/tracecat in the sandbox.
+        socket_dir: Directory containing the per-job control socket (control.sock).
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
@@ -157,10 +168,7 @@ async def spawn_jailed_runtime(
 
     # Direct subprocess mode for testing (no nsjail)
     if TRACECAT__DISABLE_NSJAIL:
-        return await _spawn_direct_runtime(
-            control_socket_path=socket_dir / "control.sock",
-            mcp_socket_path=socket_dir / "mcp.sock",
-        )
+        return await _spawn_direct_runtime()
 
     # NSJail mode for production
     return await _spawn_nsjail_runtime(
@@ -171,44 +179,35 @@ async def spawn_jailed_runtime(
     )
 
 
-async def _spawn_direct_runtime(
-    control_socket_path: Path,
-    mcp_socket_path: Path,
-) -> SpawnedRuntime:
+async def _spawn_direct_runtime() -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
     This bypasses nsjail and runs ClaudeAgentRuntime directly in the current
     Python environment. Used when TRACECAT__DISABLE_NSJAIL=true.
 
     WARNING: This mode has no isolation and should only be used for development/testing.
-
-    Args:
-        control_socket_path: Path to the control socket for orchestrator communication.
-        mcp_socket_path: Path to the trusted MCP server socket.
     """
+    from tracecat.agent.sandbox.config import (
+        JAILED_CONTROL_SOCKET_PATH,
+        TRUSTED_MCP_SOCKET_PATH,
+    )
+
     cmd = [
         sys.executable,
         "-m",
         "tracecat.agent.sandbox.entrypoint",
-        "--socket",
-        str(control_socket_path),
     ]
 
     logger.info(
         "Spawning agent runtime (direct subprocess - DEVELOPMENT MODE)",
-        control_socket_path=str(control_socket_path),
-        mcp_socket_path=str(mcp_socket_path),
+        control_socket_path=str(JAILED_CONTROL_SOCKET_PATH),
+        mcp_socket_path=str(TRUSTED_MCP_SOCKET_PATH),
     )
-
-    # Pass MCP socket path via env since direct mode has no mount
-    env = os.environ.copy()
-    env["TRACECAT__MCP_SOCKET_PATH"] = str(mcp_socket_path)
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=env,
     )
 
     return SpawnedRuntime(process=process, job_dir=None)
@@ -235,21 +234,23 @@ async def _spawn_nsjail_runtime(
     if not nsjail.exists():
         raise AgentSandboxExecutionError(f"nsjail binary not found: {nsjail}")
 
-    # Get site-packages directory
+    # Get site-packages and app directories
     site_packages_dir = _get_site_packages_dir()
+    tracecat_app_dir = _get_tracecat_app_dir()
 
     # Create temp directory for nsjail job
     job_id = uuid.uuid4().hex[:12]
     job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
 
     try:
-        # Build nsjail config
+        # Build nsjail config (socket paths are derived from socket_dir internally)
         nsjail_config = build_agent_nsjail_config(
             rootfs=rootfs,
             job_dir=job_dir,
             socket_dir=socket_dir,
             config=config,
             site_packages_dir=site_packages_dir,
+            tracecat_app_dir=tracecat_app_dir,
         )
 
         # Write config to job directory
@@ -276,6 +277,7 @@ async def _spawn_nsjail_runtime(
             job_dir=str(job_dir),
             socket_dir=str(socket_dir),
             site_packages=str(site_packages_dir),
+            tracecat_app=str(tracecat_app_dir),
         )
 
         # Spawn nsjail process

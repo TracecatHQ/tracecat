@@ -7,14 +7,14 @@ the AgentRuntime implementation.
 Protocol: msg_type (1B) | length (4B) | payload (length B)
 
 Usage:
-    python -m tracecat.agent.sandbox.entrypoint --socket /path/to/socket
+    python -m tracecat.agent.sandbox.entrypoint
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 
+from tracecat.agent.sandbox.config import JAILED_CONTROL_SOCKET_PATH
 from tracecat.agent.sandbox.protocol import RuntimeInitPayloadTA
 from tracecat.agent.sandbox.runtime import ClaudeAgentRuntime
 from tracecat.agent.sandbox.socket_io import (
@@ -25,16 +25,14 @@ from tracecat.agent.sandbox.socket_io import (
 from tracecat.logger import logger
 
 
-async def run_sandboxed_runtime(socket_path: str) -> None:
+async def run_sandboxed_runtime() -> None:
     """Entry point for sandboxed runtime execution.
 
-    Connects to orchestrator socket, receives init payload, instantiates
-    the runtime, and runs the agent.
-
-    Args:
-        socket_path: Path to the orchestrator's Unix socket.
+    Connects to orchestrator socket at the well-known jailed path,
+    receives init payload, instantiates the runtime, and runs the agent.
     """
-    logger.info("Starting sandboxed runtime", socket_path=socket_path)
+    socket_path = JAILED_CONTROL_SOCKET_PATH
+    logger.info("Starting sandboxed runtime", socket_path=str(socket_path))
 
     # Connect to orchestrator
     reader, writer = await asyncio.open_unix_connection(socket_path)
@@ -54,11 +52,19 @@ async def run_sandboxed_runtime(socket_path: str) -> None:
         )
 
         # Instantiate and run the runtime
-        logger.debug("Creating ClaudeAgentRuntime")
-        runtime = ClaudeAgentRuntime(socket_writer)
-        logger.debug("Running runtime")
-        await runtime.run(payload)
-        logger.info("Runtime completed")
+        logger.info("Creating ClaudeAgentRuntime")
+        try:
+            runtime = ClaudeAgentRuntime(socket_writer)
+            logger.info("Runtime created, calling run()")
+        except Exception as e:
+            logger.exception("FAILED to create runtime", error=str(e))
+            raise
+        try:
+            await runtime.run(payload)
+            logger.info("Runtime completed")
+        except Exception as e:
+            logger.exception("runtime.run() FAILED", error=str(e))
+            raise
 
     except Exception as e:
         logger.exception("Runtime error", error=str(e))
@@ -67,15 +73,7 @@ async def run_sandboxed_runtime(socket_path: str) -> None:
 
 def main() -> None:
     """CLI entry point for sandboxed runtime."""
-    parser = argparse.ArgumentParser(description="Tracecat Agent Runtime (sandboxed)")
-    parser.add_argument(
-        "--socket",
-        required=True,
-        help="Path to orchestrator Unix socket",
-    )
-    args = parser.parse_args()
-
-    asyncio.run(run_sandboxed_runtime(args.socket))
+    asyncio.run(run_sandboxed_runtime())
 
 
 if __name__ == "__main__":

@@ -63,10 +63,9 @@ def sample_init_payload(
     """Create a sample init payload for testing."""
     return RuntimeInitPayload(
         session_id=uuid.uuid4(),
-        jwt_token="test-jwt-token",
+        mcp_auth_token="test-jwt-token",
         config=sample_agent_config,
         user_prompt="Hello, how are you?",
-        litellm_base_url="http://localhost:8080",
         litellm_auth_token="test-litellm-token",
         allowed_actions=sample_tool_definitions,
     )

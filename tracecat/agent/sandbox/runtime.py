@@ -52,6 +52,9 @@ from tracecat.agent.stream.types import (
 )
 from tracecat.logger import logger
 
+# LiteLLM URL - use IP to avoid DNS resolution in sandbox
+LITELLM_URL = "http://127.0.0.1:4000"
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -350,6 +353,10 @@ class ClaudeAgentRuntime:
         resume the session normally and the agent will continue from there.
         """
         self._session_id = payload.session_id
+        await self._socket_writer.send_log(
+            "info",
+            "Runtime initialized",
+        )
 
         # Use resolved tool definitions from orchestrator
         self.registry_tools = payload.allowed_actions
@@ -372,7 +379,7 @@ class ClaudeAgentRuntime:
             if self.registry_tools:
                 proxy_config = await create_proxy_mcp_server(
                     allowed_actions=self.registry_tools,
-                    auth_token=payload.jwt_token,
+                    auth_token=payload.mcp_auth_token,
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
 
@@ -390,14 +397,21 @@ class ClaudeAgentRuntime:
                 """Forward Claude CLI stderr to logger for nsjail capture."""
                 logger.debug("Claude CLI output", output=line)
 
-            logger.debug("Building ClaudeAgentOptions")
+            await self._socket_writer.send_log(
+                "debug",
+                "MCP servers configured",
+                extra={
+                    "server_count": len(mcp_servers),
+                    "servers": list(mcp_servers.keys()),
+                },
+            )
+
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
                 env={
-                    "MAX_THINKING_TOKENS": "1024",
                     "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
-                    "ANTHROPIC_BASE_URL": payload.litellm_base_url,
+                    "ANTHROPIC_BASE_URL": LITELLM_URL,
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
@@ -406,9 +420,6 @@ class ClaudeAgentRuntime:
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
                 },
-            )
-            logger.debug(
-                "LiteLLM base URL configured", base_url=payload.litellm_base_url
             )
 
             logger.debug(
@@ -430,9 +441,17 @@ class ClaudeAgentRuntime:
                     query_prompt = payload.user_prompt
                     logger.debug("Normal turn with user prompt")
 
+                await self._socket_writer.send_log(
+                    "info",
+                    "Sending query to Claude SDK",
+                    prompt_length=len(query_prompt),
+                    is_continuation=payload.is_approval_continuation,
+                )
                 await client.query(query_prompt)
 
-                logger.debug("Query sent, receiving response")
+                await self._socket_writer.send_log(
+                    "debug", "Query sent, receiving response"
+                )
 
                 async for message in client.receive_response():
                     logger.debug(
@@ -507,14 +526,27 @@ class ClaudeAgentRuntime:
                     elif isinstance(message, ResultMessage):
                         # Final result - emit any remaining lines
                         await self._emit_new_session_lines()
-                        logger.info(
-                            "ResultMessage received",
-                            session_id=message.session_id,
+                        await self._socket_writer.send_log(
+                            "info",
+                            "Agent turn completed",
                             num_turns=message.num_turns,
+                            duration_ms=message.duration_ms,
+                            usage=message.usage,
+                        )
+                        # Send result with usage data back to orchestrator
+                        await self._socket_writer.send_result(
+                            usage=message.usage,
+                            num_turns=message.num_turns,
+                            duration_ms=message.duration_ms,
                         )
 
         except Exception as e:
-            logger.exception("Error in ClaudeAgentRuntime", error=str(e))
+            await self._socket_writer.send_log(
+                "error",
+                "Runtime error",
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             await self._socket_writer.send_error(str(e))
             raise
         finally:

@@ -8,16 +8,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
+from claude_agent_sdk.types import Message
 from pydantic import TypeAdapter
 
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.stream.types import UnifiedStreamEvent
 from tracecat.agent.types import AgentConfig
-
-if TYPE_CHECKING:
-    from claude_agent_sdk.types import Message
 
 
 @dataclass(kw_only=True, slots=True)
@@ -34,10 +32,9 @@ class RuntimeInitPayload:
 
     # Session context
     session_id: uuid.UUID
-    jwt_token: str  # JWT for MCP auth
+    mcp_auth_token: str  # JWT for MCP auth
     config: AgentConfig
     user_prompt: str
-    litellm_base_url: str
     litellm_auth_token: str
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
@@ -65,7 +62,14 @@ class RuntimeEventEnvelope:
     """
 
     type: Literal[
-        "stream_event", "message", "session_line", "session_update", "error", "done"
+        "stream_event",
+        "message",
+        "session_line",
+        "session_update",
+        "result",
+        "error",
+        "done",
+        "log",
     ]
     event: UnifiedStreamEvent | None = None  # For type="stream_event"
     message: dict[str, Any] | None = None  # For type="message" (serialized Message)
@@ -76,6 +80,14 @@ class RuntimeEventEnvelope:
     sdk_session_id: str | None = None  # For type="session_update" or "session_line"
     sdk_session_data: str | None = None  # For type="session_update"
     error: str | None = None  # For type="error"
+    # For type="result" - final usage data from Claude SDK ResultMessage
+    result_usage: dict[str, Any] | None = None
+    result_num_turns: int | None = None
+    result_duration_ms: int | None = None
+    # For type="log" - structured log forwarding from sandbox
+    log_level: str | None = None  # "debug", "info", "warning", "error"
+    log_message: str | None = None
+    log_extra: dict[str, Any] | None = None
 
     @classmethod
     def from_stream_event(cls, event: UnifiedStreamEvent) -> RuntimeEventEnvelope:
@@ -128,6 +140,21 @@ class RuntimeEventEnvelope:
         )
 
     @classmethod
+    def from_result(
+        cls,
+        usage: dict[str, Any] | None = None,
+        num_turns: int | None = None,
+        duration_ms: int | None = None,
+    ) -> RuntimeEventEnvelope:
+        """Create a result envelope with usage data from Claude SDK ResultMessage."""
+        return cls(
+            type="result",
+            result_usage=usage,
+            result_num_turns=num_turns,
+            result_duration_ms=duration_ms,
+        )
+
+    @classmethod
     def from_error(cls, error: str) -> RuntimeEventEnvelope:
         """Create an error envelope."""
         return cls(type="error", error=error)
@@ -136,6 +163,13 @@ class RuntimeEventEnvelope:
     def done(cls) -> RuntimeEventEnvelope:
         """Create a done envelope."""
         return cls(type="done")
+
+    @classmethod
+    def from_log(
+        cls, level: str, message: str, extra: dict[str, Any] | None = None
+    ) -> RuntimeEventEnvelope:
+        """Create a log envelope for structured log forwarding."""
+        return cls(type="log", log_level=level, log_message=message, log_extra=extra)
 
 
 RuntimeInitPayloadTA: TypeAdapter[RuntimeInitPayload] = TypeAdapter(RuntimeInitPayload)

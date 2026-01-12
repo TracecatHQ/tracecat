@@ -57,12 +57,6 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
         SandboxRestrictions.invalid_module_members_default.children
     )
     del invalid_module_member_children["datetime"]
-
-    # Add beartype to passthrough modules to avoid circular import issues
-    # with its custom import hooks conflicting with Temporal's sandbox
-    passthrough_modules = set(SandboxRestrictions.passthrough_modules_default)
-    passthrough_modules.add("beartype")
-
     return SandboxedWorkflowRunner(
         restrictions=dataclasses.replace(
             SandboxRestrictions.default,
@@ -70,7 +64,6 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
                 SandboxRestrictions.invalid_module_members_default,
                 children=invalid_module_member_children,
             ),
-            passthrough_modules=passthrough_modules,
         )
     )
 
