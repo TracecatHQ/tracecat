@@ -14,6 +14,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CaseEventsService, CasesService, CaseTasksService
+from tracecat.identifiers.workflow import WorkflowUUID
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -167,7 +168,7 @@ class TestCaseTaskEvents:
                     status=CaseTaskStatus.IN_PROGRESS,
                     assignee_id=uuid.uuid4(),
                     priority=CasePriority.HIGH,
-                    workflow_id=uuid.uuid4(),
+                    workflow_id=WorkflowUUID.new_uuid4(),
                 ),
             )
 
