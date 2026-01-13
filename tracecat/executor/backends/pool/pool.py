@@ -475,8 +475,10 @@ class WorkerPool:
                 "",
                 "# /etc from rootfs",
                 f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
-                "# DNS resolution from host",
+                "# DNS/host resolution from container",
                 'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
             ]
         )
 

@@ -59,6 +59,9 @@ COPY --from=sandbox-rootfs /etc/passwd /var/lib/tracecat/sandbox-rootfs/etc/pass
 COPY --from=sandbox-rootfs /etc/group /var/lib/tracecat/sandbox-rootfs/etc/group
 COPY --from=sandbox-rootfs /etc/ssl /var/lib/tracecat/sandbox-rootfs/etc/ssl
 COPY --from=sandbox-rootfs /etc/ca-certificates /var/lib/tracecat/sandbox-rootfs/etc/ca-certificates
+RUN install -m 0644 /dev/null /var/lib/tracecat/sandbox-rootfs/etc/resolv.conf && \
+    install -m 0644 /dev/null /var/lib/tracecat/sandbox-rootfs/etc/hosts && \
+    install -m 0644 /dev/null /var/lib/tracecat/sandbox-rootfs/etc/nsswitch.conf
 
 # Handle lib64 for amd64
 RUN if [ -d /var/lib/tracecat/sandbox-rootfs/lib64 ] || [ "$(uname -m)" = "x86_64" ]; then \
