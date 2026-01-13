@@ -463,88 +463,89 @@ class ClaudeAgentRuntime:
                     logger.debug(
                         "Received message", message_type=type(message).__name__
                     )
-                    if isinstance(message, StreamEvent):
-                        # Capture SDK session ID from first StreamEvent
-                        if not self._sdk_session_id and message.session_id:
-                            self._sdk_session_id = message.session_id
-                            # If resuming, set last_seen_line_index to current file length
-                            if resume_session_id:
-                                session_file = self._get_session_file_path(
-                                    self._sdk_session_id
-                                )
-                                if session_file.exists():
-                                    file_content = await asyncio.to_thread(
-                                        session_file.read_text
+                    match message:
+                        case StreamEvent():
+                            # Capture SDK session ID from first StreamEvent
+                            if not self._sdk_session_id and message.session_id:
+                                self._sdk_session_id = message.session_id
+                                # If resuming, set last_seen_line_index to current file length
+                                if resume_session_id:
+                                    session_file = self._get_session_file_path(
+                                        self._sdk_session_id
                                     )
-                                    self._last_seen_line_index = len(
-                                        file_content.splitlines()
-                                    )
-                            logger.debug(
-                                "Captured SDK session ID",
-                                sdk_session_id=self._sdk_session_id,
-                            )
-
-                        # Partial streaming delta - forward to UI
-                        unified = ClaudeSDKAdapter().to_unified_event(message)
-                        await self._socket_writer.send_stream_event(unified)
-
-                    elif isinstance(message, AssistantMessage):
-                        # Emit new JSONL lines for persistence (with full envelope)
-                        await self._emit_new_session_lines()
-
-                        # Also stream tool results for UI
-                        # (keep send_message for backward compat / UI events)
-                        await self._socket_writer.send_message(message)
-
-                    elif isinstance(message, UserMessage):
-                        # Emit new JSONL lines for persistence (with full envelope)
-                        await self._emit_new_session_lines()
-
-                        # Also send message for UI events
-                        await self._socket_writer.send_message(message)
-
-                        # Stream tool results for UI
-                        if isinstance(message.content, list):
-                            for block in message.content:
-                                if isinstance(block, ToolResultBlock):
-                                    # Skip denial results for pending approvals
-                                    if (
-                                        block.tool_use_id
-                                        in self._pending_approval_tool_ids
-                                    ):
-                                        continue
-                                    await self._socket_writer.send_stream_event(
-                                        UnifiedStreamEvent(
-                                            type=StreamEventType.TOOL_RESULT,
-                                            tool_call_id=block.tool_use_id,
-                                            tool_output=block.content,
-                                            is_error=block.is_error or False,
+                                    if session_file.exists():
+                                        file_content = await asyncio.to_thread(
+                                            session_file.read_text
                                         )
-                                    )
+                                        self._last_seen_line_index = len(
+                                            file_content.splitlines()
+                                        )
+                                logger.debug(
+                                    "Captured SDK session ID",
+                                    sdk_session_id=self._sdk_session_id,
+                                )
 
-                    elif isinstance(message, SystemMessage):
-                        # Emit new JSONL lines for persistence (with full envelope)
-                        await self._emit_new_session_lines()
+                            # Partial streaming delta - forward to UI
+                            unified = ClaudeSDKAdapter().to_unified_event(message)
+                            await self._socket_writer.send_stream_event(unified)
 
-                        # Also send message for backward compat
-                        await self._socket_writer.send_message(message)
+                        case AssistantMessage():
+                            # Emit new JSONL lines for persistence (with full envelope)
+                            await self._emit_new_session_lines()
 
-                    elif isinstance(message, ResultMessage):
-                        # Final result - emit any remaining lines
-                        await self._emit_new_session_lines()
-                        await self._socket_writer.send_log(
-                            "info",
-                            "Agent turn completed",
-                            num_turns=message.num_turns,
-                            duration_ms=message.duration_ms,
-                            usage=message.usage,
-                        )
-                        # Send result with usage data back to orchestrator
-                        await self._socket_writer.send_result(
-                            usage=message.usage,
-                            num_turns=message.num_turns,
-                            duration_ms=message.duration_ms,
-                        )
+                            # Also stream tool results for UI
+                            # (keep send_message for backward compat / UI events)
+                            await self._socket_writer.send_message(message)
+
+                        case UserMessage():
+                            # Emit new JSONL lines for persistence (with full envelope)
+                            await self._emit_new_session_lines()
+
+                            # Also send message for UI events
+                            await self._socket_writer.send_message(message)
+
+                            # Stream tool results for UI
+                            if isinstance(message.content, list):
+                                for block in message.content:
+                                    if isinstance(block, ToolResultBlock):
+                                        # Skip denial results for pending approvals
+                                        if (
+                                            block.tool_use_id
+                                            in self._pending_approval_tool_ids
+                                        ):
+                                            continue
+                                        await self._socket_writer.send_stream_event(
+                                            UnifiedStreamEvent(
+                                                type=StreamEventType.TOOL_RESULT,
+                                                tool_call_id=block.tool_use_id,
+                                                tool_output=block.content,
+                                                is_error=block.is_error or False,
+                                            )
+                                        )
+
+                        case SystemMessage():
+                            # Emit new JSONL lines for persistence (with full envelope)
+                            await self._emit_new_session_lines()
+
+                            # Also send message for backward compat
+                            await self._socket_writer.send_message(message)
+
+                        case ResultMessage():
+                            # Final result - emit any remaining lines
+                            await self._emit_new_session_lines()
+                            await self._socket_writer.send_log(
+                                "info",
+                                "Agent turn completed",
+                                num_turns=message.num_turns,
+                                duration_ms=message.duration_ms,
+                                usage=message.usage,
+                            )
+                            # Send result with usage data back to orchestrator
+                            await self._socket_writer.send_result(
+                                usage=message.usage,
+                                num_turns=message.num_turns,
+                                duration_ms=message.duration_ms,
+                            )
 
         except Exception as e:
             await self._socket_writer.send_log(
