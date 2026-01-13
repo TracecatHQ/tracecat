@@ -39,6 +39,10 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     - mcp__tracecat-registry__tools__slack__post_message -> tools.slack.post_message
     - mcp.tracecat-registry.core.cases.create_case -> core.cases.create_case
 
+    Also handles user MCP servers:
+    - mcp__user-mcp__my_tool -> my_tool
+    - mcp.user-mcp.my_tool -> my_tool
+
     Other MCP tool names are returned as-is.
 
     Args:
@@ -56,7 +60,31 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
         return mcp_tool_name_to_action_name(tool_part)
 
-    # Other MCP tool names returned as-is
+    # Handle user MCP servers (dot-separated)
+    if mcp_tool_name.startswith("mcp.user-mcp."):
+        return mcp_tool_name.replace("mcp.user-mcp.", "", 1)
+
+    # Handle user MCP servers (underscore-separated)
+    if mcp_tool_name.startswith("mcp__user-mcp__"):
+        tool_part = mcp_tool_name.replace("mcp__user-mcp__", "")
+        return mcp_tool_name_to_action_name(tool_part)
+
+    # Generic MCP prefix stripping for any other servers
+    # Handle pattern: mcp.{server-name}.{tool_name}
+    if mcp_tool_name.startswith("mcp."):
+        parts = mcp_tool_name.split(".", 2)
+        if len(parts) >= 3:
+            # Return everything after mcp.{server-name}.
+            return parts[2]
+
+    # Handle pattern: mcp__{server-name}__{tool_name}
+    if mcp_tool_name.startswith("mcp__"):
+        parts = mcp_tool_name.split("__", 2)
+        if len(parts) >= 3:
+            # Return everything after mcp__{server-name}__ with underscores -> dots
+            return mcp_tool_name_to_action_name(parts[2])
+
+    # Other tool names returned as-is
     return mcp_tool_name
 
 

@@ -75,6 +75,7 @@ from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
 )
+from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -1392,6 +1393,30 @@ def convert_chat_messages_to_ui(
     tool_entries: dict[str, MutableToolPart] = {}
 
     for chat_message in messages:
+        # Handle approval request bubbles from DB (kind=APPROVAL_REQUEST)
+        # These are inserted by list_messages() when loading session history
+        if chat_message.kind == MessageKind.APPROVAL_REQUEST and chat_message.approval:
+            approval = chat_message.approval
+            # Create an assistant message with the approval data part
+            # Normalize tool name for display
+            tool_name = normalize_mcp_tool_name(approval.tool_name)
+            approval_data = {
+                "tool_call_id": approval.tool_call_id,
+                "tool_name": tool_name,
+                "args": approval.tool_call_args or {},
+            }
+            mutable_message = MutableMessage(
+                id=chat_message.id,
+                role="assistant",
+                parts=[DataUIPart(type=APPROVAL_DATA_PART_TYPE, data=[approval_data])],
+            )
+            mutable_messages.append(mutable_message)
+            continue
+
+        # Skip approval decision bubbles (they don't render in UI)
+        if chat_message.kind == MessageKind.APPROVAL_DECISION:
+            continue
+
         message_data = chat_message.message
 
         # Skip internal interrupt messages from Claude Code SDK
@@ -1478,7 +1503,7 @@ def convert_chat_messages_to_ui(
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
                     tool_part = MutableToolPart(
-                        type=f"tool-{part.name}",
+                        type=f"tool-{tool_name}",
                         tool_call_id=part.id,
                         state="input-available",
                         input=part.input or {},
