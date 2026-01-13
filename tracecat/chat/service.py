@@ -20,7 +20,7 @@ from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.shared.stream_types import HarnessType
 from tracecat.agent.types import (
     AgentConfig,
     ClaudeSDKMessageTA,
@@ -65,7 +65,7 @@ def _serialize_message(message: UnifiedMessage) -> tuple[str, dict[str, Any]]:
         )
     else:
         # Claude SDK message types
-        return HarnessType.CLAUDE.value, ClaudeSDKMessageTA.dump_python(
+        return HarnessType.CLAUDE_CODE.value, ClaudeSDKMessageTA.dump_python(
             message, mode="json"
         )
 

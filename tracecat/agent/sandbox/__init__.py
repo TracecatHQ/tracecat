@@ -1,78 +1,15 @@
 """Sandboxed agent runtime utilities.
 
-This package provides protocol models and I/O utilities for running
-agent runtimes in isolated (NSJail) sandboxes without database access.
+This package provides NSJail spawning utilities and config for running
+agent runtimes in isolated sandboxes.
 
-The orchestrator (in a separate module) is responsible for:
-- Creating Unix sockets for communication
-- Starting the trusted MCP HTTP server
-- Managing the runtime lifecycle
+Import directly from submodules:
+- tracecat.agent.sandbox.config: AgentSandboxConfig, AgentResourceLimits
+- tracecat.agent.sandbox.nsjail: spawn_jailed_runtime, etc.
+- tracecat.agent.sandbox.entrypoint: CLI entrypoint for sandboxed runtime
+- tracecat.agent.sandbox.llm_bridge: HTTP bridge for LLM socket
 
-This package provides:
-- spawn_jailed_runtime(): Entrypoint to spawn a jailed ClaudeAgentRuntime
-- Protocol models for orchestrator-runtime communication
-- Socket I/O utilities for the runtime
+Note: This __init__.py is intentionally minimal to allow the sandbox
+entrypoint to import without pulling in heavy dependencies like
+tracecat.config (which is not mounted in the sandbox).
 """
-
-from tracecat.agent.sandbox.config import (
-    AgentResourceLimits,
-    AgentSandboxConfig,
-    build_agent_env_map,
-    build_agent_nsjail_config,
-)
-from tracecat.agent.sandbox.exceptions import (
-    AgentSandboxError,
-    AgentSandboxExecutionError,
-    AgentSandboxTimeoutError,
-    AgentSandboxValidationError,
-)
-from tracecat.agent.sandbox.nsjail import (
-    SpawnedRuntime,
-    cleanup_spawned_runtime,
-    spawn_jailed_runtime,
-    wait_for_process,
-)
-from tracecat.agent.sandbox.protocol import (
-    RuntimeEventEnvelope,
-    RuntimeEventEnvelopeTA,
-    RuntimeInitPayload,
-    RuntimeInitPayloadTA,
-)
-from tracecat.agent.sandbox.socket_io import (
-    HEADER_SIZE,
-    MessageType,
-    SocketStreamWriter,
-    build_message,
-    read_message,
-)
-from tracecat.sandbox.utils import is_nsjail_available
-
-__all__ = [
-    # Config
-    "AgentResourceLimits",
-    "AgentSandboxConfig",
-    "build_agent_env_map",
-    "build_agent_nsjail_config",
-    # Exceptions
-    "AgentSandboxError",
-    "AgentSandboxExecutionError",
-    "AgentSandboxTimeoutError",
-    "AgentSandboxValidationError",
-    # Runtime spawning
-    "is_nsjail_available",
-    "SpawnedRuntime",
-    "cleanup_spawned_runtime",
-    "spawn_jailed_runtime",
-    "wait_for_process",
-    # Protocol
-    "RuntimeEventEnvelope",
-    "RuntimeEventEnvelopeTA",
-    "RuntimeInitPayload",
-    "RuntimeInitPayloadTA",
-    # Socket I/O
-    "HEADER_SIZE",
-    "MessageType",
-    "SocketStreamWriter",
-    "build_message",
-    "read_message",
-]

@@ -30,6 +30,7 @@ from tracecat.identifiers.workflow import generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 
 
@@ -214,4 +215,5 @@ def _build_run_input(
         task=task,
         run_context=run_context,
         exec_context={},
+        registry_lock=RegistryLock(origins={}, actions={}),
     )

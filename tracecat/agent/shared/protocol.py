@@ -2,20 +2,18 @@
 
 These models define the contract between the trusted orchestrator (outside NSJail)
 and the sandboxed runtime (inside NSJail).
+
+Uses pure dataclasses with orjson for minimal import footprint.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Literal
 
-from claude_agent_sdk.types import Message
-from pydantic import TypeAdapter
-
-from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.agent.stream.types import UnifiedStreamEvent
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.shared.stream_types import UnifiedStreamEvent
+from tracecat.agent.shared.types import MCPToolDefinition, SandboxAgentConfig
 
 
 @dataclass(kw_only=True, slots=True)
@@ -30,17 +28,75 @@ class RuntimeInitPayload:
     runtime just resumes normally.
     """
 
+    # Runtime selection
+    runtime_type: str = "claude_code"
+    """Runtime type to load (e.g., 'claude_code', 'openai_agents')."""
+
     # Session context
     session_id: uuid.UUID
     mcp_auth_token: str  # JWT for MCP auth
-    config: AgentConfig
+    config: SandboxAgentConfig
     user_prompt: str
     litellm_auth_token: str
+
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
+        """Construct from dict (orjson parsed)."""
+        # Parse config
+        config = SandboxAgentConfig.from_dict(data["config"])
+
+        # Parse allowed_actions
+        allowed_actions = None
+        if data.get("allowed_actions"):
+            allowed_actions = {
+                k: MCPToolDefinition.from_dict(v)
+                for k, v in data["allowed_actions"].items()
+            }
+
+        # Parse session_id
+        session_id = data["session_id"]
+        if isinstance(session_id, str):
+            session_id = uuid.UUID(session_id)
+
+        return cls(
+            runtime_type=data.get("runtime_type", "claude_code"),
+            session_id=session_id,
+            mcp_auth_token=data["mcp_auth_token"],
+            config=config,
+            user_prompt=data["user_prompt"],
+            litellm_auth_token=data["litellm_auth_token"],
+            allowed_actions=allowed_actions,
+            sdk_session_id=data.get("sdk_session_id"),
+            sdk_session_data=data.get("sdk_session_data"),
+            is_approval_continuation=data.get("is_approval_continuation", False),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for orjson serialization."""
+        result: dict[str, Any] = {
+            "runtime_type": self.runtime_type,
+            "session_id": str(self.session_id),
+            "mcp_auth_token": self.mcp_auth_token,
+            "config": self.config.to_dict(),
+            "user_prompt": self.user_prompt,
+            "litellm_auth_token": self.litellm_auth_token,
+            "is_approval_continuation": self.is_approval_continuation,
+        }
+        if self.allowed_actions is not None:
+            result["allowed_actions"] = {
+                k: v.to_dict() for k, v in self.allowed_actions.items()
+            }
+        if self.sdk_session_id is not None:
+            result["sdk_session_id"] = self.sdk_session_id
+        if self.sdk_session_data is not None:
+            result["sdk_session_data"] = self.sdk_session_data
+        return result
 
 
 @dataclass(kw_only=True, slots=True)
@@ -90,17 +146,74 @@ class RuntimeEventEnvelope:
     log_extra: dict[str, Any] | None = None
 
     @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RuntimeEventEnvelope:
+        """Construct from dict (orjson parsed)."""
+        event = None
+        if data.get("event"):
+            event = UnifiedStreamEvent.from_dict(data["event"])
+
+        return cls(
+            type=data["type"],
+            event=event,
+            message=data.get("message"),
+            session_line=data.get("session_line"),
+            internal=data.get("internal", False),
+            sdk_session_id=data.get("sdk_session_id"),
+            sdk_session_data=data.get("sdk_session_data"),
+            error=data.get("error"),
+            result_usage=data.get("result_usage"),
+            result_num_turns=data.get("result_num_turns"),
+            result_duration_ms=data.get("result_duration_ms"),
+            log_level=data.get("log_level"),
+            log_message=data.get("log_message"),
+            log_extra=data.get("log_extra"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for orjson serialization."""
+        result: dict[str, Any] = {"type": self.type}
+        if self.event is not None:
+            result["event"] = self.event.to_dict()
+        if self.message is not None:
+            result["message"] = self.message
+        if self.session_line is not None:
+            result["session_line"] = self.session_line
+        if self.internal:
+            result["internal"] = self.internal
+        if self.sdk_session_id is not None:
+            result["sdk_session_id"] = self.sdk_session_id
+        if self.sdk_session_data is not None:
+            result["sdk_session_data"] = self.sdk_session_data
+        if self.error is not None:
+            result["error"] = self.error
+        if self.result_usage is not None:
+            result["result_usage"] = self.result_usage
+        if self.result_num_turns is not None:
+            result["result_num_turns"] = self.result_num_turns
+        if self.result_duration_ms is not None:
+            result["result_duration_ms"] = self.result_duration_ms
+        if self.log_level is not None:
+            result["log_level"] = self.log_level
+        if self.log_message is not None:
+            result["log_message"] = self.log_message
+        if self.log_extra is not None:
+            result["log_extra"] = self.log_extra
+        return result
+
+    @classmethod
     def from_stream_event(cls, event: UnifiedStreamEvent) -> RuntimeEventEnvelope:
         """Create a stream event envelope for partial deltas."""
         return cls(type="stream_event", event=event)
 
     @classmethod
-    def from_message(cls, message: Message) -> RuntimeEventEnvelope:
+    def from_message(cls, message: Any) -> RuntimeEventEnvelope:
         """Create a message envelope for complete messages.
 
         Serializes the Claude SDK message. The loopback adds uuid/sessionId
         when persisting (runtime is untrusted).
         """
+        from dataclasses import asdict
+
         data = asdict(message)
         # Add type field based on message class name (e.g., UserMessage -> user)
         data["type"] = type(message).__name__.lower().replace("message", "")
@@ -170,9 +283,3 @@ class RuntimeEventEnvelope:
     ) -> RuntimeEventEnvelope:
         """Create a log envelope for structured log forwarding."""
         return cls(type="log", log_level=level, log_message=message, log_extra=extra)
-
-
-RuntimeInitPayloadTA: TypeAdapter[RuntimeInitPayload] = TypeAdapter(RuntimeInitPayload)
-RuntimeEventEnvelopeTA: TypeAdapter[RuntimeEventEnvelope] = TypeAdapter(
-    RuntimeEventEnvelope
-)

@@ -9,6 +9,7 @@ from typing import Any
 import orjson
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.shared.stream_types import UnifiedStreamEvent
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
@@ -21,7 +22,6 @@ from tracecat.agent.stream.events import (
     StreamMessage,
     UnifiedStreamEventTA,
 )
-from tracecat.agent.stream.types import UnifiedStreamEvent
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
 from tracecat.chat.service import ChatService

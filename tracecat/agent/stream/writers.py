@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlparse
 
 import aiohttp
+import orjson
 from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
-from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
+from tracecat.agent.runtime.pydantic_ai.adapter import PydanticAIAdapter
 from tracecat.agent.stream.events import AgentStreamEventTA
 from tracecat.config import TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
 from tracecat.logger import logger
@@ -164,7 +165,7 @@ class HttpStreamWriter(StreamWriter):
                     # Unified streaming: convert to UnifiedStreamEvent
                     unified_event = PydanticAIAdapter().to_unified_event(event)
                     logger.warning("STREAM EVENT", event=unified_event)
-                    json_payload = {"event": unified_event.model_dump_json()}
+                    json_payload = {"event": orjson.dumps(unified_event)}
                 else:
                     # Legacy streaming: pass through raw AgentStreamEvent
                     logger.warning("STREAM EVENT", event=event)

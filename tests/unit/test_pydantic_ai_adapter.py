@@ -19,8 +19,8 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 
-from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
-from tracecat.agent.stream.types import HarnessType, StreamEventType
+from tracecat.agent.runtime.pydantic_ai.adapter import PydanticAIAdapter
+from tracecat.agent.shared.stream_types import HarnessType, StreamEventType
 
 # ==============================================================================
 # Basic Adapter Properties

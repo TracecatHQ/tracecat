@@ -8,20 +8,20 @@ Protocol: msg_type (1B) | length (4B) | payload (length B)
 - msg_type: Message type identifier (1 byte)
 - length: Payload length in bytes, big-endian (4 bytes, max ~4 GiB)
 - payload: JSON-encoded message body
+
+Uses orjson for serialization (no pydantic_core).
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
 from enum import IntEnum
+from typing import Any
 
 import orjson
-from claude_agent_sdk.types import Message
-from pydantic_core import to_jsonable_python
 
-from tracecat.agent.sandbox.protocol import RuntimeEventEnvelope
-from tracecat.agent.stream.types import UnifiedStreamEvent
+from tracecat.agent.shared.protocol import RuntimeEventEnvelope
+from tracecat.agent.shared.stream_types import UnifiedStreamEvent
 
 # Header size: 1 byte msg_type + 4 bytes length
 HEADER_SIZE = 5
@@ -114,10 +114,7 @@ class SocketStreamWriter:
 
     async def _send(self, envelope: RuntimeEventEnvelope) -> None:
         """Send an envelope over the socket."""
-        payload = orjson.dumps(
-            asdict(envelope),
-            default=to_jsonable_python,
-        )
+        payload = orjson.dumps(envelope.to_dict())
         message = build_message(MessageType.EVENT, payload)
         self._writer.write(message)
         await self._writer.drain()
@@ -126,7 +123,7 @@ class SocketStreamWriter:
         """Send a stream event (partial delta) to the orchestrator."""
         await self._send(RuntimeEventEnvelope.from_stream_event(event))
 
-    async def send_message(self, message: Message) -> None:
+    async def send_message(self, message: Any) -> None:
         """Send a complete message to the orchestrator for persistence.
 
         The loopback adds uuid/sessionId when persisting (runtime is untrusted).
@@ -167,7 +164,7 @@ class SocketStreamWriter:
 
     async def send_result(
         self,
-        usage: dict | None = None,
+        usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
         duration_ms: int | None = None,
     ) -> None:
@@ -199,9 +196,11 @@ class SocketStreamWriter:
             message: The log message.
             **extra: Additional structured fields to include.
         """
-        await self._send(
-            RuntimeEventEnvelope.from_log(level, message, extra if extra else None)
-        )
+        # Convert extra values to JSON-serializable types
+        extra_dict: dict[str, Any] | None = None
+        if extra:
+            extra_dict = dict(extra)
+        await self._send(RuntimeEventEnvelope.from_log(level, message, extra_dict))
 
     async def close(self) -> None:
         """Close the socket connection."""

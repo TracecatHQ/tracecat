@@ -112,7 +112,9 @@ async def run_agent_sync(
     _raise_registry_client()
     from pydantic_ai import Agent as PydanticAgent
     from pydantic_ai.tools import DeferredToolResults
-    from tracecat.agent.runtime import run_agent_sync as _run_agent_sync
+    from tracecat.agent.runtime.pydantic_ai.runtime import (
+        run_agent_sync as _run_agent_sync,
+    )
 
     result = await _run_agent_sync(
         cast(PydanticAgent[object, object], agent),
@@ -146,7 +148,7 @@ async def run_agent(
     """Run an AI agent with specified configuration and actions."""
     _raise_registry_client()
     from pydantic_ai.tools import DeferredToolResults
-    from tracecat.agent.runtime import run_agent as _run_agent
+    from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as _run_agent
 
     result = await _run_agent(
         user_prompt=user_prompt,

@@ -35,12 +35,12 @@ from tracecat.agent.sandbox.config import (
     build_agent_env_map,
     build_agent_nsjail_config,
 )
-from tracecat.agent.sandbox.exceptions import (
+from tracecat.agent.shared.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.shared.exceptions import (
     AgentSandboxExecutionError,
     AgentSandboxTimeoutError,
 )
 from tracecat.config import (
-    TRACECAT__DISABLE_NSJAIL,
     TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
@@ -95,21 +95,21 @@ def _get_site_packages_dir() -> Path:
     raise AgentSandboxExecutionError("Could not find site-packages directory")
 
 
-def _get_tracecat_app_dir() -> Path:
-    """Get the tracecat application directory.
+def _get_tracecat_pkg_dir() -> Path:
+    """Get the tracecat package directory.
 
-    This finds the parent directory of the tracecat package, which is typically
-    /app in Docker or the project root in development.
+    This finds the tracecat package directory itself, which is typically
+    /app/tracecat in Docker or {project_root}/tracecat in development.
     """
     import tracecat
 
-    # tracecat.__file__ is /app/tracecat/__init__.py, we want /app
-    tracecat_pkg = Path(tracecat.__file__).parent
-    return tracecat_pkg.parent
+    # tracecat.__file__ is /app/tracecat/__init__.py, we want /app/tracecat
+    return Path(tracecat.__file__).parent
 
 
 async def spawn_jailed_runtime(
     socket_dir: Path,
+    llm_socket_path: Path | None = None,
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
@@ -118,7 +118,8 @@ async def spawn_jailed_runtime(
 
     This is the entrypoint for the orchestrator to spawn a jailed runtime.
     The orchestrator is responsible for:
-    - Creating socket_dir with control.sock and mcp.sock
+    - Creating socket_dir with control.sock
+    - Starting the LLM socket proxy on llm_socket_path
     - Starting the trusted MCP HTTP server on socket_dir/mcp.sock
     - Sending RuntimeInitPayload after the runtime connects to control.sock
     - Reading events from the control socket
@@ -129,6 +130,8 @@ async def spawn_jailed_runtime(
 
     Args:
         socket_dir: Directory containing the per-job control socket (control.sock).
+        llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
+            Required in production mode (NSJail), optional in direct mode.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
@@ -147,10 +150,14 @@ async def spawn_jailed_runtime(
         socket_dir = Path("/tmp/agent-job-xxx")
         socket_dir.mkdir(parents=True)
 
+        # Start LLM socket proxy on socket_dir / "llm.sock"
         # Start trusted MCP server on socket_dir / "mcp.sock"
         # Create control socket at socket_dir / "control.sock"
 
-        result = await spawn_jailed_runtime(socket_dir=socket_dir)
+        result = await spawn_jailed_runtime(
+            socket_dir=socket_dir,
+            llm_socket_path=socket_dir / "llm.sock",
+        )
         try:
             # Wait for runtime to connect to control socket
             # Send RuntimeInitPayload
@@ -170,9 +177,16 @@ async def spawn_jailed_runtime(
     if TRACECAT__DISABLE_NSJAIL:
         return await _spawn_direct_runtime()
 
+    # NSJail mode for production - llm_socket_path is required
+    if llm_socket_path is None:
+        raise AgentSandboxExecutionError(
+            "llm_socket_path is required in production mode (NSJail)"
+        )
+
     # NSJail mode for production
     return await _spawn_nsjail_runtime(
         socket_dir=socket_dir,
+        llm_socket_path=llm_socket_path,
         config=config,
         nsjail_path=nsjail_path,
         rootfs_path=rootfs_path,
@@ -215,6 +229,7 @@ async def _spawn_direct_runtime() -> SpawnedRuntime:
 
 async def _spawn_nsjail_runtime(
     socket_dir: Path,
+    llm_socket_path: Path,
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
@@ -233,10 +248,12 @@ async def _spawn_nsjail_runtime(
         raise AgentSandboxExecutionError(f"Rootfs not found: {rootfs}")
     if not nsjail.exists():
         raise AgentSandboxExecutionError(f"nsjail binary not found: {nsjail}")
+    if not llm_socket_path.exists():
+        raise AgentSandboxExecutionError(f"LLM socket not found: {llm_socket_path}")
 
-    # Get site-packages and app directories
+    # Get site-packages and tracecat package directories
     site_packages_dir = _get_site_packages_dir()
-    tracecat_app_dir = _get_tracecat_app_dir()
+    tracecat_pkg_dir = _get_tracecat_pkg_dir()
 
     # Create temp directory for nsjail job
     job_id = uuid.uuid4().hex[:12]
@@ -250,13 +267,14 @@ async def _spawn_nsjail_runtime(
             socket_dir=socket_dir,
             config=config,
             site_packages_dir=site_packages_dir,
-            tracecat_app_dir=tracecat_app_dir,
+            tracecat_pkg_dir=tracecat_pkg_dir,
+            llm_socket_path=llm_socket_path,
         )
 
         # Write config to job directory
         config_path = job_dir / "nsjail.cfg"
-        await asyncio.to_thread(config_path.write_text, nsjail_config)
-        await asyncio.to_thread(config_path.chmod, 0o600)
+        config_path.write_text(nsjail_config)
+        config_path.chmod(0o600)
 
         # Build environment
         env_map = build_agent_env_map(config)
@@ -277,7 +295,7 @@ async def _spawn_nsjail_runtime(
             job_dir=str(job_dir),
             socket_dir=str(socket_dir),
             site_packages=str(site_packages_dir),
-            tracecat_app=str(tracecat_app_dir),
+            tracecat_pkg=str(tracecat_pkg_dir),
         )
 
         # Spawn nsjail process

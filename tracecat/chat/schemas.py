@@ -10,7 +10,7 @@ from pydantic import UUID4, BaseModel, Discriminator, Field
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.shared.stream_types import HarnessType
 from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
 from tracecat.chat.enums import ChatEntity
 
@@ -162,7 +162,7 @@ class ChatMessage(BaseModel):
     @classmethod
     def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
         """Deserialize a database message into a typed ChatMessage."""
-        if db_msg.harness == HarnessType.CLAUDE.value:
+        if db_msg.harness == HarnessType.CLAUDE_CODE.value:
             message = ClaudeSDKMessageTA.validate_python(db_msg.data)
         else:
             message = ModelMessageTA.validate_python(db_msg.data)

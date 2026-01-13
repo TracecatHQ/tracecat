@@ -6,7 +6,6 @@ inside an NSJail sandbox without database access. All I/O happens via Unix socke
 Key design principles:
 - No database imports (no SQLAlchemy, no DB services)
 - No pydantic-ai imports
-- No tracecat.config imports (except what's absolutely needed)
 - Minimal import footprint for fast cold start
 """
 
@@ -36,20 +35,18 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
-from tracecat.agent.adapter.claude import ClaudeSDKAdapter
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
-from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.agent.mcp.utils import (
-    normalize_mcp_tool_name,
-)
-from tracecat.agent.sandbox.exceptions import AgentSandboxValidationError
-from tracecat.agent.sandbox.protocol import RuntimeInitPayload
-from tracecat.agent.sandbox.socket_io import SocketStreamWriter
-from tracecat.agent.stream.types import (
+from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
+from tracecat.agent.shared.exceptions import AgentSandboxValidationError
+from tracecat.agent.shared.protocol import RuntimeInitPayload
+from tracecat.agent.shared.socket_io import SocketStreamWriter
+from tracecat.agent.shared.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.shared.types import MCPToolDefinition
 from tracecat.logger import logger
 
 # LiteLLM URL - use IP to avoid DNS resolution in sandbox
@@ -316,15 +313,12 @@ class ClaudeAgentRuntime:
 
         if requires_approval:
             # Requires approval - stream request and interrupt
-            if tool_use_id is None:
-                raise ValueError("tool_use_id is required for approval request")
-            try:
+            if tool_use_id:
                 await self._handle_approval_request(
-                    action_name, tool_input, tool_use_id
+                    action_name,
+                    tool_input,
+                    tool_use_id,
                 )
-            except Exception as e:
-                logger.error("Error handling approval request", error=str(e))
-                raise
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -332,6 +326,7 @@ class ClaudeAgentRuntime:
                     "permissionDecisionReason": f"Tool '{action_name}' requires approval. Request sent for review.",
                 }
             }
+
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -378,9 +373,22 @@ class ClaudeAgentRuntime:
             mcp_servers: dict[str, Any] = {}
 
             # Create proxy MCP server for Tracecat registry tools
+            # Convert shared MCPToolDefinition to mcp.types.MCPToolDefinition
             if self.registry_tools:
+                from tracecat.agent.mcp.types import (
+                    MCPToolDefinition as MCPToolDefinitionPydantic,
+                )
+
+                pydantic_tools = {
+                    k: MCPToolDefinitionPydantic(
+                        name=v.name,
+                        description=v.description,
+                        parameters_json_schema=v.parameters_json_schema,
+                    )
+                    for k, v in self.registry_tools.items()
+                }
                 proxy_config = await create_proxy_mcp_server(
-                    allowed_actions=self.registry_tools,
+                    allowed_actions=pydantic_tools,
                     auth_token=payload.mcp_auth_token,
                 )
                 mcp_servers["tracecat-registry"] = proxy_config

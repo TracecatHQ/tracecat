@@ -14,9 +14,9 @@ from typing import Any, Literal, TypedDict, cast
 
 from claude_agent_sdk.types import StreamEvent
 
-from tracecat.agent.adapter.base import BaseHarnessAdapter
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
-from tracecat.agent.stream.types import (
+from tracecat.agent.shared.adapter_base import BaseHarnessAdapter
+from tracecat.agent.shared.stream_types import (
     HarnessType,
     StreamEventType,
     UnifiedStreamEvent,
@@ -102,7 +102,7 @@ class ContentBlockStopEvent(TypedDict):
 class ClaudeSDKAdapter(BaseHarnessAdapter):
     """Adapter for converting Claude SDK stream events to unified format."""
 
-    harness_name = HarnessType.CLAUDE
+    harness_name = HarnessType.CLAUDE_CODE
 
     def __init__(self) -> None:
         self.context: dict[int, BlockState] = {}

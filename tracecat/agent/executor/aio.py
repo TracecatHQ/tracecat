@@ -18,8 +18,8 @@ from pydantic_ai.tools import DeferredToolRequests
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.shared.stream_types import ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.events import StreamError
-from tracecat.agent.stream.types import ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.types import StreamingAgentDeps
 from tracecat.auth.types import Role

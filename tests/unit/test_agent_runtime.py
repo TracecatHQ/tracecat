@@ -17,10 +17,16 @@ from claude_agent_sdk.types import (
 )
 
 from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.agent.sandbox.protocol import RuntimeInitPayload
-from tracecat.agent.sandbox.runtime import ClaudeAgentRuntime
-from tracecat.agent.sandbox.socket_io import SocketStreamWriter
-from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
+from tracecat.agent.shared.protocol import RuntimeInitPayload
+from tracecat.agent.shared.socket_io import SocketStreamWriter
+from tracecat.agent.shared.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.shared.types import (
+    MCPToolDefinition as SharedMCPToolDefinition,
+)
+from tracecat.agent.shared.types import (
+    SandboxAgentConfig,
+)
 from tracecat.agent.types import AgentConfig
 
 
@@ -56,18 +62,39 @@ def sample_tool_definitions() -> dict[str, MCPToolDefinition]:
 
 
 @pytest.fixture
-def sample_init_payload(
-    sample_agent_config: AgentConfig,
+def sample_sandbox_config(sample_agent_config: AgentConfig) -> SandboxAgentConfig:
+    """Create a sample sandbox config for testing."""
+    return SandboxAgentConfig.from_agent_config(sample_agent_config)
+
+
+@pytest.fixture
+def sample_shared_tool_definitions(
     sample_tool_definitions: dict[str, MCPToolDefinition],
+) -> dict[str, SharedMCPToolDefinition]:
+    """Convert Pydantic tool definitions to shared dataclass format."""
+    return {
+        name: SharedMCPToolDefinition(
+            name=tool.name,
+            description=tool.description,
+            parameters_json_schema=tool.parameters_json_schema,
+        )
+        for name, tool in sample_tool_definitions.items()
+    }
+
+
+@pytest.fixture
+def sample_init_payload(
+    sample_sandbox_config: SandboxAgentConfig,
+    sample_shared_tool_definitions: dict[str, SharedMCPToolDefinition],
 ) -> RuntimeInitPayload:
     """Create a sample init payload for testing."""
     return RuntimeInitPayload(
         session_id=uuid.uuid4(),
         mcp_auth_token="test-jwt-token",
-        config=sample_agent_config,
+        config=sample_sandbox_config,
         user_prompt="Hello, how are you?",
         litellm_auth_token="test-litellm-token",
-        allowed_actions=sample_tool_definitions,
+        allowed_actions=sample_shared_tool_definitions,
     )
 
 
@@ -140,11 +167,11 @@ class TestClaudeAgentRuntimeRun:
         """Test that runtime sends done signal on completion."""
         with (
             patch(
-                "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
                 AsyncMock(return_value={}),
             ),
         ):
@@ -185,18 +212,18 @@ class TestClaudeAgentRuntimeRun:
 
         with (
             patch(
-                "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
                 AsyncMock(return_value={}),
             ),
             patch(
-                "tracecat.agent.sandbox.runtime.ClaudeSDKAdapter",
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
                 return_value=mock_adapter,
             ),
-            patch("tracecat.agent.sandbox.runtime.StreamEvent", MagicMock),
+            patch("tracecat.agent.runtime.claude_code.runtime.StreamEvent", MagicMock),
         ):
             runtime = ClaudeAgentRuntime(mock_socket_writer)
             await runtime.run(sample_init_payload)
@@ -217,11 +244,11 @@ class TestClaudeAgentRuntimeRun:
 
         with (
             patch(
-                "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
                 AsyncMock(return_value={}),
             ),
             pytest.raises(ValueError, match="Test error"),
@@ -234,7 +261,14 @@ class TestClaudeAgentRuntimeRun:
 
 
 class TestClaudeAgentRuntimePreToolUseHook:
-    """Tests for ClaudeAgentRuntime._pre_tool_use_hook()."""
+    """Tests for ClaudeAgentRuntime._pre_tool_use_hook().
+
+    The hook uses these rules:
+    1. Auto-approve if it's a user MCP tool (starts with mcp__user-mcp-)
+    2. Auto-approve if action is in registry_tools AND doesn't require approval
+    3. Deny with reason if requires_approval is True
+    4. Deny without reason otherwise (tool not allowed)
+    """
 
     @pytest.mark.anyio
     async def test_auto_approve_user_mcp_tools(
@@ -247,6 +281,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
+        # MCP tool format: mcp__tracecat-registry__core__http_request
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
                 tool_name="mcp__user-mcp-0__some_tool",
@@ -291,7 +326,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
         """Test that tools marked for approval trigger approval request."""
         runtime = ClaudeAgentRuntime(mock_socket_writer)
         runtime.registry_tools = {
-            "core.http_request": MCPToolDefinition(
+            "core.http_request": SharedMCPToolDefinition(
                 name="core.http_request",
                 description="Make HTTP request",
                 parameters_json_schema={},
@@ -331,6 +366,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
+        # Tool not in registry and not a user MCP tool
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
                 tool_name="some_random_tool",

@@ -60,6 +60,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_json
 
+from tracecat.agent.shared.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.stream.events import (
     StreamDelta,
     StreamEnd,
@@ -68,7 +69,6 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
 )
-from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,

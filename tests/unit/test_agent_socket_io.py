@@ -17,17 +17,14 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 
-from tracecat.agent.sandbox.protocol import (
-    RuntimeEventEnvelope,
-    RuntimeEventEnvelopeTA,
-    RuntimeInitPayload,
-)
-from tracecat.agent.sandbox.runtime import ClaudeAgentRuntime
-from tracecat.agent.sandbox.socket_io import SocketStreamWriter, read_message
-from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
+from tracecat.agent.shared.protocol import RuntimeEventEnvelope, RuntimeInitPayload
+from tracecat.agent.shared.socket_io import SocketStreamWriter, read_message
+from tracecat.agent.shared.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.shared.types import SandboxAgentConfig
 
 
 def make_init_payload() -> RuntimeInitPayload:
@@ -35,7 +32,7 @@ def make_init_payload() -> RuntimeInitPayload:
     return RuntimeInitPayload(
         session_id=uuid.uuid4(),
         mcp_auth_token="test-jwt-token",
-        config=AgentConfig(
+        config=SandboxAgentConfig(
             model_name="claude-3-5-sonnet-20241022",
             model_provider="anthropic",
             instructions="You are a test assistant.",
@@ -92,7 +89,9 @@ class TestRuntimeSocketCommunication:
                                 _, payload = await read_message(reader)
                             except asyncio.IncompleteReadError:
                                 break
-                            envelope = RuntimeEventEnvelopeTA.validate_json(payload)
+                            envelope = RuntimeEventEnvelope.from_dict(
+                                orjson.loads(payload)
+                            )
                             received_events.append(envelope)
                             if envelope.type == "done":
                                 runtime_done.set()
@@ -118,11 +117,11 @@ class TestRuntimeSocketCommunication:
                 # Create and run runtime with mocked SDK
                 with (
                     patch(
-                        "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
+                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
+                        "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
                         AsyncMock(return_value={}),
                     ),
                 ):
@@ -187,7 +186,7 @@ class TestRuntimeSocketCommunication:
                             _, payload = await read_message(reader)
                         except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
+                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
                         received_events.append(envelope)
                         if envelope.type == "done":
                             runtime_done.set()
@@ -207,18 +206,21 @@ class TestRuntimeSocketCommunication:
 
                 with (
                     patch(
-                        "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
+                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
+                        "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
                         AsyncMock(return_value={}),
                     ),
                     patch(
-                        "tracecat.agent.sandbox.runtime.ClaudeSDKAdapter",
+                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
                         return_value=mock_adapter,
                     ),
-                    patch("tracecat.agent.sandbox.runtime.StreamEvent", MagicMock),
+                    patch(
+                        "tracecat.agent.runtime.claude_code.runtime.StreamEvent",
+                        MagicMock,
+                    ),
                 ):
                     runtime = ClaudeAgentRuntime(socket_writer)
                     payload = make_init_payload()
@@ -264,7 +266,7 @@ class TestRuntimeSocketCommunication:
                             _, payload = await read_message(reader)
                         except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
+                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
                         received_events.append(envelope)
                         if envelope.type == "done":
                             runtime_done.set()
@@ -284,11 +286,11 @@ class TestRuntimeSocketCommunication:
 
                 with (
                     patch(
-                        "tracecat.agent.sandbox.runtime.ClaudeSDKClient",
+                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.sandbox.runtime.create_proxy_mcp_server",
+                        "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
                         AsyncMock(return_value={}),
                     ),
                     pytest.raises(ValueError, match="SDK connection failed"),
@@ -334,7 +336,7 @@ class TestRuntimeSocketCommunication:
                             )
                         except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
+                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
                         received_events.append(envelope)
                 except TimeoutError:
                     pass
@@ -396,7 +398,7 @@ class TestRuntimeSocketCommunication:
                             )
                         except asyncio.IncompleteReadError:
                             break
-                        envelope = RuntimeEventEnvelopeTA.validate_json(payload)
+                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
                         received_events.append(envelope)
                 except TimeoutError:
                     pass

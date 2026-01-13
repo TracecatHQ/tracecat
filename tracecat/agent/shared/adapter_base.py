@@ -12,7 +12,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from tracecat.agent.stream.types import HarnessType, UnifiedStreamEvent
+from tracecat.agent.shared.stream_types import HarnessType, UnifiedStreamEvent
 
 
 class BaseHarnessAdapter(ABC):

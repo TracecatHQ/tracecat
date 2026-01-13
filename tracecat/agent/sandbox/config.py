@@ -4,8 +4,9 @@ This module generates protobuf-format nsjail configurations specifically
 for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network shared (clone_newnet: false) for LiteLLM access on localhost:4000
-- Namespace isolation (PID, user, mount, IPC, UTS namespaces)
+- Network isolated (clone_newnet: true) - no direct network access
+- LLM access via Unix socket proxy (llm.sock) to LiteLLM on host
+- Namespace isolation (PID, user, mount, IPC, UTS, network namespaces)
 - /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
@@ -15,6 +16,7 @@ Key design:
 - Runtime executed via `python -m tracecat.agent.sandbox.entrypoint`
 - Mount site-packages read-only for deps (includes tracecat package)
 - Control socket at /var/run/tracecat/control.sock
+- LLM socket at /var/run/tracecat/llm.sock (proxied to LiteLLM)
 """
 
 from __future__ import annotations
@@ -24,16 +26,20 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tracecat.agent.sandbox.exceptions import AgentSandboxValidationError
-from tracecat.config import (
+from tracecat.agent.shared.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
 )
+from tracecat.agent.shared.exceptions import AgentSandboxValidationError
 
 # Well-known socket paths (internal to agent worker, not configurable)
 TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
 CONTROL_SOCKET_NAME = "control.sock"
 JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
+
+# LLM socket for proxied access to LiteLLM (network isolated)
+LLM_SOCKET_NAME = "llm.sock"
+JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -207,7 +213,8 @@ def build_agent_nsjail_config(
     socket_dir: Path,
     config: AgentSandboxConfig,
     site_packages_dir: Path,
-    tracecat_app_dir: Path,
+    tracecat_pkg_dir: Path,
+    llm_socket_path: Path,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -218,7 +225,9 @@ def build_agent_nsjail_config(
             (control.sock) created by the orchestrator.
         config: Agent sandbox configuration.
         site_packages_dir: Path to site-packages with Claude SDK deps.
-        tracecat_app_dir: Path to the tracecat app directory (mounted at /app).
+        tracecat_pkg_dir: Path to the tracecat package directory.
+            Only specific subdirectories are mounted for minimal cold start.
+        llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -231,12 +240,13 @@ def build_agent_nsjail_config(
     _validate_path(job_dir, "job_dir")
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
-    _validate_path(tracecat_app_dir, "tracecat_app_dir")
+    _validate_path(tracecat_pkg_dir, "tracecat_pkg_dir")
+    _validate_path(llm_socket_path, "llm_socket_path")
 
     # Derive control socket path from socket_dir using well-known name
     control_socket_path = socket_dir / CONTROL_SOCKET_NAME
     _validate_path(control_socket_path, "control_socket_path")
-    # TRUSTED_MCP_SOCKET_PATH is a constant, no validation needed
+    # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
     lines = [
         'name: "agent_sandbox"',
@@ -245,8 +255,8 @@ def build_agent_nsjail_config(
         "keep_env: false",
         "",
         "# Namespace isolation",
-        "# Note: clone_newnet is false to allow access to LiteLLM on localhost:4000",
-        "clone_newnet: false",
+        "# Network isolated - LLM access via Unix socket proxy",
+        "clone_newnet: true",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
@@ -302,14 +312,34 @@ def build_agent_nsjail_config(
             "# Site-packages - Claude SDK and other deps (read-only)",
             f'mount {{ src: "{site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}',
             "",
-            "# Tracecat app directory (read-only)",
-            f'mount {{ src: "{tracecat_app_dir}" dst: "/app" is_bind: true rw: false }}',
+            "# Tracecat package - minimal subdirectories for fast cold start",
+            "# Create directory structure first, then mount specific subdirs",
+            'mount { dst: "/app" fstype: "tmpfs" rw: false options: "size=1M" }',
+            "",
+            "# Parent package __init__.py files for Python import system",
+            f'mount {{ src: "{tracecat_pkg_dir}/__init__.py" dst: "/app/tracecat/__init__.py" is_bind: true rw: false }}',
+            f'mount {{ src: "{tracecat_pkg_dir}/agent/__init__.py" dst: "/app/tracecat/agent/__init__.py" is_bind: true rw: false }}',
+            "",
+            "# Mount only what the sandbox entrypoint needs:",
+            "# - logger: lightweight loguru wrapper",
+            "# - agent/shared: lightweight types and protocol",
+            "# - agent/runtime: runtime implementations",
+            "# - agent/sandbox: entrypoint and llm_bridge",
+            "# - agent/mcp: proxy_server and utils",
+            f'mount {{ src: "{tracecat_pkg_dir}/logger" dst: "/app/tracecat/logger" is_bind: true rw: false }}',
+            f'mount {{ src: "{tracecat_pkg_dir}/agent/shared" dst: "/app/tracecat/agent/shared" is_bind: true rw: false }}',
+            f'mount {{ src: "{tracecat_pkg_dir}/agent/runtime" dst: "/app/tracecat/agent/runtime" is_bind: true rw: false }}',
+            f'mount {{ src: "{tracecat_pkg_dir}/agent/sandbox" dst: "/app/tracecat/agent/sandbox" is_bind: true rw: false }}',
+            f'mount {{ src: "{tracecat_pkg_dir}/agent/mcp" dst: "/app/tracecat/agent/mcp" is_bind: true rw: false }}',
             "",
             "# Trusted MCP socket (read-only, shared across jobs)",
             f'mount {{ src: "{TRUSTED_MCP_SOCKET_PATH.parent}" dst: "/var/run/tracecat" is_bind: true rw: false }}',
             "",
             "# Per-job control socket",
             f'mount {{ src: "{control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
+            "",
+            "# Per-job LLM socket (proxied to LiteLLM on host)",
+            f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
             "",
             "# Agent home directory with Claude SDK session storage",
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',

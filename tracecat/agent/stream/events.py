@@ -7,7 +7,7 @@ import orjson
 from pydantic import Discriminator, TypeAdapter
 from pydantic_ai.messages import AgentStreamEvent, ModelMessage, ModelResponse, TextPart
 
-from tracecat.agent.stream.types import UnifiedStreamEvent
+from tracecat.agent.shared.stream_types import UnifiedStreamEvent
 
 UnifiedStreamEventTA: TypeAdapter[UnifiedStreamEvent] = TypeAdapter(UnifiedStreamEvent)
 AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)

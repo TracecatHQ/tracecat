@@ -17,7 +17,7 @@ import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
 
-from tracecat.agent.stream.types import ToolCallContent
+from tracecat.agent.shared.stream_types import ToolCallContent
 from tracecat.chat.enums import MessageKind
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
@@ -159,9 +159,39 @@ class AgentConfig:
     custom_tools: CustomToolList | None = None
 
 
-# --- Deferred Tool Types (Harness-Agnostic) ---
+# --- Tool Types (Harness-Agnostic) ---
 # These types decouple Tracecat from pydantic-ai's internal types,
 # enabling plug-and-play support for different agent harnesses (pydantic-ai, Claude SDK, etc.)
+
+
+@dataclass(kw_only=True, slots=True)
+class Tool:
+    """Harness-agnostic tool definition.
+
+    Uses canonical action names (with dots) throughout. Harness-specific adapters
+    are responsible for converting to their required format (e.g., pydantic-ai
+    requires underscores for Python function names).
+
+    Canonical names are used for:
+    - JWT token authorization (mcp/executor.py checks canonical names)
+    - Proxy server tool creation (expects canonical names, converts internally)
+    - UX display and configuration
+    """
+
+    name: str
+    """Canonical action name with dots (e.g., 'core.cases.list_cases')."""
+
+    description: str
+    """Human-readable description of what the tool does."""
+
+    parameters_json_schema: dict[str, Any]
+    """JSON schema for tool parameters."""
+
+    requires_approval: bool = False
+    """Whether this tool requires human approval before execution."""
+
+
+# --- Deferred Tool Types (Harness-Agnostic) ---
 
 
 @dataclass(kw_only=True)
