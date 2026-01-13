@@ -4,6 +4,11 @@
 secrets:
   existingSecret: tracecat-secrets
 
+# Explicit public URLs (required for ALB since TLS is terminated at load balancer)
+urls:
+  publicApp: https://tracecat.example.com
+  publicApi: https://tracecat.example.com/api
+
 tracecat:
   auth:
     superadminEmail: admin@example.com
@@ -36,6 +41,34 @@ minio:
   enabled: false
 temporal:
   enabled: true  # Or false if using Temporal Cloud
+  # Temporal persistence on the same RDS instance (assume databases already exist).
+  server:
+    config:
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        numHistoryShards: 1024
+        datastores:
+          default:
+            sql:
+              pluginName: postgres12
+              databaseName: temporal
+              connectAddr: tracecat-db.xxxx.us-east-1.rds.amazonaws.com:5432
+              user: tracecat
+              existingSecret: tracecat-rds-credentials
+              secretKey: password
+              createDatabase: false
+              manageSchema: true
+          visibility:
+            sql:
+              pluginName: postgres12
+              databaseName: temporal_visibility
+              connectAddr: tracecat-db.xxxx.us-east-1.rds.amazonaws.com:5432
+              user: tracecat
+              existingSecret: tracecat-rds-credentials
+              secretKey: password
+              createDatabase: false
+              manageSchema: true
 
 # Configure external services
 externalPostgres:

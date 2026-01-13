@@ -35,13 +35,13 @@ spec:
             {{- include "tracecat.env.secrets.api" . | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /ready
+              path: /api/health
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /api/health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5

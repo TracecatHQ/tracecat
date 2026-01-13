@@ -100,14 +100,15 @@ PostgreSQL Database Name
 
 {{/*
 PostgreSQL SSL Mode
+CloudNativePG cluster uses "disable" by default for internal cluster communication
 */}}
 {{- define "tracecat.postgres.sslMode" -}}
 {{- if .Values.postgres.enabled }}
-{{- "prefer" }}
+{{- "disable" }}
 {{- else if .Values.externalPostgres.enabled }}
 {{- .Values.externalPostgres.sslMode | default "prefer" }}
 {{- else }}
-{{- "prefer" }}
+{{- "disable" }}
 {{- end }}
 {{- end }}
 
@@ -171,13 +172,20 @@ URL Helpers
 */}}
 
 {{/*
+URL scheme - returns https if TLS is configured, http otherwise
+*/}}
+{{- define "tracecat.urlScheme" -}}
+{{- if .Values.ingress.tls }}https{{- else }}http{{- end }}
+{{- end }}
+
+{{/*
 Public App URL - used for browser redirects and public-facing links
 */}}
 {{- define "tracecat.publicAppUrl" -}}
 {{- if .Values.urls.publicApp }}
 {{- .Values.urls.publicApp }}
 {{- else }}
-{{- printf "https://%s" .Values.ingress.host }}
+{{- printf "%s://%s" (include "tracecat.urlScheme" .) .Values.ingress.host }}
 {{- end }}
 {{- end }}
 
@@ -188,7 +196,7 @@ Public API URL - used for external API access
 {{- if .Values.urls.publicApi }}
 {{- .Values.urls.publicApi }}
 {{- else }}
-{{- printf "https://%s/api" .Values.ingress.host }}
+{{- printf "%s://%s/api" (include "tracecat.urlScheme" .) .Values.ingress.host }}
 {{- end }}
 {{- end }}
 
@@ -199,7 +207,7 @@ Public S3 URL - used for presigned URLs
 {{- if .Values.urls.publicS3 }}
 {{- .Values.urls.publicS3 }}
 {{- else if .Values.minio.enabled }}
-{{- printf "https://%s/s3" .Values.ingress.host }}
+{{- printf "%s://%s/s3" (include "tracecat.urlScheme" .) .Values.ingress.host }}
 {{- else }}
 {{- "" }}
 {{- end }}
@@ -228,11 +236,29 @@ Internal Blob Storage URL
 {{- end }}
 
 {{/*
+Temporal Fullname - mirrors the subchart naming logic
+*/}}
+{{- define "tracecat.temporalFullname" -}}
+{{- if .Values.temporal.fullnameOverride }}
+{{- .Values.temporal.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default "temporal" .Values.temporal.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Temporal Cluster URL - supports both subchart and external Temporal
 */}}
 {{- define "tracecat.temporalClusterUrl" -}}
 {{- if .Values.temporal.enabled }}
-{{- printf "%s-temporal-frontend:7233" .Release.Name }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- $port := dig "temporal" "server" "frontend" "service" "port" 7233 $values -}}
+{{- printf "%s-frontend:%v" (include "tracecat.temporalFullname" .) $port }}
 {{- else if .Values.externalTemporal.enabled }}
 {{- required "externalTemporal.clusterUrl is required when using external Temporal" .Values.externalTemporal.clusterUrl }}
 {{- else }}
@@ -245,11 +271,36 @@ Temporal Namespace
 */}}
 {{- define "tracecat.temporalNamespace" -}}
 {{- if .Values.temporal.enabled }}
-{{- "default" }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- $namespaces := dig "temporal" "server" "config" "namespaces" "namespace" list $values -}}
+{{- if and $namespaces (gt (len $namespaces) 0) -}}
+{{- $namespace := index $namespaces 0 -}}
+{{- index $namespace "name" | default "default" -}}
+{{- else -}}
+{{- "default" -}}
+{{- end }}
 {{- else if .Values.externalTemporal.enabled }}
 {{- .Values.externalTemporal.clusterNamespace | default "default" }}
 {{- else }}
 {{- "default" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace Retention
+*/}}
+{{- define "tracecat.temporalNamespaceRetention" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- $namespaces := dig "temporal" "server" "config" "namespaces" "namespace" list $values -}}
+{{- if and $namespaces (gt (len $namespaces) 0) -}}
+{{- $namespace := index $namespaces 0 -}}
+{{- index $namespace "retention" | default "720h" -}}
+{{- else -}}
+{{- "720h" -}}
+{{- end }}
+{{- else }}
+{{- "720h" -}}
 {{- end }}
 {{- end }}
 
@@ -278,13 +329,24 @@ computed centrally and merged per-service.
 Common environment variables shared across all backend services
 (api, worker, executor)
 */}}
+{{- define "tracecat.featureFlags" -}}
+{{- $flags := list -}}
+{{- if .Values.tracecat.featureFlags }}
+{{- $flags = append $flags .Values.tracecat.featureFlags -}}
+{{- end }}
+{{- if .Values.enterprise.featureFlags }}
+{{- $flags = append $flags .Values.enterprise.featureFlags -}}
+{{- end }}
+{{- join "," $flags -}}
+{{- end }}
+
 {{- define "tracecat.env.common" -}}
 - name: LOG_LEVEL
   value: {{ .Values.tracecat.logLevel | quote }}
 - name: TRACECAT__APP_ENV
   value: {{ .Values.tracecat.appEnv | quote }}
 - name: TRACECAT__FEATURE_FLAGS
-  value: {{ .Values.enterprise.featureFlags | quote }}
+  value: {{ include "tracecat.featureFlags" . | quote }}
 {{- end }}
 
 {{/*
@@ -328,7 +390,20 @@ Blob storage environment variables
 - name: TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
   value: {{ .Values.tracecat.blobStorage.buckets.registry | quote }}
 {{- end }}
-{{- if .Values.externalS3.enabled }}
+{{- if .Values.minio.enabled }}
+{{- /* Use MinIO credentials from the MinIO secret */}}
+{{- $minioSecret := .Values.minio.auth.existingSecret | default .Values.minio.fullnameOverride | default (printf "%s-minio" .Release.Name) -}}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $minioSecret }}
+      key: rootUser
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $minioSecret }}
+      key: rootPassword
+{{- else if .Values.externalS3.enabled }}
 {{- if .Values.externalS3.region }}
 - name: AWS_REGION
   value: {{ .Values.externalS3.region | quote }}
@@ -372,7 +447,7 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
       name: {{ $secretName }}
       key: password
 - name: TRACECAT__DB_URI
-  value: "postgresql+psycopg://$(TRACECAT__POSTGRES_USER):$(TRACECAT__POSTGRES_PASSWORD)@{{ $host }}:{{ $port }}/{{ $database }}?sslmode={{ $sslMode }}"
+  value: "postgresql+psycopg://$(TRACECAT__POSTGRES_USER):$(TRACECAT__POSTGRES_PASSWORD)@{{ $host }}:{{ $port }}/{{ $database }}"
 {{- else if .Values.externalPostgres.enabled }}
 {{- if .Values.externalPostgres.auth.secretArn }}
 {{- if .Values.externalPostgres.auth.username }}

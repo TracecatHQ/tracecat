@@ -1,0 +1,75 @@
+{{- if .Values.temporal.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tracecat.fullname" . }}-temporal-setup
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: temporal-setup
+          image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+
+              # Wait for Temporal frontend to be healthy (with exponential backoff)
+              echo "Waiting for Temporal frontend to be ready..."
+              MAX_RETRIES=30
+              RETRY_COUNT=0
+              SLEEP_TIME=2
+
+              until temporal operator cluster health 2>/dev/null; do
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                  echo "Temporal frontend not ready after $MAX_RETRIES retries"
+                  exit 1
+                fi
+                echo "Attempt $RETRY_COUNT/$MAX_RETRIES - Temporal not ready, waiting ${SLEEP_TIME}s..."
+                sleep $SLEEP_TIME
+                # Exponential backoff capped at 30s
+                SLEEP_TIME=$((SLEEP_TIME * 2))
+                [ $SLEEP_TIME -gt 30 ] && SLEEP_TIME=30
+              done
+              echo "Temporal frontend is healthy"
+
+              NAMESPACE="{{ include "tracecat.temporalNamespace" . }}"
+              RETENTION="{{ include "tracecat.temporalNamespaceRetention" . }}"
+
+              # Create namespace (idempotent)
+              echo "Checking namespace..."
+              if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
+                echo "Namespace '$NAMESPACE' already exists"
+              else
+                echo "Creating namespace '$NAMESPACE'..."
+                temporal operator namespace create "$NAMESPACE" --retention "$RETENTION"
+                echo "Namespace created"
+              fi
+
+              # Add search attributes (idempotent - check each before adding)
+              echo "Checking search attributes..."
+              EXISTING_ATTRS=$(temporal operator search-attribute list 2>/dev/null || echo "")
+              {{- range $name, $type := .Values.tracecat.temporal.searchAttributes }}
+              if echo "$EXISTING_ATTRS" | grep -q "{{ $name }}"; then
+                echo "Search attribute '{{ $name }}' already exists"
+              else
+                echo "Adding search attribute '{{ $name }}' ({{ $type }})..."
+                echo "Y" | tctl admin cluster add-search-attributes --name {{ $name }} --type {{ $type }}
+              fi
+              {{- end }}
+
+              echo "Temporal setup complete!"
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: {{ include "tracecat.temporalClusterUrl" . | quote }}
+{{- end }}
