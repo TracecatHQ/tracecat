@@ -24,15 +24,9 @@ from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.types import Role
-from tracecat.db.models import User
+from tracecat.db.models import AgentSession, User
 
 pytestmark = pytest.mark.usefixtures("db")
-
-
-@pytest.fixture
-def mock_session_id() -> uuid.UUID:
-    """Return a fixed session ID for testing."""
-    return uuid.uuid4()
 
 
 @pytest.fixture
@@ -75,15 +69,15 @@ async def test_user(session: AsyncSession, svc_role: Role) -> User:
 
 
 @pytest.fixture
-def agent_context(mock_session_id: uuid.UUID):
+async def agent_context(mock_agent_session: AgentSession):
     """Set up and tear down AgentContext for tests."""
-    AgentContext.set(session_id=mock_session_id)
+    AgentContext.set(session_id=mock_agent_session.id)
     yield
     # Context is automatically reset between tests
 
 
 @pytest.fixture
-def approval_manager(svc_role: Role, agent_context) -> ApprovalManager:
+async def approval_manager(svc_role: Role, agent_context) -> ApprovalManager:
     """Create an ApprovalManager instance for testing."""
     return ApprovalManager(role=svc_role)
 
@@ -111,7 +105,7 @@ class TestApprovalManager:
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
         session: AsyncSession,
         svc_role: Role,
     ) -> None:
@@ -125,7 +119,7 @@ class TestApprovalManager:
         # because it calls workflow.execute_activity(). This would be tested in
         # integration tests with a real workflow.
 
-    def test_validate_responses_success(
+    async def test_validate_responses_success(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
@@ -145,7 +139,7 @@ class TestApprovalManager:
         # Should not raise
         approval_manager.validate_responses(approvals)
 
-    def test_validate_responses_missing_approvals(
+    async def test_validate_responses_missing_approvals(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
@@ -164,7 +158,7 @@ class TestApprovalManager:
         with pytest.raises(ValueError, match="Missing approval responses"):
             approval_manager.validate_responses(approvals)
 
-    def test_validate_responses_unexpected_approvals(
+    async def test_validate_responses_unexpected_approvals(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
@@ -184,7 +178,7 @@ class TestApprovalManager:
         with pytest.raises(ValueError, match="unexpected approval response"):
             approval_manager.validate_responses(approvals)
 
-    def test_validate_responses_none_value(
+    async def test_validate_responses_none_value(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
@@ -202,7 +196,7 @@ class TestApprovalManager:
         with pytest.raises(ValueError, match="cannot be None"):
             approval_manager.validate_responses(approvals)
 
-    def test_validate_responses_empty_approvals(
+    async def test_validate_responses_empty_approvals(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
@@ -215,7 +209,7 @@ class TestApprovalManager:
         with pytest.raises(ValueError, match="cannot be empty"):
             approval_manager.validate_responses({})
 
-    def test_validate_responses_no_pending(
+    async def test_validate_responses_no_pending(
         self,
         approval_manager: ApprovalManager,
     ) -> None:
@@ -227,7 +221,7 @@ class TestApprovalManager:
         with pytest.raises(ValueError, match="No pending approvals"):
             approval_manager.validate_responses(approvals)
 
-    def test_is_ready(
+    async def test_is_ready(
         self,
         approval_manager: ApprovalManager,
     ) -> None:
@@ -237,7 +231,7 @@ class TestApprovalManager:
         approval_manager._status = approval_manager._status.__class__.READY
         assert approval_manager.is_ready()
 
-    def test_set_approvals(
+    async def test_set_approvals(
         self,
         approval_manager: ApprovalManager,
     ) -> None:
@@ -259,7 +253,7 @@ class TestRecordApprovalRequestsActivity:
         self,
         session: AsyncSession,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test recording new approval requests creates database records."""
         approvals = [
@@ -277,7 +271,7 @@ class TestRecordApprovalRequestsActivity:
 
         input_data = PersistApprovalsActivityInputs(
             role=svc_role,
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             approvals=approvals,
         )
 
@@ -287,7 +281,7 @@ class TestRecordApprovalRequestsActivity:
         # Verify records were created
         async with ApprovalService.with_session(role=svc_role) as service:
             created_approvals = await service.list_approvals_for_session(
-                mock_session_id
+                mock_agent_session.id
             )
             assert len(created_approvals) == 2
 
@@ -311,14 +305,14 @@ class TestRecordApprovalRequestsActivity:
         self,
         session: AsyncSession,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test recording approvals updates existing records."""
         # Create initial approval
         async with ApprovalService.with_session(role=svc_role) as service:
             initial = await service.create_approval(
                 ApprovalCreate(
-                    session_id=mock_session_id,
+                    session_id=mock_agent_session.id,
                     tool_call_id="call_123",
                     tool_name="old_tool",
                     tool_call_args={"old": "args"},
@@ -346,7 +340,7 @@ class TestRecordApprovalRequestsActivity:
 
         input_data = PersistApprovalsActivityInputs(
             role=svc_role,
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             approvals=approvals,
         )
 
@@ -355,7 +349,7 @@ class TestRecordApprovalRequestsActivity:
         # Verify record was updated and reset to pending
         async with ApprovalService.with_session(role=svc_role) as service:
             updated = await service.get_approval_by_session_and_tool(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="call_123",
             )
             assert updated is not None
@@ -368,12 +362,12 @@ class TestRecordApprovalRequestsActivity:
     async def test_record_approvals_empty_list(
         self,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test recording empty approval list is a no-op."""
         input_data = PersistApprovalsActivityInputs(
             role=svc_role,
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             approvals=[],
         )
 
@@ -384,7 +378,7 @@ class TestRecordApprovalRequestsActivity:
         self,
         session: AsyncSession,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test recording approval with string args converts to dict."""
         approvals = [
@@ -397,7 +391,7 @@ class TestRecordApprovalRequestsActivity:
 
         input_data = PersistApprovalsActivityInputs(
             role=svc_role,
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             approvals=approvals,
         )
 
@@ -405,7 +399,7 @@ class TestRecordApprovalRequestsActivity:
 
         async with ApprovalService.with_session(role=svc_role) as service:
             approval = await service.get_approval_by_session_and_tool(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="call_123",
             )
             assert approval is not None
@@ -418,7 +412,7 @@ class TestApplyApprovalDecisionsActivity:
         self,
         session: AsyncSession,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
         test_user: User,
     ) -> None:
         """Test applying approval decisions updates database records."""
@@ -428,7 +422,7 @@ class TestApplyApprovalDecisionsActivity:
         # Create pending approvals
         approval1 = await service.create_approval(
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="call_123",
                 tool_name="tool_1",
                 tool_call_args={},
@@ -436,7 +430,7 @@ class TestApplyApprovalDecisionsActivity:
         )
         approval2 = await service.create_approval(
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="call_456",
                 tool_name="tool_2",
                 tool_call_args={},
@@ -488,7 +482,7 @@ class TestApplyApprovalDecisionsActivity:
         self,
         session: AsyncSession,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
         test_user: User,
     ) -> None:
         """Test applying approval with override args stores decision dict."""
@@ -496,7 +490,7 @@ class TestApplyApprovalDecisionsActivity:
 
         approval = await service.create_approval(
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="call_123",
                 tool_name="tool_1",
                 tool_call_args={"original": "args"},
@@ -530,7 +524,7 @@ class TestApplyApprovalDecisionsActivity:
         self,
         session: AsyncSession,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
         test_user: User,
     ) -> None:
         """Test applying decision creates placeholder if approval doesn't exist."""
@@ -538,7 +532,7 @@ class TestApplyApprovalDecisionsActivity:
 
         # Check that approval doesn't exist yet
         approval = await service.get_approval_by_session_and_tool(
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             tool_call_id="call_999",
         )
         assert approval is None
@@ -546,7 +540,7 @@ class TestApplyApprovalDecisionsActivity:
         # Create placeholder record
         approval = await service.create_approval(
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="call_999",
                 tool_name="unknown",
                 tool_call_args=None,
@@ -574,12 +568,12 @@ class TestApplyApprovalDecisionsActivity:
     async def test_apply_approval_empty_decisions(
         self,
         svc_role: Role,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test applying empty decisions list is a no-op."""
         input_data = ApplyApprovalResultsActivityInputs(
             role=svc_role,
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             decisions=[],
         )
 

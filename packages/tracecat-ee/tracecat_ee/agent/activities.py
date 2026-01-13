@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import UUID4, BaseModel
 from temporalio import activity
@@ -10,12 +10,10 @@ from temporalio import activity
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tools import build_agent_tools
+from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-
-if TYPE_CHECKING:
-    from tracecat.auth.types import Role
 
 
 class BuildToolDefsArgs(BaseModel):

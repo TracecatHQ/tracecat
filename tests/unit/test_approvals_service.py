@@ -10,15 +10,9 @@ from tracecat_ee.agent.approvals.service import ApprovalService, SessionInfo
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.types import Role
-from tracecat.db.models import User
+from tracecat.db.models import AgentSession, User
 
 pytestmark = pytest.mark.usefixtures("db")
-
-
-@pytest.fixture
-def mock_session_id() -> uuid.UUID:
-    """Return a fixed session ID for testing."""
-    return uuid.uuid4()
 
 
 @pytest.fixture
@@ -47,10 +41,10 @@ async def approvals_service(session: AsyncSession, svc_role: Role) -> ApprovalSe
 
 
 @pytest.fixture
-def approval_create_params(mock_session_id: uuid.UUID) -> ApprovalCreate:
+def approval_create_params(mock_agent_session: AgentSession) -> ApprovalCreate:
     """Sample approval creation parameters."""
     return ApprovalCreate(
-        session_id=mock_session_id,
+        session_id=mock_agent_session.id,
         tool_call_id="test_tool_call_123",
         tool_name="test_tool",
         tool_call_args={"param1": "value1", "param2": 42},
@@ -85,12 +79,12 @@ class TestApprovalService:
     async def test_create_approvals_batch(
         self,
         approvals_service: ApprovalService,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test batch creating multiple approvals."""
         approvals = [
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id=f"tool_call_{i}",
                 tool_name=f"tool_{i}",
                 tool_call_args={"index": i},
@@ -132,11 +126,11 @@ class TestApprovalService:
     async def test_get_approval_by_session_and_tool_not_found(
         self,
         approvals_service: ApprovalService,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test retrieving non-existent approval returns None."""
         retrieved = await approvals_service.get_approval_by_session_and_tool(
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             tool_call_id="nonexistent_tool_call",
         )
         assert retrieved is None
@@ -144,13 +138,12 @@ class TestApprovalService:
     async def test_list_approvals_for_session(
         self,
         approvals_service: ApprovalService,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test listing all approvals for a session."""
-        # Create multiple approvals for the same session
         approvals = [
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id=f"tool_call_{i}",
                 tool_name=f"tool_{i}",
                 tool_call_args={"index": i},
@@ -159,35 +152,23 @@ class TestApprovalService:
         ]
         await approvals_service.create_approvals(approvals)
 
-        # Create approval for different session (should not be included)
-        other_session_id = uuid.uuid4()
-        await approvals_service.create_approval(
-            ApprovalCreate(
-                session_id=other_session_id,
-                tool_call_id="other_tool_call",
-                tool_name="other_tool",
-                tool_call_args={},
-            )
-        )
-
-        # List approvals for specific session
         session_approvals = await approvals_service.list_approvals_for_session(
-            mock_session_id
+            mock_agent_session.id
         )
         assert len(session_approvals) == 3
-        assert all(a.session_id == mock_session_id for a in session_approvals)
+        assert all(a.session_id == mock_agent_session.id for a in session_approvals)
 
     async def test_list_sessions_enriched(
         self,
         approvals_service: ApprovalService,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
         test_user: User,
     ) -> None:
         """Test listing enriched sessions with approval data."""
         # Create approvals for session
         approval = await approvals_service.create_approval(
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id="tool_call_1",
                 tool_name="test_tool",
                 tool_call_args={},
@@ -206,7 +187,7 @@ class TestApprovalService:
         # List enriched sessions
         sessions = [
             SessionInfo(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 start_time=approval.created_at,
             )
         ]
@@ -214,7 +195,7 @@ class TestApprovalService:
 
         assert len(enriched) == 1
         enriched_session = enriched[0]
-        assert enriched_session.id == mock_session_id
+        assert enriched_session.id == mock_agent_session.id
         assert len(enriched_session.approvals) == 1
         enriched_approval = enriched_session.approvals[0]
         assert enriched_approval.approval.id == approval.id
@@ -247,13 +228,13 @@ class TestApprovalService:
     async def test_update_approvals_batch(
         self,
         approvals_service: ApprovalService,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test batch updating multiple approvals."""
         # Create multiple approvals
         approvals = [
             ApprovalCreate(
-                session_id=mock_session_id,
+                session_id=mock_agent_session.id,
                 tool_call_id=f"tool_call_{i}",
                 tool_name=f"tool_{i}",
                 tool_call_args={},
@@ -317,11 +298,11 @@ class TestApprovalService:
     async def test_approval_with_null_args(
         self,
         approvals_service: ApprovalService,
-        mock_session_id: uuid.UUID,
+        mock_agent_session: AgentSession,
     ) -> None:
         """Test creating approval with null tool_call_args."""
         params = ApprovalCreate(
-            session_id=mock_session_id,
+            session_id=mock_agent_session.id,
             tool_call_id="tool_call_no_args",
             tool_name="tool_no_args",
             tool_call_args=None,

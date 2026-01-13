@@ -1169,6 +1169,27 @@ async def test_agent_session(test_role: Role):
                 logger.warning(f"Error during agent session cleanup: {e}")
 
 
+@pytest.fixture
+async def mock_agent_session(session: AsyncSession, svc_role: Role):
+    """Create a mock AgentSession directly in the database.
+
+    This is a lightweight fixture for tests that need a valid session_id
+    to satisfy foreign key constraints (e.g., approval tests).
+    """
+    from tracecat.db.models import AgentSession
+
+    session_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=session_id,
+        title="Mock Test Session",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(agent_session)
+    await session.commit()
+    await session.refresh(agent_session)
+    return agent_session
+
+
 # ---------------------------------------------------------------------------
 # Test User fixtures
 # ---------------------------------------------------------------------------
