@@ -20,7 +20,7 @@ class MCPServerConfig(TypedDict):
 class MCPToolDefinition:
     """Tool definition for MCP proxy server.
 
-    Contains all information needed to expose a tool to Claude
+    Contains all information needed to expose a tool to an agent runtime
     without database access.
     """
 

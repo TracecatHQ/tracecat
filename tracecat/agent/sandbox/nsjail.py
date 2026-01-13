@@ -30,15 +30,15 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxTimeoutError,
+)
 from tracecat.agent.sandbox.config import (
     AgentSandboxConfig,
     build_agent_env_map,
     build_agent_nsjail_config,
-)
-from tracecat.agent.shared.config import TRACECAT__DISABLE_NSJAIL
-from tracecat.agent.shared.exceptions import (
-    AgentSandboxExecutionError,
-    AgentSandboxTimeoutError,
 )
 from tracecat.config import (
     TRACECAT__SANDBOX_NSJAIL_PATH,

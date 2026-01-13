@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from claude_agent_sdk.types import StreamEvent
 
+from tracecat.agent.common.stream_types import HarnessType, StreamEventType
 from tracecat.agent.runtime.claude_code.adapter import (
     ClaudeSDKAdapter,
     ContentBlockDeltaEvent,
@@ -21,7 +22,6 @@ from tracecat.agent.runtime.claude_code.adapter import (
     ThinkingDelta,
     ToolUseContentBlock,
 )
-from tracecat.agent.shared.stream_types import HarnessType, StreamEventType
 
 # ==============================================================================
 # Helper to create StreamEvent objects

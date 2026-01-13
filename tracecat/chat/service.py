@@ -15,12 +15,12 @@ from sqlalchemy.orm import selectinload
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.builder.tools import build_agent_preset_builder_tools
+from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.shared.stream_types import HarnessType
 from tracecat.agent.types import (
     AgentConfig,
     ClaudeSDKMessageTA,

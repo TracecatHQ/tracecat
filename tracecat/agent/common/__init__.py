@@ -10,25 +10,25 @@ Key design principles:
 - orjson for serialization (no pydantic_core)
 """
 
-from tracecat.agent.shared.adapter_base import BaseHarnessAdapter
-from tracecat.agent.shared.config import (
+from tracecat.agent.common.adapter_base import BaseHarnessAdapter
+from tracecat.agent.common.config import (
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.shared.exceptions import (
+from tracecat.agent.common.exceptions import (
     AgentSandboxError,
     AgentSandboxExecutionError,
     AgentSandboxTimeoutError,
     AgentSandboxValidationError,
 )
-from tracecat.agent.shared.protocol import (
+from tracecat.agent.common.protocol import (
     RuntimeEventEnvelope,
     RuntimeInitPayload,
 )
-from tracecat.agent.shared.socket_io import (
+from tracecat.agent.common.socket_io import (
     HEADER_SIZE,
     MAX_PAYLOAD_SIZE,
     MessageType,
@@ -36,13 +36,13 @@ from tracecat.agent.shared.socket_io import (
     build_message,
     read_message,
 )
-from tracecat.agent.shared.stream_types import (
+from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.shared.types import (
+from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,

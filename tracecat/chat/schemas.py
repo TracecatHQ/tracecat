@@ -10,7 +10,7 @@ from pydantic import UUID4, BaseModel, Discriminator, Field
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.shared.stream_types import HarnessType
+from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
 from tracecat.chat.enums import ChatEntity
 

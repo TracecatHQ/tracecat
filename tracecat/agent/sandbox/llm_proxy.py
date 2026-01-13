@@ -290,6 +290,9 @@ class LLMSocketProxy:
     ) -> None:
         """Send an HTTP error response through the socket."""
         status_messages = {
+            400: "Bad Request",
+            401: "Unauthorized",
+            429: "Too Many Requests",
             500: "Internal Server Error",
             502: "Bad Gateway",
             503: "Service Unavailable",

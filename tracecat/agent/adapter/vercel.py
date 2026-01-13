@@ -60,7 +60,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_json
 
-from tracecat.agent.shared.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.stream.events import (
     StreamDelta,
     StreamEnd,

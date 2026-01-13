@@ -20,8 +20,8 @@ from typing import Any
 
 import orjson
 
-from tracecat.agent.shared.protocol import RuntimeEventEnvelope
-from tracecat.agent.shared.stream_types import UnifiedStreamEvent
+from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.stream_types import UnifiedStreamEvent
 
 # Header size: 1 byte msg_type + 4 bytes length
 HEADER_SIZE = 5

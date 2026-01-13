@@ -9,12 +9,13 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
     TRACECAT__AGENT_MAX_RETRIES,

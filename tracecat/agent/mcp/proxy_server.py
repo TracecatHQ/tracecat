@@ -14,7 +14,7 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
 from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.logger import logger

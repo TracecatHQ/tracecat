@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from tracecat.agent.shared.protocol import RuntimeInitPayload
-from tracecat.agent.shared.socket_io import SocketStreamWriter
+from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import SocketStreamWriter
 
 
 class BaseRuntime(Protocol):

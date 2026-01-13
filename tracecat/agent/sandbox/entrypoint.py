@@ -18,14 +18,14 @@ from typing import TYPE_CHECKING
 
 import orjson
 
-from tracecat.agent.sandbox.llm_bridge import LLMBridge
-from tracecat.agent.shared.config import JAILED_CONTROL_SOCKET_PATH
-from tracecat.agent.shared.protocol import RuntimeInitPayload
-from tracecat.agent.shared.socket_io import (
+from tracecat.agent.common.config import JAILED_CONTROL_SOCKET_PATH
+from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import (
     MessageType,
     SocketStreamWriter,
     read_message,
 )
+from tracecat.agent.sandbox.llm_bridge import LLMBridge
 from tracecat.logger import logger
 
 if TYPE_CHECKING:

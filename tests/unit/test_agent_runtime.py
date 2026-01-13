@@ -16,17 +16,11 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
 )
 
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import SocketStreamWriter
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
-from tracecat.agent.shared.protocol import RuntimeInitPayload
-from tracecat.agent.shared.socket_io import SocketStreamWriter
-from tracecat.agent.shared.stream_types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.shared.types import (
-    MCPToolDefinition as SharedMCPToolDefinition,
-)
-from tracecat.agent.shared.types import (
-    SandboxAgentConfig,
-)
 from tracecat.agent.types import AgentConfig
 
 
@@ -68,24 +62,9 @@ def sample_sandbox_config(sample_agent_config: AgentConfig) -> SandboxAgentConfi
 
 
 @pytest.fixture
-def sample_shared_tool_definitions(
-    sample_tool_definitions: dict[str, MCPToolDefinition],
-) -> dict[str, SharedMCPToolDefinition]:
-    """Convert Pydantic tool definitions to shared dataclass format."""
-    return {
-        name: SharedMCPToolDefinition(
-            name=tool.name,
-            description=tool.description,
-            parameters_json_schema=tool.parameters_json_schema,
-        )
-        for name, tool in sample_tool_definitions.items()
-    }
-
-
-@pytest.fixture
 def sample_init_payload(
     sample_sandbox_config: SandboxAgentConfig,
-    sample_shared_tool_definitions: dict[str, SharedMCPToolDefinition],
+    sample_tool_definitions: dict[str, MCPToolDefinition],
 ) -> RuntimeInitPayload:
     """Create a sample init payload for testing."""
     return RuntimeInitPayload(
@@ -94,7 +73,7 @@ def sample_init_payload(
         config=sample_sandbox_config,
         user_prompt="Hello, how are you?",
         litellm_auth_token="test-litellm-token",
-        allowed_actions=sample_shared_tool_definitions,
+        allowed_actions=sample_tool_definitions,
     )
 
 
@@ -326,7 +305,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
         """Test that tools marked for approval trigger approval request."""
         runtime = ClaudeAgentRuntime(mock_socket_writer)
         runtime.registry_tools = {
-            "core.http_request": SharedMCPToolDefinition(
+            "core.http_request": MCPToolDefinition(
                 name="core.http_request",
                 description="Make HTTP request",
                 parameters_json_schema={},

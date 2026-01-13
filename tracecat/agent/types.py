@@ -9,7 +9,6 @@ from typing import (
     Any,
     Literal,
     Protocol,
-    TypedDict,
     runtime_checkable,
 )
 
@@ -17,7 +16,8 @@ import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
 
-from tracecat.agent.shared.stream_types import ToolCallContent
+from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.chat.enums import MessageKind
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
@@ -35,13 +35,6 @@ else:
     ModelResponse = Any
     ModelMessage = Any
     CustomToolList = list[Any]
-
-
-class MCPServerConfig(TypedDict):
-    """Configuration for an MCP server."""
-
-    url: str
-    headers: dict[str, str]
 
 
 class StreamKey(str):

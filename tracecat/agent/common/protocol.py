@@ -12,8 +12,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from tracecat.agent.shared.stream_types import UnifiedStreamEvent
-from tracecat.agent.shared.types import MCPToolDefinition, SandboxAgentConfig
+from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 
 
 @dataclass(kw_only=True, slots=True)

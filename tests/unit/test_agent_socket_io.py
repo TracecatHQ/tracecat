@@ -20,11 +20,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import orjson
 import pytest
 
+from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
+from tracecat.agent.common.socket_io import SocketStreamWriter, read_message
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
-from tracecat.agent.shared.protocol import RuntimeEventEnvelope, RuntimeInitPayload
-from tracecat.agent.shared.socket_io import SocketStreamWriter, read_message
-from tracecat.agent.shared.stream_types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.shared.types import SandboxAgentConfig
 
 
 def make_init_payload() -> RuntimeInitPayload:

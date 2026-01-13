@@ -14,13 +14,13 @@ from typing import Any, Literal, TypedDict, cast
 
 from claude_agent_sdk.types import StreamEvent
 
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
-from tracecat.agent.shared.adapter_base import BaseHarnessAdapter
-from tracecat.agent.shared.stream_types import (
+from tracecat.agent.common.adapter_base import BaseHarnessAdapter
+from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
     UnifiedStreamEvent,
 )
+from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 
 
 @dataclass(slots=True, kw_only=True)

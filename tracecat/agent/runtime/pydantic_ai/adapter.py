@@ -38,8 +38,8 @@ from pydantic_ai.tools import ToolApproved as PAToolApproved
 from pydantic_ai.tools import ToolDenied as PAToolDenied
 from pydantic_core import SchemaValidator, core_schema
 
-from tracecat.agent.shared.adapter_base import BaseHarnessAdapter
-from tracecat.agent.shared.stream_types import (
+from tracecat.agent.common.adapter_base import BaseHarnessAdapter
+from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
     ToolCallContent,

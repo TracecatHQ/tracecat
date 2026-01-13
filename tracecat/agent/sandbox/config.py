@@ -26,11 +26,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tracecat.agent.shared.config import (
+from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
 )
-from tracecat.agent.shared.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 
 # Well-known socket paths (internal to agent worker, not configurable)
 TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
