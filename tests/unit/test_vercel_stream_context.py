@@ -24,7 +24,7 @@ from tracecat.agent.adapter.vercel import (
     VercelStreamContext,
     format_sse,
 )
-from tracecat.agent.stream.types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 
 
 async def collect_frames(

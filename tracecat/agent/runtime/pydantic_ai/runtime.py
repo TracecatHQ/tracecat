@@ -9,12 +9,13 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.parsers import try_parse_json
-from tracecat.agent.schemas import AgentOutput, RunAgentArgs
+from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
     TRACECAT__AGENT_MAX_RETRIES,
@@ -52,11 +53,17 @@ async def run_agent_sync(
         deferred_tool_results=deferred_tool_results,
     )
     end_time = default_timer()
+
     return AgentOutput(
         output=try_parse_json(result.output),
         message_history=result.all_messages(),
         duration=end_time - start_time,
-        usage=result.usage(),
+        usage=RunUsage(
+            requests=result.usage().requests,
+            tool_calls=result.usage().tool_calls,
+            input_tokens=result.usage().input_tokens,
+            output_tokens=result.usage().output_tokens,
+        ),
         session_id=uuid.uuid4(),
     )
 
@@ -144,7 +151,6 @@ async def run_agent(
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
         )
-
     start_time = default_timer()
 
     session_id = ctx_session_id.get() or uuid.uuid4()

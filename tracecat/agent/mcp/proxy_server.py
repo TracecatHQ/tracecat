@@ -14,12 +14,10 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
+from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.logger import logger
-
-# Hardcoded socket path for security - prevents path injection attacks
-TRUSTED_MCP_SOCKET_PATH = "/var/run/tracecat/mcp.sock"
 
 
 class _UDSClientFactory:
@@ -90,8 +88,8 @@ async def create_proxy_mcp_server(
                 )
 
                 try:
-                    # Connect via HTTP over Unix socket (hardcoded path for security)
-                    transport = _create_uds_transport(TRUSTED_MCP_SOCKET_PATH)
+                    # Connect via HTTP over Unix socket
+                    transport = _create_uds_transport(str(TRUSTED_MCP_SOCKET_PATH))
                     async with Client(transport) as client:
                         call_result = await client.call_tool(
                             "execute_action_tool",
@@ -119,7 +117,9 @@ async def create_proxy_mcp_server(
                         error=str(e),
                     )
                     return {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
+                        "content": [
+                            {"type": "text", "text": "Error: Proxy request failed"}
+                        ],
                         "isError": True,
                     }
 
