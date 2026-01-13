@@ -39,10 +39,15 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
-from tracecat.executor.service import run_single_action
+from tracecat.executor.service import (
+    RegistryArtifactsContext,
+    get_registry_artifacts_for_lock,
+    run_single_action,
+)
 from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets import secrets_manager
 
 if TYPE_CHECKING:
@@ -114,14 +119,8 @@ class DirectBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        # Get tarball paths from the action runner's cache
-        tarball_paths: list[str] = []
-        runner = get_action_runner()
-        cache_dir = runner.cache_dir
-        if cache_dir.exists():
-            for path in cache_dir.iterdir():
-                if path.is_dir() and path.name.startswith("tarball-"):
-                    tarball_paths.append(str(path))
+        # Download and extract tarballs for custom registries
+        tarball_paths = await self._ensure_registry_tarballs(input)
 
         if tarball_paths:
             logger.debug(
@@ -269,3 +268,88 @@ class DirectBackend(ExecutorBackend):
                 name=action_impl.name,
             )
             return service.get_bound(reg_action, mode="execution")
+
+    async def _ensure_registry_tarballs(self, input: RunActionInput) -> list[str]:
+        """Download and extract registry tarballs, returning paths to add to sys.path.
+
+        This ensures custom registry modules are available for in-process execution.
+        Uses ActionRunner to handle downloading and caching.
+
+        Args:
+            input: The RunActionInput containing registry_lock with origin versions.
+
+        Returns:
+            List of extracted tarball directory paths to add to sys.path.
+        """
+        if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+            return []
+
+        # Get tarball URIs for all origins in the registry lock
+        tarball_uris = await self._get_tarball_uris(input)
+        if not tarball_uris:
+            logger.debug("No tarball URIs found, using empty paths")
+            return []
+
+        # Download and extract each tarball using ActionRunner
+        runner = get_action_runner()
+        extracted_paths: list[str] = []
+
+        for tarball_uri in tarball_uris:
+            try:
+                extracted_path = await runner.ensure_registry_environment(tarball_uri)
+                if extracted_path:
+                    extracted_paths.append(str(extracted_path))
+            except Exception as e:
+                logger.warning(
+                    "Failed to extract tarball for direct execution",
+                    tarball_uri=tarball_uri,
+                    error=str(e),
+                )
+
+        logger.debug(
+            "Extracted registry tarballs for direct execution",
+            count=len(extracted_paths),
+        )
+        return extracted_paths
+
+    async def _get_tarball_uris(self, input: RunActionInput) -> list[str]:
+        """Get tarball URIs for registry environment (deterministic ordering).
+
+        Args:
+            input: The RunActionInput containing task and execution context
+
+        Returns:
+            List of tarball URIs in deterministic order (tracecat_registry first,
+            then lexicographically by origin).
+        """
+        try:
+            artifacts = await get_registry_artifacts_for_lock(
+                input.registry_lock.origins
+            )
+            return self._sort_tarball_uris(artifacts)
+        except Exception as e:
+            logger.warning(
+                "Failed to load registry artifacts for direct execution",
+                error=str(e),
+            )
+            return []
+
+    def _sort_tarball_uris(
+        self, artifacts: list[RegistryArtifactsContext]
+    ) -> list[str]:
+        """Sort tarballs: tracecat_registry first, then lexicographically by origin."""
+        builtin_uris: list[str] = []
+        other_uris: list[tuple[str, str]] = []  # (origin, uri)
+
+        for artifact in artifacts:
+            if not artifact.tarball_uri:
+                continue
+            if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
+                builtin_uris.append(artifact.tarball_uri)
+            else:
+                other_uris.append((artifact.origin, artifact.tarball_uri))
+
+        # Sort non-builtin by origin lexicographically
+        other_uris.sort(key=lambda x: x[0])
+
+        return builtin_uris + [uri for _, uri in other_uris]
