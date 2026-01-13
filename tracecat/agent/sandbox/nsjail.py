@@ -273,8 +273,8 @@ async def _spawn_nsjail_runtime(
 
         # Write config to job directory
         config_path = job_dir / "nsjail.cfg"
-        config_path.write_text(nsjail_config)
-        config_path.chmod(0o600)
+        await asyncio.to_thread(config_path.write_text, nsjail_config)
+        await asyncio.to_thread(config_path.chmod, 0o600)
 
         # Build environment
         env_map = build_agent_env_map(config)

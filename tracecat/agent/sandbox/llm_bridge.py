@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import orjson
+
 from tracecat.logger import logger
 
 # Well-known socket path inside the sandbox
@@ -28,6 +30,9 @@ JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 # Bridge listens on this address inside the sandbox
 LLM_BRIDGE_HOST = "127.0.0.1"
 LLM_BRIDGE_PORT = 4000
+
+# Maximum request body size (10 MB) - prevents memory exhaustion
+MAX_BODY_SIZE = 10 * 1024 * 1024
 
 
 class LLMBridge:
@@ -164,6 +169,15 @@ class LLMBridge:
                     pass
                 break
 
+        # Validate content length to prevent memory exhaustion
+        if content_length > MAX_BODY_SIZE:
+            logger.warning(
+                "Request body too large",
+                content_length=content_length,
+                max_size=MAX_BODY_SIZE,
+            )
+            return None
+
         # Read body if present
         body = b""
         if content_length > 0:
@@ -202,7 +216,7 @@ class LLMBridge:
             503: "Service Unavailable",
         }
         status_text = status_messages.get(status_code, "Error")
-        body = f'{{"error": "{message}"}}'
+        body = orjson.dumps({"error": message}).decode()
         response = (
             f"HTTP/1.1 {status_code} {status_text}\r\n"
             f"Content-Type: application/json\r\n"

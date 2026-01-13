@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 
 import httpx
+import orjson
 
 from tracecat.logger import logger
 
@@ -30,6 +31,9 @@ LITELLM_URL = "http://127.0.0.1:4000"
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
+
+# Maximum request body size (10 MB) - prevents memory exhaustion DoS
+MAX_BODY_SIZE = 10 * 1024 * 1024
 
 
 class LLMSocketProxy:
@@ -67,9 +71,14 @@ class LLMSocketProxy:
         # Remove existing socket file if present
         if self.socket_path.exists():
             self.socket_path.unlink()
-
-        # Create httpx client for forwarding requests
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(600.0))
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=10.0,
+                read=120.0,
+                write=30.0,
+                pool=10.0,
+            )
+        )
 
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
@@ -182,6 +191,15 @@ class LLMSocketProxy:
             except (UnicodeDecodeError, ValueError):
                 continue
 
+        # Validate content length to prevent memory exhaustion DoS
+        if content_length > MAX_BODY_SIZE:
+            logger.warning(
+                "Request body too large",
+                content_length=content_length,
+                max_size=MAX_BODY_SIZE,
+            )
+            return None
+
         # Read body if present
         body = b""
         if content_length > 0:
@@ -278,7 +296,7 @@ class LLMSocketProxy:
             504: "Gateway Timeout",
         }
         status_text = status_messages.get(status_code, "Error")
-        body = f'{{"error": "{message}"}}'
+        body = orjson.dumps({"error": message}).decode()
         response = (
             f"HTTP/1.1 {status_code} {status_text}\r\n"
             f"Content-Type: application/json\r\n"

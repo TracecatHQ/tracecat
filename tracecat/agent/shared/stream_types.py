@@ -6,7 +6,7 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -124,7 +124,7 @@ class UnifiedStreamEvent:
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
         elif timestamp is None:
-            timestamp = datetime.now()
+            timestamp = datetime.now(UTC)
 
         return cls(
             type=StreamEventType(data["type"]),

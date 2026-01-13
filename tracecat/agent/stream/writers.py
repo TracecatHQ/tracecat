@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlparse
 
 import aiohttp
-import orjson
 from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
@@ -165,12 +164,12 @@ class HttpStreamWriter(StreamWriter):
                     # Unified streaming: convert to UnifiedStreamEvent
                     unified_event = PydanticAIAdapter().to_unified_event(event)
                     logger.warning("STREAM EVENT", event=unified_event)
-                    json_payload = {"event": orjson.dumps(unified_event)}
+                    json_payload = {"event": unified_event.to_dict()}
                 else:
                     # Legacy streaming: pass through raw AgentStreamEvent
                     logger.warning("STREAM EVENT", event=event)
                     json_payload = {
-                        "event": AgentStreamEventTA.dump_json(event).decode()
+                        "event": AgentStreamEventTA.dump_python(event, mode="json")
                     }
                 # Make a post request to the API to stream the event
                 async with session.post(self.url, json=json_payload) as response:

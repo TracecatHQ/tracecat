@@ -313,12 +313,14 @@ class ClaudeAgentRuntime:
 
         if requires_approval:
             # Requires approval - stream request and interrupt
-            if tool_use_id:
-                await self._handle_approval_request(
-                    action_name,
-                    tool_input,
-                    tool_use_id,
-                )
+            if not tool_use_id:
+                raise ValueError("Missing tool use ID")
+
+            await self._handle_approval_request(
+                action_name,
+                tool_input,
+                tool_use_id,
+            )
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",

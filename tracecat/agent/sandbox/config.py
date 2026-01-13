@@ -180,12 +180,7 @@ def _validate_path(path: Path, name: str) -> None:
     # Check for path traversal attempts
     # Resolve to absolute and check it doesn't escape expected boundaries
     try:
-        resolved = path.resolve()
-        # After resolution, ".." should not appear in the path
-        if ".." in str(resolved):
-            raise AgentSandboxValidationError(
-                f"Invalid {name} path: contains path traversal after resolution"
-            )
+        path.resolve()
     except (OSError, ValueError) as e:
         raise AgentSandboxValidationError(
             f"Invalid {name} path: failed to resolve - {e}"

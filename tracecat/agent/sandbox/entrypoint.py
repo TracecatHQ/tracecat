@@ -74,17 +74,19 @@ async def run_sandboxed_runtime() -> None:
     socket_path = JAILED_CONTROL_SOCKET_PATH
     logger.info("Starting sandboxed runtime", socket_path=str(socket_path))
 
-    # Start LLM bridge - we're inside NSJail so network is isolated
-    # The bridge binds localhost:4000 and forwards to the LLM Unix socket
-    llm_bridge = LLMBridge()
-    await llm_bridge.start()
-    logger.info("LLM bridge started")
-
-    # Connect to orchestrator
-    reader, writer = await asyncio.open_unix_connection(socket_path)
-    socket_writer = SocketStreamWriter(writer)
+    llm_bridge: LLMBridge | None = None
+    socket_writer: SocketStreamWriter | None = None
 
     try:
+        # Start LLM bridge - we're inside NSJail so network is isolated
+        # The bridge binds localhost:4000 and forwards to the LLM Unix socket
+        llm_bridge = LLMBridge()
+        await llm_bridge.start()
+        logger.info("LLM bridge started")
+
+        # Connect to orchestrator
+        reader, writer = await asyncio.open_unix_connection(socket_path)
+        socket_writer = SocketStreamWriter(writer)
         # Read init payload using typed message protocol
         _, init_data = await read_message(reader, expected_type=MessageType.INIT)
         if not init_data:
@@ -119,10 +121,20 @@ async def run_sandboxed_runtime() -> None:
 
     except Exception as e:
         logger.exception("Runtime error", error=str(e))
+        # Send error envelope to orchestrator so it can be streamed to frontend
+        if socket_writer is not None:
+            try:
+                await socket_writer.send_error(str(e))
+                await socket_writer.send_done()
+            except Exception:
+                pass  # Best effort - socket may already be closed
         raise
     finally:
+        if socket_writer is not None:
+            await socket_writer.close()
         # Clean up LLM bridge
-        await llm_bridge.stop()
+        if llm_bridge is not None:
+            await llm_bridge.stop()
 
 
 def main() -> None:

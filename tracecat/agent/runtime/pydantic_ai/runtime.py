@@ -85,7 +85,7 @@ async def run_agent(
     retries: int = TRACECAT__AGENT_MAX_RETRIES,
     base_url: str | None = None,
     deferred_tool_results: DeferredToolResults | None = None,
-):
+) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
     This function creates and executes a Tracecat AI agent with the provided
@@ -150,6 +150,7 @@ async def run_agent(
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
         )
+    start_time = default_timer()
 
     session_id = ctx_session_id.get() or uuid.uuid4()
     message_nodes: list[ModelMessage] = []
@@ -198,6 +199,14 @@ async def run_agent(
         result = await handle.result()
         if result is None:
             raise RuntimeError("Agent run did not complete successfully.")
+        end_time = default_timer()
+        return AgentOutput(
+            output=try_parse_json(result.output),
+            message_history=result.all_messages(),
+            duration=end_time - start_time,
+            usage=result.usage(),
+            session_id=session_id,
+        )
 
     except Exception as e:
         logger.exception("Error in agent run", error=e)

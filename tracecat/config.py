@@ -310,11 +310,7 @@ TRACECAT__SANDBOX_NSJAIL_PATH = os.environ.get(
 TRACECAT__SANDBOX_ROOTFS_PATH = os.environ.get(
     "TRACECAT__SANDBOX_ROOTFS_PATH", "/var/lib/tracecat/sandbox-rootfs"
 )
-"""Path to the sandbox rootfs directory containing Python 3.12 + uv.
-
-Used by both action sandbox and agent sandbox. Runtime code is copied
-to job directory at spawn time, site-packages mounted read-only.
-"""
+"""Path to the sandbox rootfs directory containing Python 3.12 + uv."""
 
 TRACECAT__SANDBOX_CACHE_DIR = os.environ.get(
     "TRACECAT__SANDBOX_CACHE_DIR", "/var/lib/tracecat/sandbox-cache"
@@ -415,17 +411,6 @@ TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
 """Path to the Python site-packages directory containing tracecat dependencies.
 If not set, will be auto-detected from a known dependency's location.
 """
-
-# === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
-TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT", "600")
-)
-"""Default timeout for agent sandbox execution in seconds (10 minutes)."""
-
-TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB", "4096")
-)
-"""Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
