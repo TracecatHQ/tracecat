@@ -20,9 +20,9 @@ AuditResourceType = Literal[
     "organization_setting",
     "secret",
     "organization_secret",
-    "chat",
     "case",
     "agent_preset",
+    "agent_session",
 ]
 
 

@@ -5,7 +5,7 @@ import { getToolName, isToolUIPart, type UIMessage } from "ai"
 import { HammerIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ApprovalDecision, ChatReadVercel } from "@/client"
+import type { AgentSessionReadVercel, ApprovalDecision } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
@@ -44,7 +44,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export interface CopilotChatPaneProps {
-  chat: ChatReadVercel
+  chat: AgentSessionReadVercel
   workspaceId: string
   className?: string
   placeholder?: string

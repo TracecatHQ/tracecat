@@ -275,7 +275,7 @@ class AgentManagementService(BaseService):
         *,
         preset_id: uuid.UUID | None = None,
         slug: str | None = None,
-        use_workspace_credentials: bool = False,
+        use_workspace_credentials: bool = True,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 

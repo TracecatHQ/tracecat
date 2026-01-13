@@ -7,17 +7,69 @@ import Image from "next/image"
 import TracecatIcon from "public/icon.png"
 import { useEffect, useRef } from "react"
 import { Streamdown } from "streamdown"
-import type {
-  BuiltinToolCallPart,
-  BuiltinToolReturnPart,
-  ModelRequest,
-  ModelResponse,
-  TextPart,
-  ToolCallPart,
-  UserPromptPart,
-} from "@/client"
 import { Dots } from "@/components/loading/dots"
-import type { ModelMessage } from "@/lib/chat"
+
+/**
+ * Model message part types for the legacy chat messages component.
+ * These types represent the internal pydantic-ai model message format.
+ */
+type TextPart = {
+  part_kind: "text"
+  content: string
+}
+
+type ToolCallPart = {
+  part_kind: "tool-call"
+  tool_name: string
+  tool_call_id?: string | null
+  args: unknown
+}
+
+type BuiltinToolCallPart = {
+  part_kind: "builtin-tool-call"
+  tool_name: string
+  tool_call_id?: string | null
+  args: unknown
+  provider_name?: string | null
+}
+
+type BuiltinToolReturnPart = {
+  part_kind: "builtin-tool-return"
+  tool_name: string
+  tool_call_id?: string | null
+  content: unknown
+  provider_name?: string | null
+}
+
+type UserPromptContent = string | Array<string | Record<string, unknown>>
+
+type UserPromptPart = {
+  part_kind: "user-prompt"
+  content: UserPromptContent
+}
+
+type ModelRequestPart = UserPromptPart | { part_kind: string }
+
+type ModelResponsePart =
+  | TextPart
+  | ToolCallPart
+  | BuiltinToolCallPart
+  | BuiltinToolReturnPart
+  | { part_kind: string }
+
+type ModelRequest = {
+  kind: "request"
+  parts: ModelRequestPart[]
+}
+
+type ModelResponse = {
+  kind: "response"
+  parts: ModelResponsePart[]
+}
+
+export type ModelMessage = ModelRequest | ModelResponse
+
+type AnyModelPart = ModelRequestPart | ModelResponsePart
 
 interface MessagesProps {
   messages: ModelMessage[]
@@ -35,10 +87,6 @@ const caseUpdateActions = [
 
 const assistantMarkdownStyle =
   "text-sm max-w-full text-foreground dark:prose-invert"
-
-type AnyModelPart =
-  | ModelRequest["parts"][number]
-  | ModelResponse["parts"][number]
 
 export function Messages({
   messages,
@@ -118,7 +166,7 @@ export function Messages({
       lastMsg.parts.some(
         (p) =>
           "tool_name" in p &&
-          p.tool_name &&
+          typeof p.tool_name === "string" &&
           caseUpdateActions.includes(p.tool_name)
       )
     ) {

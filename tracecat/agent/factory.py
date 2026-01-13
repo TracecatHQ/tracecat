@@ -3,14 +3,16 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic_ai import Agent, ModelSettings, Tool
+from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
+from pydantic_ai.tools import Tool as PATool
 
 from tracecat.agent.parsers import parse_output_type
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
+from tracecat.agent.runtime.pydantic_ai.adapter import to_pydantic_ai_tools
 from tracecat.agent.tools import build_agent_tools
 from tracecat.agent.types import AgentConfig
 
@@ -20,16 +22,18 @@ type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
-    agent_tools: list[Tool[Any | None]] = []
-    tool_prompt_tools: list[Tool[Any | None]] = []
+    agent_tools: list[PATool] = []
+    tool_prompt_tools: list[PATool] = []
     if config.actions:
-        tools = await build_agent_tools(
+        tools_result = await build_agent_tools(
             namespaces=config.namespaces,
             actions=config.actions,
             tool_approvals=config.tool_approvals,
         )
-        agent_tools.extend(tools.tools)
-        tool_prompt_tools.extend(tools.tools)
+        # Convert Tracecat Tools to pydantic-ai Tools
+        pa_tools = to_pydantic_ai_tools(tools_result.tools)
+        agent_tools.extend(pa_tools)
+        tool_prompt_tools.extend(pa_tools)
     if config.custom_tools:
         agent_tools.extend(config.custom_tools)
         tool_prompt_tools.extend(config.custom_tools)

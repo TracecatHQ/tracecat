@@ -31,7 +31,7 @@ from tracecat import config
 from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.models import Base, Workspace
+from tracecat.db.models import Base, User, Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -760,7 +760,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     async with get_async_session_context_manager() as global_session:
         # Avoid duplicate insert if the workspace already exists
         result = await global_session.execute(
-            select(Workspace).where(Workspace.id == workspace.id)
+            select(Workspace).filter_by(id=workspace.id)
         )
         existing = result.scalar_one_or_none()
         if existing is None:
@@ -781,7 +781,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         try:
             async with get_async_session_context_manager() as global_cleanup_session:
                 result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace.id)
+                    select(Workspace).filter_by(id=workspace.id)
                 )
                 global_workspace = result.scalar_one_or_none()
                 if global_workspace:
@@ -808,7 +808,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
                     async with get_async_session_context_manager() as new_session:
                         # Fetch the workspace again in the new session by logical ID
                         result = await new_session.execute(
-                            select(Workspace).where(Workspace.id == workspace.id)
+                            select(Workspace).filter_by(id=workspace.id)
                         )
                         db_workspace = result.scalar_one_or_none()
                         if db_workspace:
@@ -1137,3 +1137,136 @@ def mock_slack_secrets():
 
         mock_get.side_effect = side_effect
         yield mock_get
+
+
+# ---------------------------------------------------------------------------
+# Agent fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def test_agent_session(test_role: Role):
+    """Create a test agent session."""
+    from tracecat.agent.session.schemas import AgentSessionCreate
+    from tracecat.agent.session.service import AgentSessionService
+    from tracecat.agent.session.types import AgentSessionEntity
+
+    async with AgentSessionService.with_session(role=test_role) as svc:
+        agent_session = await svc.create_session(
+            AgentSessionCreate(
+                entity_type=AgentSessionEntity.CASE,
+                entity_id=uuid.uuid4(),
+            )
+        )
+        logger.debug("Created test agent session", session_id=agent_session.id)
+        try:
+            yield agent_session
+        finally:
+            logger.debug("Teardown test agent session")
+            try:
+                await svc.delete_session(agent_session)
+            except Exception as e:
+                logger.warning(f"Error during agent session cleanup: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Test User fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def test_user_a(session: AsyncSession) -> AsyncGenerator[User, None]:
+    """Create test user A for multi-tenant tests.
+
+    Creates user in both test session and global session so services using
+    with_session() can see the user and satisfy foreign key constraints.
+    """
+    user_id = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+
+    user = User(
+        id=user_id,
+        email=f"test-user-a-{user_id.hex[:8]}@tracecat.com",
+        hashed_password="not-a-real-hash",
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    # Also persist the user in the default engine used by services
+    # so services that use `with_session()` can see the user
+    async with get_async_session_context_manager() as global_session:
+        existing = await global_session.get(User, user_id)
+        if existing is None:
+            global_session.add(
+                User(
+                    id=user_id,
+                    email=f"test-user-a-{user_id.hex[:8]}@tracecat.com",
+                    hashed_password="not-a-real-hash",
+                )
+            )
+            await global_session.commit()
+
+    logger.debug("Created test user A", user_id=user.id)
+    try:
+        yield user
+    finally:
+        logger.debug("Teardown test user A")
+        # Clean up from global session first
+        try:
+            async with get_async_session_context_manager() as global_cleanup_session:
+                global_user = await global_cleanup_session.get(User, user_id)
+                if global_user:
+                    await global_cleanup_session.delete(global_user)
+                    await global_cleanup_session.commit()
+                    logger.debug("Cleaned up user A from global session")
+        except Exception as e:
+            logger.warning(f"Error cleaning up user A from global session: {e}")
+
+
+@pytest.fixture
+async def test_user_b(session: AsyncSession) -> AsyncGenerator[User, None]:
+    """Create test user B for multi-tenant tests.
+
+    Creates user in both test session and global session so services using
+    with_session() can see the user and satisfy foreign key constraints.
+    """
+    user_id = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
+
+    user = User(
+        id=user_id,
+        email=f"test-user-b-{user_id.hex[:8]}@tracecat.com",
+        hashed_password="not-a-real-hash",
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    # Also persist the user in the default engine used by services
+    # so services that use `with_session()` can see the user
+    async with get_async_session_context_manager() as global_session:
+        existing = await global_session.get(User, user_id)
+        if existing is None:
+            global_session.add(
+                User(
+                    id=user_id,
+                    email=f"test-user-b-{user_id.hex[:8]}@tracecat.com",
+                    hashed_password="not-a-real-hash",
+                )
+            )
+            await global_session.commit()
+
+    logger.debug("Created test user B", user_id=user.id)
+    try:
+        yield user
+    finally:
+        logger.debug("Teardown test user B")
+        # Clean up from global session first
+        try:
+            async with get_async_session_context_manager() as global_cleanup_session:
+                global_user = await global_cleanup_session.get(User, user_id)
+                if global_user:
+                    await global_cleanup_session.delete(global_user)
+                    await global_cleanup_session.commit()
+                    logger.debug("Cleaned up user B from global session")
+        except Exception as e:
+            logger.warning(f"Error cleaning up user B from global session: {e}")

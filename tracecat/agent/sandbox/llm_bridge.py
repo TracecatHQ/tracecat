@@ -50,7 +50,6 @@ class LLMBridge:
         """
         self.socket_path = socket_path
         self._server: asyncio.Server | None = None
-        self._serve_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Start the HTTP bridge server on localhost:4000.
@@ -63,9 +62,8 @@ class LLMBridge:
             host=LLM_BRIDGE_HOST,
             port=LLM_BRIDGE_PORT,
         )
-        # Start serving in the background with proper task tracking
-        self._serve_task = asyncio.create_task(self._server.serve_forever())
-        self._serve_task.add_done_callback(self._on_serve_done)
+        # Start serving in the background
+        asyncio.create_task(self._server.serve_forever())
         logger.info(
             "LLM bridge started",
             host=LLM_BRIDGE_HOST,
@@ -73,33 +71,13 @@ class LLMBridge:
             socket_path=str(self.socket_path),
         )
 
-    def _on_serve_done(self, task: asyncio.Task[None]) -> None:
-        """Handle completion of the serve task.
-
-        Logs any unexpected exceptions from the server task to prevent
-        silent failures that would be hard to debug in a sandbox context.
-        """
-        if task.cancelled():
-            return
-        if exc := task.exception():
-            logger.error("LLM bridge server task failed", error=str(exc))
-
     async def stop(self) -> None:
-        """Stop the HTTP bridge server and clean up resources."""
+        """Stop the HTTP bridge server."""
         if self._server:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-
-        if self._serve_task and not self._serve_task.done():
-            self._serve_task.cancel()
-            try:
-                await self._serve_task
-            except asyncio.CancelledError:
-                pass
-        self._serve_task = None
-
-        logger.info("LLM bridge stopped")
+            logger.info("LLM bridge stopped")
 
     async def _handle_connection(
         self,

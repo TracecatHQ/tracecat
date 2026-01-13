@@ -24,7 +24,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_config_activity,
     )
-    from tracecat.agent.tools import SimpleToolExecutor
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -90,8 +89,7 @@ def get_activities() -> list[Callable]:
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
     ]
-    tool_executor = SimpleToolExecutor()
-    agent_activities = AgentActivities(tool_executor=tool_executor)
+    agent_activities = AgentActivities()
     activities.extend(agent_activities.get_activities())
     activities.extend(ApprovalManager.get_activities())
     activities.append(resolve_agent_preset_config_activity)

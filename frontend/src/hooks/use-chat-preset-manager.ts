@@ -1,11 +1,11 @@
-import type { ChatReadVercel } from "@/client"
+import type { AgentSessionReadVercel } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { useAgentPreset, useAgentPresets } from "@/hooks/use-agent-presets"
 import { parseChatError, type useUpdateChat } from "@/hooks/use-chat"
 
 interface UseChatPresetManagerProps {
   workspaceId: string
-  chat: ChatReadVercel | undefined
+  chat: AgentSessionReadVercel | undefined
   updateChat: ReturnType<typeof useUpdateChat>["updateChat"]
   isUpdatingChat: boolean
   chatLoading: boolean

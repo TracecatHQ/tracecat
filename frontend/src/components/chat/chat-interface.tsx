@@ -3,7 +3,11 @@
 import { ChevronDown, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import type { AgentPresetRead, ChatEntity, ChatReadVercel } from "@/client"
+import type {
+  AgentPresetRead,
+  AgentSessionEntity,
+  AgentSessionReadVercel,
+} from "@/client"
 import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -48,7 +52,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface ChatInterfaceProps {
   chatId?: string
-  entityType: ChatEntity
+  entityType: AgentSessionEntity
   entityId: string
   onChatSelect?: (chatId: string) => void
   bodyClassName?: string
@@ -253,9 +257,9 @@ export function ChatInterface({
 interface ChatBodyProps {
   chatId?: string
   workspaceId: string
-  entityType: ChatEntity
+  entityType: AgentSessionEntity
   entityId: string
-  chat?: ChatReadVercel
+  chat?: AgentSessionReadVercel
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: AgentPresetRead

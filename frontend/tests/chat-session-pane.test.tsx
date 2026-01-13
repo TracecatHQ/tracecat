@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { ChatReadVercel } from "@/client"
+import type { AgentSessionReadVercel } from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { useVercelChat } from "@/hooks/use-chat"
 
@@ -18,14 +18,17 @@ const mockUseVercelChat = useVercelChat as jest.MockedFunction<
 >
 
 const createChatFixture = (
-  overrides?: Partial<ChatReadVercel>
-): ChatReadVercel => ({
+  overrides?: Partial<AgentSessionReadVercel>
+): AgentSessionReadVercel => ({
   id: "chat-1",
+  workspace_id: "workspace-1",
   title: "Test Chat",
   user_id: "user-1",
   entity_type: "case",
   entity_id: "case-1",
   tools: [],
+  agent_preset_id: null,
+  harness_type: null,
   created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
   updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
   last_stream_id: null,

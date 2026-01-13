@@ -1,5 +1,9 @@
 import type { UIMessage } from "ai"
-import type { AgentSessionRead, WorkflowExecutionStatus } from "@/client"
+import type {
+  AgentSessionRead,
+  ApprovalRead,
+  WorkflowExecutionStatus,
+} from "@/client"
 import { undoSlugify } from "@/lib/utils"
 
 export type WorkflowSummary = {
@@ -13,6 +17,12 @@ export type AgentSessionReadWithMeta = AgentSessionRead & {
   root_workflow?: WorkflowSummary | null
   action_ref?: string | null
   action_title?: string | null
+  approvals?: ApprovalRead[] | null
+  status?: WorkflowExecutionStatus | null
+  parent_id?: string | null
+  parent_run_id?: string | null
+  root_id?: string | null
+  root_run_id?: string | null
 }
 
 export function isUIMessageArray(value: unknown): value is UIMessage[] {

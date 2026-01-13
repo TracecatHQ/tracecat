@@ -21,6 +21,7 @@ from tracecat.agent.mcp.executor import execute_action
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.tokens import verify_mcp_token
 from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
 
 mcp = FastMCP("tracecat-actions")
 
@@ -50,7 +51,18 @@ async def execute_action_tool(
     normalized_action_name = normalize_mcp_tool_name(action_name)
 
     try:
-        result = await execute_action(normalized_action_name, args, claims)
+        # Resolve registry lock for this action
+        # This is called from the proxy MCP server inside nsjail, so we need
+        # to resolve the lock here (unlike execute_approved_tools_activity which
+        # receives the lock from the workflow)
+        async with RegistryLockService.with_session() as lock_service:
+            registry_lock = await lock_service.resolve_lock_with_bindings(
+                {normalized_action_name}
+            )
+
+        result = await execute_action(
+            normalized_action_name, args, claims, registry_lock
+        )
         return json.dumps(result, default=str)
     except Exception as e:
         logger.error(

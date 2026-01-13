@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -9,6 +8,7 @@ from typing import (
     Any,
     Literal,
     Protocol,
+    TypedDict,
     runtime_checkable,
 )
 
@@ -17,8 +17,6 @@ from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPServerConfig
-from tracecat.chat.enums import MessageKind
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
@@ -27,7 +25,6 @@ if TYPE_CHECKING:
     from pydantic_ai.tools import Tool as _PATool
 
     from tracecat.agent.stream.writers import StreamWriter
-    from tracecat.chat.schemas import ChatMessage
 
     CustomToolList = list[_PATool[Any]]
 else:
@@ -37,17 +34,22 @@ else:
     CustomToolList = list[Any]
 
 
+class MCPServerConfig(TypedDict):
+    """Configuration for an MCP server."""
+
+    url: str
+    headers: dict[str, str]
+
+
 class StreamKey(str):
     def __new__(
         cls,
         workspace_id: uuid.UUID | str,
         session_id: uuid.UUID | str,
-        *,
-        namespace: str = "agent",
     ) -> StreamKey:
         return super().__new__(
             cls,
-            f"{namespace}-stream:{str(workspace_id)}:{str(session_id)}",
+            f"agent-stream:{str(workspace_id)}:{str(session_id)}",
         )
 
 
@@ -96,22 +98,8 @@ UnifiedMessage = ModelMessage | ClaudeSDKMessage
 
 
 @runtime_checkable
-class MessageStore(Protocol):
-    async def load(self, session_id: uuid.UUID) -> list[ChatMessage]: ...
-
-    async def store(
-        self,
-        session_id: uuid.UUID,
-        messages: Sequence[UnifiedMessage],
-        *,
-        kind: MessageKind = MessageKind.CHAT_MESSAGE,
-    ) -> None: ...
-
-
-@runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
-    message_store: MessageStore | None = None
 
 
 type OutputType = (

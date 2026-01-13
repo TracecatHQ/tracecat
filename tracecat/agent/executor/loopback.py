@@ -1,0 +1,354 @@
+"""Loopback handler for NSJail runtime communication.
+
+This module provides the socket event loop that:
+1. Sends RuntimeInitPayload to the runtime
+2. Reads events from the runtime
+3. Forwards events to Redis stream
+4. Handles session updates
+5. Persists messages to database (AgentSessionHistory + ChatMessage for chat namespace)
+
+The loopback is used by the agent executor activity which handles:
+- Job directory creation
+- NSJail process spawning
+- Cleanup
+"""
+
+from __future__ import annotations
+
+import asyncio
+import html
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import orjson
+from sqlalchemy import select
+
+from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
+from tracecat.agent.common.socket_io import MessageType, build_message, read_message
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+)
+from tracecat.agent.common.types import (
+    MCPToolDefinition as SharedMCPToolDefinition,
+)
+from tracecat.agent.common.types import (
+    SandboxAgentConfig,
+)
+from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.types import AgentConfig
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import AgentSession, AgentSessionHistory
+from tracecat.logger import logger
+
+
+def _sanitize_value(value: Any) -> Any:
+    """Recursively sanitize a value by escaping HTML in strings.
+
+    Prevents XSS when session content is rendered in the frontend.
+    """
+    if isinstance(value, str):
+        return html.escape(value, quote=True)
+    elif isinstance(value, dict):
+        return {k: _sanitize_value(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_sanitize_value(item) for item in value]
+    else:
+        # int, float, bool, None - pass through unchanged
+        return value
+
+
+@dataclass(kw_only=True, slots=True)
+class LoopbackInput:
+    """Input for the loopback handler.
+
+    Fields used by loopback for its own logic:
+    - session_id, workspace_id: For Redis stream and DB writes
+    - socket_dir: For control socket path
+
+    Fields passed through to RuntimeInitPayload:
+    - user_prompt, config, mcp_auth_token, litellm_*, allowed_actions, sdk_session_*
+
+    On resume after approval, the sdk_session_data contains the proper tool_result
+    entry (inserted by execute_approved_tools_activity before reload).
+    """
+
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    user_prompt: str
+    config: AgentConfig
+    mcp_auth_token: str
+    litellm_auth_token: str
+    socket_dir: Path
+    allowed_actions: dict[str, MCPToolDefinition] | None = None
+    sdk_session_id: str | None = None
+    sdk_session_data: str | None = None
+    is_approval_continuation: bool = False
+
+
+@dataclass(kw_only=True, slots=True)
+class LoopbackResult:
+    """Result from the loopback handler."""
+
+    success: bool
+    error: str | None = None
+    approval_requested: bool = False
+    approval_items: list[ToolCallContent] = field(default_factory=list)
+
+
+class LoopbackHandler:
+    """Handles socket communication with the NSJail runtime.
+
+    This handler:
+    1. Accepts connection from runtime on control socket
+    2. Sends RuntimeInitPayload with agent config
+    3. Reads events and forwards to Redis stream
+    4. Tracks session updates and approval requests
+    5. Persists complete messages to database
+
+    The handler does NOT spawn the NSJail process - that is done by
+    the caller (activity) which manages the process lifecycle.
+    """
+
+    def __init__(self, input: LoopbackInput) -> None:
+        self.input = input
+        self._stream: AgentStream | None = None
+        self._result = LoopbackResult(success=False)
+        self._sdk_session_id: str | None = None  # Track SDK session ID for this run
+
+    async def handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> LoopbackResult:
+        """Handle incoming connection from the NSJail runtime.
+
+        This is the main entry point, called when the runtime connects
+        to the control socket.
+
+        Args:
+            reader: Stream reader for reading runtime events.
+            writer: Stream writer for sending init payload.
+
+        Returns:
+            LoopbackResult with success status and session updates.
+        """
+        logger.info(
+            "Runtime connected to control socket",
+            session_id=self.input.session_id,
+        )
+
+        try:
+            # Initialize Redis stream for event forwarding
+            self._stream = await AgentStream.new(
+                session_id=self.input.session_id,
+                workspace_id=self.input.workspace_id,
+            )
+
+            # Send init payload to runtime
+            await self._send_init_payload(writer)
+
+            # Read and forward events until done
+            await self._process_runtime_events(reader)
+
+            self._result.success = True
+
+        except asyncio.IncompleteReadError:
+            logger.warning("Runtime disconnected unexpectedly")
+            self._result.error = "Runtime disconnected unexpectedly"
+        except Exception as e:
+            logger.exception("Error handling runtime connection", error=str(e))
+            self._result.error = f"Connection error: {e}"
+            if self._stream:
+                await self._stream.error(str(e))
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+        return self._result
+
+    async def _send_init_payload(self, writer: asyncio.StreamWriter) -> None:
+        """Send RuntimeInitPayload to the runtime."""
+        # Convert AgentConfig (Pydantic) to SandboxAgentConfig (dataclass)
+        sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
+
+        # Convert MCPToolDefinition (Pydantic) to SharedMCPToolDefinition (dataclass)
+        allowed_actions: dict[str, SharedMCPToolDefinition] | None = None
+        if self.input.allowed_actions:
+            allowed_actions = {
+                name: SharedMCPToolDefinition(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters_json_schema=tool.parameters_json_schema,
+                )
+                for name, tool in self.input.allowed_actions.items()
+            }
+
+        payload = RuntimeInitPayload(
+            session_id=self.input.session_id,
+            mcp_auth_token=self.input.mcp_auth_token,
+            config=sandbox_config,
+            user_prompt=self.input.user_prompt,
+            litellm_auth_token=self.input.litellm_auth_token,
+            allowed_actions=allowed_actions,
+            sdk_session_id=self.input.sdk_session_id,
+            sdk_session_data=self.input.sdk_session_data,
+            is_approval_continuation=self.input.is_approval_continuation,
+        )
+
+        payload_bytes = orjson.dumps(payload.to_dict())
+        message = build_message(MessageType.INIT, payload_bytes)
+
+        writer.write(message)
+        await writer.drain()
+
+        logger.debug(
+            "Sent init payload to runtime",
+            session_id=self.input.session_id,
+            payload_size=len(payload_bytes),
+        )
+
+    async def _process_runtime_events(self, reader: asyncio.StreamReader) -> None:
+        """Read and process events from the runtime.
+
+        Forwards streaming events to Redis, persists complete messages to DB,
+        and handles session updates.
+        """
+        if self._stream is None:
+            raise RuntimeError("Stream not initialized")
+
+        while True:
+            try:
+                _msg_type, payload_bytes = await read_message(
+                    reader, expected_type=MessageType.EVENT
+                )
+            except asyncio.IncompleteReadError:
+                # Connection closed
+                logger.debug("Runtime connection closed")
+                break
+
+            # Parse the envelope
+            envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload_bytes))
+
+            match envelope.type:
+                case "stream_event":
+                    # Forward streaming event to Redis (partial deltas for UI)
+                    if envelope.event:
+                        logger.debug(
+                            "Forwarding stream event to Redis",
+                            event_type=envelope.event.type,
+                            session_id=self.input.session_id,
+                        )
+                        await self._stream.append(envelope.event)
+
+                        # Check for approval request
+                        if envelope.event.type == StreamEventType.APPROVAL_REQUEST:
+                            logger.info(
+                                "Approval request received",
+                                session_id=self.input.session_id,
+                                items=envelope.event.approval_items,
+                            )
+                            self._result.approval_requested = True
+                            # Convert from shared dataclass to Pydantic model
+                            self._result.approval_items = [
+                                ToolCallContent(
+                                    id=item.id,
+                                    name=item.name,
+                                    input=item.input,
+                                )
+                                for item in (envelope.event.approval_items or [])
+                            ]
+
+                case "message":
+                    # Complete message (inner only) - legacy, skip if session_line is used
+                    # Kept for backward compatibility with UI events
+                    pass
+
+                case "session_line":
+                    # Raw JSONL line from SDK session file - persist for resume
+                    if envelope.session_line and envelope.sdk_session_id:
+                        await self._persist_session_line(
+                            envelope.sdk_session_id,
+                            envelope.session_line,
+                            internal=envelope.internal,
+                        )
+
+                case "error":
+                    # Runtime error - stream error and close the stream
+                    error_msg = envelope.error or "Unknown runtime error"
+                    logger.error("Runtime error", error=error_msg)
+                    await self._stream.error(error_msg)
+                    await self._stream.done()  # Signal end of stream to SSE consumers
+                    self._result.error = error_msg
+                    break
+
+                case "done":
+                    # Runtime completed successfully
+                    logger.info(
+                        "Runtime completed",
+                        session_id=self.input.session_id,
+                    )
+                    await self._stream.done()
+                    break
+
+    async def _persist_session_line(
+        self, sdk_session_id: str, session_line: str, *, internal: bool = False
+    ) -> None:
+        """Persist sanitiszed JSONL line from SDK session file.
+
+        Writes to AgentSessionHistory only. The session_id in self.input
+        is the AgentSession.id for new chats, so all writes go to the
+        correct session history table.
+
+        Content is sanitized (HTML-escaped) before persistence to prevent XSS
+        from untrusted content like tool results. The sdk_session_id is tracked
+        on the AgentSession model.
+
+        Args:
+            sdk_session_id: The SDK's internal session ID (for JSONL reconstruction).
+            session_line: Raw JSONL line from the SDK session file.
+            internal: If True, this is internal state not shown in UI timeline.
+        """
+        # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
+        line_data = orjson.loads(session_line)
+        line_data = _sanitize_value(line_data)
+
+        logger.debug(
+            "Persisting session line",
+            session_id=self.input.session_id,
+            sdk_session_id=sdk_session_id,
+            internal=internal,
+        )
+
+        async with get_async_session_context_manager() as session:
+            # On first session line, update AgentSession with sdk_session_id
+            if self._sdk_session_id is None:
+                self._sdk_session_id = sdk_session_id
+                stmt = select(AgentSession).where(
+                    AgentSession.id == self.input.session_id,
+                    AgentSession.workspace_id == self.input.workspace_id,
+                )
+                result = await session.execute(stmt)
+                agent_session = result.scalar_one_or_none()
+                if agent_session and agent_session.sdk_session_id is None:
+                    agent_session.sdk_session_id = sdk_session_id
+                    logger.info(
+                        "Updated AgentSession with sdk_session_id",
+                        session_id=self.input.session_id,
+                        sdk_session_id=sdk_session_id,
+                    )
+
+            # Use explicit internal flag from runtime, not content-based heuristics
+            kind = "internal" if internal else "chat-message"
+
+            history_entry = AgentSessionHistory(
+                session_id=self.input.session_id,
+                workspace_id=self.input.workspace_id,
+                content=line_data,
+                kind=kind,
+            )
+            session.add(history_entry)
+            await session.commit()

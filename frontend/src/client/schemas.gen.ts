@@ -785,17 +785,6 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
-export const $AgentApprovalSubmission = {
-  properties: {
-    approvals: {
-      $ref: "#/components/schemas/ApprovalMap",
-    },
-  },
-  type: "object",
-  required: ["approvals"],
-  title: "AgentApprovalSubmission",
-} as const
-
 export const $AgentOutput = {
   properties: {
     output: {
@@ -805,21 +794,7 @@ export const $AgentOutput = {
       anyOf: [
         {
           items: {
-            oneOf: [
-              {
-                $ref: "#/components/schemas/ModelRequest",
-              },
-              {
-                $ref: "#/components/schemas/ModelResponse",
-              },
-            ],
-            discriminator: {
-              propertyName: "kind",
-              mapping: {
-                request: "#/components/schemas/ModelRequest",
-                response: "#/components/schemas/ModelResponse",
-              },
-            },
+            $ref: "#/components/schemas/ChatMessage",
           },
           type: "array",
         },
@@ -834,7 +809,14 @@ export const $AgentOutput = {
       title: "Duration",
     },
     usage: {
-      $ref: "#/components/schemas/RunUsage",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RunUsage",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     session_id: {
       type: "string",
@@ -843,7 +825,7 @@ export const $AgentOutput = {
     },
   },
   type: "object",
-  required: ["output", "duration", "usage", "session_id"],
+  required: ["output", "duration", "session_id"],
   title: "AgentOutput",
 } as const
 
@@ -1401,6 +1383,113 @@ export const $AgentPresetUpdate = {
   description: "Payload for updating an existing agent preset.",
 } as const
 
+export const $AgentSessionCreate = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Session ID (optional, will be generated if not provided)",
+    },
+    title: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Title",
+      description: "Human-readable title for the session",
+      default: "New Chat",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "User who owns this session",
+    },
+    entity_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AgentSessionEntity",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Type of entity this session is associated with",
+    },
+    entity_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent for this session",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset used for this session (if any)",
+    },
+    harness_type: {
+      $ref: "#/components/schemas/HarnessType",
+      description: "Agent harness type",
+      default: "claude_code",
+    },
+  },
+  type: "object",
+  title: "AgentSessionCreate",
+  description: "Request schema for creating an agent session.",
+} as const
+
+export const $AgentSessionEntity = {
+  type: "string",
+  enum: ["case", "agent_preset", "agent_preset_builder", "copilot", "workflow"],
+  title: "AgentSessionEntity",
+  description: `The type of entity associated with an agent session.
+
+Determines the context and behavior of the session:
+- CASE: Chat attached to a Case entity for investigation
+- AGENT_PRESET: Live chat testing a preset configuration
+- AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
+- COPILOT: Workspace-level copilot assistant
+- WORKFLOW: Workflow-initiated agent run (from action)`,
+} as const
+
 export const $AgentSessionRead = {
   properties: {
     id: {
@@ -1408,118 +1497,457 @@ export const $AgentSessionRead = {
       format: "uuid",
       title: "Id",
     },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    entity_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Type",
+    },
+    entity_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Id",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+    },
     created_at: {
       type: "string",
       format: "date-time",
       title: "Created At",
     },
-    parent_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Parent Id",
-    },
-    parent_run_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Parent Run Id",
-    },
-    root_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Root Id",
-    },
-    root_run_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Root Run Id",
-    },
-    status: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkflowExecutionStatus",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    approvals: {
-      items: {
-        $ref: "#/components/schemas/ApprovalRead",
-      },
-      type: "array",
-      title: "Approvals",
-    },
-    parent_workflow: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkflowSummary",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    root_workflow: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkflowSummary",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    action_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Action Ref",
-    },
-    action_title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Action Title",
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
     },
   },
   type: "object",
-  required: ["id", "created_at", "parent_run_id"],
+  required: [
+    "id",
+    "workspace_id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "agent_preset_id",
+    "harness_type",
+    "created_at",
+    "updated_at",
+  ],
   title: "AgentSessionRead",
+  description: "Response schema for agent session.",
+} as const
+
+export const $AgentSessionReadVercel = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    entity_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Type",
+    },
+    entity_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Id",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    messages: {
+      items: {
+        $ref: "#/components/schemas/UIMessage",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Session messages in Vercel UI format",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "agent_preset_id",
+    "harness_type",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentSessionReadVercel",
+  description: "Response schema for agent session with Vercel format messages.",
+} as const
+
+export const $AgentSessionReadWithMessages = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    entity_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Type",
+    },
+    entity_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Id",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+    },
+    last_stream_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Stream Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    messages: {
+      items: {},
+      type: "array",
+      title: "Messages",
+      description: "Session messages",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "agent_preset_id",
+    "harness_type",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentSessionReadWithMessages",
+  description: "Response schema for agent session with message history.",
+} as const
+
+export const $AgentSessionUpdate = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Session title",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description: "Agent preset to use for this session",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/HarnessType",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Agent harness type",
+    },
+  },
+  type: "object",
+  title: "AgentSessionUpdate",
+  description: "Request schema for updating an agent session.",
 } as const
 
 export const $AgentSettingsRead = {
@@ -1847,11 +2275,6 @@ export const $ApprovalRead = {
       format: "uuid",
       title: "Id",
     },
-    session_id: {
-      type: "string",
-      format: "uuid",
-      title: "Session Id",
-    },
     tool_call_id: {
       type: "string",
       title: "Tool Call Id",
@@ -1859,6 +2282,18 @@ export const $ApprovalRead = {
     tool_name: {
       type: "string",
       title: "Tool Name",
+    },
+    tool_call_args: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Call Args",
     },
     status: {
       $ref: "#/components/schemas/ApprovalStatus",
@@ -1873,18 +2308,6 @@ export const $ApprovalRead = {
         },
       ],
       title: "Reason",
-    },
-    tool_call_args: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Call Args",
     },
     decision: {
       anyOf: [
@@ -1904,12 +2327,14 @@ export const $ApprovalRead = {
     approved_by: {
       anyOf: [
         {
-          $ref: "#/components/schemas/UserReadMinimal",
+          type: "string",
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
+      title: "Approved By",
     },
     approved_at: {
       anyOf: [
@@ -1928,28 +2353,11 @@ export const $ApprovalRead = {
       format: "date-time",
       title: "Created At",
     },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
   },
   type: "object",
-  required: [
-    "id",
-    "session_id",
-    "tool_call_id",
-    "tool_name",
-    "status",
-    "reason",
-    "tool_call_args",
-    "decision",
-    "approved_at",
-    "created_at",
-    "updated_at",
-  ],
+  required: ["id", "tool_call_id", "tool_name", "status", "created_at"],
   title: "ApprovalRead",
-  description: "Serialized approval record.",
+  description: "Response schema for approval data in chat timeline.",
 } as const
 
 export const $ApprovalStatus = {
@@ -1957,6 +2365,18 @@ export const $ApprovalStatus = {
   enum: ["pending", "approved", "rejected"],
   title: "ApprovalStatus",
   description: "Possible states for a deferred tool approval.",
+} as const
+
+export const $ApprovalSubmission = {
+  properties: {
+    approvals: {
+      $ref: "#/components/schemas/ApprovalMap",
+    },
+  },
+  type: "object",
+  required: ["approvals"],
+  title: "ApprovalSubmission",
+  description: "Request model for submitting approval decisions.",
 } as const
 
 export const $AssigneeChangedEventRead = {
@@ -2729,169 +3149,6 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
-} as const
-
-export const $BuiltinToolCallEvent = {
-  properties: {
-    part: {
-      $ref: "#/components/schemas/BuiltinToolCallPart",
-    },
-    event_kind: {
-      type: "string",
-      const: "builtin_tool_call",
-      title: "Event Kind",
-      default: "builtin_tool_call",
-    },
-  },
-  type: "object",
-  required: ["part"],
-  title: "BuiltinToolCallEvent",
-  deprecated: true,
-} as const
-
-export const $BuiltinToolCallPart = {
-  properties: {
-    tool_name: {
-      type: "string",
-      title: "Tool Name",
-    },
-    args: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Args",
-    },
-    tool_call_id: {
-      type: "string",
-      title: "Tool Call Id",
-    },
-    id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Id",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    provider_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Name",
-    },
-    part_kind: {
-      type: "string",
-      const: "builtin-tool-call",
-      title: "Part Kind",
-      default: "builtin-tool-call",
-    },
-  },
-  type: "object",
-  required: ["tool_name"],
-  title: "BuiltinToolCallPart",
-} as const
-
-export const $BuiltinToolResultEvent = {
-  properties: {
-    result: {
-      $ref: "#/components/schemas/BuiltinToolReturnPart",
-    },
-    event_kind: {
-      type: "string",
-      const: "builtin_tool_result",
-      title: "Event Kind",
-      default: "builtin_tool_result",
-    },
-  },
-  type: "object",
-  required: ["result"],
-  title: "BuiltinToolResultEvent",
-  deprecated: true,
-} as const
-
-export const $BuiltinToolReturnPart = {
-  properties: {
-    tool_name: {
-      type: "string",
-      title: "Tool Name",
-    },
-    content: {
-      title: "Content",
-    },
-    tool_call_id: {
-      type: "string",
-      title: "Tool Call Id",
-    },
-    metadata: {
-      title: "Metadata",
-    },
-    timestamp: {
-      type: "string",
-      format: "date-time",
-      title: "Timestamp",
-    },
-    provider_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Name",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_kind: {
-      type: "string",
-      const: "builtin-tool-return",
-      title: "Part Kind",
-      default: "builtin-tool-return",
-    },
-  },
-  type: "object",
-  required: ["tool_name", "content"],
-  title: "BuiltinToolReturnPart",
 } as const
 
 export const $CachePoint = {
@@ -4706,74 +4963,17 @@ export const $CaseViewedEventRead = {
   description: "Event for when a case is viewed.",
 } as const
 
-export const $ChatCreate = {
-  properties: {
-    title: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Title",
-      description: "Human-readable title for the chat",
-    },
-    entity_type: {
-      $ref: "#/components/schemas/ChatEntity",
-      description: "Type of entity this chat is associated with",
-    },
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the associated entity",
-    },
-    tools: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-          maxItems: 50,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tools",
-      description: "Tools available to the agent for this chat",
-    },
-    agent_preset_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Preset Id",
-      description: "Optional agent preset to use for the chat session",
-    },
-  },
-  type: "object",
-  required: ["title", "entity_type", "entity_id"],
-  title: "ChatCreate",
-  description: "Request model for creating a new chat.",
-} as const
-
-export const $ChatEntity = {
-  type: "string",
-  enum: ["case", "agent_preset", "agent_preset_builder", "copilot"],
-  title: "ChatEntity",
-  description: "The type of entity associated with a chat.",
-} as const
-
 export const $ChatMessage = {
   properties: {
     id: {
       type: "string",
       title: "Id",
       description: "Unique message identifier",
+    },
+    kind: {
+      $ref: "#/components/schemas/MessageKind",
+      description: "Message kind for rendering",
+      default: "chat-message",
     },
     message: {
       anyOf: [
@@ -4793,356 +4993,34 @@ export const $ChatMessage = {
         {
           $ref: "#/components/schemas/StreamEvent",
         },
+        {
+          type: "null",
+        },
       ],
       title: "Message",
-      description: "The deserialized message",
+      description: "The deserialized message (for kind=CHAT_MESSAGE)",
     },
-  },
-  type: "object",
-  required: ["id", "message"],
-  title: "ChatMessage",
-  description: "Model for a chat message with typed message payload.",
-} as const
-
-export const $ChatRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-      description: "Unique chat identifier",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "Human-readable title for the chat",
-    },
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-      description: "ID of the user who owns the chat",
-    },
-    entity_type: {
-      type: "string",
-      title: "Entity Type",
-      description: "Type of entity this chat is associated with",
-    },
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the associated entity",
-    },
-    tools: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Tools",
-      description: "Tools available to the agent",
-    },
-    agent_preset_id: {
+    approval: {
       anyOf: [
         {
-          type: "string",
-          format: "uuid",
+          $ref: "#/components/schemas/ApprovalRead",
         },
         {
           type: "null",
         },
       ],
-      title: "Agent Preset Id",
-      description: "Agent preset associated with the chat, if any",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "When the chat was created",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-      description: "When the chat was last updated",
-    },
-    last_stream_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Last Stream Id",
-      description: "Last processed Redis stream ID for this chat",
-    },
-    messages: {
-      items: {
-        $ref: "#/components/schemas/ChatMessage",
-      },
-      type: "array",
-      title: "Messages",
-      description: "Chat messages from Redis stream",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "title",
-    "user_id",
-    "entity_type",
-    "entity_id",
-    "tools",
-    "created_at",
-    "updated_at",
-  ],
-  title: "ChatRead",
-  description: "Model for chat metadata with message history.",
-} as const
-
-export const $ChatReadMinimal = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-      description: "Unique chat identifier",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "Human-readable title for the chat",
-    },
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-      description: "ID of the user who owns the chat",
-    },
-    entity_type: {
-      type: "string",
-      title: "Entity Type",
-      description: "Type of entity this chat is associated with",
-    },
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the associated entity",
-    },
-    tools: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Tools",
-      description: "Tools available to the agent",
-    },
-    agent_preset_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Preset Id",
-      description: "Agent preset associated with the chat, if any",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "When the chat was created",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-      description: "When the chat was last updated",
-    },
-    last_stream_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Last Stream Id",
-      description: "Last processed Redis stream ID for this chat",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "title",
-    "user_id",
-    "entity_type",
-    "entity_id",
-    "tools",
-    "created_at",
-    "updated_at",
-  ],
-  title: "ChatReadMinimal",
-  description: "Model for chat metadata without messages.",
-} as const
-
-export const $ChatReadVercel = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-      description: "Unique chat identifier",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "Human-readable title for the chat",
-    },
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-      description: "ID of the user who owns the chat",
-    },
-    entity_type: {
-      type: "string",
-      title: "Entity Type",
-      description: "Type of entity this chat is associated with",
-    },
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the associated entity",
-    },
-    tools: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Tools",
-      description: "Tools available to the agent",
-    },
-    agent_preset_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Preset Id",
-      description: "Agent preset associated with the chat, if any",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "When the chat was created",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-      description: "When the chat was last updated",
-    },
-    last_stream_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Last Stream Id",
-      description: "Last processed Redis stream ID for this chat",
-    },
-    messages: {
-      items: {
-        $ref: "#/components/schemas/UIMessage",
-      },
-      type: "array",
-      title: "Messages",
-      description: "Chat messages from Redis stream",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "title",
-    "user_id",
-    "entity_type",
-    "entity_id",
-    "tools",
-    "created_at",
-    "updated_at",
-  ],
-  title: "ChatReadVercel",
-  description: "Model for chat metadata with message history in Vercel format.",
-} as const
-
-export const $ChatUpdate = {
-  properties: {
-    tools: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-          maxItems: 50,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tools",
-      description: "Tools available to the agent",
-    },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 200,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
-      description: "Chat title",
-    },
-    agent_preset_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Preset Id",
       description:
-        "Agent preset to use for the chat session (set to null for default instructions)",
+        "Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
     },
   },
   type: "object",
-  title: "ChatUpdate",
-  description: "Request model for updating chat properties.",
+  required: ["id"],
+  title: "ChatMessage",
+  description: `Model for a chat message with typed message payload.
+
+This model supports both regular messages and approval bubbles:
+- kind=CHAT_MESSAGE: Contains message field with user/assistant content
+- kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data`,
 } as const
 
 export const $ClosedEventRead = {
@@ -6781,57 +6659,6 @@ export const $FieldDiff = {
   title: "FieldDiff",
 } as const
 
-export const $FilePart = {
-  properties: {
-    content: {
-      $ref: "#/components/schemas/BinaryContent",
-    },
-    id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Id",
-    },
-    provider_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Name",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_kind: {
-      type: "string",
-      const: "file",
-      title: "Part Kind",
-      default: "file",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "FilePart",
-} as const
-
 export const $FileUIPart = {
   properties: {
     type: {
@@ -6865,42 +6692,6 @@ export const $FileUIPart = {
   required: ["type", "mediaType", "url"],
   title: "FileUIPart",
   description: "A file part of a message.",
-} as const
-
-export const $FinalResultEvent = {
-  properties: {
-    tool_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Name",
-    },
-    tool_call_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Call Id",
-    },
-    event_kind: {
-      type: "string",
-      const: "final_result",
-      title: "Event Kind",
-      default: "final_result",
-    },
-  },
-  type: "object",
-  required: ["tool_name", "tool_call_id"],
-  title: "FinalResultEvent",
 } as const
 
 export const $Float = {
@@ -6995,87 +6786,6 @@ export const $FolderDirectoryItem = {
     "num_items",
   ],
   title: "FolderDirectoryItem",
-} as const
-
-export const $FunctionToolCallEvent = {
-  properties: {
-    part: {
-      $ref: "#/components/schemas/ToolCallPart",
-    },
-    event_kind: {
-      type: "string",
-      const: "function_tool_call",
-      title: "Event Kind",
-      default: "function_tool_call",
-    },
-  },
-  type: "object",
-  required: ["part"],
-  title: "FunctionToolCallEvent",
-} as const
-
-export const $FunctionToolResultEvent = {
-  properties: {
-    result: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/ToolReturnPart",
-        },
-        {
-          $ref: "#/components/schemas/RetryPromptPart",
-        },
-      ],
-      title: "Result",
-    },
-    content: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          items: {
-            anyOf: [
-              {
-                type: "string",
-              },
-              {
-                $ref: "#/components/schemas/ImageUrl",
-              },
-              {
-                $ref: "#/components/schemas/AudioUrl",
-              },
-              {
-                $ref: "#/components/schemas/DocumentUrl",
-              },
-              {
-                $ref: "#/components/schemas/VideoUrl",
-              },
-              {
-                $ref: "#/components/schemas/BinaryContent",
-              },
-              {
-                $ref: "#/components/schemas/CachePoint",
-              },
-            ],
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content",
-    },
-    event_kind: {
-      type: "string",
-      const: "function_tool_result",
-      title: "Event Kind",
-      default: "function_tool_result",
-    },
-  },
-  type: "object",
-  required: ["result"],
-  title: "FunctionToolResultEvent",
 } as const
 
 export const $GetWorkflowDefinitionActivityInputs = {
@@ -7558,6 +7268,13 @@ export const $HTTPValidationError = {
   },
   type: "object",
   title: "HTTPValidationError",
+} as const
+
+export const $HarnessType = {
+  type: "string",
+  enum: ["pydantic-ai", "claude_code"],
+  title: "HarnessType",
+  description: "Supported agent harnesses.",
 } as const
 
 export const $ImageUrl = {
@@ -8472,6 +8189,13 @@ export const $MCPServerConfig = {
   description: "Configuration for an MCP server.",
 } as const
 
+export const $MessageKind = {
+  type: "string",
+  enum: ["chat-message", "approval-request", "approval-decision", "internal"],
+  title: "MessageKind",
+  description: "The type/kind of message stored in the chat.",
+} as const
+
 export const $ModelConfig = {
   properties: {
     name: {
@@ -8547,222 +8271,6 @@ export const $ModelCredentialUpdate = {
   required: ["credentials"],
   title: "ModelCredentialUpdate",
   description: "Model for updating model credentials.",
-} as const
-
-export const $ModelRequest = {
-  properties: {
-    parts: {
-      items: {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/SystemPromptPart",
-          },
-          {
-            $ref: "#/components/schemas/UserPromptPart",
-          },
-          {
-            $ref: "#/components/schemas/ToolReturnPart",
-          },
-          {
-            $ref: "#/components/schemas/RetryPromptPart",
-          },
-        ],
-        discriminator: {
-          propertyName: "part_kind",
-          mapping: {
-            "retry-prompt": "#/components/schemas/RetryPromptPart",
-            "system-prompt": "#/components/schemas/SystemPromptPart",
-            "tool-return": "#/components/schemas/ToolReturnPart",
-            "user-prompt": "#/components/schemas/UserPromptPart",
-          },
-        },
-      },
-      type: "array",
-      title: "Parts",
-    },
-    instructions: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Instructions",
-    },
-    kind: {
-      type: "string",
-      const: "request",
-      title: "Kind",
-      default: "request",
-    },
-    run_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Run Id",
-    },
-    metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Metadata",
-    },
-  },
-  type: "object",
-  required: ["parts"],
-  title: "ModelRequest",
-} as const
-
-export const $ModelResponse = {
-  properties: {
-    parts: {
-      items: {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/TextPart",
-          },
-          {
-            $ref: "#/components/schemas/ToolCallPart",
-          },
-          {
-            $ref: "#/components/schemas/BuiltinToolCallPart",
-          },
-          {
-            $ref: "#/components/schemas/BuiltinToolReturnPart",
-          },
-          {
-            $ref: "#/components/schemas/ThinkingPart",
-          },
-          {
-            $ref: "#/components/schemas/FilePart",
-          },
-        ],
-        discriminator: {
-          propertyName: "part_kind",
-          mapping: {
-            "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
-            "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
-            file: "#/components/schemas/FilePart",
-            text: "#/components/schemas/TextPart",
-            thinking: "#/components/schemas/ThinkingPart",
-            "tool-call": "#/components/schemas/ToolCallPart",
-          },
-        },
-      },
-      type: "array",
-      title: "Parts",
-    },
-    usage: {
-      $ref: "#/components/schemas/RequestUsage",
-    },
-    model_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Name",
-    },
-    timestamp: {
-      type: "string",
-      format: "date-time",
-      title: "Timestamp",
-    },
-    kind: {
-      type: "string",
-      const: "response",
-      title: "Kind",
-      default: "response",
-    },
-    provider_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Name",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    provider_response_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Response Id",
-    },
-    finish_reason: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["stop", "length", "content_filter", "tool_call", "error"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Finish Reason",
-    },
-    run_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Run Id",
-    },
-    metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Metadata",
-    },
-  },
-  type: "object",
-  required: ["parts"],
-  title: "ModelResponse",
 } as const
 
 export const $ModelSecretConfig = {
@@ -9008,188 +8516,6 @@ export const $OutputType = {
       type: "object",
     },
   ],
-} as const
-
-export const $PartDeltaEvent = {
-  properties: {
-    index: {
-      type: "integer",
-      title: "Index",
-    },
-    delta: {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/TextPartDelta",
-        },
-        {
-          $ref: "#/components/schemas/ThinkingPartDelta",
-        },
-        {
-          $ref: "#/components/schemas/ToolCallPartDelta",
-        },
-      ],
-      title: "Delta",
-      discriminator: {
-        propertyName: "part_delta_kind",
-        mapping: {
-          text: "#/components/schemas/TextPartDelta",
-          thinking: "#/components/schemas/ThinkingPartDelta",
-          tool_call: "#/components/schemas/ToolCallPartDelta",
-        },
-      },
-    },
-    event_kind: {
-      type: "string",
-      const: "part_delta",
-      title: "Event Kind",
-      default: "part_delta",
-    },
-  },
-  type: "object",
-  required: ["index", "delta"],
-  title: "PartDeltaEvent",
-} as const
-
-export const $PartEndEvent = {
-  properties: {
-    index: {
-      type: "integer",
-      title: "Index",
-    },
-    part: {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/TextPart",
-        },
-        {
-          $ref: "#/components/schemas/ToolCallPart",
-        },
-        {
-          $ref: "#/components/schemas/BuiltinToolCallPart",
-        },
-        {
-          $ref: "#/components/schemas/BuiltinToolReturnPart",
-        },
-        {
-          $ref: "#/components/schemas/ThinkingPart",
-        },
-        {
-          $ref: "#/components/schemas/FilePart",
-        },
-      ],
-      title: "Part",
-      discriminator: {
-        propertyName: "part_kind",
-        mapping: {
-          "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
-          "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
-          file: "#/components/schemas/FilePart",
-          text: "#/components/schemas/TextPart",
-          thinking: "#/components/schemas/ThinkingPart",
-          "tool-call": "#/components/schemas/ToolCallPart",
-        },
-      },
-    },
-    next_part_kind: {
-      anyOf: [
-        {
-          type: "string",
-          enum: [
-            "text",
-            "thinking",
-            "tool-call",
-            "builtin-tool-call",
-            "builtin-tool-return",
-            "file",
-          ],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Part Kind",
-    },
-    event_kind: {
-      type: "string",
-      const: "part_end",
-      title: "Event Kind",
-      default: "part_end",
-    },
-  },
-  type: "object",
-  required: ["index", "part"],
-  title: "PartEndEvent",
-} as const
-
-export const $PartStartEvent = {
-  properties: {
-    index: {
-      type: "integer",
-      title: "Index",
-    },
-    part: {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/TextPart",
-        },
-        {
-          $ref: "#/components/schemas/ToolCallPart",
-        },
-        {
-          $ref: "#/components/schemas/BuiltinToolCallPart",
-        },
-        {
-          $ref: "#/components/schemas/BuiltinToolReturnPart",
-        },
-        {
-          $ref: "#/components/schemas/ThinkingPart",
-        },
-        {
-          $ref: "#/components/schemas/FilePart",
-        },
-      ],
-      title: "Part",
-      discriminator: {
-        propertyName: "part_kind",
-        mapping: {
-          "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
-          "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
-          file: "#/components/schemas/FilePart",
-          text: "#/components/schemas/TextPart",
-          thinking: "#/components/schemas/ThinkingPart",
-          "tool-call": "#/components/schemas/ToolCallPart",
-        },
-      },
-    },
-    previous_part_kind: {
-      anyOf: [
-        {
-          type: "string",
-          enum: [
-            "text",
-            "thinking",
-            "tool-call",
-            "builtin-tool-call",
-            "builtin-tool-return",
-            "file",
-          ],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Previous Part Kind",
-    },
-    event_kind: {
-      type: "string",
-      const: "part_start",
-      title: "Event Kind",
-      default: "part_start",
-    },
-  },
-  type: "object",
-  required: ["index", "part"],
-  title: "PartStartEvent",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -10952,55 +10278,6 @@ export const $ReopenedEventRead = {
   description: "Event for when a case is reopened.",
 } as const
 
-export const $RequestUsage = {
-  properties: {
-    input_tokens: {
-      type: "integer",
-      title: "Input Tokens",
-      default: 0,
-    },
-    cache_write_tokens: {
-      type: "integer",
-      title: "Cache Write Tokens",
-      default: 0,
-    },
-    cache_read_tokens: {
-      type: "integer",
-      title: "Cache Read Tokens",
-      default: 0,
-    },
-    output_tokens: {
-      type: "integer",
-      title: "Output Tokens",
-      default: 0,
-    },
-    input_audio_tokens: {
-      type: "integer",
-      title: "Input Audio Tokens",
-      default: 0,
-    },
-    cache_audio_read_tokens: {
-      type: "integer",
-      title: "Cache Audio Read Tokens",
-      default: 0,
-    },
-    output_audio_tokens: {
-      type: "integer",
-      title: "Output Audio Tokens",
-      default: 0,
-    },
-    details: {
-      additionalProperties: {
-        type: "integer",
-      },
-      type: "object",
-      title: "Details",
-    },
-  },
-  type: "object",
-  title: "RequestUsage",
-} as const
-
 export const $ResponseInteraction = {
   properties: {
     type: {
@@ -11209,6 +10486,7 @@ export const $Role = {
         "tracecat-bootstrap",
         "tracecat-cli",
         "tracecat-executor",
+        "tracecat-agent-executor",
         "tracecat-llm-gateway",
         "tracecat-mcp",
         "tracecat-runner",
@@ -11333,48 +10611,6 @@ export const $RunContext = {
 
 export const $RunUsage = {
   properties: {
-    input_tokens: {
-      type: "integer",
-      title: "Input Tokens",
-      default: 0,
-    },
-    cache_write_tokens: {
-      type: "integer",
-      title: "Cache Write Tokens",
-      default: 0,
-    },
-    cache_read_tokens: {
-      type: "integer",
-      title: "Cache Read Tokens",
-      default: 0,
-    },
-    output_tokens: {
-      type: "integer",
-      title: "Output Tokens",
-      default: 0,
-    },
-    input_audio_tokens: {
-      type: "integer",
-      title: "Input Audio Tokens",
-      default: 0,
-    },
-    cache_audio_read_tokens: {
-      type: "integer",
-      title: "Cache Audio Read Tokens",
-      default: 0,
-    },
-    output_audio_tokens: {
-      type: "integer",
-      title: "Output Audio Tokens",
-      default: 0,
-    },
-    details: {
-      additionalProperties: {
-        type: "integer",
-      },
-      type: "object",
-      title: "Details",
-    },
     requests: {
       type: "integer",
       title: "Requests",
@@ -11385,9 +10621,20 @@ export const $RunUsage = {
       title: "Tool Calls",
       default: 0,
     },
+    input_tokens: {
+      type: "integer",
+      title: "Input Tokens",
+      default: 0,
+    },
+    output_tokens: {
+      type: "integer",
+      title: "Output Tokens",
+      default: 0,
+    },
   },
   type: "object",
   title: "RunUsage",
+  description: "LLM usage associated with an agent run.",
 } as const
 
 export const $SAMLDatabaseLoginResponse = {
@@ -12656,40 +11903,6 @@ export const $SystemMessage = {
   type: "object",
   required: ["subtype", "data"],
   title: "SystemMessage",
-} as const
-
-export const $SystemPromptPart = {
-  properties: {
-    content: {
-      type: "string",
-      title: "Content",
-    },
-    timestamp: {
-      type: "string",
-      format: "date-time",
-      title: "Timestamp",
-    },
-    dynamic_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Dynamic Ref",
-    },
-    part_kind: {
-      type: "string",
-      const: "system-prompt",
-      title: "Part Kind",
-      default: "system-prompt",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "SystemPromptPart",
 } as const
 
 export const $TableColumnCreate = {
@@ -14138,77 +13351,6 @@ export const $TextBlock = {
   title: "TextBlock",
 } as const
 
-export const $TextPart = {
-  properties: {
-    content: {
-      type: "string",
-      title: "Content",
-    },
-    id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Id",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_kind: {
-      type: "string",
-      const: "text",
-      title: "Part Kind",
-      default: "text",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "TextPart",
-} as const
-
-export const $TextPartDelta = {
-  properties: {
-    content_delta: {
-      type: "string",
-      title: "Content Delta",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_delta_kind: {
-      type: "string",
-      const: "text",
-      title: "Part Delta Kind",
-      default: "text",
-    },
-  },
-  type: "object",
-  required: ["content_delta"],
-  title: "TextPartDelta",
-} as const
-
 export const $TextUIPart = {
   properties: {
     type: {
@@ -14257,127 +13399,6 @@ export const $ThinkingBlock = {
   title: "ThinkingBlock",
 } as const
 
-export const $ThinkingPart = {
-  properties: {
-    content: {
-      type: "string",
-      title: "Content",
-    },
-    id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Id",
-    },
-    signature: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Signature",
-    },
-    provider_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Name",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_kind: {
-      type: "string",
-      const: "thinking",
-      title: "Part Kind",
-      default: "thinking",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "ThinkingPart",
-} as const
-
-export const $ThinkingPartDelta = {
-  properties: {
-    content_delta: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content Delta",
-    },
-    signature_delta: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Signature Delta",
-    },
-    provider_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Name",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_delta_kind: {
-      type: "string",
-      const: "thinking",
-      title: "Part Delta Kind",
-      default: "thinking",
-    },
-  },
-  type: "object",
-  title: "ThinkingPartDelta",
-} as const
-
 export const $Toggle = {
   properties: {
     label_on: {
@@ -14424,128 +13445,6 @@ export const $ToolApproved = {
   },
   type: "object",
   title: "ToolApproved",
-} as const
-
-export const $ToolCallPart = {
-  properties: {
-    tool_name: {
-      type: "string",
-      title: "Tool Name",
-    },
-    args: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Args",
-    },
-    tool_call_id: {
-      type: "string",
-      title: "Tool Call Id",
-    },
-    id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Id",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_kind: {
-      type: "string",
-      const: "tool-call",
-      title: "Part Kind",
-      default: "tool-call",
-    },
-  },
-  type: "object",
-  required: ["tool_name"],
-  title: "ToolCallPart",
-} as const
-
-export const $ToolCallPartDelta = {
-  properties: {
-    tool_name_delta: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Name Delta",
-    },
-    args_delta: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Args Delta",
-    },
-    tool_call_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Call Id",
-    },
-    provider_details: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Provider Details",
-    },
-    part_delta_kind: {
-      type: "string",
-      const: "tool_call",
-      title: "Part Delta Kind",
-      default: "tool_call",
-    },
-  },
-  type: "object",
-  title: "ToolCallPartDelta",
 } as const
 
 export const $ToolDenied = {
@@ -14664,39 +13563,6 @@ export const $ToolReturn = {
   type: "object",
   required: ["return_value"],
   title: "ToolReturn",
-} as const
-
-export const $ToolReturnPart = {
-  properties: {
-    tool_name: {
-      type: "string",
-      title: "Tool Name",
-    },
-    content: {
-      title: "Content",
-    },
-    tool_call_id: {
-      type: "string",
-      title: "Tool Call Id",
-    },
-    metadata: {
-      title: "Metadata",
-    },
-    timestamp: {
-      type: "string",
-      format: "date-time",
-      title: "Timestamp",
-    },
-    part_kind: {
-      type: "string",
-      const: "tool-return",
-      title: "Part Kind",
-      default: "tool-return",
-    },
-  },
-  type: "object",
-  required: ["tool_name", "content"],
-  title: "ToolReturnPart",
 } as const
 
 export const $ToolUIPartInputAvailable = {
@@ -15215,61 +14081,6 @@ export const $UserMessage = {
   title: "UserMessage",
 } as const
 
-export const $UserPromptPart = {
-  properties: {
-    content: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          items: {
-            anyOf: [
-              {
-                type: "string",
-              },
-              {
-                $ref: "#/components/schemas/ImageUrl",
-              },
-              {
-                $ref: "#/components/schemas/AudioUrl",
-              },
-              {
-                $ref: "#/components/schemas/DocumentUrl",
-              },
-              {
-                $ref: "#/components/schemas/VideoUrl",
-              },
-              {
-                $ref: "#/components/schemas/BinaryContent",
-              },
-              {
-                $ref: "#/components/schemas/CachePoint",
-              },
-            ],
-          },
-          type: "array",
-        },
-      ],
-      title: "Content",
-    },
-    timestamp: {
-      type: "string",
-      format: "date-time",
-      title: "Timestamp",
-    },
-    part_kind: {
-      type: "string",
-      const: "user-prompt",
-      title: "Part Kind",
-      default: "user-prompt",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "UserPromptPart",
-} as const
-
 export const $UserRead = {
   properties: {
     id: {
@@ -15331,49 +14142,6 @@ export const $UserRead = {
   type: "object",
   required: ["id", "email", "role", "settings"],
   title: "UserRead",
-} as const
-
-export const $UserReadMinimal = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role: {
-      $ref: "#/components/schemas/UserRole",
-    },
-    first_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "First Name",
-    },
-    last_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Last Name",
-    },
-  },
-  type: "object",
-  required: ["id", "email", "role"],
-  title: "UserReadMinimal",
 } as const
 
 export const $UserRole = {
@@ -17656,34 +16424,6 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
-} as const
-
-export const $WorkflowSummary = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-    },
-    alias: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Alias",
-    },
-  },
-  type: "object",
-  required: ["id", "title"],
-  title: "WorkflowSummary",
 } as const
 
 export const $WorkflowSyncPullRequest = {

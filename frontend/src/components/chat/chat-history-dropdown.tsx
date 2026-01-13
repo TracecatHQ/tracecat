@@ -4,7 +4,7 @@ import { formatDistanceToNow } from "date-fns"
 import { Check, ChevronDown, Loader2 } from "lucide-react"
 import { useState } from "react"
 
-import type { ChatRead } from "@/client"
+import type { AgentSessionRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/popover"
 
 interface ChatHistoryDropdownProps {
-  chats: ChatRead[] | undefined
+  chats: AgentSessionRead[] | undefined
   isLoading: boolean
   error: unknown
   selectedChatId: string | undefined

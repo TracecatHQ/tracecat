@@ -88,12 +88,14 @@ class AgentResourceLimits:
         timeout_seconds: Maximum wall-clock execution time.
     """
 
-    memory_mb: int = TRACECAT__AGENT_SANDBOX_MEMORY_MB
-    cpu_seconds: int = TRACECAT__AGENT_SANDBOX_TIMEOUT
+    memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
+    cpu_seconds: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT)
     max_file_size_mb: int = 256
     max_open_files: int = 512
     max_processes: int = 128
-    timeout_seconds: int = TRACECAT__AGENT_SANDBOX_TIMEOUT
+    timeout_seconds: int = field(
+        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+    )
 
 
 @dataclass

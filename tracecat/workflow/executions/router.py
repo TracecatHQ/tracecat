@@ -11,7 +11,6 @@ import tracecat.agent.adapter.vercel
 from tracecat.agent.schemas import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
-from tracecat.chat.schemas import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import (
@@ -165,16 +164,10 @@ async def get_workflow_execution_compact(
                 # Successful validation asserts this is an AgentOutput
                 output = AgentOutput.model_validate(event.action_result)
                 if output.message_history:
-                    messages = [
-                        ChatMessage(
-                            id=f"{output.session_id}-msg-{i}",
-                            message=msg,
-                        )
-                        for i, msg in enumerate(output.message_history)
-                    ]
+                    # message_history is now list[ChatMessage] from the activity
                     event.session.events = (
                         tracecat.agent.adapter.vercel.convert_chat_messages_to_ui(
-                            messages
+                            output.message_history
                         )
                     )
             except Exception as e:

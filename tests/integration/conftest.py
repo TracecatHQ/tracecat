@@ -170,6 +170,233 @@ def role_workspace_b() -> Role:
     )
 
 
+@pytest.fixture
+async def test_workspace_a(session):
+    """Create workspace A for multi-tenant agent tests.
+
+    Creates workspace in both test session and global session so services using
+    with_session() can see the workspace and satisfy foreign key constraints.
+    """
+    from sqlalchemy import select
+
+    from tracecat import config
+    from tracecat.db.engine import get_async_session_context_manager
+    from tracecat.db.models import Workspace
+    from tracecat.logger import logger
+
+    workspace_id = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+
+    workspace = Workspace(
+        id=workspace_id,
+        name="test-workspace-a",
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+    session.add(workspace)
+    await session.commit()
+    await session.refresh(workspace)
+
+    # Also persist in global session for services using with_session()
+    async with get_async_session_context_manager() as global_session:
+        result = await global_session.execute(
+            select(Workspace).where(Workspace.id == workspace_id)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            global_session.add(
+                Workspace(
+                    id=workspace_id,
+                    name="test-workspace-a",
+                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                )
+            )
+            await global_session.commit()
+
+    logger.debug("Created test workspace A", workspace_id=workspace.id)
+    try:
+        yield workspace
+    finally:
+        logger.debug("Teardown test workspace A")
+        try:
+            async with get_async_session_context_manager() as global_cleanup_session:
+                result = await global_cleanup_session.execute(
+                    select(Workspace).where(Workspace.id == workspace_id)
+                )
+                global_workspace = result.scalar_one_or_none()
+                if global_workspace:
+                    await global_cleanup_session.delete(global_workspace)
+                    await global_cleanup_session.commit()
+                    logger.debug("Cleaned up workspace A from global session")
+        except Exception as e:
+            logger.warning(f"Error cleaning up workspace A from global session: {e}")
+
+
+@pytest.fixture
+async def test_workspace_b(session):
+    """Create workspace B for multi-tenant agent tests.
+
+    Creates workspace in both test session and global session so services using
+    with_session() can see the workspace and satisfy foreign key constraints.
+    """
+    from sqlalchemy import select
+
+    from tracecat import config
+    from tracecat.db.engine import get_async_session_context_manager
+    from tracecat.db.models import Workspace
+    from tracecat.logger import logger
+
+    workspace_id = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
+
+    workspace = Workspace(
+        id=workspace_id,
+        name="test-workspace-b",
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+    session.add(workspace)
+    await session.commit()
+    await session.refresh(workspace)
+
+    # Also persist in global session for services using with_session()
+    async with get_async_session_context_manager() as global_session:
+        result = await global_session.execute(
+            select(Workspace).where(Workspace.id == workspace_id)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            global_session.add(
+                Workspace(
+                    id=workspace_id,
+                    name="test-workspace-b",
+                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                )
+            )
+            await global_session.commit()
+
+    logger.debug("Created test workspace B", workspace_id=workspace.id)
+    try:
+        yield workspace
+    finally:
+        logger.debug("Teardown test workspace B")
+        try:
+            async with get_async_session_context_manager() as global_cleanup_session:
+                result = await global_cleanup_session.execute(
+                    select(Workspace).where(Workspace.id == workspace_id)
+                )
+                global_workspace = result.scalar_one_or_none()
+                if global_workspace:
+                    await global_cleanup_session.delete(global_workspace)
+                    await global_cleanup_session.commit()
+                    logger.debug("Cleaned up workspace B from global session")
+        except Exception as e:
+            logger.warning(f"Error cleaning up workspace B from global session: {e}")
+
+
+@pytest.fixture
+def role_workspace_agent_a(test_user_a, test_workspace_a) -> Role:
+    """Role for workspace A (test tenant 1) for agent workflows."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=test_workspace_a.id,
+        user_id=test_user_a.id,
+    )
+
+
+@pytest.fixture
+def role_workspace_agent_b(test_user_b, test_workspace_b) -> Role:
+    """Role for workspace B (test tenant 2) for agent workflows."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=test_workspace_b.id,
+        user_id=test_user_b.id,
+    )
+
+
+# =============================================================================
+# Agent Session Fixtures for Concurrency Tests
+# =============================================================================
+
+
+@pytest.fixture
+async def test_agent_session_a(role_workspace_agent_a: Role):
+    """Create agent session A for concurrency tests."""
+    from tracecat.agent.session.schemas import AgentSessionCreate
+    from tracecat.agent.session.service import AgentSessionService
+    from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.logger import logger
+
+    async with AgentSessionService.with_session(role=role_workspace_agent_a) as svc:
+        agent_session = await svc.create_session(
+            AgentSessionCreate(
+                entity_type=AgentSessionEntity.CASE,
+                entity_id=uuid.uuid4(),
+            )
+        )
+        logger.debug("Created test agent session A", session_id=agent_session.id)
+        try:
+            yield agent_session
+        finally:
+            logger.debug("Teardown test agent session A")
+            try:
+                await svc.delete_session(agent_session)
+            except Exception as e:
+                logger.warning(f"Error during agent session A cleanup: {e}")
+
+
+@pytest.fixture
+async def test_agent_session_b(role_workspace_agent_a: Role):
+    """Create agent session B for concurrency tests (same workspace as A)."""
+    from tracecat.agent.session.schemas import AgentSessionCreate
+    from tracecat.agent.session.service import AgentSessionService
+    from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.logger import logger
+
+    async with AgentSessionService.with_session(role=role_workspace_agent_a) as svc:
+        agent_session = await svc.create_session(
+            AgentSessionCreate(
+                entity_type=AgentSessionEntity.CASE,
+                entity_id=uuid.uuid4(),
+            )
+        )
+        logger.debug("Created test agent session B", session_id=agent_session.id)
+        try:
+            yield agent_session
+        finally:
+            logger.debug("Teardown test agent session B")
+            try:
+                await svc.delete_session(agent_session)
+            except Exception as e:
+                logger.warning(f"Error during agent session B cleanup: {e}")
+
+
+@pytest.fixture
+async def test_agent_session_workspace_b(role_workspace_agent_b: Role):
+    """Create agent session for workspace B (different workspace for isolation tests)."""
+    from tracecat.agent.session.schemas import AgentSessionCreate
+    from tracecat.agent.session.service import AgentSessionService
+    from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.logger import logger
+
+    async with AgentSessionService.with_session(role=role_workspace_agent_b) as svc:
+        agent_session = await svc.create_session(
+            AgentSessionCreate(
+                entity_type=AgentSessionEntity.CASE,
+                entity_id=uuid.uuid4(),
+            )
+        )
+        logger.debug(
+            "Created test agent session for workspace B", session_id=agent_session.id
+        )
+        try:
+            yield agent_session
+        finally:
+            logger.debug("Teardown test agent session for workspace B")
+            try:
+                await svc.delete_session(agent_session)
+            except Exception as e:
+                logger.warning(f"Error during agent session workspace B cleanup: {e}")
+
+
 # =============================================================================
 # Mock Module Fixtures
 # =============================================================================
