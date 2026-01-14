@@ -1503,7 +1503,7 @@ class TestEndToEndDispatch:
             assert len(result) == 1
             assert result[0] == wf_exec_id
 
-    async def test_dispatch_once_per_workflow(
+    async def test_dispatch_all_matching_triggers(
         self,
         case_trigger_service: CaseTriggerDispatchService,
         session: AsyncSession,
@@ -1511,7 +1511,7 @@ class TestEndToEndDispatch:
         test_case: Case,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Test that only one trigger is dispatched per workflow even if multiple match."""
+        """Test that all matching triggers are dispatched per workflow."""
         monkeypatch.setattr(
             config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.CASE_TRIGGERS}
         )
@@ -1602,8 +1602,9 @@ class TestEndToEndDispatch:
                     event=event,
                 )
 
-                # Should only dispatch once even though two triggers match
-                assert len(result) == 1
+                # Should dispatch for each matching trigger
+                assert len(result) == 2
+                assert mock_exec_svc.create_workflow_execution_nowait.call_count == 2
         finally:
             await session.delete(workflow)
             await session.commit()

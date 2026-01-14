@@ -124,8 +124,6 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
                 )
                 if exec_ids:
                     dispatched_exec_ids.extend(exec_ids)
-                    # Only dispatch once per workflow (even if multiple triggers match)
-                    break
 
         self.logger.info(
             "Case event trigger dispatch complete",
