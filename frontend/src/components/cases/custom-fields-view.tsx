@@ -2,8 +2,10 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
-import { casesDeleteField } from "@/client"
+import { useState } from "react"
+import { type CaseFieldReadMinimal, casesDeleteField } from "@/client"
 import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
+import { EditCustomFieldDialog } from "@/components/cases/edit-custom-field-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
@@ -15,6 +17,11 @@ export function CustomFieldsView() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const queryClient = useQueryClient()
+
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [fieldToEdit, setFieldToEdit] = useState<CaseFieldReadMinimal | null>(
+    null
+  )
 
   const { caseFields, caseFieldsIsLoading, caseFieldsError } =
     useCaseFields(workspaceId)
@@ -61,6 +68,11 @@ export function CustomFieldsView() {
     }
 
     await deleteCaseField(fieldId)
+  }
+
+  const handleEditField = (field: CaseFieldReadMinimal) => {
+    setFieldToEdit(field)
+    setEditDialogOpen(true)
   }
 
   if (workspaceLoading || caseFieldsIsLoading) {
@@ -111,11 +123,17 @@ export function CustomFieldsView() {
             <CustomFieldsTable
               fields={caseFields}
               onDeleteField={handleDeleteField}
+              onEditField={handleEditField}
               isDeleting={deleteCaseFieldIsPending}
             />
           </div>
         )}
       </div>
+      <EditCustomFieldDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        field={fieldToEdit}
+      />
     </div>
   )
 }

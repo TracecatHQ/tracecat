@@ -37,6 +37,7 @@ interface WorkflowTriggerDialogProps {
   caseData: CaseRead
   workflowId: string | null
   workflowTitle?: string | null
+  taskId?: string | null
   defaultTriggerValues?: Record<string, unknown> | null
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -46,6 +47,7 @@ export function WorkflowTriggerDialog({
   caseData,
   workflowId,
   workflowTitle,
+  taskId,
   defaultTriggerValues,
   open,
   onOpenChange,
@@ -131,25 +133,40 @@ export function WorkflowTriggerDialog({
       if (!workflowId) return
       await createExecution({
         workflow_id: workflowId,
-        inputs: values,
+        inputs: {
+          ...values,
+          case_id: caseData.id,
+          ...(taskId && { task_id: taskId }),
+        },
       })
       showExecutionStartedToast()
       onOpenChange(false)
     },
-    [createExecution, onOpenChange, showExecutionStartedToast, workflowId]
+    [
+      caseData.id,
+      taskId,
+      createExecution,
+      onOpenChange,
+      showExecutionStartedToast,
+      workflowId,
+    ]
   )
 
   const handleTriggerWithoutSchema = useCallback(async () => {
     if (!workflowId) return
     await createExecution({
       workflow_id: workflowId,
-      inputs: fallbackInputs,
+      inputs: {
+        ...fallbackInputs,
+        ...(taskId && { task_id: taskId }),
+      },
     })
     showExecutionStartedToast()
     onOpenChange(false)
   }, [
     createExecution,
     fallbackInputs,
+    taskId,
     onOpenChange,
     showExecutionStartedToast,
     workflowId,
