@@ -59,7 +59,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         toolsets = [
             MCPServerStreamableHTTP(
                 url=server["url"],
-                headers=server["headers"],
+                headers=server.get("headers", {}),
             )
             for server in config.mcp_servers
         ]

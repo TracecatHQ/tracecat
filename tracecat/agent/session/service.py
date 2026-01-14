@@ -676,8 +676,6 @@ class AgentSessionService(BaseWorkspaceService):
                         else entity_instructions
                     )
                     config = replace(preset_config, instructions=combined_instructions)
-                    if not config.actions and agent_session.tools:
-                        config.actions = agent_session.tools
                     yield config
             else:
                 # Case chat without preset uses workspace credentials
@@ -695,10 +693,7 @@ class AgentSessionService(BaseWorkspaceService):
             async with agent_svc.with_preset_config(
                 preset_id=agent_session.entity_id, use_workspace_credentials=True
             ) as preset_config:
-                config = replace(preset_config)
-                if not config.actions and agent_session.tools:
-                    config.actions = agent_session.tools
-                yield config
+                yield preset_config
         elif session_entity is AgentSessionEntity.AGENT_PRESET_BUILDER:
             if agent_session.entity_id is None:
                 raise ValueError("Agent preset builder requires entity_id")
@@ -735,8 +730,6 @@ class AgentSessionService(BaseWorkspaceService):
                         else entity_instructions
                     )
                     config = replace(preset_config, instructions=combined_instructions)
-                    if not config.actions and agent_session.tools:
-                        config.actions = agent_session.tools
                     yield config
             else:
                 # Copilot without preset uses org-level credentials (default)

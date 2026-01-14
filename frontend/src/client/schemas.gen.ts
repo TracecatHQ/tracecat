@@ -8483,6 +8483,10 @@ export const $MCPIntegrationUpdate = {
 
 export const $MCPServerConfig = {
   properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
     url: {
       type: "string",
       title: "Url",
@@ -8494,11 +8498,28 @@ export const $MCPServerConfig = {
       type: "object",
       title: "Headers",
     },
+    transport: {
+      type: "string",
+      enum: ["http", "sse"],
+      title: "Transport",
+    },
   },
   type: "object",
-  required: ["url", "headers"],
+  required: ["name", "url"],
   title: "MCPServerConfig",
-  description: "Configuration for an MCP server.",
+  description: `Configuration for a user-defined MCP server.
+
+Users can connect custom MCP servers to their agents - whether running as
+Docker containers, local processes, or remote services. The server must
+expose an HTTP or SSE endpoint.
+
+Example:
+    {
+        "name": "internal-tools",
+        "url": "http://host.docker.internal:8080",
+        "transport": "http",
+        "headers": {"Authorization": "Bearer \${{ SECRETS.internal.API_KEY }}"}
+    }`,
 } as const
 
 export const $MessageKind = {

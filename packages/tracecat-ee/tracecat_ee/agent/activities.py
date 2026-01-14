@@ -7,11 +7,14 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 from temporalio import activity
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.schemas import ToolFilters
+from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
+from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 
@@ -19,11 +22,15 @@ from tracecat.registry.lock.types import RegistryLock
 class BuildToolDefsArgs(BaseModel):
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
+    """User-defined MCP server configurations to discover tools from."""
 
 
 class BuildToolDefsResult(BaseModel):
     tool_definitions: dict[str, MCPToolDefinition]
     registry_lock: RegistryLock
+    user_mcp_claims: list[UserMCPServerClaim] | None = None
+    """Resolved user MCP server configs for JWT claims."""
 
 
 class ToolApprovalPayload(BaseModel):
@@ -78,11 +85,53 @@ class AgentActivities:
                 parameters_json_schema=tool.parameters_json_schema,
             )
 
+        # Discover user MCP tools if configured
+        user_mcp_claims: list[UserMCPServerClaim] | None = None
+        if args.mcp_servers:
+            from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+
+            try:
+                user_mcp_tools = await discover_user_mcp_tools(args.mcp_servers)
+                # Add user MCP tools to definitions
+                for tool_name, tool_def in user_mcp_tools.items():
+                    defs[tool_name] = tool_def
+
+                # Build claims for JWT (headers NOT resolved here - done by caller)
+                user_mcp_claims = [
+                    UserMCPServerClaim(
+                        name=cfg["name"],
+                        url=cfg["url"],
+                        transport=cfg.get("transport", "http"),
+                        headers=cfg.get("headers", {}),
+                    )
+                    for cfg in args.mcp_servers
+                ]
+
+                logger.info(
+                    "Discovered user MCP tools",
+                    tool_count=len(user_mcp_tools),
+                    server_count=len(args.mcp_servers),
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to discover user MCP tools",
+                    error=str(e),
+                )
+                # Continue without user MCP tools - don't fail the whole operation
+
         # Resolve registry lock for these actions
         # This provides origin→version mappings needed for action execution
+        # Note: User MCP tools don't need registry lock resolution
+        registry_action_names = {
+            name for name in defs.keys() if not name.startswith("mcp__")
+        }
         async with RegistryLockService.with_session() as lock_service:
             registry_lock = await lock_service.resolve_lock_with_bindings(
-                set(defs.keys())
+                registry_action_names
             )
 
-        return BuildToolDefsResult(tool_definitions=defs, registry_lock=registry_lock)
+        return BuildToolDefsResult(
+            tool_definitions=defs,
+            registry_lock=registry_lock,
+            user_mcp_claims=user_mcp_claims,
+        )

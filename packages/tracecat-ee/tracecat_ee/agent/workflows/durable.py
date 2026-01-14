@@ -223,6 +223,7 @@ class DurableAgentWorkflow:
             )
 
         # Resolve tool definitions and registry lock from registry
+        # Also discovers user MCP tools if configured
         build_result = await workflow.execute_activity_method(
             AgentActivities.build_tool_definitions,
             arg=BuildToolDefsArgs(
@@ -231,12 +232,14 @@ class DurableAgentWorkflow:
                     actions=cfg.actions,
                 ),
                 tool_approvals=cfg.tool_approvals,
+                mcp_servers=cfg.mcp_servers,
             ),
             start_to_close_timeout=timedelta(seconds=120),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         allowed_actions = build_result.tool_definitions
         self._registry_lock = build_result.registry_lock
+        user_mcp_claims = build_result.user_mcp_claims
 
         logger.debug(
             "Resolved tool definitions",
@@ -267,6 +270,7 @@ class DurableAgentWorkflow:
             user_id=self.role.user_id,
             allowed_actions=list(allowed_actions.keys()),
             session_id=self.session_id,
+            user_mcp_servers=user_mcp_claims,
         )
         litellm_auth_token = mint_llm_token(
             workspace_id=self.workspace_id,

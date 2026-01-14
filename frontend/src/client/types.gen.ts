@@ -2716,14 +2716,30 @@ export type MCPIntegrationUpdate = {
 }
 
 /**
- * Configuration for an MCP server.
+ * Configuration for a user-defined MCP server.
+ *
+ * Users can connect custom MCP servers to their agents - whether running as
+ * Docker containers, local processes, or remote services. The server must
+ * expose an HTTP or SSE endpoint.
+ *
+ * Example:
+ * {
+ * "name": "internal-tools",
+ * "url": "http://host.docker.internal:8080",
+ * "transport": "http",
+ * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+ * }
  */
 export type MCPServerConfig = {
+  name: string
   url: string
-  headers: {
+  headers?: {
     [key: string]: string
   }
+  transport?: "http" | "sse"
 }
+
+export type transport = "http" | "sse"
 
 /**
  * The type/kind of message stored in the chat.

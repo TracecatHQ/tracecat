@@ -297,13 +297,19 @@ class ClaudeAgentRuntime:
             self.tool_approvals is not None
             and self.tool_approvals.get(action_name) is True
         )
-        # Auto-approve user MCP server tools
-        if tool_name.startswith("mcp__user-mcp-") or (
+
+        is_user_mcp_tool = tool_name.startswith("mcp__tracecat-registry__mcp__")
+
+        # Auto-approve user MCP server tools (they're always auto-approved)
+        # Also auto-approve registry tools that don't require approval
+        if is_user_mcp_tool or (
             self.registry_tools is not None
             and action_name in self.registry_tools
             and not requires_approval
         ):
-            logger.debug("Auto-approving tool", tool_name=tool_name)
+            logger.debug(
+                "Auto-approving tool", tool_name=tool_name, is_user_mcp=is_user_mcp_tool
+            )
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -336,9 +342,11 @@ class ClaudeAgentRuntime:
             }
         }
 
-    def _build_system_prompt(self, instructions: str | None) -> str:
+    def _build_system_prompt(
+        self, instructions: str | None, model: str | None = None
+    ) -> str:
         """Build the system prompt for the agent."""
-        base = "You are a helpful assistant that helps users with security and IT automation operations in Tracecat. You can assist with workflows, cases, agents, lookup tables, and general workspace operation"
+        base = "If asked about your identity, you are a Tracecat automation assistant."
         return f"{base}\n\n{instructions}" if instructions else base
 
     async def run(self, payload: RuntimeInitPayload) -> None:
@@ -395,15 +403,9 @@ class ClaudeAgentRuntime:
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
 
-            # Add user-defined MCP servers
-            if payload.config.mcp_servers:
-                for i, server_config in enumerate(payload.config.mcp_servers):
-                    server_name = f"user-mcp-{i}"
-                    mcp_servers[server_name] = {
-                        "type": "http",
-                        "url": server_config["url"],
-                        "headers": server_config.get("headers", {}),
-                    }
+            # User MCP tools are now handled via the proxy server
+            # They're included in allowed_actions and routed through the trusted server
+            # (The sandbox has no network access, so direct HTTP connections don't work)
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to logger for nsjail capture."""
