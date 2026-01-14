@@ -19,7 +19,7 @@ async def _request(
 ) -> dict[str, Any]:
     """Make authenticated request to Panther API."""
     api_key = secrets.get("PANTHER_API_KEY")
-    url = f"{base_url.rstrip('/')}/v1{path}"
+    url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     headers = {
         "X-API-Key": api_key,
         "Accept": "application/json",
