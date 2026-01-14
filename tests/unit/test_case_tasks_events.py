@@ -1,5 +1,4 @@
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -152,33 +151,34 @@ class TestCaseTaskEvents:
         assert events[0].data["title"] == "T4"
 
     async def test_task_dispatches_triggers(
-        self, test_case, tasks_service: CaseTasksService
+        self,
+        test_case,
+        tasks_service: CaseTasksService,
+        events_service: CaseEventsService,
     ) -> None:
-        with patch.object(
-            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
-        ) as dispatch_mock:
-            task = await tasks_service.create_task(
-                test_case.id,
-                CaseTaskCreate(title="Dispatch task", description="d"),
-            )
+        task = await tasks_service.create_task(
+            test_case.id,
+            CaseTaskCreate(title="Dispatch task", description="d"),
+        )
 
-            await tasks_service.update_task(
-                task.id,
-                CaseTaskUpdate(
-                    status=CaseTaskStatus.IN_PROGRESS,
-                    assignee_id=uuid.uuid4(),
-                    priority=CasePriority.HIGH,
-                    workflow_id=WorkflowUUID.new_uuid4(),
-                ),
-            )
+        await tasks_service.update_task(
+            task.id,
+            CaseTaskUpdate(
+                status=CaseTaskStatus.IN_PROGRESS,
+                assignee_id=uuid.uuid4(),
+                priority=CasePriority.HIGH,
+                workflow_id=WorkflowUUID.new_uuid4(),
+            ),
+        )
 
-            await tasks_service.delete_task(task.id)
+        await tasks_service.delete_task(task.id)
 
-        assert dispatch_mock.call_count == 6
-        dispatched_types = {
-            call.kwargs["event"].type for call in dispatch_mock.call_args_list
-        }
-        assert dispatched_types == {
+        events = await events_service.list_events(test_case)
+        task_events = [
+            event for event in events if event.type.value.startswith("task_")
+        ]
+        task_event_types = {event.type for event in task_events}
+        assert task_event_types == {
             CaseEventType.TASK_CREATED,
             CaseEventType.TASK_STATUS_CHANGED,
             CaseEventType.TASK_ASSIGNEE_CHANGED,
@@ -186,3 +186,4 @@ class TestCaseTaskEvents:
             CaseEventType.TASK_WORKFLOW_CHANGED,
             CaseEventType.TASK_DELETED,
         }
+        assert len(task_events) == 6

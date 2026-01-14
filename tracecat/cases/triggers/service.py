@@ -182,8 +182,22 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
 
             data = node.get("data", {})
             case_triggers = data.get("caseTriggers", [])
+            if not isinstance(case_triggers, list):
+                self.logger.warning(
+                    "Invalid case trigger config list, skipping",
+                    workflow_id=str(workflow.id),
+                    case_triggers_type=type(case_triggers).__name__,
+                )
+                continue
 
             for trigger_dict in case_triggers:
+                if not isinstance(trigger_dict, dict):
+                    self.logger.warning(
+                        "Invalid case trigger entry, skipping",
+                        workflow_id=str(workflow.id),
+                        trigger_entry_type=type(trigger_dict).__name__,
+                    )
+                    continue
                 try:
                     # Convert camelCase to snake_case for Pydantic
                     config = CaseWorkflowTriggerConfig(
@@ -201,7 +215,8 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
                     self.logger.warning(
                         "Failed to parse case trigger config",
                         workflow_id=str(workflow.id),
-                        trigger_dict=trigger_dict,
+                        trigger_id=trigger_dict.get("id"),
+                        event_type=trigger_dict.get("eventType"),
                         error=str(e),
                     )
                     continue

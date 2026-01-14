@@ -784,12 +784,13 @@ class CasesService(BaseWorkspaceService):
                 old_value = existing_fields.get(field)
                 if old_value != value:
                     diffs.append(FieldDiff(field=field, old=old_value, new=value))
-            db_events.append(
-                await self.events.create_event(
-                    case=case,
-                    event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
+            if diffs:
+                db_events.append(
+                    await self.events.create_event(
+                        case=case,
+                        event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
+                    )
                 )
-            )
 
         # Handle the rest of the field updates
         events: list[CaseEventVariant] = []

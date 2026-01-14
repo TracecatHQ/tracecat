@@ -352,6 +352,42 @@ class TestParseTriggerConfigsStandalone:
         configs = mock_service._parse_trigger_configs(workflow)
         assert configs == []
 
+    def test_parse_trigger_configs_invalid_case_triggers_type(
+        self, mock_service
+    ) -> None:
+        """Test parsing skips non-list caseTriggers values."""
+        workflow = MagicMock(spec=Workflow)
+        workflow.id = uuid.uuid4()
+        workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {"caseTriggers": {"id": "not-a-list"}},
+                }
+            ]
+        }
+
+        configs = mock_service._parse_trigger_configs(workflow)
+        assert configs == []
+
+    def test_parse_trigger_configs_invalid_trigger_entry(
+        self, mock_service
+    ) -> None:
+        """Test parsing skips non-dict trigger entries."""
+        workflow = MagicMock(spec=Workflow)
+        workflow.id = uuid.uuid4()
+        workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {"caseTriggers": [None, "bad"]},
+                }
+            ]
+        }
+
+        configs = mock_service._parse_trigger_configs(workflow)
+        assert configs == []
+
     def test_parse_trigger_configs_camelcase_conversion(self, mock_service) -> None:
         """Test that camelCase JSON is converted to snake_case."""
         workflow = MagicMock(spec=Workflow)
