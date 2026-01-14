@@ -17,13 +17,13 @@ import React, {
   useRef,
   useState,
 } from "react"
+import type { WorkflowUpdate } from "@/client"
 import type {
   NodeType,
   WorkflowCanvasRef,
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
-import type { WorkflowUpdate } from "@/client"
 import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -111,7 +111,9 @@ export const WorkflowBuilderProvider: React.FC<
         ...currentObj,
         nodes: newNodes,
       }
-      updateWorkflow({ object: pruneGraphObject(newObj) } as WorkflowUpdateWithObject)
+      updateWorkflow({
+        object: pruneGraphObject(newObj),
+      } as WorkflowUpdateWithObject)
     },
     [workflowId, reactFlowInstance, updateWorkflow]
   )
@@ -129,7 +131,9 @@ export const WorkflowBuilderProvider: React.FC<
         ...currentObj,
         edges: newEdges,
       }
-      updateWorkflow({ object: pruneGraphObject(newObj) } as WorkflowUpdateWithObject)
+      updateWorkflow({
+        object: pruneGraphObject(newObj),
+      } as WorkflowUpdateWithObject)
     },
     [workflowId, reactFlowInstance, updateWorkflow]
   )
