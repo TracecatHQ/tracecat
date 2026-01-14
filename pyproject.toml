@@ -64,6 +64,7 @@ dependencies = [
     "pydantic>=2.11.7,<3.0.0",
     "pygithub==2.8.1",
     "pynacl==1.6.2",
+    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "redis[hiredis]==7.1.0",
