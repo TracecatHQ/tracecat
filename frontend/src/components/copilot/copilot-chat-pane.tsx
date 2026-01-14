@@ -5,7 +5,11 @@ import { getToolName, isToolUIPart, type UIMessage } from "ai"
 import { HammerIcon, RefreshCcwIcon } from "lucide-react"
 import { motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { AgentSessionReadVercel, ApprovalDecision } from "@/client"
+import type {
+  AgentSessionReadVercel,
+  ApprovalDecision,
+  ChatReadVercel,
+} from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
@@ -44,7 +48,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export interface CopilotChatPaneProps {
-  chat: AgentSessionReadVercel
+  chat: AgentSessionReadVercel | ChatReadVercel
   workspaceId: string
   className?: string
   placeholder?: string
@@ -77,6 +81,9 @@ export function CopilotChatPane({
 
   const [input, setInput] = useState<string>("")
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
+
+  // Check if this is a legacy read-only session
+  const isReadonly = "is_readonly" in chat && chat.is_readonly === true
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -206,13 +213,16 @@ export function CopilotChatPane({
       <PromptInputBody>
         <PromptInputTextarea
           onChange={(event) => setInput(event.target.value)}
-          placeholder={placeholder}
+          placeholder={
+            isReadonly ? "This is a legacy session (read-only)" : placeholder
+          }
           value={input}
-          autoFocus={autoFocusInput}
+          autoFocus={autoFocusInput && !isReadonly}
+          disabled={isReadonly}
         />
       </PromptInputBody>
       <PromptInputToolbar>
-        {toolsEnabled && (
+        {toolsEnabled && !isReadonly && (
           <PromptInputTools>
             <TooltipProvider delayDuration={0}>
               <Tooltip>
@@ -236,7 +246,7 @@ export function CopilotChatPane({
           </PromptInputTools>
         )}
         <PromptInputSubmit
-          disabled={!input && !status}
+          disabled={isReadonly || (!input && !status)}
           status={status}
           className="ml-auto text-muted-foreground/80"
         />
@@ -292,7 +302,7 @@ export function CopilotChatPane({
             </motion.div>
           )}
         </div>
-        {toolsEnabled && (
+        {toolsEnabled && !isReadonly && (
           <ChatToolsDialog
             chatId={chat.id}
             open={toolsDialogOpen}
@@ -374,7 +384,7 @@ export function CopilotChatPane({
       </div>
       <div className="mx-auto w-full max-w-2xl px-4 pb-4">
         {promptInputElement}
-        {toolsEnabled && (
+        {toolsEnabled && !isReadonly && (
           <ChatToolsDialog
             chatId={chat.id}
             open={toolsDialogOpen}

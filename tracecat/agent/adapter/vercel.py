@@ -1506,7 +1506,7 @@ def convert_chat_messages_to_ui(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
                         state="input-available",
-                        input=part.input or {},
+                        input=tool_input,
                     )
                     mutable_message.parts.append(tool_part)
                     tool_entries[part.id] = tool_part

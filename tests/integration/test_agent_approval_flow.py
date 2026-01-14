@@ -1148,7 +1148,7 @@ class TestApprovalConcurrency:
 
                 submission_b = WorkflowApprovalSubmission(
                     approvals={approval_b.tool_call_id: True},
-                    approved_by=role_workspace_agent_a.user_id,
+                    approved_by=role_workspace_agent_b.user_id,
                 )
                 await wf_handle_b.execute_update(
                     DurableAgentWorkflow.set_approvals,

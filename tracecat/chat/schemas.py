@@ -98,7 +98,10 @@ class ChatCreate(BaseModel):
 
 
 class ChatReadMinimal(BaseModel):
-    """Model for chat metadata without messages."""
+    """Model for chat metadata without messages.
+
+    Note: Legacy Chat records are read-only (is_readonly=True).
+    """
 
     id: UUID4 = Field(..., description="Unique chat identifier")
     title: str = Field(..., description="Human-readable title for the chat")
@@ -117,6 +120,10 @@ class ChatReadMinimal(BaseModel):
     last_stream_id: str | None = Field(
         default=None,
         description="Last processed Redis stream ID for this chat",
+    )
+    is_readonly: bool = Field(
+        default=True,
+        description="Whether this chat is read-only (legacy chats cannot be modified)",
     )
 
 

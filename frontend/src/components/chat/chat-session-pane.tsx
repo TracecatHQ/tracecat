@@ -23,6 +23,7 @@ import type {
   AgentSessionEntity,
   AgentSessionReadVercel,
   ApprovalDecision,
+  ChatReadVercel,
 } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
@@ -88,7 +89,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export interface ChatSessionPaneProps {
-  chat: AgentSessionReadVercel
+  chat: AgentSessionReadVercel | ChatReadVercel
   workspaceId: string
   entityType?: AgentSessionEntity
   entityId?: string
@@ -124,6 +125,9 @@ export function ChatSessionPane({
 
   const [input, setInput] = useState<string>("")
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
+
+  // Check if this is a legacy read-only session
+  const isReadonly = "is_readonly" in chat && chat.is_readonly === true
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -358,13 +362,18 @@ export function ChatSessionPane({
           <PromptInputBody>
             <PromptInputTextarea
               onChange={(event) => setInput(event.target.value)}
-              placeholder={placeholder}
+              placeholder={
+                isReadonly
+                  ? "This is a legacy session (read-only)"
+                  : placeholder
+              }
               value={input}
-              autoFocus={autoFocusInput}
+              autoFocus={autoFocusInput && !isReadonly}
+              disabled={isReadonly}
             />
           </PromptInputBody>
           <PromptInputToolbar>
-            {toolsEnabled && (
+            {toolsEnabled && !isReadonly && (
               <PromptInputTools>
                 <TooltipProvider delayDuration={0}>
                   <Tooltip>
@@ -389,13 +398,13 @@ export function ChatSessionPane({
               </PromptInputTools>
             )}
             <PromptInputSubmit
-              disabled={!input || !!status}
+              disabled={isReadonly || !input || !!status}
               status={status}
               className="ml-auto text-muted-foreground/80"
             />
           </PromptInputToolbar>
         </PromptInput>
-        {toolsEnabled && (
+        {toolsEnabled && !isReadonly && (
           <ChatToolsDialog
             chatId={chat.id}
             open={toolsDialogOpen}

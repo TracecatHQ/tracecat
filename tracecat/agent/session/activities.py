@@ -61,21 +61,6 @@ class LoadSessionResult(BaseModel):
     error: str | None = None
 
 
-class PersistUserMessageInput(BaseModel):
-    """Input for persist_user_message_activity."""
-
-    role: Role
-    session_id: uuid.UUID
-    user_prompt: str
-
-
-class PersistUserMessageResult(BaseModel):
-    """Result from persist_user_message_activity."""
-
-    success: bool
-    error: str | None = None
-
-
 @activity.defn
 async def create_session_activity(input: CreateSessionInput) -> CreateSessionResult:
     """Create or get an existing agent session in the database.

@@ -1848,7 +1848,7 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="The ID of the associated entity",
     )
-    tools: Mapped[list[str]] = mapped_column(
+    tools: Mapped[list[str] | None] = mapped_column(
         JSONB,
         default=None,
         nullable=True,

@@ -19,13 +19,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
+from tracecat.agent.session.schemas import (
+    AgentSessionCreate,
+    AgentSessionRead,
+    AgentSessionUpdate,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
-from tracecat.chat.schemas import ApprovalRead, ChatMessage
+from tracecat.chat.schemas import ApprovalRead, ChatMessage, ChatReadMinimal
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
@@ -103,8 +107,8 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> AgentSession | None:
         """Get an agent session by ID.
 
-        Checks the new AgentSession table first, then falls back to the
-        legacy Chat table for backward compatibility.
+        Only returns actual AgentSession records. Use get_legacy_chat()
+        for legacy Chat records.
 
         Args:
             session_id: The session UUID.
@@ -112,59 +116,43 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             AgentSession model if found, None otherwise.
         """
-        # Try new AgentSession table first
         stmt = select(AgentSession).where(
             AgentSession.id == session_id,
             AgentSession.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(stmt)
-        agent_session = result.scalar_one_or_none()
-        if agent_session is not None:
-            return agent_session
+        return result.scalar_one_or_none()
 
-        # Fall back to legacy Chat table
-        return await self._get_legacy_session(session_id)
-
-    async def _get_legacy_session(
+    async def get_legacy_chat(
         self,
         session_id: uuid.UUID,
-    ) -> AgentSession | None:
-        """Get a legacy Chat and convert to AgentSession model.
-
-        This provides backward compatibility for sessions created before
-        the AgentSession migration. Returns an in-memory AgentSession
-        model (not persisted) for read-only operations.
+    ) -> Chat | None:
+        """Get a legacy Chat by ID.
 
         Args:
-            session_id: The session/chat UUID.
+            session_id: The chat UUID.
 
         Returns:
-            AgentSession model if found, None otherwise.
+            Chat model if found, None otherwise.
         """
         stmt = select(Chat).where(
             Chat.id == session_id,
             Chat.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(stmt)
-        chat = result.scalar_one_or_none()
-        if chat is None:
-            return None
+        return result.scalar_one_or_none()
 
-        # Convert Chat to AgentSession model (in-memory, not persisted)
-        return AgentSession(
-            id=chat.id,
-            workspace_id=chat.workspace_id,
-            title=chat.title,
-            user_id=chat.user_id,
-            entity_type=chat.entity_type,
-            entity_id=chat.entity_id,
-            tools=chat.tools,
-            agent_preset_id=chat.agent_preset_id,
-            harness_type="claude_code",
-            created_at=chat.created_at,
-            updated_at=chat.updated_at,
-            last_stream_id=chat.last_stream_id,
-        )
+    async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
+        """Check if a session ID refers to a legacy Chat record.
+
+        Args:
+            session_id: The session/chat UUID.
+
+        Returns:
+            True if this is a legacy Chat, False otherwise.
+        """
+        chat = await self.get_legacy_chat(session_id)
+        return chat is not None
 
     async def get_or_create_session(
         self,
@@ -194,8 +182,11 @@ class AgentSessionService(BaseWorkspaceService):
         entity_id: uuid.UUID | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> Sequence[AgentSession]:
-        """List agent sessions for the workspace.
+    ) -> list[AgentSessionRead | ChatReadMinimal]:
+        """List agent sessions and legacy chats for the workspace.
+
+        Returns a merged list of AgentSession and legacy Chat records,
+        sorted by created_at. Legacy chats have is_readonly=True.
 
         Args:
             user_id: Filter by user who owns the session.
@@ -205,26 +196,49 @@ class AgentSessionService(BaseWorkspaceService):
             offset: Number of results to skip.
 
         Returns:
-            List of AgentSession models.
+            List of AgentSessionRead or ChatReadMinimal (legacy, read-only).
         """
-        stmt = select(AgentSession).where(
+        # Query AgentSession table
+        session_stmt = select(AgentSession).where(
             AgentSession.workspace_id == self.workspace_id
         )
-
         if user_id is not None:
-            stmt = stmt.where(AgentSession.user_id == user_id)
-
+            session_stmt = session_stmt.where(AgentSession.user_id == user_id)
         if entity_type is not None:
-            stmt = stmt.where(AgentSession.entity_type == entity_type.value)
-
+            session_stmt = session_stmt.where(
+                AgentSession.entity_type == entity_type.value
+            )
         if entity_id is not None:
-            stmt = stmt.where(AgentSession.entity_id == entity_id)
+            session_stmt = session_stmt.where(AgentSession.entity_id == entity_id)
 
-        stmt = stmt.order_by(AgentSession.created_at.desc())
-        stmt = stmt.limit(limit).offset(offset)
+        session_result = await self.session.execute(session_stmt)
+        sessions = list(session_result.scalars().all())
 
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+        # Query legacy Chat table
+        chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
+        if user_id is not None:
+            chat_stmt = chat_stmt.where(Chat.user_id == user_id)
+        if entity_type is not None:
+            chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
+        if entity_id is not None:
+            chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
+
+        chat_result = await self.session.execute(chat_stmt)
+        legacy_chats = list(chat_result.scalars().all())
+
+        # Convert and merge
+        items: list[AgentSessionRead | ChatReadMinimal] = []
+
+        for s in sessions:
+            items.append(AgentSessionRead.model_validate(s, from_attributes=True))
+
+        for c in legacy_chats:
+            # ChatReadMinimal has is_readonly=True by default
+            items.append(ChatReadMinimal.model_validate(c, from_attributes=True))
+
+        # Sort by created_at descending and apply pagination
+        items.sort(key=lambda x: x.created_at, reverse=True)
+        return items[offset : offset + limit]
 
     @audit_log(resource_type="agent_session", action="update")
     async def update_session(
@@ -636,8 +650,10 @@ class AgentSessionService(BaseWorkspaceService):
         agent_svc = AgentManagementService(self.session, self.role)
 
         if agent_session.entity_type is None:
-            # No entity type - use default config
-            async with agent_svc.with_model_config() as model_config:
+            # No entity type - use default config with workspace credentials
+            async with agent_svc.with_model_config(
+                use_workspace_credentials=True
+            ) as model_config:
                 yield AgentConfig(
                     instructions="",
                     model_name=model_config.name,
@@ -664,7 +680,10 @@ class AgentSessionService(BaseWorkspaceService):
                         config.actions = agent_session.tools
                     yield config
             else:
-                async with agent_svc.with_model_config() as model_config:
+                # Case chat without preset uses workspace credentials
+                async with agent_svc.with_model_config(
+                    use_workspace_credentials=True
+                ) as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.name,
@@ -686,7 +705,10 @@ class AgentSessionService(BaseWorkspaceService):
             instructions = await self._entity_to_prompt(agent_session)
             tools = await build_agent_preset_builder_tools(agent_session.entity_id)
             try:
-                async with agent_svc.with_model_config() as model_config:
+                # Agent preset builder uses workspace credentials
+                async with agent_svc.with_model_config(
+                    use_workspace_credentials=True
+                ) as model_config:
                     yield AgentConfig(
                         instructions=instructions,
                         model_name=model_config.name,
@@ -697,7 +719,7 @@ class AgentSessionService(BaseWorkspaceService):
             except TracecatNotFoundError as exc:
                 raise ValueError(
                     "Agent preset builder requires a default AI model with valid provider credentials. "
-                    "Configure the default model in Organization settings before chatting."
+                    "Configure credentials in Workspace settings before chatting."
                 ) from exc
         elif session_entity is AgentSessionEntity.COPILOT:
             # Copilot uses org-level credentials, not workspace credentials
@@ -717,6 +739,7 @@ class AgentSessionService(BaseWorkspaceService):
                         config.actions = agent_session.tools
                     yield config
             else:
+                # Copilot without preset uses org-level credentials (default)
                 async with agent_svc.with_model_config() as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
@@ -1035,31 +1058,28 @@ class AgentSessionService(BaseWorkspaceService):
             message = content.get("message", {})
             msg_content = message.get("content", [])
 
-            # Check for error tool_result matching our tool_call_ids
+            # Check for error tool_result or interrupt text in user messages
             if msg_type == "user" and isinstance(msg_content, list):
                 for block in msg_content:
+                    if not isinstance(block, dict):
+                        continue
+                    # Check for error tool_result matching our tool_call_ids
                     if (
-                        isinstance(block, dict)
-                        and block.get("type") == "tool_result"
+                        block.get("type") == "tool_result"
                         and block.get("is_error") is True
                         and block.get("tool_use_id") in tool_call_ids
                     ):
                         entries_to_delete.append(entry)
                         break
-
-            # Check for interrupt text
-            if msg_type == "user" and isinstance(msg_content, list):
-                for block in msg_content:
-                    if (
-                        isinstance(block, dict)
-                        and block.get("type") == "text"
-                        and "[Request interrupted" in block.get("text", "")
-                    ):
+                    # Check for interrupt text
+                    if block.get(
+                        "type"
+                    ) == "text" and "[Request interrupted" in block.get("text", ""):
                         entries_to_delete.append(entry)
                         break
 
             # Check for synthetic assistant message
-            if msg_type == "assistant" and message.get("model") == "<synthetic>":
+            elif msg_type == "assistant" and message.get("model") == "<synthetic>":
                 entries_to_delete.append(entry)
 
         # Delete the identified entries

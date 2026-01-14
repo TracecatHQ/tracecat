@@ -128,6 +128,9 @@ async def start_litellm_proxy() -> None:
         temp_symlink.replace(runtime_config)  # Atomic rename
     except FileExistsError:
         # Another process already created the symlink
+        pass
+    finally:
+        # Clean up temp symlink if it still exists
         if temp_symlink.exists() or temp_symlink.is_symlink():
             temp_symlink.unlink()
 

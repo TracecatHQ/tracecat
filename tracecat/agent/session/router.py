@@ -24,7 +24,12 @@ from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
-from tracecat.chat.schemas import ChatRequest
+from tracecat.chat.schemas import (
+    ChatRead,
+    ChatReadMinimal,
+    ChatReadVercel,
+    ChatRequest,
+)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
@@ -64,8 +69,12 @@ async def list_sessions(
     limit: int = Query(
         50, ge=1, le=100, description="Maximum number of sessions to return"
     ),
-) -> list[AgentSessionRead]:
-    """List agent sessions for the current workspace with optional filtering."""
+) -> list[AgentSessionRead | ChatReadMinimal]:
+    """List agent sessions for the current workspace with optional filtering.
+
+    Returns a list of sessions including both active AgentSessions and legacy
+    Chat records. Legacy chats have is_readonly=True.
+    """
     if role.user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -73,14 +82,12 @@ async def list_sessions(
         )
 
     svc = AgentSessionService(session, role)
-    sessions = await svc.list_sessions(
+    return await svc.list_sessions(
         user_id=role.user_id,
         entity_type=entity_type,
         entity_id=entity_id,
         limit=limit,
     )
-
-    return [AgentSessionRead.model_validate(s, from_attributes=True) for s in sessions]
 
 
 @router.get("/{session_id}")
@@ -88,38 +95,59 @@ async def get_session(
     session_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> AgentSessionReadWithMessages:
-    """Get an agent session with its message history."""
+) -> AgentSessionReadWithMessages | ChatRead:
+    """Get an agent session or legacy chat with its message history.
+
+    Legacy chats have is_readonly=True.
+    """
     svc = AgentSessionService(session, role)
 
-    # Get session metadata
+    # Try AgentSession first
     agent_session = await svc.get_session(session_id)
-    if not agent_session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found",
+    if agent_session:
+        messages = await svc.list_messages(session_id)
+        logger.info("Session read", session_id=agent_session.id, messages=len(messages))
+        return AgentSessionReadWithMessages(
+            id=agent_session.id,
+            workspace_id=agent_session.workspace_id,
+            title=agent_session.title,
+            user_id=agent_session.user_id,
+            entity_type=agent_session.entity_type,
+            entity_id=agent_session.entity_id,
+            tools=agent_session.tools,
+            agent_preset_id=agent_session.agent_preset_id,
+            harness_type=agent_session.harness_type,
+            created_at=agent_session.created_at,
+            updated_at=agent_session.updated_at,
+            last_stream_id=agent_session.last_stream_id,
+            messages=messages,
         )
 
-    # Get messages using unified message retrieval
-    messages = await svc.list_messages(session_id)
+    # Try legacy Chat
+    legacy_chat = await svc.get_legacy_chat(session_id)
+    if legacy_chat:
+        messages = await svc.list_messages(session_id)
+        logger.info(
+            "Legacy chat read", session_id=legacy_chat.id, messages=len(messages)
+        )
+        return ChatRead(
+            id=legacy_chat.id,
+            title=legacy_chat.title,
+            user_id=legacy_chat.user_id,
+            entity_type=legacy_chat.entity_type,
+            entity_id=legacy_chat.entity_id,
+            tools=legacy_chat.tools or [],
+            agent_preset_id=legacy_chat.agent_preset_id,
+            created_at=legacy_chat.created_at,
+            updated_at=legacy_chat.updated_at,
+            last_stream_id=legacy_chat.last_stream_id,
+            messages=messages,
+        )
 
-    res = AgentSessionReadWithMessages(
-        id=agent_session.id,
-        workspace_id=agent_session.workspace_id,
-        title=agent_session.title,
-        user_id=agent_session.user_id,
-        entity_type=agent_session.entity_type,
-        entity_id=agent_session.entity_id,
-        tools=agent_session.tools,
-        agent_preset_id=agent_session.agent_preset_id,
-        harness_type=agent_session.harness_type,
-        created_at=agent_session.created_at,
-        updated_at=agent_session.updated_at,
-        last_stream_id=agent_session.last_stream_id,
-        messages=messages,
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Session not found",
     )
-    logger.info("Session read", session_id=agent_session.id, messages=len(messages))
-    return res
 
 
 @router.get("/{session_id}/vercel")
@@ -127,34 +155,56 @@ async def get_session_vercel(
     session_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> AgentSessionReadVercel:
-    """Get an agent session with its message history in Vercel format."""
+) -> AgentSessionReadVercel | ChatReadVercel:
+    """Get an agent session or legacy chat with message history in Vercel format.
+
+    Legacy chats have is_readonly=True.
+    """
     svc = AgentSessionService(session, role)
+
+    # Try AgentSession first
     agent_session = await svc.get_session(session_id)
-    if not agent_session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found",
+    if agent_session:
+        messages = await svc.list_messages(session_id)
+        ui_messages = vercel.convert_chat_messages_to_ui(messages)
+        return AgentSessionReadVercel(
+            id=agent_session.id,
+            workspace_id=agent_session.workspace_id,
+            title=agent_session.title,
+            user_id=agent_session.user_id,
+            entity_type=agent_session.entity_type,
+            entity_id=agent_session.entity_id,
+            tools=agent_session.tools,
+            agent_preset_id=agent_session.agent_preset_id,
+            harness_type=agent_session.harness_type,
+            created_at=agent_session.created_at,
+            updated_at=agent_session.updated_at,
+            last_stream_id=agent_session.last_stream_id,
+            messages=ui_messages,
         )
 
-    # Get messages and convert to Vercel format
-    messages = await svc.list_messages(session_id)
-    ui_messages = vercel.convert_chat_messages_to_ui(messages)
+    # Try legacy Chat
+    legacy_chat = await svc.get_legacy_chat(session_id)
+    if legacy_chat:
+        messages = await svc.list_messages(session_id)
+        ui_messages = vercel.convert_chat_messages_to_ui(messages)
+        return ChatReadVercel(
+            id=legacy_chat.id,
+            title=legacy_chat.title,
+            user_id=legacy_chat.user_id,
+            entity_type=legacy_chat.entity_type,
+            entity_id=legacy_chat.entity_id,
+            tools=legacy_chat.tools or [],
+            agent_preset_id=legacy_chat.agent_preset_id,
+            created_at=legacy_chat.created_at,
+            updated_at=legacy_chat.updated_at,
+            last_stream_id=legacy_chat.last_stream_id,
+            messages=ui_messages,
+        )
 
-    return AgentSessionReadVercel(
-        id=agent_session.id,
-        workspace_id=agent_session.workspace_id,
-        title=agent_session.title,
-        user_id=agent_session.user_id,
-        entity_type=agent_session.entity_type,
-        entity_id=agent_session.entity_id,
-        tools=agent_session.tools,
-        agent_preset_id=agent_session.agent_preset_id,
-        harness_type=agent_session.harness_type,
-        created_at=agent_session.created_at,
-        updated_at=agent_session.updated_at,
-        last_stream_id=agent_session.last_stream_id,
-        messages=ui_messages,
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Session not found",
     )
 
 
@@ -167,6 +217,14 @@ async def update_session(
 ) -> AgentSessionRead:
     """Update session properties."""
     svc = AgentSessionService(session, role)
+
+    # Check if this is a legacy chat (read-only)
+    if await svc.is_legacy_session(session_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Legacy chat sessions are read-only and cannot be modified",
+        )
+
     agent_session = await svc.get_session(session_id)
     if not agent_session:
         raise HTTPException(
@@ -186,6 +244,14 @@ async def delete_session(
 ) -> None:
     """Delete an agent session."""
     svc = AgentSessionService(session, role)
+
+    # Check if this is a legacy chat (read-only)
+    if await svc.is_legacy_session(session_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Legacy chat sessions are read-only and cannot be deleted",
+        )
+
     agent_session = await svc.get_session(session_id)
     if not agent_session:
         raise HTTPException(
@@ -219,6 +285,13 @@ async def send_message(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Workspace access required",
+            )
+
+        # Check if this is a legacy chat (read-only)
+        if await svc.is_legacy_session(session_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Legacy chat sessions are read-only and cannot receive new messages",
             )
 
         # Run session turn (spawns DurableAgentWorkflow)
@@ -272,14 +345,14 @@ async def send_message(
             detail=str(e),
         ) from e
     except Exception as e:
-        logger.exception(
+        logger.error(
             "Failed to start streaming session",
             session_id=session_id,
             error=str(e),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start streaming session: {str(e)}",
+            detail="Failed to start streaming session",
         ) from e
 
 

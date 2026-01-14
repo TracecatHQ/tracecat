@@ -367,7 +367,7 @@ def _extract_action_metadata(bound_action: BoundRegistryAction) -> tuple[str, ty
 
         expects = bound_action.template_action.definition.expects
         model_cls = create_expectation_model(
-            expects, bound_action.template_action.definition.action.replace(".", "_")
+            expects, bound_action.template_action.definition.action.replace(".", "__")
         )
     else:
         description = bound_action.description

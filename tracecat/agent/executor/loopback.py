@@ -154,7 +154,9 @@ class LoopbackHandler:
             # Read and forward events until done
             await self._process_runtime_events(reader)
 
-            self._result.success = True
+            # Only set success if no error occurred during event processing
+            if self._result.error is None:
+                self._result.success = True
 
         except asyncio.IncompleteReadError:
             logger.warning("Runtime disconnected unexpectedly")

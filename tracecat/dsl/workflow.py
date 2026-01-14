@@ -38,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
     from tracecat.agent.schemas import RunAgentArgs
+    from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import (
@@ -697,6 +698,7 @@ class DSLWorkflow:
                             max_tool_calls=action_args.max_tool_calls,
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        entity_type=AgentSessionEntity.WORKFLOW,
                     )
                     action_result: Any = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -751,6 +753,7 @@ class DSLWorkflow:
                             max_tool_calls=preset_action_args.max_tool_calls,
                             use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
+                        entity_type=AgentSessionEntity.WORKFLOW,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,

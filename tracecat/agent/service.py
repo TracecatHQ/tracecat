@@ -233,8 +233,17 @@ class AgentManagementService(BaseService):
         return None
 
     @contextlib.asynccontextmanager
-    async def with_model_config(self) -> AsyncIterator[ModelConfig]:
-        """Get the platform-specific secrets for the selected model."""
+    async def with_model_config(
+        self,
+        *,
+        use_workspace_credentials: bool = False,
+    ) -> AsyncIterator[ModelConfig]:
+        """Get the platform-specific secrets for the selected model.
+
+        Args:
+            use_workspace_credentials: If True, use workspace-scoped credentials.
+                If False (default), use organization-scoped credentials.
+        """
         # Get provider-specific secrets
         model_name = await self.get_default_model()
         if not model_name:
@@ -243,15 +252,25 @@ class AgentManagementService(BaseService):
         if not model_config:
             raise TracecatNotFoundError(f"Model {model_name} not found")
 
-        # Get organization credentials for the model's provider
+        # Get credentials for the model's provider from appropriate scope
         provider = model_config.provider
-        logger.info("Loading secrets for model", provider=provider, model=model_name)
+        logger.info(
+            "Loading secrets for model",
+            provider=provider,
+            model=model_name,
+            use_workspace_credentials=use_workspace_credentials,
+        )
 
-        # Fetch organization credentials for this provider
-        credentials = await self.get_provider_credentials(provider)
+        # Fetch credentials from appropriate scope
+        if use_workspace_credentials:
+            credentials = await self.get_workspace_provider_credentials(provider)
+        else:
+            credentials = await self.get_provider_credentials(provider)
+
         if not credentials:
+            scope = "workspace" if use_workspace_credentials else "organization"
             raise TracecatNotFoundError(
-                f"No credentials found for provider '{provider}'. "
+                f"No credentials found for provider '{provider}' at {scope} level. "
                 f"Please configure credentials for this provider first."
             )
 
@@ -282,8 +301,8 @@ class AgentManagementService(BaseService):
         Args:
             preset_id: Agent preset ID to load
             slug: Agent preset slug to load (alternative to preset_id)
-            use_workspace_credentials: If True, use workspace-scoped credentials.
-                If False (default), use organization-scoped credentials.
+            use_workspace_credentials: If True (default), use workspace-scoped credentials.
+                If False, use organization-scoped credentials.
         """
         if self.presets is None:
             raise TracecatAuthorizationError(

@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 
 import httpx
+import orjson
 
 from tracecat.logger import logger
 
@@ -130,9 +131,9 @@ class LLMSocketProxy:
         except asyncio.IncompleteReadError:
             logger.debug("Client disconnected during request")
         except Exception as e:
-            logger.exception("LLM proxy error", error=str(e))
+            logger.error("LLM proxy error", error=str(e))
             try:
-                await self._send_error_response(writer, 500, str(e))
+                await self._send_error_response(writer, 500, "Internal proxy error")
             except Exception:
                 pass
         finally:
@@ -278,7 +279,7 @@ class LLMSocketProxy:
             504: "Gateway Timeout",
         }
         status_text = status_messages.get(status_code, "Error")
-        body = f'{{"error": "{message}"}}'
+        body = orjson.dumps({"error": message}).decode()
         response = (
             f"HTTP/1.1 {status_code} {status_text}\r\n"
             f"Content-Type: application/json\r\n"

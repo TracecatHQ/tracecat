@@ -50,7 +50,7 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.tokens import MCPTokenClaims, mint_mcp_token
+from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -154,7 +154,7 @@ class SandboxedAgentExecutor:
             handler = LoopbackHandler(input=loopback_input)
 
             # Future to capture loopback result
-            self._loopback_result = asyncio.get_event_loop().create_future()
+            self._loopback_result = asyncio.get_running_loop().create_future()
 
             async def connection_callback(
                 reader: asyncio.StreamReader,
@@ -502,17 +502,6 @@ async def execute_approved_tools_activity(
     activity.heartbeat(f"Executing approved tools for session: {input.session_id}")
 
     results: list[ToolExecutionResult] = []
-
-    # Mint fresh JWT token - original may have expired during delayed approval
-    # Note: The minted token would be used for MCP server auth if needed.
-    # Currently, execute_action uses claims directly.
-    _ = mint_mcp_token(
-        workspace_id=input.workspace_id,
-        user_id=input.role.user_id,
-        allowed_actions=input.allowed_actions,
-        session_id=input.session_id,
-        ttl_seconds=300,  # Short TTL, just for this execution
-    )
 
     # Build claims for execute_action calls
     claims = MCPTokenClaims(

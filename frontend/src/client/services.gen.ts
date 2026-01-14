@@ -3245,12 +3245,15 @@ export const agentSessionsCreateSession = (
 /**
  * List Sessions
  * List agent sessions for the current workspace with optional filtering.
+ *
+ * Returns a list of sessions including both active AgentSessions and legacy
+ * Chat records. Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
  * @param data.limit Maximum number of sessions to return
- * @returns AgentSessionRead Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const agentSessionsListSessions = (
@@ -3273,11 +3276,13 @@ export const agentSessionsListSessions = (
 
 /**
  * Get Session
- * Get an agent session with its message history.
+ * Get an agent session or legacy chat with its message history.
+ *
+ * Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
- * @returns AgentSessionReadWithMessages Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const agentSessionsGetSession = (
@@ -3357,11 +3362,13 @@ export const agentSessionsDeleteSession = (
 
 /**
  * Get Session Vercel
- * Get an agent session with its message history in Vercel format.
+ * Get an agent session or legacy chat with message history in Vercel format.
+ *
+ * Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
- * @returns AgentSessionReadVercel Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const agentSessionsGetSessionVercel = (
