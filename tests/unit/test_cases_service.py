@@ -15,6 +15,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseEventsService, CaseFieldsService, CasesService
+from tracecat.db.models import User
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.tables.enums import SqlType
 
@@ -435,6 +436,7 @@ class TestCasesService:
         cases_service: CasesService,
         case_fields_service: CaseFieldsService,
         case_create_params: CaseCreate,
+        session: AsyncSession,
     ) -> None:
         await case_fields_service.create_field(
             CaseFieldCreate(name="custom_text", type=SqlType.TEXT)
@@ -446,6 +448,18 @@ class TestCasesService:
             created_case = await cases_service.create_case(case_create_params)
             dispatch_mock.reset_mock()
 
+            assignee = User(
+                email="case-assignee@example.com",
+                hashed_password="hashed_password_for_testing",
+                is_active=True,
+                is_verified=True,
+                is_superuser=False,
+                last_login_at=None,
+            )
+            session.add(assignee)
+            await session.commit()
+            await session.refresh(assignee)
+
             update_params = CaseUpdate(
                 summary="Updated Test Case",
                 description="Updated description",
@@ -453,7 +467,7 @@ class TestCasesService:
                 priority=CasePriority.HIGH,
                 severity=CaseSeverity.CRITICAL,
                 fields={"custom_text": "new value"},
-                assignee_id=uuid.uuid4(),
+                assignee_id=assignee.id,
                 payload={"source": "manual"},
             )
 

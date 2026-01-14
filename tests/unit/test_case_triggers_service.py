@@ -64,6 +64,11 @@ def mock_service() -> CaseTriggerDispatchService:
             mock, CaseTriggerDispatchService
         )
     )
+    mock._normalize_execution_mode = (
+        CaseTriggerDispatchService._normalize_execution_mode.__get__(
+            mock, CaseTriggerDispatchService
+        )
+    )
     mock._matches_trigger = CaseTriggerDispatchService._matches_trigger.__get__(
         mock, CaseTriggerDispatchService
     )
@@ -655,25 +660,25 @@ async def test_workflow(
         status="online",
         entrypoint=None,
         returns=None,
-        object={
-            "nodes": [
-                {
-                    "type": "trigger",
-                    "data": {
-                        "caseTriggers": [
-                            {
-                                "id": "trigger-1",
-                                "enabled": True,
-                                "eventType": "case_updated",
-                                "fieldFilters": {"data.field": "description"},
-                                "allowSelfTrigger": False,
-                            }
-                        ]
-                    },
-                }
-            ]
-        },
     )
+    workflow.object = {
+        "nodes": [
+            {
+                "type": "trigger",
+                "data": {
+                    "caseTriggers": [
+                        {
+                            "id": "trigger-1",
+                            "enabled": True,
+                            "eventType": "case_updated",
+                            "fieldFilters": {"data.field": "description"},
+                            "allowSelfTrigger": False,
+                        }
+                    ]
+                },
+            }
+        ]
+    }
     session.add(workflow)
     await session.commit()
     try:
@@ -802,27 +807,28 @@ class TestTriggerConfigParsingIntegration:
         """Test that camelCase JSON is converted to snake_case."""
         workflow = Workflow(
             title="camelcase-test",
+            description="Camelcase trigger test workflow",
             workspace_id=svc_workspace.id,
             status="online",
-            object={
-                "nodes": [
-                    {
-                        "type": "trigger",
-                        "data": {
-                            "caseTriggers": [
-                                {
-                                    "id": "test-id",
-                                    "enabled": True,
-                                    "eventType": "severity_changed",
-                                    "fieldFilters": {"data.new": "critical"},
-                                    "allowSelfTrigger": True,
-                                }
-                            ]
-                        },
-                    }
-                ]
-            },
         )
+        workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {
+                        "caseTriggers": [
+                            {
+                                "id": "test-id",
+                                "enabled": True,
+                                "eventType": "severity_changed",
+                                "fieldFilters": {"data.new": "critical"},
+                                "allowSelfTrigger": True,
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
         session.add(workflow)
         await session.commit()
 
@@ -844,10 +850,11 @@ class TestTriggerConfigParsingIntegration:
         """Test parsing with empty workflow object returns empty list."""
         workflow = Workflow(
             title="empty-object-test",
+            description="Empty object trigger test workflow",
             workspace_id=svc_workspace.id,
             status="online",
-            object=None,
         )
+        workflow.object = None
         session.add(workflow)
         await session.commit()
 
@@ -867,14 +874,15 @@ class TestTriggerConfigParsingIntegration:
         """Test parsing with no trigger node returns empty list."""
         workflow = Workflow(
             title="no-trigger-node-test",
+            description="No trigger node test workflow",
             workspace_id=svc_workspace.id,
             status="online",
-            object={
-                "nodes": [
-                    {"type": "action", "data": {"someField": "value"}},
-                ]
-            },
         )
+        workflow.object = {
+            "nodes": [
+                {"type": "action", "data": {"someField": "value"}},
+            ]
+        }
         session.add(workflow)
         await session.commit()
 
@@ -894,32 +902,33 @@ class TestTriggerConfigParsingIntegration:
         """Test that invalid configs are skipped with a warning."""
         workflow = Workflow(
             title="invalid-config-test",
+            description="Invalid trigger config test workflow",
             workspace_id=svc_workspace.id,
             status="online",
-            object={
-                "nodes": [
-                    {
-                        "type": "trigger",
-                        "data": {
-                            "caseTriggers": [
-                                {
-                                    "id": "valid-trigger",
-                                    "enabled": True,
-                                    "eventType": "case_updated",
-                                    "fieldFilters": {},
-                                    "allowSelfTrigger": False,
-                                },
-                                {
-                                    # Invalid: missing required fields
-                                    "id": "invalid-trigger",
-                                    "eventType": "not_a_valid_event_type",
-                                },
-                            ]
-                        },
-                    }
-                ]
-            },
         )
+        workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {
+                        "caseTriggers": [
+                            {
+                                "id": "valid-trigger",
+                                "enabled": True,
+                                "eventType": "case_updated",
+                                "fieldFilters": {},
+                                "allowSelfTrigger": False,
+                            },
+                            {
+                                # Invalid: missing required fields
+                                "id": "invalid-trigger",
+                                "eventType": "not_a_valid_event_type",
+                            },
+                        ]
+                    },
+                }
+            ]
+        }
         session.add(workflow)
         await session.commit()
 
@@ -1376,27 +1385,28 @@ class TestEndToEndDispatch:
         # Create an offline workflow with triggers
         offline_workflow = Workflow(
             title="offline-workflow",
+            description="Offline workflow for trigger dispatch",
             workspace_id=svc_workspace.id,
             status="offline",
-            object={
-                "nodes": [
-                    {
-                        "type": "trigger",
-                        "data": {
-                            "caseTriggers": [
-                                {
-                                    "id": "trigger-1",
-                                    "enabled": True,
-                                    "eventType": "case_updated",
-                                    "fieldFilters": {},
-                                    "allowSelfTrigger": False,
-                                }
-                            ]
-                        },
-                    }
-                ]
-            },
         )
+        offline_workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {
+                        "caseTriggers": [
+                            {
+                                "id": "trigger-1",
+                                "enabled": True,
+                                "eventType": "case_updated",
+                                "fieldFilters": {},
+                                "allowSelfTrigger": False,
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
         session.add(offline_workflow)
         await session.commit()
 
@@ -1426,27 +1436,28 @@ class TestEndToEndDispatch:
         # Create workflow with disabled trigger
         workflow = Workflow(
             title="disabled-trigger-workflow",
+            description="Workflow with disabled trigger",
             workspace_id=svc_workspace.id,
             status="online",
-            object={
-                "nodes": [
-                    {
-                        "type": "trigger",
-                        "data": {
-                            "caseTriggers": [
-                                {
-                                    "id": "disabled-trigger",
-                                    "enabled": False,  # Disabled
-                                    "eventType": "case_updated",
-                                    "fieldFilters": {},
-                                    "allowSelfTrigger": False,
-                                }
-                            ]
-                        },
-                    }
-                ]
-            },
         )
+        workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {
+                        "caseTriggers": [
+                            {
+                                "id": "disabled-trigger",
+                                "enabled": False,  # Disabled
+                                "eventType": "case_updated",
+                                "fieldFilters": {},
+                                "allowSelfTrigger": False,
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
         session.add(workflow)
         await session.commit()
 
@@ -1555,34 +1566,35 @@ class TestEndToEndDispatch:
         # Create workflow with multiple matching triggers
         workflow = Workflow(
             title="multi-trigger-workflow",
+            description="Workflow with multiple triggers",
             workspace_id=svc_workspace.id,
             status="online",
-            object={
-                "nodes": [
-                    {
-                        "type": "trigger",
-                        "data": {
-                            "caseTriggers": [
-                                {
-                                    "id": "trigger-1",
-                                    "enabled": True,
-                                    "eventType": "case_updated",
-                                    "fieldFilters": {},
-                                    "allowSelfTrigger": False,
-                                },
-                                {
-                                    "id": "trigger-2",
-                                    "enabled": True,
-                                    "eventType": "case_updated",
-                                    "fieldFilters": {},
-                                    "allowSelfTrigger": False,
-                                },
-                            ]
-                        },
-                    }
-                ]
-            },
         )
+        workflow.object = {
+            "nodes": [
+                {
+                    "type": "trigger",
+                    "data": {
+                        "caseTriggers": [
+                            {
+                                "id": "trigger-1",
+                                "enabled": True,
+                                "eventType": "case_updated",
+                                "fieldFilters": {},
+                                "allowSelfTrigger": False,
+                            },
+                            {
+                                "id": "trigger-2",
+                                "enabled": True,
+                                "eventType": "case_updated",
+                                "fieldFilters": {},
+                                "allowSelfTrigger": False,
+                            },
+                        ]
+                    },
+                }
+            ]
+        }
         session.add(workflow)
         await session.commit()
 

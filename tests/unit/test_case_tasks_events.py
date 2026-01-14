@@ -13,6 +13,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CaseEventsService, CasesService, CaseTasksService
+from tracecat.db.models import User, Workflow, Workspace
 from tracecat.identifiers.workflow import WorkflowUUID
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -153,9 +154,29 @@ class TestCaseTaskEvents:
     async def test_task_dispatches_triggers(
         self,
         test_case,
+        session: AsyncSession,
+        svc_workspace: Workspace,
         tasks_service: CaseTasksService,
         events_service: CaseEventsService,
     ) -> None:
+        user = User(
+            email="task-assignee@example.com",
+            hashed_password="hashed_password_for_testing",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+            last_login_at=None,
+        )
+        workflow = Workflow(
+            title="task-dispatch-workflow",
+            description="Workflow for task dispatch test",
+            workspace_id=svc_workspace.id,
+        )
+        session.add_all([user, workflow])
+        await session.commit()
+        await session.refresh(user)
+        await session.refresh(workflow)
+
         task = await tasks_service.create_task(
             test_case.id,
             CaseTaskCreate(title="Dispatch task", description="d"),
@@ -165,9 +186,9 @@ class TestCaseTaskEvents:
             task.id,
             CaseTaskUpdate(
                 status=CaseTaskStatus.IN_PROGRESS,
-                assignee_id=uuid.uuid4(),
+                assignee_id=user.id,
                 priority=CasePriority.HIGH,
-                workflow_id=WorkflowUUID.new_uuid4(),
+                workflow_id=WorkflowUUID.new(workflow.id),
             ),
         )
 
