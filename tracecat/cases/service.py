@@ -1,10 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal
-
-if TYPE_CHECKING:
-    from tracecat.cases.triggers.service import CaseTriggerDispatchService
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
@@ -59,6 +56,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.triggers.service import CaseTriggerDispatchService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldCreate
@@ -685,13 +683,13 @@ class CasesService(BaseWorkspaceService):
             await self.session.commit()
             # Make sure to refresh the case to get the fields relationship loaded
             await self.session.refresh(case)
-
-            # Dispatch triggers after commit
-            await self.events.dispatch_triggers(case=case, event=created_event)
-            return case
         except Exception:
             await self.session.rollback()
             raise
+
+        # Dispatch triggers after commit
+        await self.events.dispatch_triggers_best_effort(case=case, event=created_event)
+        return case
 
     @audit_log(resource_type="case", action="update")
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
@@ -828,15 +826,15 @@ class CasesService(BaseWorkspaceService):
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()
             await self.session.refresh(case)
-
-            # Dispatch triggers after commit for all events
-            for db_event in db_events:
-                await self.events.dispatch_triggers(case=case, event=db_event)
-
-            return case
         except Exception:
             await self.session.rollback()
             raise
+
+        # Dispatch triggers after commit for all events
+        for db_event in db_events:
+            await self.events.dispatch_triggers_best_effort(case=case, event=db_event)
+
+        return case
 
     @audit_log(resource_type="case", action="delete")
     async def delete_case(self, case: Case) -> None:
@@ -1184,7 +1182,7 @@ class CaseCommentsService(BaseWorkspaceService):
         await self.session.refresh(comment)
 
         # Dispatch triggers after commit
-        await self.events.dispatch_triggers(case=case, event=db_event)
+        await self.events.dispatch_triggers_best_effort(case=case, event=db_event)
 
         return comment
 
@@ -1243,7 +1241,7 @@ class CaseCommentsService(BaseWorkspaceService):
 
         # Dispatch triggers after commit
         if db_event:
-            await self.events.dispatch_triggers(case=case, event=db_event)
+            await self.events.dispatch_triggers_best_effort(case=case, event=db_event)
 
         return comment
 
@@ -1285,7 +1283,7 @@ class CaseCommentsService(BaseWorkspaceService):
         await self.session.commit()
 
         # Dispatch triggers after commit
-        await self.events.dispatch_triggers(case=case, event=db_event)
+        await self.events.dispatch_triggers_best_effort(case=case, event=db_event)
 
 
 class CaseEventsService(BaseWorkspaceService):
@@ -1298,11 +1296,9 @@ class CaseEventsService(BaseWorkspaceService):
         self._trigger_dispatch_service: CaseTriggerDispatchService | None = None
 
     @property
-    def trigger_dispatch(self) -> "CaseTriggerDispatchService":
+    def trigger_dispatch(self) -> CaseTriggerDispatchService:
         """Lazy-load trigger dispatch service."""
         if self._trigger_dispatch_service is None:
-            from tracecat.cases.triggers.service import CaseTriggerDispatchService
-
             self._trigger_dispatch_service = CaseTriggerDispatchService(
                 session=self.session, role=self.role
             )
@@ -1373,6 +1369,27 @@ class CaseEventsService(BaseWorkspaceService):
             event=event,
             case_fields=case_fields,
         )
+
+    async def dispatch_triggers_best_effort(
+        self,
+        case: Case,
+        event: CaseEvent,
+        case_fields: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Dispatch triggers without failing the parent operation."""
+        try:
+            return await self.dispatch_triggers(
+                case=case, event=event, case_fields=case_fields
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Failed to dispatch case triggers",
+                case_id=str(case.id),
+                event_id=str(event.id),
+                event_type=event.type,
+                error=str(exc),
+            )
+            return []
 
     async def create_case_viewed_event(
         self,
@@ -1575,7 +1592,7 @@ class CaseTasksService(BaseWorkspaceService):
 
         await self.session.commit()
         await self.session.refresh(task)
-        await events_svc.dispatch_triggers(case=case, event=db_event)
+        await events_svc.dispatch_triggers_best_effort(case=case, event=db_event)
         return task
 
     async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
@@ -1723,7 +1740,7 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(task)
         for db_event in db_events:
-            await events_svc.dispatch_triggers(case=case, event=db_event)
+            await events_svc.dispatch_triggers_best_effort(case=case, event=db_event)
         return task
 
     async def delete_task(self, task_id: uuid.UUID) -> None:
@@ -1764,4 +1781,4 @@ class CaseTasksService(BaseWorkspaceService):
 
         await self.session.delete(task)
         await self.session.commit()
-        await events_svc.dispatch_triggers(case=case, event=db_event)
+        await events_svc.dispatch_triggers_best_effort(case=case, event=db_event)

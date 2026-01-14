@@ -456,12 +456,13 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
             )
 
             return response["wf_exec_id"]
-        except Exception:
-            self.logger.exception(
+        except Exception as exc:
+            self.logger.error(
                 "Failed to dispatch published workflow for case event",
                 workflow_id=str(workflow.id),
                 case_id=str(case.id),
                 event_id=str(event.id),
+                error=str(exc),
             )
             return None
 
@@ -519,11 +520,12 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
             )
 
             return response["wf_exec_id"]
-        except Exception:
-            self.logger.exception(
+        except Exception as exc:
+            self.logger.error(
                 "Failed to dispatch draft workflow for case event",
                 workflow_id=str(workflow.id),
                 case_id=str(case.id),
                 event_id=str(event.id),
+                error=str(exc),
             )
             return None

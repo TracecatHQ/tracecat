@@ -65,6 +65,8 @@ type WorkflowUpdateWithObject = WorkflowUpdate & {
   object: ReturnType<typeof pruneGraphObject>
 }
 
+const AUTOSAVE_DEBOUNCE_MS = 200
+
 export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
@@ -88,6 +90,7 @@ export const WorkflowBuilderProvider: React.FC<
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
+  const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     // When the user switches workflows, clear selection, execution state,
@@ -97,6 +100,28 @@ export const WorkflowBuilderProvider: React.FC<
     setActionDrafts({})
   }, [workflowId])
 
+  useEffect(() => {
+    return () => {
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current)
+        autosaveTimeoutRef.current = null
+      }
+    }
+  }, [workflowId])
+
+  const scheduleWorkflowAutosave = useCallback(() => {
+    if (autosaveTimeoutRef.current) {
+      clearTimeout(autosaveTimeoutRef.current)
+    }
+    autosaveTimeoutRef.current = setTimeout(() => {
+      autosaveTimeoutRef.current = null
+      const currentObj = reactFlowInstance.toObject()
+      updateWorkflow({
+        object: pruneGraphObject(currentObj),
+      } as WorkflowUpdateWithObject)
+    }, AUTOSAVE_DEBOUNCE_MS)
+  }, [reactFlowInstance, updateWorkflow])
+
   const setReactFlowNodes = useCallback(
     (nodesOrUpdater: Node[] | ((nodes: Node[]) => Node[])) => {
       const currentNodes = reactFlowInstance.getNodes()
@@ -105,17 +130,9 @@ export const WorkflowBuilderProvider: React.FC<
           ? nodesOrUpdater(currentNodes)
           : nodesOrUpdater
       reactFlowInstance.setNodes(newNodes)
-
-      const currentObj = reactFlowInstance.toObject()
-      const newObj = {
-        ...currentObj,
-        nodes: newNodes,
-      }
-      updateWorkflow({
-        object: pruneGraphObject(newObj),
-      } as WorkflowUpdateWithObject)
+      scheduleWorkflowAutosave()
     },
-    [workflowId, reactFlowInstance, updateWorkflow]
+    [reactFlowInstance, scheduleWorkflowAutosave]
   )
   const setReactFlowEdges = useCallback(
     (edgesOrUpdater: Edge[] | ((edges: Edge[]) => Edge[])) => {
@@ -125,17 +142,9 @@ export const WorkflowBuilderProvider: React.FC<
           ? edgesOrUpdater(currentEdges)
           : edgesOrUpdater
       reactFlowInstance.setEdges(newEdges)
-
-      const currentObj = reactFlowInstance.toObject()
-      const newObj = {
-        ...currentObj,
-        edges: newEdges,
-      }
-      updateWorkflow({
-        object: pruneGraphObject(newObj),
-      } as WorkflowUpdateWithObject)
+      scheduleWorkflowAutosave()
     },
-    [workflowId, reactFlowInstance, updateWorkflow]
+    [reactFlowInstance, scheduleWorkflowAutosave]
   )
 
   const setActionDraft = useCallback((actionId: string, draft: unknown) => {
