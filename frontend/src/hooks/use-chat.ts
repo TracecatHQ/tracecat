@@ -11,7 +11,9 @@ import {
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
-  type AgentSessionReadVercel,
+  type AgentSessionsGetSessionResponse,
+  type AgentSessionsGetSessionVercelResponse,
+  type AgentSessionsListSessionsResponse,
   type AgentSessionUpdate,
   type ApiError,
   agentSessionsCreateSession,
@@ -116,17 +118,20 @@ export function useListChats(
   },
   options?: { enabled?: boolean }
 ): {
-  chats: AgentSessionRead[] | undefined
+  chats: AgentSessionsListSessionsResponse | undefined
   chatsLoading: boolean
-  chatsError: Error | null
-  refetchChats: UseQueryResult<AgentSessionRead[], Error>["refetch"]
+  chatsError: ApiError | null
+  refetchChats: UseQueryResult<
+    AgentSessionsListSessionsResponse,
+    ApiError
+  >["refetch"]
 } {
   const {
     data: chats,
     isLoading: chatsLoading,
     error: chatsError,
     refetch,
-  } = useQuery<AgentSessionRead[]>({
+  } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
     queryKey: ["chats", workspaceId, entityType, entityId, limit],
     queryFn: () =>
       agentSessionsListSessions({
@@ -153,7 +158,7 @@ export function useGetChat({
     data: chat,
     isLoading,
     error,
-  } = useQuery<AgentSessionRead, ApiError>({
+  } = useQuery<AgentSessionsGetSessionResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId],
     queryFn: () => agentSessionsGetSession({ sessionId: chatId, workspaceId }),
     enabled: !!chatId && !!workspaceId,
@@ -238,7 +243,7 @@ export function useGetChatVercel({
     data: chat,
     isLoading: chatLoading,
     error: chatError,
-  } = useQuery<AgentSessionReadVercel, ApiError>({
+  } = useQuery<AgentSessionsGetSessionVercelResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
     queryFn: async () => {
       if (!chatId) {

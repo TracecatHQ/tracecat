@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import type {
   AgentPresetRead,
   AgentSessionEntity,
-  AgentSessionReadVercel,
+  AgentSessionsGetSessionVercelResponse,
 } from "@/client"
 import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
@@ -259,7 +259,7 @@ interface ChatBodyProps {
   workspaceId: string
   entityType: AgentSessionEntity
   entityId: string
-  chat?: AgentSessionReadVercel
+  chat?: AgentSessionsGetSessionVercelResponse
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: AgentPresetRead

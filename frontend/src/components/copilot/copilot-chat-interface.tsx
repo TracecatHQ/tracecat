@@ -4,7 +4,10 @@ import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
-import type { AgentPresetRead, AgentSessionReadVercel } from "@/client"
+import type {
+  AgentPresetRead,
+  AgentSessionsGetSessionVercelResponse,
+} from "@/client"
 import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -260,7 +263,7 @@ export function CopilotChatInterface({
 interface CopilotChatBodyProps {
   chatId?: string
   workspaceId: string
-  chat?: AgentSessionReadVercel
+  chat?: AgentSessionsGetSessionVercelResponse
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: AgentPresetRead
