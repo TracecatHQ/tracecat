@@ -39,6 +39,14 @@ MODEL_CONFIGS = {
             "required": ["openai"],
         },
     ),
+    "gpt-5.2": ModelConfig(
+        name="gpt-5.2",
+        provider="openai",
+        org_secret_name="agent-openai-credentials",
+        secrets={
+            "required": ["openai"],
+        },
+    ),
     "claude-sonnet-4-5-20250929": ModelConfig(
         name="claude-sonnet-4-5-20250929",
         provider="anthropic",
