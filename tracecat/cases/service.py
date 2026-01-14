@@ -1,10 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal
-
-if TYPE_CHECKING:
-    from tracecat.cases.triggers.service import CaseTriggerDispatchService
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
@@ -285,7 +282,6 @@ class CasesService(BaseWorkspaceService):
 
         # Validate and get sort attribute
         # For "tasks", use a correlated subquery to count tasks; otherwise use Case column
-        task_count_expr = None
         if sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
@@ -314,7 +310,6 @@ class CasesService(BaseWorkspaceService):
                 # Use sort column value for cursor filtering (proper pagination)
                 # For "tasks" column, we need to compare against the task count subquery
                 if sort_column == "tasks":
-                    assert task_count_expr is not None
                     sort_filter_col = task_count_expr
                     sort_cursor_value = cursor_sort_value  # Integer comparison
                 else:
@@ -627,9 +622,6 @@ class CasesService(BaseWorkspaceService):
                     try:
                         await self.durations.sync_case_durations(case)
                         await self.session.commit()
-                        await self.events.dispatch_triggers(
-                            case=case, event=created_event
-                        )
                     except Exception:
                         await self.session.rollback()
                         self.logger.exception(
@@ -667,7 +659,7 @@ class CasesService(BaseWorkspaceService):
             await self.fields.upsert_field_values(case, params.fields or {})
 
             run_ctx = ctx_run.get()
-            created_event = await self.events.create_event(
+            await self.events.create_event(
                 case=case,
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
             )
@@ -678,9 +670,6 @@ class CasesService(BaseWorkspaceService):
             await self.session.commit()
             # Make sure to refresh the case to get the fields relationship loaded
             await self.session.refresh(case)
-
-            # Dispatch triggers after commit
-            await self.events.dispatch_triggers(case=case, event=created_event)
             return case
         except Exception:
             await self.session.rollback()
@@ -707,7 +696,6 @@ class CasesService(BaseWorkspaceService):
 
         # Update case parameters if provided
         set_fields = params.model_dump(exclude_unset=True)
-        db_events: list[CaseEvent] = []
 
         # Check for status changes
         if new_status := set_fields.pop("status", None):
@@ -727,7 +715,7 @@ class CasesService(BaseWorkspaceService):
                     event = StatusChangedEvent(
                         old=old_status, new=new_status, wf_exec_id=wf_exec_id
                     )
-                db_events.append(await self.events.create_event(case=case, event=event))
+                await self.events.create_event(case=case, event=event)
 
         # Check for priority changes
         if new_priority := set_fields.pop("priority", None):
@@ -735,13 +723,11 @@ class CasesService(BaseWorkspaceService):
             if old_priority != new_priority:
                 case.priority = new_priority
                 # Record priority change with detailed information
-                db_events.append(
-                    await self.events.create_event(
-                        case=case,
-                        event=PriorityChangedEvent(
-                            old=old_priority, new=new_priority, wf_exec_id=wf_exec_id
-                        ),
-                    )
+                await self.events.create_event(
+                    case=case,
+                    event=PriorityChangedEvent(
+                        old=old_priority, new=new_priority, wf_exec_id=wf_exec_id
+                    ),
                 )
 
         # Check for severity changes
@@ -750,13 +736,11 @@ class CasesService(BaseWorkspaceService):
             if old_severity != new_severity:
                 case.severity = new_severity
                 # Record severity change with detailed information
-                db_events.append(
-                    await self.events.create_event(
-                        case=case,
-                        event=SeverityChangedEvent(
-                            old=old_severity, new=new_severity, wf_exec_id=wf_exec_id
-                        ),
-                    )
+                await self.events.create_event(
+                    case=case,
+                    event=SeverityChangedEvent(
+                        old=old_severity, new=new_severity, wf_exec_id=wf_exec_id
+                    ),
                 )
 
         if fields := set_fields.pop("fields", None):
@@ -777,11 +761,9 @@ class CasesService(BaseWorkspaceService):
                 old_value = existing_fields.get(field)
                 if old_value != value:
                     diffs.append(FieldDiff(field=field, old=old_value, new=value))
-            db_events.append(
-                await self.events.create_event(
-                    case=case,
-                    event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
-                )
+            await self.events.create_event(
+                case=case,
+                event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
             )
 
         # Handle the rest of the field updates
@@ -799,12 +781,6 @@ class CasesService(BaseWorkspaceService):
                         field="summary", old=old, new=value, wf_exec_id=wf_exec_id
                     )
                 )
-            elif key == "description":
-                events.append(
-                    UpdatedEvent(
-                        field="description", old=old, new=value, wf_exec_id=wf_exec_id
-                    )
-                )
             elif key == "payload":
                 # Only record event if payload actually changed
                 if old != value:
@@ -813,18 +789,13 @@ class CasesService(BaseWorkspaceService):
         try:
             # If there are any remaining changed fields, record a general update activity
             for event in events:
-                db_events.append(await self.events.create_event(case=case, event=event))
+                await self.events.create_event(case=case, event=event)
 
             await self.durations.sync_case_durations(case)
 
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()
             await self.session.refresh(case)
-
-            # Dispatch triggers after commit for all events
-            for db_event in db_events:
-                await self.events.dispatch_triggers(case=case, event=db_event)
-
             return case
         except Exception:
             await self.session.rollback()
@@ -1070,19 +1041,6 @@ class CaseCommentsService(BaseWorkspaceService):
 
     service_name = "case_comments"
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-        self._events_service: CaseEventsService | None = None
-
-    @property
-    def events(self) -> "CaseEventsService":
-        """Lazy-load events service to avoid circular initialization."""
-        if self._events_service is None:
-            self._events_service = CaseEventsService(
-                session=self.session, role=self.role
-            )
-        return self._events_service
-
     async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
         """Get a comment by ID.
 
@@ -1145,9 +1103,6 @@ class CaseCommentsService(BaseWorkspaceService):
         Returns:
             The created comment
         """
-        run_ctx = ctx_run.get()
-        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
-
         comment = CaseComment(
             workspace_id=self.workspace_id,
             case_id=case.id,
@@ -1157,36 +1112,17 @@ class CaseCommentsService(BaseWorkspaceService):
         )
 
         self.session.add(comment)
-        await self.session.flush()  # Get the comment ID
-
-        # Emit comment_added event
-        db_event = await self.events.create_event(
-            case=case,
-            event=UpdatedEvent(
-                field="comment_added",
-                old=None,
-                new=params.content,
-                comment_id=comment.id,
-                parent_id=params.parent_id,
-                wf_exec_id=wf_exec_id,
-            ),
-        )
-
         await self.session.commit()
         await self.session.refresh(comment)
-
-        # Dispatch triggers after commit
-        await self.events.dispatch_triggers(case=case, event=db_event)
 
         return comment
 
     async def update_comment(
-        self, case: Case, comment: CaseComment, params: CaseCommentUpdate
+        self, comment: CaseComment, params: CaseCommentUpdate
     ) -> CaseComment:
         """Update an existing comment.
 
         Args:
-            case: The case the comment belongs to
             comment: The comment to update
             params: The updated comment parameters
 
@@ -1197,17 +1133,10 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatNotFoundError: If the comment doesn't exist
             TracecatAuthorizationError: If the user doesn't own the comment
         """
-        if comment.case_id != case.id:
-            raise TracecatNotFoundError("Comment not found")
-
         # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You cannot update this comment")
 
-        run_ctx = ctx_run.get()
-        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
-
-        old_content = comment.content
         set_fields = params.model_dump(exclude_unset=True)
         for key, value in set_fields.items():
             setattr(comment, key, value)
@@ -1215,69 +1144,29 @@ class CaseCommentsService(BaseWorkspaceService):
         # Set last_edited_at
         comment.last_edited_at = datetime.now(UTC)
 
-        # Emit comment_updated event if content changed
-        db_event = None
-        if "content" in set_fields and old_content != params.content:
-            db_event = await self.events.create_event(
-                case=case,
-                event=UpdatedEvent(
-                    field="comment_updated",
-                    old=old_content,
-                    new=params.content,
-                    comment_id=comment.id,
-                    parent_id=comment.parent_id,
-                    wf_exec_id=wf_exec_id,
-                ),
-            )
-
         await self.session.commit()
         await self.session.refresh(comment)
 
-        # Dispatch triggers after commit
-        if db_event:
-            await self.events.dispatch_triggers(case=case, event=db_event)
-
         return comment
 
-    async def delete_comment(self, case: Case, comment: CaseComment) -> None:
+    async def delete_comment(self, comment: CaseComment) -> None:
         """Delete a comment.
 
         Args:
             case: The case the comment belongs to
-            comment: The comment to delete
+            comment_id: The ID of the comment to delete
 
         Raises:
             TracecatNotFoundError: If the comment doesn't exist
             TracecatAuthorizationError: If the user doesn't own the comment
         """
-        if comment.case_id != case.id:
-            raise TracecatNotFoundError("Comment not found")
 
         # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You can only delete your own comments")
 
-        run_ctx = ctx_run.get()
-        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
-
-        # Emit comment_removed event before deleting
-        db_event = await self.events.create_event(
-            case=case,
-            event=UpdatedEvent(
-                field="comment_removed",
-                old=comment.content,
-                new=None,
-                comment_id=comment.id,
-                parent_id=comment.parent_id,
-                wf_exec_id=wf_exec_id,
-            ),
-        )
-
         await self.session.delete(comment)
         await self.session.commit()
-
-        # Dispatch triggers after commit
-        await self.events.dispatch_triggers(case=case, event=db_event)
 
 
 class CaseEventsService(BaseWorkspaceService):
@@ -1287,18 +1176,6 @@ class CaseEventsService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        self._trigger_dispatch_service: CaseTriggerDispatchService | None = None
-
-    @property
-    def trigger_dispatch(self) -> "CaseTriggerDispatchService":
-        """Lazy-load trigger dispatch service."""
-        if self._trigger_dispatch_service is None:
-            from tracecat.cases.triggers.service import CaseTriggerDispatchService
-
-            self._trigger_dispatch_service = CaseTriggerDispatchService(
-                session=self.session, role=self.role
-            )
-        return self._trigger_dispatch_service
 
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
@@ -1334,37 +1211,6 @@ class CaseEventsService(BaseWorkspaceService):
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
         return db_event
-
-    async def dispatch_triggers(
-        self,
-        case: Case,
-        event: CaseEvent,
-        case_fields: dict[str, Any] | None = None,
-    ) -> list[str]:
-        """Dispatch workflows triggered by this case event.
-
-        This should be called after the transaction is committed to ensure
-        the event is persisted before triggering workflows.
-
-        Args:
-            case: The case the event belongs to
-            event: The event that was created
-            case_fields: Optional custom field values for the case.
-                        If None, will be fetched from CaseFieldsService.
-
-        Returns:
-            List of workflow execution IDs that were dispatched
-        """
-        # Fetch case fields if not provided to ensure triggers have full data
-        if case_fields is None:
-            fields_service = CaseFieldsService(session=self.session, role=self.role)
-            case_fields = await fields_service.get_fields(case) or {}
-
-        return await self.trigger_dispatch.dispatch_triggers_for_event(
-            case=case,
-            event=event,
-            case_fields=case_fields,
-        )
 
     async def create_case_viewed_event(
         self,
@@ -1555,7 +1401,7 @@ class CaseTasksService(BaseWorkspaceService):
 
         # Emit task created event
         events_svc = CaseEventsService(session=self.session, role=self.role)
-        db_event = await events_svc.create_event(
+        await events_svc.create_event(
             case=case,
             event=TaskCreatedEvent(
                 task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
@@ -1567,7 +1413,6 @@ class CaseTasksService(BaseWorkspaceService):
 
         await self.session.commit()
         await self.session.refresh(task)
-        await events_svc.dispatch_triggers(case=case, event=db_event)
         return task
 
     async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
@@ -1598,7 +1443,6 @@ class CaseTasksService(BaseWorkspaceService):
         run_ctx = ctx_run.get()
         wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
         events_svc = CaseEventsService(session=self.session, role=self.role)
-        db_events: list[CaseEvent] = []
 
         # Update only provided fields and emit events
         set_fields = params.model_dump(exclude_unset=True)
@@ -1608,17 +1452,15 @@ class CaseTasksService(BaseWorkspaceService):
             old_status = task.status
             if old_status != new_status:
                 task.status = new_status
-                db_events.append(
-                    await events_svc.create_event(
-                        case=case,
-                        event=TaskStatusChangedEvent(
-                            task_id=task.id,
-                            title=task.title,
-                            old=old_status,
-                            new=new_status,
-                            wf_exec_id=wf_exec_id,
-                        ),
-                    )
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskStatusChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_status,
+                        new=new_status,
+                        wf_exec_id=wf_exec_id,
+                    ),
                 )
 
         # Assignee change
@@ -1626,17 +1468,15 @@ class CaseTasksService(BaseWorkspaceService):
             old_assignee = task.assignee_id
             if old_assignee != new_assignee:
                 task.assignee_id = new_assignee
-                db_events.append(
-                    await events_svc.create_event(
-                        case=case,
-                        event=TaskAssigneeChangedEvent(
-                            task_id=task.id,
-                            title=task.title,
-                            old=old_assignee,
-                            new=new_assignee,
-                            wf_exec_id=wf_exec_id,
-                        ),
-                    )
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskAssigneeChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_assignee,
+                        new=new_assignee,
+                        wf_exec_id=wf_exec_id,
+                    ),
                 )
 
         # Priority change
@@ -1644,17 +1484,15 @@ class CaseTasksService(BaseWorkspaceService):
             old_priority = task.priority
             if old_priority != new_priority:
                 task.priority = new_priority
-                db_events.append(
-                    await events_svc.create_event(
-                        case=case,
-                        event=TaskPriorityChangedEvent(
-                            task_id=task.id,
-                            title=task.title,
-                            old=old_priority,
-                            new=new_priority,
-                            wf_exec_id=wf_exec_id,
-                        ),
-                    )
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskPriorityChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=old_priority,
+                        new=new_priority,
+                        wf_exec_id=wf_exec_id,
+                    ),
                 )
 
         # Workflow change - handle separately to allow clearing (setting to None)
@@ -1680,17 +1518,15 @@ class CaseTasksService(BaseWorkspaceService):
 
             if old_wfid != new_wfid:
                 task.workflow_id = new_wfid
-                db_events.append(
-                    await events_svc.create_event(
-                        case=case,
-                        event=TaskWorkflowChangedEvent(
-                            task_id=task.id,
-                            title=task.title,
-                            old=WorkflowUUID.new(old_wfid) if old_wfid else None,
-                            new=new_wfid,
-                            wf_exec_id=wf_exec_id,
-                        ),
-                    )
+                await events_svc.create_event(
+                    case=case,
+                    event=TaskWorkflowChangedEvent(
+                        task_id=task.id,
+                        title=task.title,
+                        old=WorkflowUUID.new(old_wfid) if old_wfid else None,
+                        new=new_wfid,
+                        wf_exec_id=wf_exec_id,
+                    ),
                 )
 
         # default_trigger_values change - validate against current workflow if it exists
@@ -1714,8 +1550,6 @@ class CaseTasksService(BaseWorkspaceService):
 
         await self.session.commit()
         await self.session.refresh(task)
-        for db_event in db_events:
-            await events_svc.dispatch_triggers(case=case, event=db_event)
         return task
 
     async def delete_task(self, task_id: uuid.UUID) -> None:
@@ -1744,7 +1578,7 @@ class CaseTasksService(BaseWorkspaceService):
         events_svc = CaseEventsService(session=self.session, role=self.role)
 
         # Emit delete event before deleting to capture title
-        db_event = await events_svc.create_event(
+        await events_svc.create_event(
             case=case,
             event=TaskDeletedEvent(
                 task_id=task.id, title=task.title, wf_exec_id=wf_exec_id
@@ -1756,4 +1590,3 @@ class CaseTasksService(BaseWorkspaceService):
 
         await self.session.delete(task)
         await self.session.commit()
-        await events_svc.dispatch_triggers(case=case, event=db_event)

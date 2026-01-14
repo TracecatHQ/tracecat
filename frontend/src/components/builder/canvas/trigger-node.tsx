@@ -1,31 +1,14 @@
 import type { Node, NodeProps } from "@xyflow/react"
-import type { LucideIcon } from "lucide-react"
 import {
   CalendarCheck,
   CalendarClockIcon,
-  CheckSquare,
-  CircleCheck,
-  Eye,
-  FilePlus2,
-  Flag,
-  Flame,
-  FolderInput,
-  GitCompare,
-  Paperclip,
-  PenSquare,
-  RotateCcw,
   Shield,
   ShieldOff,
-  SquareStack,
-  Tag,
   TimerOffIcon,
   UnplugIcon,
-  UserRound,
   WebhookIcon,
-  Zap,
 } from "lucide-react"
-import React, { useMemo } from "react"
-import type { CaseEventType, WorkflowRead } from "@/client"
+import React from "react"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
 import { getIcon } from "@/components/icons"
@@ -52,7 +35,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -63,74 +45,6 @@ export type TriggerNodeData = {
 }
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
-
-// Case trigger config stored in workflow.object.nodes[].data.caseTriggers
-interface CaseTriggerConfig {
-  id: string
-  enabled: boolean
-  eventType: CaseEventType
-  fieldFilters: Record<string, unknown>
-  allowSelfTrigger: boolean
-}
-
-// Event type option with icon
-interface CaseTriggerEventOption {
-  value: CaseEventType
-  label: string
-  icon: LucideIcon
-}
-
-// Event types that can trigger workflows with friendly labels and icons
-const CASE_TRIGGER_EVENT_OPTIONS: CaseTriggerEventOption[] = [
-  { value: "case_created", label: "Case created", icon: FilePlus2 },
-  { value: "case_updated", label: "Case updated", icon: PenSquare },
-  { value: "case_closed", label: "Case closed", icon: CircleCheck },
-  { value: "case_reopened", label: "Case reopened", icon: RotateCcw },
-  { value: "case_viewed", label: "Case viewed", icon: Eye },
-  { value: "priority_changed", label: "Priority changed", icon: Flag },
-  { value: "severity_changed", label: "Severity changed", icon: Flame },
-  { value: "status_changed", label: "Status changed", icon: GitCompare },
-  { value: "fields_changed", label: "Fields changed", icon: PenSquare },
-  { value: "assignee_changed", label: "Assignee changed", icon: UserRound },
-  { value: "attachment_created", label: "Attachment created", icon: Paperclip },
-  { value: "attachment_deleted", label: "Attachment deleted", icon: Paperclip },
-  { value: "tag_added", label: "Tag added", icon: Tag },
-  { value: "tag_removed", label: "Tag removed", icon: Tag },
-  { value: "payload_changed", label: "Payload changed", icon: SquareStack },
-  { value: "task_created", label: "Task created", icon: CheckSquare },
-  { value: "task_deleted", label: "Task deleted", icon: CheckSquare },
-  {
-    value: "task_status_changed",
-    label: "Task status changed",
-    icon: CheckSquare,
-  },
-  {
-    value: "task_priority_changed",
-    label: "Task priority changed",
-    icon: CheckSquare,
-  },
-  {
-    value: "task_workflow_changed",
-    label: "Task workflow changed",
-    icon: CheckSquare,
-  },
-  {
-    value: "task_assignee_changed",
-    label: "Task assignee changed",
-    icon: CheckSquare,
-  },
-]
-
-// Helper to get event option by value
-function getEventOption(value: CaseEventType): CaseTriggerEventOption {
-  return (
-    CASE_TRIGGER_EVENT_OPTIONS.find((opt) => opt.value === value) ?? {
-      value,
-      label: value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-      icon: Zap,
-    }
-  )
-}
 
 export default React.memo(function TriggerNode({
   type,
@@ -229,8 +143,6 @@ export default React.memo(function TriggerNode({
               <div className="rounded-lg border">
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
-              {/* Case triggers table (enterprise only) */}
-              <TriggerNodeCaseTriggersTable workflow={workflow} />
             </div>
           </div>
         </>
@@ -389,117 +301,11 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
               className="h-8 bg-muted-foreground/5 text-center"
               colSpan={4}
             >
-              No schedules
+              No Schedules
             </TableCell>
           </TableRow>
         )}
       </TableBody>
     </Table>
-  )
-}
-
-function TriggerNodeCaseTriggersTable({
-  workflow,
-}: {
-  workflow: WorkflowRead
-}) {
-  const { isFeatureEnabled, isLoading: featureFlagLoading } = useFeatureFlag()
-
-  // Parse existing triggers from workflow.object
-  const caseTriggers = useMemo(() => {
-    if (!workflow.object) return []
-    const nodes =
-      (
-        workflow.object as {
-          nodes?: Array<{
-            type?: string
-            data?: { caseTriggers?: CaseTriggerConfig[] }
-          }>
-        }
-      ).nodes ?? []
-    const triggerNode = nodes.find((n) => n.type === "trigger")
-    return triggerNode?.data?.caseTriggers ?? []
-  }, [workflow.object])
-
-  // Don't render if feature flag is loading or not enabled
-  if (featureFlagLoading || !isFeatureEnabled("case-triggers")) {
-    return null
-  }
-
-  return (
-    <div className="rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="h-8 text-center text-xs" colSpan={2}>
-              <div className="flex items-center justify-center gap-1">
-                <FolderInput className="size-3" />
-                <span>Case triggers</span>
-              </div>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-
-        <TableBody>
-          {caseTriggers.length > 0 ? (
-            caseTriggers.map((trigger) => {
-              const eventOption = getEventOption(trigger.eventType)
-              const EventIcon = eventOption.icon
-
-              return (
-                <TableRow
-                  key={trigger.id}
-                  className="items-center text-center text-xs text-muted-foreground"
-                >
-                  <TableCell>
-                    <div className="flex w-full items-center justify-center gap-2">
-                      <span
-                        className={cn(
-                          "flex items-center gap-2",
-                          !trigger.enabled && "text-muted-foreground/80"
-                        )}
-                      >
-                        <EventIcon className="size-3" />
-                        <span>{eventOption.label}</span>
-                      </span>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              className={cn(
-                                "inline-block size-2 rounded-full",
-                                trigger.enabled
-                                  ? "bg-emerald-500"
-                                  : "bg-gray-300"
-                              )}
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" sideOffset={4}>
-                            {trigger.enabled
-                              ? trigger.allowSelfTrigger
-                                ? "Active (self-trigger enabled)"
-                                : "Active"
-                              : "Disabled"}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })
-          ) : (
-            <TableRow className="justify-center text-xs text-muted-foreground">
-              <TableCell
-                className="h-8 bg-muted-foreground/5 text-center"
-                colSpan={4}
-              >
-                No case triggers
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </div>
   )
 }

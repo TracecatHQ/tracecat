@@ -17,7 +17,7 @@ from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
 from tracecat.cases.schemas import AttachmentCreatedEvent, AttachmentDeletedEvent
 from tracecat.contexts import ctx_run
-from tracecat.db.models import Case, CaseAttachment, CaseEvent, File, Workspace
+from tracecat.db.models import Case, CaseAttachment, File, Workspace
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
@@ -75,7 +75,7 @@ class CaseAttachmentService(BaseWorkspaceService):
 
     async def _emit_case_event(
         self, case: Case, event: AttachmentCreatedEvent | AttachmentDeletedEvent
-    ) -> CaseEvent:
+    ) -> None:
         """Emit a case event with run context, avoiding circular imports at module import time."""
         run_ctx = ctx_run.get()
         # Import here to avoid circular dependency
@@ -85,7 +85,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         if hasattr(event, "wf_exec_id"):
             event.wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
 
-        return await CaseEventsService(self.session, self.role).create_event(
+        await CaseEventsService(self.session, self.role).create_event(
             case=case,
             event=event,
         )
@@ -375,10 +375,9 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Flush to ensure the attachment gets an ID
         await self.session.flush()
 
-        db_event = None
         # Record attachment event (for new attachments or restorations)
         if should_create_event:
-            db_event = await self._emit_case_event(
+            await self._emit_case_event(
                 case,
                 AttachmentCreatedEvent(
                     attachment_id=attachment.id,
@@ -392,12 +391,6 @@ class CaseAttachmentService(BaseWorkspaceService):
         await self.session.commit()
         # Reload attachment with the file relationship eagerly loaded
         await self.session.refresh(attachment, attribute_names=["file"])
-        if db_event is not None:
-            from tracecat.cases.service import CaseEventsService
-
-            await CaseEventsService(self.session, self.role).dispatch_triggers(
-                case=case, event=db_event
-            )
         return attachment
 
     async def download_attachment(
@@ -530,7 +523,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
 
         # Record deletion event
-        db_event = await self._emit_case_event(
+        await self._emit_case_event(
             case,
             AttachmentDeletedEvent(
                 attachment_id=attachment_id,
@@ -540,11 +533,6 @@ class CaseAttachmentService(BaseWorkspaceService):
         )
 
         await self.session.commit()
-        from tracecat.cases.service import CaseEventsService
-
-        await CaseEventsService(self.session, self.role).dispatch_triggers(
-            case=case, event=db_event
-        )
 
     async def get_total_storage_used(self, case: Case) -> int:
         """Get total storage used by a case's attachments.

@@ -85,12 +85,12 @@ function getLayoutedElements(
   edges: Edge[]
 } {
   const isHorizontal = direction === "LR"
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 250, ranksep: 100 })
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 250, ranksep: 300 })
 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, {
-      width: node.measured?.width ?? node.width ?? defaultNodeWidth,
-      height: node.measured?.height ?? node.height ?? defaultNodeHeight,
+      width: node.width ?? defaultNodeWidth,
+      height: node.height ?? defaultNodeHeight,
     })
   })
 
@@ -102,8 +102,8 @@ function getLayoutedElements(
 
   const newNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id)
-    const width = node.measured?.width ?? node.width ?? defaultNodeWidth
-    const height = node.measured?.height ?? node.height ?? defaultNodeHeight
+    const height = node.height ?? defaultNodeHeight
+    const width = node.width ?? defaultNodeWidth
     const newNode = {
       ...node,
       targetPosition: isHorizontal ? Position.Left : Position.Top,

@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from slugify import slugify
 from sqlalchemy import select
@@ -8,16 +8,12 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.cases.durations.service import CaseDurationService
-from tracecat.cases.schemas import TagAddedEvent, TagRemovedEvent
-from tracecat.contexts import ctx_run
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Case, CaseEvent, CaseTag, CaseTagLink
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
-
-if TYPE_CHECKING:
-    from tracecat.cases.service import CaseEventsService
 
 
 class CaseTagsService(BaseWorkspaceService):
@@ -42,46 +38,26 @@ class CaseTagsService(BaseWorkspaceService):
         durations_service = CaseDurationService(session=self.session, role=self.role)
         await durations_service.sync_case_durations(case)
 
-    def _get_events_service(self) -> "CaseEventsService":
-        """Get CaseEventsService instance to avoid circular import at module level."""
-        from tracecat.cases.service import CaseEventsService
-
-        return CaseEventsService(session=self.session, role=self.role)
-
     async def _create_tag_event(
         self,
         *,
         case: Case,
         tag: CaseTag,
-        is_add: bool,
-    ) -> CaseEvent:
-        """Create a tag event using typed events to ensure wf_exec_id is set.
-
-        Args:
-            case: The case being modified
-            tag: The tag being added or removed
-            is_add: True for tag_added, False for tag_removed
-        """
-        run_ctx = ctx_run.get()
-        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
-
-        if is_add:
-            event = TagAddedEvent(
-                tag_id=tag.id,
-                tag_ref=tag.ref,
-                tag_name=tag.name,
-                wf_exec_id=wf_exec_id,
-            )
-        else:
-            event = TagRemovedEvent(
-                tag_id=tag.id,
-                tag_ref=tag.ref,
-                tag_name=tag.name,
-                wf_exec_id=wf_exec_id,
-            )
-
-        events_svc = self._get_events_service()
-        return await events_svc.create_event(case=case, event=event)
+        event_type: CaseEventType,
+    ) -> None:
+        event = CaseEvent(
+            workspace_id=self.workspace_id,
+            case_id=case.id,
+            type=event_type,
+            data={
+                "tag_id": str(tag.id),
+                "tag_ref": tag.ref,
+                "tag_name": tag.name,
+            },
+            user_id=self.role.user_id,
+        )
+        self.session.add(event)
+        await self.session.flush()
 
     async def list_workspace_tags(self) -> Sequence[CaseTag]:
         """List all tags available in the current workspace."""
@@ -255,13 +231,13 @@ class CaseTagsService(BaseWorkspaceService):
         case_tag = CaseTagLink(case_id=case_id, tag_id=tag.id)
         self.session.add(case_tag)
 
-        db_event = await self._create_tag_event(case=case, tag=tag, is_add=True)
+        await self._create_tag_event(
+            case=case, tag=tag, event_type=CaseEventType.TAG_ADDED
+        )
         await self._sync_case_durations(case)
 
         await self.session.commit()
         await self.session.refresh(tag)
-
-        await self._get_events_service().dispatch_triggers(case=case, event=db_event)
         return tag
 
     async def remove_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> None:
@@ -273,8 +249,8 @@ class CaseTagsService(BaseWorkspaceService):
         if not case_tag:
             raise ValueError(f"Tag {tag_identifier} not found on case {case_id}")
         await self.session.delete(case_tag)
-        db_event = await self._create_tag_event(case=case, tag=tag, is_add=False)
+        await self._create_tag_event(
+            case=case, tag=tag, event_type=CaseEventType.TAG_REMOVED
+        )
         await self._sync_case_durations(case)
         await self.session.commit()
-
-        await self._get_events_service().dispatch_triggers(case=case, event=db_event)

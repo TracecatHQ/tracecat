@@ -1,13 +1,10 @@
 import {
-  AlignLeftIcon,
   BracesIcon,
   EyeIcon,
   type LucideIcon,
-  MessageSquareIcon,
   PaperclipIcon,
   PencilIcon,
   PlusIcon,
-  TagIcon,
   TrashIcon,
   UserIcon,
   UserXIcon,
@@ -24,8 +21,6 @@ import type {
   ReopenedEventRead,
   SeverityChangedEventRead,
   StatusChangedEventRead,
-  TagAddedEventRead,
-  TagRemovedEventRead,
   TaskAssigneeChangedEventRead,
   TaskCreatedEventRead,
   TaskDeletedEventRead,
@@ -266,7 +261,7 @@ export function CaseUpdatedEvent({
                 <TooltipTrigger asChild>
                   <span className="cursor-default">
                     {event.new
-                      ? `changed summary to "${event.new}"`
+                      ? `changed summary to ${event.new}`
                       : "removed summary"}
                   </span>
                 </TooltipTrigger>
@@ -277,43 +272,6 @@ export function CaseUpdatedEvent({
                 )}
               </Tooltip>
             </TooltipProvider>
-          </span>
-        </div>
-      )
-    case "description":
-      return (
-        <div className="flex items-center space-x-2 text-xs">
-          <EventIcon icon={AlignLeftIcon} />
-          <span>
-            <EventActor user={actor} />{" "}
-            {event.new ? "updated the description" : "removed the description"}
-          </span>
-        </div>
-      )
-    case "comment_added":
-      return (
-        <div className="flex items-center space-x-2 text-xs">
-          <EventIcon icon={MessageSquareIcon} />
-          <span>
-            <EventActor user={actor} /> added a comment
-          </span>
-        </div>
-      )
-    case "comment_removed":
-      return (
-        <div className="flex items-center space-x-2 text-xs">
-          <EventIcon icon={TrashIcon} className="text-red-600 bg-red-50" />
-          <span>
-            <EventActor user={actor} /> deleted a comment
-          </span>
-        </div>
-      )
-    case "comment_updated":
-      return (
-        <div className="flex items-center space-x-2 text-xs">
-          <EventIcon icon={MessageSquareIcon} />
-          <span>
-            <EventActor user={actor} /> edited a comment
           </span>
         </div>
       )
@@ -625,44 +583,6 @@ export function TaskWorkflowChangedEvent({
         <span className="font-medium max-w-32 inline-block truncate align-bottom">
           {event.title}
         </span>
-      </span>
-    </div>
-  )
-}
-
-// Tag events
-
-export function TagAddedEvent({
-  event,
-  actor,
-}: {
-  event: TagAddedEventRead
-  actor: User
-}) {
-  return (
-    <div className="flex items-center space-x-2 text-xs">
-      <EventIcon icon={TagIcon} />
-      <span>
-        <EventActor user={actor} /> added tag{" "}
-        <span className="font-medium">{event.tag_name}</span>
-      </span>
-    </div>
-  )
-}
-
-export function TagRemovedEvent({
-  event,
-  actor,
-}: {
-  event: TagRemovedEventRead
-  actor: User
-}) {
-  return (
-    <div className="flex items-center space-x-2 text-xs">
-      <EventIcon icon={TrashIcon} className="text-red-600 bg-red-50" />
-      <span>
-        <EventActor user={actor} /> removed tag{" "}
-        <span className="font-medium">{event.tag_name}</span>
       </span>
     </div>
   )

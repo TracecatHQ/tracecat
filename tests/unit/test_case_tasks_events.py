@@ -1,6 +1,3 @@
-import uuid
-from unittest.mock import AsyncMock, patch
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +11,6 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import CaseCreate, CaseTaskCreate, CaseTaskUpdate
 from tracecat.cases.service import CaseEventsService, CasesService, CaseTasksService
-from tracecat.identifiers.workflow import WorkflowUUID
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -150,39 +146,3 @@ class TestCaseTaskEvents:
         assert events[0].type == CaseEventType.TASK_DELETED
         assert events[0].data["task_id"] == str(task.id)
         assert events[0].data["title"] == "T4"
-
-    async def test_task_dispatches_triggers(
-        self, test_case, tasks_service: CaseTasksService
-    ) -> None:
-        with patch.object(
-            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
-        ) as dispatch_mock:
-            task = await tasks_service.create_task(
-                test_case.id,
-                CaseTaskCreate(title="Dispatch task", description="d"),
-            )
-
-            await tasks_service.update_task(
-                task.id,
-                CaseTaskUpdate(
-                    status=CaseTaskStatus.IN_PROGRESS,
-                    assignee_id=uuid.uuid4(),
-                    priority=CasePriority.HIGH,
-                    workflow_id=WorkflowUUID.new_uuid4(),
-                ),
-            )
-
-            await tasks_service.delete_task(task.id)
-
-        assert dispatch_mock.call_count == 6
-        dispatched_types = {
-            call.kwargs["event"].type for call in dispatch_mock.call_args_list
-        }
-        assert dispatched_types == {
-            CaseEventType.TASK_CREATED,
-            CaseEventType.TASK_STATUS_CHANGED,
-            CaseEventType.TASK_ASSIGNEE_CHANGED,
-            CaseEventType.TASK_PRIORITY_CHANGED,
-            CaseEventType.TASK_WORKFLOW_CHANGED,
-            CaseEventType.TASK_DELETED,
-        }

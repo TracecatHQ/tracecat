@@ -1,6 +1,5 @@
 import uuid
 from collections.abc import AsyncGenerator, Sequence
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from slugify import slugify
@@ -8,8 +7,8 @@ from sqlalchemy.exc import DatabaseError, IntegrityError, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.service import CaseCreate, CaseEventsService, CasesService
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatNotFoundError
@@ -156,30 +155,6 @@ class TestCaseTagsService:  # noqa: D101
         # Verify removal
         remaining = await case_tags_service.list_tags_for_case(case_id)
         assert len(remaining) == 0
-
-    @pytest.mark.anyio
-    async def test_tag_dispatches_triggers(
-        self,
-        case_tags_service: CaseTagsService,
-        case_id: uuid.UUID,
-        tag_params: TagCreate,
-    ) -> None:
-        tag = await case_tags_service.create_tag(tag_params)
-
-        with patch.object(
-            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
-        ) as dispatch_mock:
-            await case_tags_service.add_case_tag(case_id, str(tag.id))
-            await case_tags_service.remove_case_tag(case_id, tag.ref)
-
-        assert dispatch_mock.call_count == 2
-        dispatched_types = [
-            call.kwargs["event"].type for call in dispatch_mock.call_args_list
-        ]
-        assert dispatched_types == [
-            CaseEventType.TAG_ADDED,
-            CaseEventType.TAG_REMOVED,
-        ]
 
     @pytest.mark.anyio
     async def test_add_duplicate_tag_idempotent(

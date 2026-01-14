@@ -23,7 +23,7 @@ import type {
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
-import { pruneGraphObject } from "@/lib/workflow"
+import { pruneReactFlowInstance } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
@@ -93,40 +93,18 @@ export const WorkflowBuilderProvider: React.FC<
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
-    (nodesOrUpdater: Node[] | ((nodes: Node[]) => Node[])) => {
-      const currentNodes = reactFlowInstance.getNodes()
-      const newNodes =
-        typeof nodesOrUpdater === "function"
-          ? nodesOrUpdater(currentNodes)
-          : nodesOrUpdater
-      reactFlowInstance.setNodes(newNodes)
-
-      const currentObj = reactFlowInstance.toObject()
-      const newObj = {
-        ...currentObj,
-        nodes: newNodes,
-      }
-      updateWorkflow({ object: pruneGraphObject(newObj) })
+    (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
+      reactFlowInstance.setNodes(nodes)
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
-    [workflowId, reactFlowInstance, updateWorkflow]
+    [workflowId, reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
-    (edgesOrUpdater: Edge[] | ((edges: Edge[]) => Edge[])) => {
-      const currentEdges = reactFlowInstance.getEdges()
-      const newEdges =
-        typeof edgesOrUpdater === "function"
-          ? edgesOrUpdater(currentEdges)
-          : edgesOrUpdater
-      reactFlowInstance.setEdges(newEdges)
-
-      const currentObj = reactFlowInstance.toObject()
-      const newObj = {
-        ...currentObj,
-        edges: newEdges,
-      }
-      updateWorkflow({ object: pruneGraphObject(newObj) })
+    (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
+      reactFlowInstance.setEdges(edges)
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
-    [workflowId, reactFlowInstance, updateWorkflow]
+    [workflowId, reactFlowInstance]
   )
 
   const setActionDraft = useCallback((actionId: string, draft: unknown) => {

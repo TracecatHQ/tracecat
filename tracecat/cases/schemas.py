@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, TypeAdapter, field_validator
+from pydantic import ConfigDict, Field, RootModel, field_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -94,16 +94,12 @@ class CaseFieldReadMinimal(CustomFieldRead):
         cls,
         column: sa.engine.interfaces.ReflectedColumn,
         *,
-        reserved_fields: set[str] | None = None,
         field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
-        reserved_set = set(RESERVED_CASE_FIELDS)
-        if reserved_fields:
-            reserved_set |= reserved_fields
         return cls.model_validate(
             super().from_sa(
                 column,
-                reserved_fields=reserved_set,
+                reserved_fields=set(RESERVED_CASE_FIELDS),
                 field_schema=field_schema,
             )
         )
@@ -253,23 +249,9 @@ class CaseViewedEvent(CaseEventBase):
 
 class UpdatedEvent(CaseEventBase):
     type: Literal[CaseEventType.CASE_UPDATED] = CaseEventType.CASE_UPDATED
-    field: Literal[
-        "summary",
-        "description",
-        "comment_added",
-        "comment_removed",
-        "comment_updated",
-    ]
+    field: Literal["summary"]
     old: str | None
     new: str | None
-    comment_id: uuid.UUID | None = Field(
-        default=None,
-        description="The ID of the comment for comment events.",
-    )
-    parent_id: uuid.UUID | None = Field(
-        default=None,
-        description="The parent comment ID for reply comments.",
-    )
 
 
 class FieldDiff(Schema):
@@ -486,13 +468,10 @@ type CaseEventVariant = Annotated[
 ]
 
 
-class CaseEventRead(RootModel):
+class CaseEventRead(RootModel, Schema):
     """Base read model for all event types."""
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        arbitrary_types_allowed=True,
-    )
+    model_config = ConfigDict(from_attributes=True)
     root: (
         CreatedEventRead
         | ClosedEventRead
@@ -516,10 +495,6 @@ class CaseEventRead(RootModel):
         | TaskDeletedEventRead
         | TaskAssigneeChangedEventRead
     ) = Field(discriminator="type")
-
-    @classmethod
-    def list_adapter(cls) -> TypeAdapter[list[Self]]:
-        return TypeAdapter(list[cls], config=cls.model_config)
 
 
 class Change[OldType: Any, NewType: Any](Schema):

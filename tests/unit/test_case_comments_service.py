@@ -1,15 +1,13 @@
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
-from tracecat.cases.service import CaseCommentsService, CaseEventsService, CasesService
+from tracecat.cases.service import CaseCommentsService, CasesService
 from tracecat.db.models import Case
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -63,26 +61,6 @@ async def test_case(session: AsyncSession, svc_role: Role) -> Case:
         CaseCreate(
             summary="Test Case for Comments",
             description="This is a test case for comment testing",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.LOW,
-        )
-    )
-    return case
-
-
-@pytest.fixture
-async def other_case(session: AsyncSession, svc_role: Role) -> Case:
-    """Create an additional test case for mismatch checks."""
-    cases_service = CasesService(session=session, role=svc_role)
-
-    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.schemas import CaseCreate
-
-    case = await cases_service.create_case(
-        CaseCreate(
-            summary="Another Test Case",
-            description="Secondary case for mismatch testing",
             status=CaseStatus.NEW,
             priority=CasePriority.MEDIUM,
             severity=CaseSeverity.LOW,
@@ -189,7 +167,7 @@ class TestCaseCommentsService:
 
         # Update comment
         updated_comment = await case_comments_service.update_comment(
-            test_case, created_comment, update_params
+            created_comment, update_params
         )
         assert updated_comment.content == update_params.content
 
@@ -232,32 +210,10 @@ class TestCaseCommentsService:
 
         # Should raise authorization error
         with pytest.raises(TracecatAuthorizationError):
-            await service2.update_comment(test_case, created_comment, update_params)
+            await service2.update_comment(created_comment, update_params)
 
         # Verify the comment wasn't updated
         retrieved_comment = await service1.get_comment(created_comment.id)
-        assert retrieved_comment is not None
-        assert retrieved_comment.content == comment_create_params.content
-
-    async def test_update_comment_case_mismatch(
-        self,
-        case_comments_service: CaseCommentsService,
-        test_case: Case,
-        other_case: Case,
-        comment_create_params: CaseCommentCreate,
-    ) -> None:
-        """Test updating a comment with the wrong case."""
-        created_comment = await case_comments_service.create_comment(
-            test_case, comment_create_params
-        )
-        update_params = CaseCommentUpdate(content="Updated test comment content")
-
-        with pytest.raises(TracecatNotFoundError):
-            await case_comments_service.update_comment(
-                other_case, created_comment, update_params
-            )
-
-        retrieved_comment = await case_comments_service.get_comment(created_comment.id)
         assert retrieved_comment is not None
         assert retrieved_comment.content == comment_create_params.content
 
@@ -274,7 +230,7 @@ class TestCaseCommentsService:
         )
 
         # Delete the comment
-        await case_comments_service.delete_comment(test_case, created_comment)
+        await case_comments_service.delete_comment(created_comment)
 
         # Verify deletion
         deleted_comment = await case_comments_service.get_comment(created_comment.id)
@@ -312,61 +268,8 @@ class TestCaseCommentsService:
         # Try to delete the comment with a different user
         # Should raise authorization error
         with pytest.raises(TracecatAuthorizationError):
-            await service2.delete_comment(test_case, created_comment)
+            await service2.delete_comment(created_comment)
 
         # Verify the comment wasn't deleted
         retrieved_comment = await service1.get_comment(created_comment.id)
         assert retrieved_comment is not None
-
-    async def test_delete_comment_case_mismatch(
-        self,
-        case_comments_service: CaseCommentsService,
-        test_case: Case,
-        other_case: Case,
-        comment_create_params: CaseCommentCreate,
-    ) -> None:
-        """Test deleting a comment with the wrong case."""
-        created_comment = await case_comments_service.create_comment(
-            test_case, comment_create_params
-        )
-
-        with pytest.raises(TracecatNotFoundError):
-            await case_comments_service.delete_comment(other_case, created_comment)
-
-        retrieved_comment = await case_comments_service.get_comment(created_comment.id)
-        assert retrieved_comment is not None
-
-    async def test_comment_dispatches_triggers(
-        self,
-        case_comments_service: CaseCommentsService,
-        test_case: Case,
-        comment_create_params: CaseCommentCreate,
-    ) -> None:
-        with patch.object(
-            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
-        ) as dispatch_mock:
-            created_comment = await case_comments_service.create_comment(
-                test_case, comment_create_params
-            )
-
-            await case_comments_service.update_comment(
-                test_case,
-                created_comment,
-                CaseCommentUpdate(content="Updated comment content"),
-            )
-
-            await case_comments_service.delete_comment(test_case, created_comment)
-
-        assert dispatch_mock.call_count == 3
-        dispatched_fields = [
-            call.kwargs["event"].data["field"] for call in dispatch_mock.call_args_list
-        ]
-        assert dispatched_fields == [
-            "comment_added",
-            "comment_updated",
-            "comment_removed",
-        ]
-        assert all(
-            call.kwargs["event"].type == CaseEventType.CASE_UPDATED
-            for call in dispatch_mock.call_args_list
-        )
