@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.triggers.schemas import (
-    CaseTriggerPayload,
     CaseTriggerExecutionMode,
+    CaseTriggerPayload,
     CaseWorkflowTriggerConfig,
 )
 from tracecat.db.models import Case, CaseEvent, Workflow

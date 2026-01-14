@@ -572,12 +572,20 @@ class TestCoreCreateComment:
 class TestCoreUpdateComment:
     """Test cases for the update_comment UDF."""
 
+    @patch("tracecat_registry.core.cases.CasesService")
     @patch("tracecat_registry.core.cases.CaseCommentsService.with_session")
-    async def test_update_comment_success(self, mock_with_session, mock_comment):
+    async def test_update_comment_success(
+        self, mock_comments_with_session, mock_cases_service, mock_comment, mock_case
+    ):
         """Test successful comment update."""
         # Set up the mock service context manager
         mock_service = AsyncMock()
         mock_service.get_comment.return_value = mock_comment
+        mock_service.session = AsyncMock()
+        mock_service.role = MagicMock()
+
+        mock_comment.case_id = mock_case.id
+        mock_cases_service.return_value.get_case = AsyncMock(return_value=mock_case)
 
         updated_comment = MagicMock()
         updated_comment.to_dict.return_value = {
@@ -590,7 +598,7 @@ class TestCoreUpdateComment:
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
+        mock_comments_with_session.return_value = mock_ctx
 
         # Call the update_comment function
         result = await update_comment(
@@ -600,7 +608,8 @@ class TestCoreUpdateComment:
 
         # Assert update_comment was called with expected parameters
         mock_service.update_comment.assert_called_once()
-        comment_arg, update_arg = mock_service.update_comment.call_args[0]
+        case_arg, comment_arg, update_arg = mock_service.update_comment.call_args[0]
+        assert case_arg is mock_case
         assert comment_arg is mock_comment
         assert isinstance(update_arg, CaseCommentUpdate)
         assert update_arg.content == "Updated Comment"
@@ -608,14 +617,20 @@ class TestCoreUpdateComment:
         # Verify the result
         assert result == updated_comment.to_dict.return_value
 
+    @patch("tracecat_registry.core.cases.CasesService")
     @patch("tracecat_registry.core.cases.CaseCommentsService.with_session")
     async def test_update_comment_zeroing_content(
-        self, mock_with_session, mock_comment
+        self, mock_comments_with_session, mock_cases_service, mock_comment, mock_case
     ):
         """Test zeroing out comment content by setting it to None."""
         # Set up the mock service context manager
         mock_service = AsyncMock()
         mock_service.get_comment.return_value = mock_comment
+        mock_service.session = AsyncMock()
+        mock_service.role = MagicMock()
+
+        mock_comment.case_id = mock_case.id
+        mock_cases_service.return_value.get_case = AsyncMock(return_value=mock_case)
 
         updated_comment = MagicMock()
         updated_comment.to_dict.return_value = {
@@ -628,7 +643,7 @@ class TestCoreUpdateComment:
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
+        mock_comments_with_session.return_value = mock_ctx
 
         # Call the update_comment function with content=None
         result = await update_comment(
@@ -638,7 +653,8 @@ class TestCoreUpdateComment:
 
         # Assert update_comment was called with expected parameters
         mock_service.update_comment.assert_called_once()
-        comment_arg, update_arg = mock_service.update_comment.call_args[0]
+        case_arg, comment_arg, update_arg = mock_service.update_comment.call_args[0]
+        assert case_arg is mock_case
         assert comment_arg is mock_comment
         assert isinstance(update_arg, CaseCommentUpdate)
         assert update_arg.content is None

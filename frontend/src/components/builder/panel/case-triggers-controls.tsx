@@ -292,9 +292,7 @@ function AddCaseTriggerDialog({
   })
 
   const eventType = form.watch("eventType") as CaseEventType
-  const executionMode = form.watch(
-    "executionMode"
-  ) as CaseTriggerExecutionMode
+  const executionMode = form.watch("executionMode") as CaseTriggerExecutionMode
 
   useEffect(() => {
     if (open) {
@@ -637,9 +635,7 @@ export function CaseTriggersControls({ workflow }: CaseTriggersControlsProps) {
   const handleExecutionModeChange = useCallback(
     (triggerId: string, executionMode: CaseTriggerExecutionMode) => {
       saveTriggers((current) =>
-        current.map((t) =>
-          t.id === triggerId ? { ...t, executionMode } : t
-        )
+        current.map((t) => (t.id === triggerId ? { ...t, executionMode } : t))
       )
     },
     [saveTriggers]
