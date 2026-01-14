@@ -171,154 +171,25 @@ def role_workspace_b() -> Role:
 
 
 @pytest.fixture
-async def test_workspace_a(session):
-    """Create workspace A for multi-tenant agent tests."""
-    from tracecat import config
-    from tracecat.db.models import Workspace
-    from tracecat.logger import logger
-
-    workspace_id = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
-
-    workspace = Workspace(
-        id=workspace_id,
-        name="test-workspace-a",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-    )
-    session.add(workspace)
-    await session.commit()
-    await session.refresh(workspace)
-
-    logger.debug("Created test workspace A", workspace_id=workspace.id)
-    yield workspace
-
-
-@pytest.fixture
-async def test_workspace_b(session):
-    """Create workspace B for multi-tenant agent tests."""
-    from tracecat import config
-    from tracecat.db.models import Workspace
-    from tracecat.logger import logger
-
-    workspace_id = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
-
-    workspace = Workspace(
-        id=workspace_id,
-        name="test-workspace-b",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-    )
-    session.add(workspace)
-    await session.commit()
-    await session.refresh(workspace)
-
-    logger.debug("Created test workspace B", workspace_id=workspace.id)
-    yield workspace
-
-
-@pytest.fixture
-def role_workspace_agent_a(test_user_a, test_workspace_a) -> Role:
+def role_workspace_agent_a() -> Role:
     """Role for workspace A (test tenant 1) for agent workflows."""
     return Role(
         type="service",
         service_id="tracecat-agent-executor",
-        workspace_id=test_workspace_a.id,
-        user_id=test_user_a.id,
+        workspace_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        user_id=uuid.uuid4(),
     )
 
 
 @pytest.fixture
-def role_workspace_agent_b(test_user_b, test_workspace_b) -> Role:
+def role_workspace_agent_b() -> Role:
     """Role for workspace B (test tenant 2) for agent workflows."""
     return Role(
         type="service",
         service_id="tracecat-agent-executor",
-        workspace_id=test_workspace_b.id,
-        user_id=test_user_b.id,
+        workspace_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
+        user_id=uuid.uuid4(),
     )
-
-
-# =============================================================================
-# Agent Session Fixtures for Concurrency Tests
-# =============================================================================
-
-
-@pytest.fixture
-async def test_agent_session_a(role_workspace_agent_a: Role):
-    """Create agent session A for concurrency tests."""
-    from tracecat.agent.session.schemas import AgentSessionCreate
-    from tracecat.agent.session.service import AgentSessionService
-    from tracecat.agent.session.types import AgentSessionEntity
-    from tracecat.logger import logger
-
-    async with AgentSessionService.with_session(role=role_workspace_agent_a) as svc:
-        agent_session = await svc.create_session(
-            AgentSessionCreate(
-                entity_type=AgentSessionEntity.CASE,
-                entity_id=uuid.uuid4(),
-            )
-        )
-        logger.debug("Created test agent session A", session_id=agent_session.id)
-        try:
-            yield agent_session
-        finally:
-            logger.debug("Teardown test agent session A")
-            try:
-                await svc.delete_session(agent_session)
-            except Exception as e:
-                logger.warning(f"Error during agent session A cleanup: {e}")
-
-
-@pytest.fixture
-async def test_agent_session_b(role_workspace_agent_a: Role):
-    """Create agent session B for concurrency tests (same workspace as A)."""
-    from tracecat.agent.session.schemas import AgentSessionCreate
-    from tracecat.agent.session.service import AgentSessionService
-    from tracecat.agent.session.types import AgentSessionEntity
-    from tracecat.logger import logger
-
-    async with AgentSessionService.with_session(role=role_workspace_agent_a) as svc:
-        agent_session = await svc.create_session(
-            AgentSessionCreate(
-                entity_type=AgentSessionEntity.CASE,
-                entity_id=uuid.uuid4(),
-            )
-        )
-        logger.debug("Created test agent session B", session_id=agent_session.id)
-        try:
-            yield agent_session
-        finally:
-            logger.debug("Teardown test agent session B")
-            try:
-                await svc.delete_session(agent_session)
-            except Exception as e:
-                logger.warning(f"Error during agent session B cleanup: {e}")
-
-
-@pytest.fixture
-async def test_agent_session_workspace_b(role_workspace_agent_b: Role):
-    """Create agent session for workspace B (different workspace for isolation tests)."""
-    from tracecat.agent.session.schemas import AgentSessionCreate
-    from tracecat.agent.session.service import AgentSessionService
-    from tracecat.agent.session.types import AgentSessionEntity
-    from tracecat.logger import logger
-
-    async with AgentSessionService.with_session(role=role_workspace_agent_b) as svc:
-        agent_session = await svc.create_session(
-            AgentSessionCreate(
-                entity_type=AgentSessionEntity.CASE,
-                entity_id=uuid.uuid4(),
-            )
-        )
-        logger.debug(
-            "Created test agent session for workspace B", session_id=agent_session.id
-        )
-        try:
-            yield agent_session
-        finally:
-            logger.debug("Teardown test agent session for workspace B")
-            try:
-                await svc.delete_session(agent_session)
-            except Exception as e:
-                logger.warning(f"Error during agent session workspace B cleanup: {e}")
 
 
 # =============================================================================

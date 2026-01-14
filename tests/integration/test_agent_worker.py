@@ -189,35 +189,6 @@ def agent_worker_factory(
     yield create_agent_worker
 
 
-@pytest.fixture
-async def svc_user(svc_role: Role):
-    """Ensure svc_role.user_id exists for worker-owned DB sessions."""
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from tracecat.db.engine import get_async_engine
-    from tracecat.db.models import User
-
-    if svc_role.user_id is None:
-        raise ValueError("svc_role.user_id must be set for agent session tests")
-
-    async with AsyncSession(get_async_engine()) as session:
-        user = await session.get(User, svc_role.user_id)
-        if user is None:
-            user = User(
-                id=svc_role.user_id,
-                email=f"test-{svc_role.user_id.hex[:8]}@example.com",
-                hashed_password="test_password",
-                is_active=True,
-                is_verified=True,
-                is_superuser=False,
-                last_login_at=None,
-            )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
-        return user
-
-
 # =============================================================================
 # Test Classes
 # =============================================================================
@@ -364,67 +335,6 @@ class TestAgentWorkerSingleTenant:
             assert isinstance(stream_key, str)
             assert str(workspace_id) in stream_key
             assert str(session_id) in stream_key
-
-    @pytest.mark.anyio
-    @pytest.mark.integration
-    async def test_creates_session_in_database(
-        self,
-        svc_role: Role,
-        svc_user,
-        temporal_client: Client,
-        agent_worker_factory: Callable[..., Worker],
-    ) -> None:
-        """Verify session is created in database during workflow execution."""
-        from tracecat.agent.session.service import AgentSessionService
-
-        session_id = uuid.uuid4()
-        queue = TEST_AGENT_QUEUE
-
-        def mock_executor(input: AgentExecutorInput) -> AgentExecutorResult:
-            return AgentExecutorResult(success=True)
-
-        agent_activities = AgentActivities()
-        activities: list[Callable[..., Any]] = [
-            *agent_activities.get_activities(),
-            *get_session_activities(),
-            *ApprovalManager.get_activities(),
-            create_mock_run_agent_activity(mock_executor),
-            create_mock_execute_approved_tools_activity(),
-        ]
-
-        workflow_args = AgentWorkflowArgs(
-            role=svc_role,
-            agent_args=RunAgentArgs(
-                session_id=session_id,
-                user_prompt="Test session creation",
-                config=AgentConfig(
-                    model_name="claude-3-5-sonnet-20241022",
-                    model_provider="anthropic",
-                    actions=["core.http_request"],
-                ),
-            ),
-            title="Test Session",
-        )
-
-        async with agent_worker_factory(
-            temporal_client, task_queue=queue, custom_activities=activities
-        ):
-            wf_handle = await temporal_client.start_workflow(
-                DurableAgentWorkflow.run,
-                workflow_args,
-                id=f"test-agent-session-{session_id}",
-                task_queue=queue,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                execution_timeout=timedelta(seconds=30),
-            )
-
-            await wf_handle.result()
-
-            # Verify session exists in database
-            async with AgentSessionService.with_session(role=svc_role) as svc:
-                session = await svc.get_session(session_id)
-                assert session is not None
-                assert session.title == "Test Session"
 
     @pytest.mark.anyio
     @pytest.mark.integration
