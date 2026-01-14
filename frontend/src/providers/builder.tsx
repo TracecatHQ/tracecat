@@ -23,6 +23,7 @@ import type {
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
+import type { WorkflowUpdate } from "@/client"
 import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -58,6 +59,10 @@ const ReactFlowInteractionsContext = createContext<
 
 interface ReactFlowInteractionsProviderProps {
   children: ReactNode
+}
+
+type WorkflowUpdateWithObject = WorkflowUpdate & {
+  object: ReturnType<typeof pruneGraphObject>
 }
 
 export const WorkflowBuilderProvider: React.FC<
@@ -106,7 +111,7 @@ export const WorkflowBuilderProvider: React.FC<
         ...currentObj,
         nodes: newNodes,
       }
-      updateWorkflow({ object: pruneGraphObject(newObj) })
+      updateWorkflow({ object: pruneGraphObject(newObj) } as WorkflowUpdateWithObject)
     },
     [workflowId, reactFlowInstance, updateWorkflow]
   )
@@ -124,7 +129,7 @@ export const WorkflowBuilderProvider: React.FC<
         ...currentObj,
         edges: newEdges,
       }
-      updateWorkflow({ object: pruneGraphObject(newObj) })
+      updateWorkflow({ object: pruneGraphObject(newObj) } as WorkflowUpdateWithObject)
     },
     [workflowId, reactFlowInstance, updateWorkflow]
   )

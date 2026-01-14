@@ -73,6 +73,15 @@ interface CaseTriggerConfig {
   allowSelfTrigger: boolean
 }
 
+type WorkflowObject = {
+  nodes?: Array<{
+    type?: string
+    data?: { caseTriggers?: CaseTriggerConfig[] }
+  }>
+}
+
+type WorkflowReadWithObject = WorkflowRead & { object?: WorkflowObject }
+
 // Event type option with icon
 interface CaseTriggerEventOption {
   value: CaseEventType
@@ -401,22 +410,14 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
 function TriggerNodeCaseTriggersTable({
   workflow,
 }: {
-  workflow: WorkflowRead
+  workflow: WorkflowReadWithObject
 }) {
   const { isFeatureEnabled, isLoading: featureFlagLoading } = useFeatureFlag()
 
   // Parse existing triggers from workflow.object
   const caseTriggers = useMemo(() => {
     if (!workflow.object) return []
-    const nodes =
-      (
-        workflow.object as {
-          nodes?: Array<{
-            type?: string
-            data?: { caseTriggers?: CaseTriggerConfig[] }
-          }>
-        }
-      ).nodes ?? []
+    const nodes = workflow.object.nodes ?? []
     const triggerNode = nodes.find((n) => n.type === "trigger")
     return triggerNode?.data?.caseTriggers ?? []
   }, [workflow.object])

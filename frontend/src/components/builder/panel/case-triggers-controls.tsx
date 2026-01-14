@@ -226,8 +226,17 @@ interface CaseTriggerConfig {
   executionMode: CaseTriggerExecutionMode
 }
 
+type WorkflowObject = {
+  nodes?: Array<{
+    type?: string
+    data?: { caseTriggers?: CaseTriggerConfig[] }
+  }>
+}
+
+type WorkflowReadWithObject = WorkflowRead & { object?: WorkflowObject }
+
 interface CaseTriggersControlsProps {
-  workflow: WorkflowRead
+  workflow: WorkflowReadWithObject
 }
 
 // Helper to get event option by value
@@ -507,15 +516,7 @@ export function CaseTriggersControls({ workflow }: CaseTriggersControlsProps) {
   // Parse existing triggers from workflow.object
   const existingTriggers = useMemo(() => {
     if (!workflow.object) return []
-    const nodes =
-      (
-        workflow.object as {
-          nodes?: Array<{
-            type?: string
-            data?: { caseTriggers?: CaseTriggerConfig[] }
-          }>
-        }
-      ).nodes ?? []
+    const nodes = workflow.object.nodes ?? []
     const triggerNode = nodes.find((n) => n.type === "trigger")
     return (triggerNode?.data?.caseTriggers ?? []).map((trigger) => ({
       ...trigger,

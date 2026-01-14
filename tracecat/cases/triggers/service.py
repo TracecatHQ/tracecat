@@ -229,7 +229,9 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
             "type": event.type,
             "data": event.data or {},
             "user_id": str(event.user_id) if event.user_id else None,
-            "created_at": event.created_at.isoformat() if event.created_at else None,
+            "created_at": event.created_at.isoformat()
+            if event.created_at
+            else None,
         }
 
     def _matches_trigger(
@@ -351,7 +353,9 @@ class CaseTriggerDispatchService(BaseWorkspaceService):
             case_event={
                 "id": str(event.id),
                 "type": event.type,
-                "created_at": event.created_at.isoformat() if event.created_at else None,
+                "created_at": event.created_at.isoformat()
+                if event.created_at
+                else None,
                 "data": event.data or {},
                 "user_id": str(event.user_id) if event.user_id else None,
             },
