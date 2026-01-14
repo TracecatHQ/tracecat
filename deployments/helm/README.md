@@ -213,7 +213,78 @@ Configure these when using managed services (RDS, ElastiCache, etc.):
 
 Notes:
 - Postgres Secrets Manager values should be JSON with `username` and `password` (or set `externalPostgres.auth.username` and store just the password as the secret string).
-- Redis and Temporal Secrets Manager values should be raw strings (URL / API key).
+- Redis and Temporal Secrets Manager values should be raw strings (URL / API key). For Redis with TLS+auth, use `rediss://:password@host:port`.
+
+### Service account (IRSA)
+
+Shared service account used by `api`, `worker`, and `executor` pods.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `serviceAccount.create` | true | Create the service account |
+| `serviceAccount.name` | "" | Override the service account name |
+| `serviceAccount.annotations` | {} | Annotations (e.g., `eks.amazonaws.com/role-arn`) |
+
+### External Secrets Operator (ESO) integration
+
+For GitOps workflows, you can use ESO to sync secrets from AWS Secrets Manager into Kubernetes automatically. This avoids storing secrets in Terraform state or manually creating K8s secrets.
+
+**Prerequisites:**
+
+1. Install External Secrets Operator:
+   ```bash
+   helm repo add external-secrets https://charts.external-secrets.io
+   helm install external-secrets external-secrets/external-secrets \
+     -n external-secrets --create-namespace
+   ```
+
+2. Create a `ClusterSecretStore` with IRSA authentication (typically done by platform team or Terraform).
+
+3. Store secrets in AWS Secrets Manager with expected JSON format:
+   ```json
+   {
+     "dbEncryptionKey": "<url-safe-base64-32-bytes>",
+     "serviceKey": "<hex-64-chars>",
+     "signingSecret": "<hex-64-chars>",
+     "userAuthSecret": "<hex-64-chars>"
+   }
+   ```
+
+**Configuration:**
+
+```yaml
+# Leave existingSecret empty - ESO will create it
+secrets:
+  existingSecret: ""
+
+externalSecrets:
+  enabled: true
+  refreshInterval: "1h"
+  clusterSecretStoreRef: "your-cluster-store-name"
+
+  coreSecrets:
+    enabled: true
+    secretArn: "arn:aws:secretsmanager:us-east-1:123456789:secret:tracecat/core-AbCdEf"
+    targetSecretName: "tracecat-secrets"
+
+  # Optional: PostgreSQL, Redis, Temporal credentials
+  postgres:
+    enabled: true
+    secretArn: "arn:aws:secretsmanager:us-east-1:123456789:secret:rds!db-xxxx"
+    targetSecretName: "tracecat-postgres-credentials"
+```
+
+See `examples/values-aws.yaml` for a complete example.
+
+| Parameter | Description |
+|-----------|-------------|
+| `externalSecrets.enabled` | Enable ESO integration |
+| `externalSecrets.refreshInterval` | How often to sync secrets (default: 1h) |
+| `externalSecrets.clusterSecretStoreRef` | Name of existing ClusterSecretStore |
+| `externalSecrets.coreSecrets.secretArn` | AWS Secrets Manager ARN for core secrets |
+| `externalSecrets.postgres.secretArn` | ARN for PostgreSQL credentials (JSON with `username`, `password`) |
+| `externalSecrets.redis.secretArn` | ARN for Redis URL (raw string, e.g. `rediss://:password@host:port`) |
+| `externalSecrets.temporal.secretArn` | ARN for Temporal API key (raw string) |
 
 ## Upgrading
 

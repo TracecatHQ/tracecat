@@ -12,6 +12,56 @@ secrets:
   # - oauthClientSecret: Google OAuth client secret
   oauthSecret: ""
 
+# External Secrets Operator integration (optional)
+# When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
+externalSecrets:
+  enabled: false
+  refreshInterval: "1h"
+
+  # Reference to an existing ClusterSecretStore (recommended for AWS with IRSA)
+  clusterSecretStoreRef: ""
+
+  # Core Tracecat secrets (REQUIRED when enabled)
+  # Expected JSON: { "dbEncryptionKey": "...", "serviceKey": "...", "signingSecret": "...", "userAuthSecret": "..." }
+  coreSecrets:
+    enabled: true
+    secretArn: ""
+    targetSecretName: "tracecat-secrets"
+
+  # OAuth secrets (optional)
+  # Expected JSON: { "oauthClientId": "...", "oauthClientSecret": "..." }
+  oauthSecrets:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-oauth-secrets"
+
+  # PostgreSQL credentials for externalPostgres
+  # Expected JSON: { "username": "...", "password": "..." }
+  postgres:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-postgres-credentials"
+
+  # Redis URL for externalRedis
+  # Expected: raw Redis URL string (rediss://:password@host:port for TLS)
+  redis:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-redis-credentials"
+
+  # Temporal Cloud API key for externalTemporal
+  # Expected: raw API key string
+  temporal:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-temporal-credentials"
+
+# Service account for Tracecat workloads (api/worker/executor)
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
 # Backend image configuration
 image:
   repository: ghcr.io/tracecathq/tracecat

@@ -54,6 +54,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Service account name for Tracecat workloads
+*/}}
+{{- define "tracecat.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- if .Values.serviceAccount.name -}}
+{{- .Values.serviceAccount.name -}}
+{{- else -}}
+{{- printf "%s-app" (include "tracecat.fullname" .) -}}
+{{- end -}}
+{{- else -}}
+{{- .Values.serviceAccount.name | default "default" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 =============================================================================
 PostgreSQL Helpers
 =============================================================================
@@ -392,7 +407,7 @@ Blob storage environment variables
 {{- end }}
 {{- if .Values.minio.enabled }}
 {{- /* Use MinIO credentials from the MinIO secret */}}
-{{- $minioSecret := .Values.minio.auth.existingSecret | default .Values.minio.fullnameOverride | default (printf "%s-minio" .Release.Name) -}}
+{{- $minioSecret := .Values.minio.auth.existingSecret | default .Values.minio.fullnameOverride | default (printf "%s-minio" .Release.Name) }}
 - name: AWS_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef:
@@ -688,16 +703,84 @@ valueFrom:
 
 {{/*
 =============================================================================
+ESO-Aware Secret Name Resolution
+=============================================================================
+*/}}
+
+{{/*
+Get the effective core secrets name.
+When ESO is enabled with coreSecrets, use the ESO target name.
+Otherwise, require the manual existingSecret.
+*/}}
+{{- define "tracecat.secrets.coreName" -}}
+{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.coreSecrets.enabled .Values.externalSecrets.coreSecrets.secretArn }}
+{{- .Values.externalSecrets.coreSecrets.targetSecretName }}
+{{- else if .Values.secrets.existingSecret }}
+{{- .Values.secrets.existingSecret }}
+{{- else }}
+{{- fail "Either secrets.existingSecret or externalSecrets.coreSecrets (with secretArn) must be configured" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Get the effective OAuth secrets name.
+*/}}
+{{- define "tracecat.secrets.oauthName" -}}
+{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.oauthSecrets.enabled .Values.externalSecrets.oauthSecrets.secretArn }}
+{{- .Values.externalSecrets.oauthSecrets.targetSecretName }}
+{{- else }}
+{{- .Values.secrets.oauthSecret }}
+{{- end }}
+{{- end }}
+
+{{/*
+Get the effective PostgreSQL secrets name for external Postgres.
+ESO-managed secret takes precedence over existingSecret.
+*/}}
+{{- define "tracecat.secrets.postgresName" -}}
+{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.postgres.enabled .Values.externalSecrets.postgres.secretArn }}
+{{- .Values.externalSecrets.postgres.targetSecretName }}
+{{- else if .Values.externalPostgres.auth.existingSecret }}
+{{- .Values.externalPostgres.auth.existingSecret }}
+{{- end }}
+{{- end }}
+
+{{/*
+Get the effective Redis secrets name for external Redis.
+*/}}
+{{- define "tracecat.secrets.redisName" -}}
+{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.redis.enabled .Values.externalSecrets.redis.secretArn }}
+{{- .Values.externalSecrets.redis.targetSecretName }}
+{{- else if .Values.externalRedis.auth.existingSecret }}
+{{- .Values.externalRedis.auth.existingSecret }}
+{{- end }}
+{{- end }}
+
+{{/*
+Get the effective Temporal secrets name for external Temporal.
+*/}}
+{{- define "tracecat.secrets.temporalName" -}}
+{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.temporal.enabled .Values.externalSecrets.temporal.secretArn }}
+{{- .Values.externalSecrets.temporal.targetSecretName }}
+{{- else if .Values.externalTemporal.auth.existingSecret }}
+{{- .Values.externalTemporal.auth.existingSecret }}
+{{- end }}
+{{- end }}
+
+{{/*
+=============================================================================
 Validation Helpers
 =============================================================================
 */}}
 
 {{/*
-Validate required secrets
+Validate required secrets - accepts either manual secret or ESO-managed secret
 */}}
 {{- define "tracecat.validateRequiredSecrets" -}}
-{{- if not .Values.secrets.existingSecret -}}
-{{- fail "secrets.existingSecret is required (K8s Secret with core credentials)" -}}
+{{- $hasManualSecret := .Values.secrets.existingSecret -}}
+{{- $hasEsoSecret := and .Values.externalSecrets.enabled .Values.externalSecrets.coreSecrets.enabled .Values.externalSecrets.coreSecrets.secretArn -}}
+{{- if not (or $hasManualSecret $hasEsoSecret) -}}
+{{- fail "Core secrets required: set secrets.existingSecret OR enable externalSecrets with coreSecrets.secretArn" -}}
 {{- end -}}
 {{- end -}}
 
@@ -735,46 +818,51 @@ Secret Environment Variable Helpers
 
 {{/*
 Secret environment variables (shared by api, worker, executor)
+Uses ESO-aware secret name resolution.
 */}}
 {{- define "tracecat.env.secrets" -}}
+{{- $secretName := include "tracecat.secrets.coreName" . }}
 - name: TRACECAT__DB_ENCRYPTION_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.existingSecret }}
+      name: {{ $secretName }}
       key: dbEncryptionKey
 - name: TRACECAT__SERVICE_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.existingSecret }}
+      name: {{ $secretName }}
       key: serviceKey
 - name: TRACECAT__SIGNING_SECRET
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.existingSecret }}
+      name: {{ $secretName }}
       key: signingSecret
 {{- end -}}
 
 {{/*
 API-specific secret env vars (OAuth, user auth)
+Uses ESO-aware secret name resolution.
 */}}
 {{- define "tracecat.env.secrets.api" -}}
-{{- include "tracecat.env.secrets" . }}
+{{- $coreSecretName := include "tracecat.secrets.coreName" . }}
+{{- $oauthSecretName := include "tracecat.secrets.oauthName" . }}
+{{ include "tracecat.env.secrets" . }}
 - name: USER_AUTH_SECRET
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.existingSecret }}
+      name: {{ $coreSecretName }}
       key: userAuthSecret
-{{- if .Values.secrets.oauthSecret }}
+{{- if $oauthSecretName }}
 - name: OAUTH_CLIENT_ID
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.oauthSecret }}
+      name: {{ $oauthSecretName }}
       key: oauthClientId
       optional: true
 - name: OAUTH_CLIENT_SECRET
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.oauthSecret }}
+      name: {{ $oauthSecretName }}
       key: oauthClientSecret
       optional: true
 {{- end }}
@@ -782,11 +870,13 @@ API-specific secret env vars (OAuth, user auth)
 
 {{/*
 UI-specific secret env vars
+Uses ESO-aware secret name resolution.
 */}}
 {{- define "tracecat.env.secrets.ui" -}}
+{{- $secretName := include "tracecat.secrets.coreName" . }}
 - name: TRACECAT__SERVICE_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secrets.existingSecret }}
+      name: {{ $secretName }}
       key: serviceKey
 {{- end -}}
