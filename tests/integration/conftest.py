@@ -172,15 +172,8 @@ def role_workspace_b() -> Role:
 
 @pytest.fixture
 async def test_workspace_a(session):
-    """Create workspace A for multi-tenant agent tests.
-
-    Creates workspace in both test session and global session so services using
-    with_session() can see the workspace and satisfy foreign key constraints.
-    """
-    from sqlalchemy import select
-
+    """Create workspace A for multi-tenant agent tests."""
     from tracecat import config
-    from tracecat.db.engine import get_async_session_context_manager
     from tracecat.db.models import Workspace
     from tracecat.logger import logger
 
@@ -195,52 +188,14 @@ async def test_workspace_a(session):
     await session.commit()
     await session.refresh(workspace)
 
-    # Also persist in global session for services using with_session()
-    async with get_async_session_context_manager() as global_session:
-        result = await global_session.execute(
-            select(Workspace).where(Workspace.id == workspace_id)
-        )
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            global_session.add(
-                Workspace(
-                    id=workspace_id,
-                    name="test-workspace-a",
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-                )
-            )
-            await global_session.commit()
-
     logger.debug("Created test workspace A", workspace_id=workspace.id)
-    try:
-        yield workspace
-    finally:
-        logger.debug("Teardown test workspace A")
-        try:
-            async with get_async_session_context_manager() as global_cleanup_session:
-                result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace_id)
-                )
-                global_workspace = result.scalar_one_or_none()
-                if global_workspace:
-                    await global_cleanup_session.delete(global_workspace)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up workspace A from global session")
-        except Exception as e:
-            logger.warning(f"Error cleaning up workspace A from global session: {e}")
+    yield workspace
 
 
 @pytest.fixture
 async def test_workspace_b(session):
-    """Create workspace B for multi-tenant agent tests.
-
-    Creates workspace in both test session and global session so services using
-    with_session() can see the workspace and satisfy foreign key constraints.
-    """
-    from sqlalchemy import select
-
+    """Create workspace B for multi-tenant agent tests."""
     from tracecat import config
-    from tracecat.db.engine import get_async_session_context_manager
     from tracecat.db.models import Workspace
     from tracecat.logger import logger
 
@@ -255,39 +210,8 @@ async def test_workspace_b(session):
     await session.commit()
     await session.refresh(workspace)
 
-    # Also persist in global session for services using with_session()
-    async with get_async_session_context_manager() as global_session:
-        result = await global_session.execute(
-            select(Workspace).where(Workspace.id == workspace_id)
-        )
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            global_session.add(
-                Workspace(
-                    id=workspace_id,
-                    name="test-workspace-b",
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-                )
-            )
-            await global_session.commit()
-
     logger.debug("Created test workspace B", workspace_id=workspace.id)
-    try:
-        yield workspace
-    finally:
-        logger.debug("Teardown test workspace B")
-        try:
-            async with get_async_session_context_manager() as global_cleanup_session:
-                result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace_id)
-                )
-                global_workspace = result.scalar_one_or_none()
-                if global_workspace:
-                    await global_cleanup_session.delete(global_workspace)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up workspace B from global session")
-        except Exception as e:
-            logger.warning(f"Error cleaning up workspace B from global session: {e}")
+    yield workspace
 
 
 @pytest.fixture

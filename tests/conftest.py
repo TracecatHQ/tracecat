@@ -1197,11 +1197,7 @@ async def mock_agent_session(session: AsyncSession, svc_role: Role):
 
 @pytest.fixture
 async def test_user_a(session: AsyncSession) -> AsyncGenerator[User, None]:
-    """Create test user A for multi-tenant tests.
-
-    Creates user in both test session and global session so services using
-    with_session() can see the user and satisfy foreign key constraints.
-    """
+    """Create test user A for multi-tenant tests."""
     user_id = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
 
     user = User(
@@ -1213,44 +1209,13 @@ async def test_user_a(session: AsyncSession) -> AsyncGenerator[User, None]:
     await session.commit()
     await session.refresh(user)
 
-    # Also persist the user in the default engine used by services
-    # so services that use `with_session()` can see the user
-    async with get_async_session_context_manager() as global_session:
-        existing = await global_session.get(User, user_id)
-        if existing is None:
-            global_session.add(
-                User(
-                    id=user_id,
-                    email=f"test-user-a-{user_id.hex[:8]}@tracecat.com",
-                    hashed_password="not-a-real-hash",
-                )
-            )
-            await global_session.commit()
-
     logger.debug("Created test user A", user_id=user.id)
-    try:
-        yield user
-    finally:
-        logger.debug("Teardown test user A")
-        # Clean up from global session first
-        try:
-            async with get_async_session_context_manager() as global_cleanup_session:
-                global_user = await global_cleanup_session.get(User, user_id)
-                if global_user:
-                    await global_cleanup_session.delete(global_user)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up user A from global session")
-        except Exception as e:
-            logger.warning(f"Error cleaning up user A from global session: {e}")
+    yield user
 
 
 @pytest.fixture
 async def test_user_b(session: AsyncSession) -> AsyncGenerator[User, None]:
-    """Create test user B for multi-tenant tests.
-
-    Creates user in both test session and global session so services using
-    with_session() can see the user and satisfy foreign key constraints.
-    """
+    """Create test user B for multi-tenant tests."""
     user_id = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
 
     user = User(
@@ -1262,32 +1227,5 @@ async def test_user_b(session: AsyncSession) -> AsyncGenerator[User, None]:
     await session.commit()
     await session.refresh(user)
 
-    # Also persist the user in the default engine used by services
-    # so services that use `with_session()` can see the user
-    async with get_async_session_context_manager() as global_session:
-        existing = await global_session.get(User, user_id)
-        if existing is None:
-            global_session.add(
-                User(
-                    id=user_id,
-                    email=f"test-user-b-{user_id.hex[:8]}@tracecat.com",
-                    hashed_password="not-a-real-hash",
-                )
-            )
-            await global_session.commit()
-
     logger.debug("Created test user B", user_id=user.id)
-    try:
-        yield user
-    finally:
-        logger.debug("Teardown test user B")
-        # Clean up from global session first
-        try:
-            async with get_async_session_context_manager() as global_cleanup_session:
-                global_user = await global_cleanup_session.get(User, user_id)
-                if global_user:
-                    await global_cleanup_session.delete(global_user)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up user B from global session")
-        except Exception as e:
-            logger.warning(f"Error cleaning up user B from global session: {e}")
+    yield user

@@ -48,9 +48,6 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.redis.client import get_redis_client
 
-pytestmark = pytest.mark.usefixtures("db")
-
-
 # Use a unique test queue to avoid collision with docker-compose workers
 TEST_AGENT_QUEUE = "test-agent-worker-queue"
 
