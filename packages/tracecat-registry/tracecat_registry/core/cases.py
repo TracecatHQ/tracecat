@@ -369,13 +369,20 @@ async def update_comment(
         if not comment:
             raise TracecatNotFoundError(resource="Comment", identifier=comment_id)
 
+        cases_service = CasesService(service.session, role=service.role)
+        case = await cases_service.get_case(comment.case_id)
+        if not case:
+            raise TracecatNotFoundError(
+                resource="Case", identifier=str(comment.case_id)
+            )
+
         update_params: dict[str, Any] = {}
         if content is not None:
             update_params["content"] = content
         if parent_id is not None:
             update_params["parent_id"] = UUID(parent_id)
         updated_comment = await service.update_comment(
-            comment, CaseCommentUpdate(**update_params)
+            case, comment, CaseCommentUpdate(**update_params)
         )
     return cast(types.CaseComment, updated_comment.to_dict())
 

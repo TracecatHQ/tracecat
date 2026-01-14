@@ -1,6 +1,7 @@
 import os
 import uuid
 from io import BytesIO
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -251,6 +252,31 @@ async def test_restore_after_delete_reuses_attachment_id(
     deleted_events = [e for e in events if e.type == CaseEventType.ATTACHMENT_DELETED]
     assert len(created_events) == 2
     assert len(deleted_events) == 1
+
+
+@pytest.mark.anyio
+async def test_attachment_dispatches_triggers(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+):
+    case, _ = test_case
+
+    with patch.object(
+        CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
+    ) as dispatch_mock:
+        created = await attachments_service.create_attachment(case, attachment_params)
+        await attachments_service.delete_attachment(case, created.id)
+
+    assert dispatch_mock.call_count == 2
+    dispatched_types = [
+        call.kwargs["event"].type for call in dispatch_mock.call_args_list
+    ]
+    assert dispatched_types == [
+        CaseEventType.ATTACHMENT_CREATED,
+        CaseEventType.ATTACHMENT_DELETED,
+    ]
 
 
 @pytest.mark.anyio

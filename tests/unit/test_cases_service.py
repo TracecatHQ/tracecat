@@ -1,16 +1,22 @@
-import uuid  # noqa: I001
 import asyncio
-from unittest.mock import patch, MagicMock
+import uuid
+from collections import Counter
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
-from tracecat.cases.service import CaseFieldsService, CasesService
-from tracecat.tables.enums import SqlType
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
+from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.service import CaseEventsService, CaseFieldsService, CasesService
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -88,6 +94,37 @@ class TestCasesService:
         assert retrieved_case.status == case_create_params.status
         assert retrieved_case.priority == case_create_params.priority
         assert retrieved_case.severity == case_create_params.severity
+
+    async def test_create_case_dispatches_triggers(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        with patch.object(
+            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
+        ) as dispatch_mock:
+            created_case = await cases_service.create_case(case_create_params)
+
+        dispatch_mock.assert_called_once()
+        event = dispatch_mock.call_args.kwargs["event"]
+        assert event.type == CaseEventType.CASE_CREATED
+        assert event.case_id == created_case.id
+
+    async def test_get_case_track_view_dispatches_triggers(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        with patch.object(
+            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
+        ) as dispatch_mock:
+            created_case = await cases_service.create_case(case_create_params)
+            dispatch_mock.reset_mock()
+
+            retrieved_case = await cases_service.get_case(
+                created_case.id, track_view=True
+            )
+
+        assert retrieved_case is not None
+        dispatch_mock.assert_called_once()
+        event = dispatch_mock.call_args.kwargs["event"]
+        assert event.type == CaseEventType.CASE_VIEWED
 
     async def test_create_and_get_case_with_assignee(
         self,
@@ -392,6 +429,52 @@ class TestCasesService:
         assert retrieved_case.summary == update_params.summary
         assert retrieved_case.status == update_params.status
         assert retrieved_case.priority == update_params.priority
+
+    async def test_update_case_dispatches_triggers(
+        self,
+        cases_service: CasesService,
+        case_fields_service: CaseFieldsService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_text", type=SqlType.TEXT)
+        )
+
+        with patch.object(
+            CaseEventsService, "dispatch_triggers", new_callable=AsyncMock
+        ) as dispatch_mock:
+            created_case = await cases_service.create_case(case_create_params)
+            dispatch_mock.reset_mock()
+
+            update_params = CaseUpdate(
+                summary="Updated Test Case",
+                description="Updated description",
+                status=CaseStatus.CLOSED,
+                priority=CasePriority.HIGH,
+                severity=CaseSeverity.CRITICAL,
+                fields={"custom_text": "new value"},
+                assignee_id=uuid.uuid4(),
+                payload={"source": "manual"},
+            )
+
+            await cases_service.update_case(created_case, update_params)
+
+        dispatched_types = Counter(
+            call.kwargs["event"].type for call in dispatch_mock.call_args_list
+        )
+        expected = Counter(
+            [
+                CaseEventType.CASE_CLOSED,
+                CaseEventType.PRIORITY_CHANGED,
+                CaseEventType.SEVERITY_CHANGED,
+                CaseEventType.FIELDS_CHANGED,
+                CaseEventType.ASSIGNEE_CHANGED,
+                CaseEventType.CASE_UPDATED,
+                CaseEventType.CASE_UPDATED,
+                CaseEventType.PAYLOAD_CHANGED,
+            ]
+        )
+        assert dispatched_types == expected
 
     async def test_update_case_with_assignee(
         self,

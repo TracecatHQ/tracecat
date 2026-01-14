@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator
+from pydantic import ConfigDict, Field, RootModel, TypeAdapter, field_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -94,23 +94,26 @@ class CaseFieldReadMinimal(CustomFieldRead):
         cls,
         column: sa.engine.interfaces.ReflectedColumn,
         *,
-        reserved_fields: set[str] | None = None,  # noqa: ARG003 - Ignored; case fields always use RESERVED_CASE_FIELDS
+        reserved_fields: set[str] | None = None,
         field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
         """Create a CaseFieldReadMinimal from a SQLAlchemy reflected column.
 
         Args:
             column: The reflected column metadata from SQLAlchemy.
-            reserved_fields: Ignored. Case fields always use RESERVED_CASE_FIELDS.
+            reserved_fields: Optional set of additional reserved fields to exclude.
             field_schema: Optional schema metadata for the field.
 
         Returns:
             A CaseFieldReadMinimal instance populated from the column data.
         """
+        reserved_set = set(RESERVED_CASE_FIELDS)
+        if reserved_fields:
+            reserved_set |= reserved_fields
         return cls.model_validate(
             super().from_sa(
                 column,
-                reserved_fields=set(RESERVED_CASE_FIELDS),
+                reserved_fields=reserved_set,
                 field_schema=field_schema,
             )
         )
@@ -260,9 +263,23 @@ class CaseViewedEvent(CaseEventBase):
 
 class UpdatedEvent(CaseEventBase):
     type: Literal[CaseEventType.CASE_UPDATED] = CaseEventType.CASE_UPDATED
-    field: Literal["summary"]
+    field: Literal[
+        "summary",
+        "description",
+        "comment_added",
+        "comment_removed",
+        "comment_updated",
+    ]
     old: str | None
     new: str | None
+    comment_id: uuid.UUID | None = Field(
+        default=None,
+        description="The ID of the comment for comment events.",
+    )
+    parent_id: uuid.UUID | None = Field(
+        default=None,
+        description="The parent comment ID for reply comments.",
+    )
 
 
 class FieldDiff(Schema):
@@ -482,7 +499,10 @@ type CaseEventVariant = Annotated[
 class CaseEventRead(RootModel):
     """Base read model for all event types."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+    )
     root: (
         CreatedEventRead
         | ClosedEventRead
@@ -506,6 +526,10 @@ class CaseEventRead(RootModel):
         | TaskDeletedEventRead
         | TaskAssigneeChangedEventRead
     ) = Field(discriminator="type")
+
+    @classmethod
+    def list_adapter(cls) -> TypeAdapter[list[Self]]:
+        return TypeAdapter(list[cls], config=cls.model_config)
 
 
 class Change[OldType: Any, NewType: Any](Schema):

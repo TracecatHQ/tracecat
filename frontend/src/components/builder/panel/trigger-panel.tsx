@@ -7,8 +7,9 @@ import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
   BanIcon,
-  CalendarClockIcon,
+  CalendarCheck,
   ChevronDownIcon,
+  FolderInput,
   KeyRoundIcon,
   MoreHorizontalIcon,
   PlusCircleIcon,
@@ -29,17 +30,12 @@ import {
   type WorkflowRead,
 } from "@/client"
 import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
+import { CaseTriggersControls } from "@/components/builder/panel/case-triggers-controls"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { CustomTagInput, type Tag } from "@/components/tags-input"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,6 +100,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -247,72 +244,71 @@ const formatScheduleDate = (value?: string | null) => {
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
-    <div className="overflow-auto size-full">
-      <div className="grid grid-cols-3">
-        <div className="overflow-hidden col-span-2">
-          <h3 className="p-4">
-            <div className="flex items-center space-x-4 w-full">
-              {getIcon(TriggerTypename, {
-                className: "size-10 p-2",
-                flairsize: "md",
-              })}
-              <div className="flex flex-1 justify-between space-x-12 w-full">
-                <div className="flex flex-col">
-                  <div className="flex justify-between items-center w-full text-xs font-medium leading-none">
-                    <div className="flex w-full">Trigger</div>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Workflow Triggers
-                  </p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0">
+        <h3 className="p-4">
+          <div className="flex items-center space-x-4 w-full">
+            {getIcon(TriggerTypename, {
+              className: "size-10 p-2",
+              flairsize: "md",
+            })}
+            <div className="flex flex-1 justify-between space-x-12 w-full">
+              <div className="flex flex-col">
+                <div className="flex justify-between items-center w-full text-xs font-medium leading-none">
+                  <div className="flex w-full">Trigger</div>
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Workflow Triggers
+                </p>
               </div>
             </div>
-          </h3>
-        </div>
+          </div>
+        </h3>
       </div>
-      <Separator />
-      {/* Metadata */}
-      <Accordion
-        type="multiple"
-        defaultValue={[
-          "trigger-settings",
-          "trigger-webhooks",
-          "trigger-schedules",
-        ]}
-      >
-        {/* Webhooks */}
-        <AccordionItem value="trigger-webhooks" id="trigger-webhooks">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <WebhookIcon className="mr-3 size-4" />
-              <span>Webhook</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
-            <div className="px-4 my-4 space-y-2">
-              <WebhookControls
-                webhook={workflow.webhook}
-                workflowId={workflow.id}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Schedules */}
-        <AccordionItem value="trigger-schedules" id="trigger-schedules">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <CalendarClockIcon className="mr-3 size-4" />
-              <span>Schedules</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
-            <div className="px-4 my-4 space-y-2">
-              <ScheduleControls workflowId={workflow.id} />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+      <Tabs defaultValue="webhook" className="flex h-full w-full flex-col">
+        <div className="w-full shrink-0">
+          <div className="flex items-center justify-start">
+            <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="webhook"
+              >
+                <WebhookIcon className="mr-2 size-4" />
+                <span>Webhook</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="schedules"
+              >
+                <CalendarCheck className="mr-2 size-4" />
+                <span>Schedules</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="case-triggers"
+              >
+                <FolderInput className="mr-2 size-4" />
+                <span>Case triggers</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+          <Separator />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <TabsContent value="webhook" className="mt-0 px-4 py-4">
+            <WebhookControls
+              webhook={workflow.webhook}
+              workflowId={workflow.id}
+            />
+          </TabsContent>
+          <TabsContent value="schedules" className="mt-0 px-4 py-4">
+            <ScheduleControls workflowId={workflow.id} />
+          </TabsContent>
+          <TabsContent value="case-triggers" className="mt-0 px-4 py-4">
+            <CaseTriggersControls workflow={workflow} />
+          </TabsContent>
+        </div>
+      </Tabs>
     </div>
   )
 }

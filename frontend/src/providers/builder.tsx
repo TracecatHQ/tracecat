@@ -23,6 +23,7 @@ import type {
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
+import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
@@ -63,7 +64,7 @@ export const WorkflowBuilderProvider: React.FC<
   ReactFlowInteractionsProviderProps
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
-  const { workspaceId, workflowId, error } = useWorkflow()
+  const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedActionEventRef, setSelectedActionEventRef] = useState<
@@ -92,16 +93,40 @@ export const WorkflowBuilderProvider: React.FC<
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
-    (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
-      reactFlowInstance.setNodes(nodes)
+    (nodesOrUpdater: Node[] | ((nodes: Node[]) => Node[])) => {
+      const currentNodes = reactFlowInstance.getNodes()
+      const newNodes =
+        typeof nodesOrUpdater === "function"
+          ? nodesOrUpdater(currentNodes)
+          : nodesOrUpdater
+      reactFlowInstance.setNodes(newNodes)
+
+      const currentObj = reactFlowInstance.toObject()
+      const newObj = {
+        ...currentObj,
+        nodes: newNodes,
+      }
+      updateWorkflow({ object: pruneGraphObject(newObj) })
     },
-    [reactFlowInstance]
+    [workflowId, reactFlowInstance, updateWorkflow]
   )
   const setReactFlowEdges = useCallback(
-    (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
-      reactFlowInstance.setEdges(edges)
+    (edgesOrUpdater: Edge[] | ((edges: Edge[]) => Edge[])) => {
+      const currentEdges = reactFlowInstance.getEdges()
+      const newEdges =
+        typeof edgesOrUpdater === "function"
+          ? edgesOrUpdater(currentEdges)
+          : edgesOrUpdater
+      reactFlowInstance.setEdges(newEdges)
+
+      const currentObj = reactFlowInstance.toObject()
+      const newObj = {
+        ...currentObj,
+        edges: newEdges,
+      }
+      updateWorkflow({ object: pruneGraphObject(newObj) })
     },
-    [reactFlowInstance]
+    [workflowId, reactFlowInstance, updateWorkflow]
   )
 
   const setActionDraft = useCallback((actionId: string, draft: unknown) => {
