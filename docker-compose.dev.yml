@@ -247,8 +247,6 @@ services:
       TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
       TRACECAT__AGENT_SOCKET_DIR: /var/run/tracecat/agent
       TRACECAT__AGENT_JOB_SOCKET_DIR: /tmp/tracecat-agent-jobs
-      # LiteLLM proxy
-      TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
