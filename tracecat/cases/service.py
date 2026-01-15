@@ -161,7 +161,12 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
     ) -> Sequence[Case]:
-        statement = select(Case).where(Case.workspace_id == self.workspace_id)
+        statement = (
+            select(Case)
+            .where(Case.workspace_id == self.workspace_id)
+            .options(selectinload(Case.tags))
+            .options(selectinload(Case.assignee))
+        )
         if limit is not None:
             statement = statement.limit(limit)
         if order_by is not None:
@@ -514,6 +519,7 @@ class CasesService(BaseWorkspaceService):
             select(Case)
             .where(Case.workspace_id == self.workspace_id)
             .options(selectinload(Case.tags))
+            .options(selectinload(Case.assignee))
         )
 
         # Apply search term filter (search in summary and description)
