@@ -173,11 +173,17 @@ async def resolve_execution_context(ctx: dict[str, Any]) -> dict[str, Any]:
             if is_execution_context(resolved_data):
                 resolved_data = await resolve_execution_context(resolved_data)
 
+            # Apply collection_index to extract the actual item for scatter results
+            collection_index = task_result.collection_index
+            if collection_index is not None and isinstance(resolved_data, list):
+                resolved_data = resolved_data[collection_index]
+
             # Create updated TaskResult with resolved InlineObject
             resolved_task = task_result.model_copy(
                 update={
                     "result": InlineObject(data=resolved_data),
                     "result_typename": type(resolved_data).__name__,
+                    "collection_index": None,  # Clear since we've extracted the item
                 }
             )
             resolved_actions[ref] = resolved_task
