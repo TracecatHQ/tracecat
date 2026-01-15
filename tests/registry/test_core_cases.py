@@ -53,6 +53,7 @@ def mock_case():
     case.short_id = "CASE-1234"
     case.payload = {"alert_type": "security", "severity": "high"}
     case.tags = []  # Empty list of tags by default
+    case.assignee = None
 
     # Set up model_dump to return a dict representation
     case.model_dump.return_value = {

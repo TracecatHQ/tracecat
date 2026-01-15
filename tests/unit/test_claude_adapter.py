@@ -9,7 +9,8 @@ from typing import Any
 import pytest
 from claude_agent_sdk.types import StreamEvent
 
-from tracecat.agent.adapter.claude import (
+from tracecat.agent.common.stream_types import HarnessType, StreamEventType
+from tracecat.agent.runtime.claude_code.adapter import (
     ClaudeSDKAdapter,
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -21,7 +22,6 @@ from tracecat.agent.adapter.claude import (
     ThinkingDelta,
     ToolUseContentBlock,
 )
-from tracecat.agent.stream.types import HarnessType, StreamEventType
 
 # ==============================================================================
 # Helper to create StreamEvent objects
@@ -47,7 +47,7 @@ def make_stream_event(
 
 def test_harness_name():
     """Test that adapter returns correct harness name."""
-    assert ClaudeSDKAdapter().harness_name == HarnessType.CLAUDE
+    assert ClaudeSDKAdapter().harness_name == HarnessType.CLAUDE_CODE
 
 
 # ==============================================================================

@@ -30,6 +30,7 @@ from tracecat.identifiers.workflow import generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 
 
@@ -94,7 +95,7 @@ async def execute_action(
 
     # Execute via ActionRunner with nsjail sandbox
     backend = EphemeralBackend()
-    result = await backend.execute(
+    execution = await backend.execute(
         input=run_input,
         role=role,
         resolved_context=resolved_context,
@@ -102,9 +103,9 @@ async def execute_action(
     )
 
     # Handle result
-    if isinstance(result, ExecutorResultFailure):
-        raise ActionExecutionError(result.error.message)
-    return result
+    if isinstance(execution, ExecutorResultFailure):
+        raise ActionExecutionError(execution.error.message)
+    return execution.result
 
 
 async def _resolve_context(
@@ -214,4 +215,5 @@ def _build_run_input(
         task=task,
         run_context=run_context,
         exec_context={},
+        registry_lock=RegistryLock(origins={}, actions={}),
     )

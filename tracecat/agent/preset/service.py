@@ -11,8 +11,9 @@ from typing import cast
 from slugify import slugify
 from sqlalchemy import func, select
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     AgentPreset,

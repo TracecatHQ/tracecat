@@ -47,6 +47,10 @@ _private_key.pem
 *.env
 *.zip
 *.tar.gz
+# Ignore all .env files except .env.example
+.env*
+!.env.example
+
 
 # Editor and IDE-specific files
 .vscode/

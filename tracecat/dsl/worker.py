@@ -58,12 +58,15 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
     # Pass through tracecat modules to avoid class identity mismatches
     # when Pydantic validates discriminated unions (e.g., StoredObject = InlineObject | ExternalObject)
     # Also pass through jsonpath_ng which is used for expression evaluation in workflows
+    # Add beartype to passthrough modules to avoid circular import issues
+    # with its custom import hooks conflicting with Temporal's sandbox
     passthrough_modules = SandboxRestrictions.passthrough_modules_default | {
         "tracecat",
         "tracecat_ee",
         "tracecat_registry",
         "jsonpath_ng",
         "dateparser",
+        "beartype",
     }
 
     return SandboxedWorkflowRunner(

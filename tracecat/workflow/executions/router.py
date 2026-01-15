@@ -8,7 +8,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
-from tracecat.agent.runtime import AgentOutput
+from tracecat.agent.schemas import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.chat.schemas import ChatMessage

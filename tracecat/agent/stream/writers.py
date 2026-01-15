@@ -10,7 +10,7 @@ import aiohttp
 from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.tools import RunContext
 
-from tracecat.agent.adapter.pydantic_ai import PydanticAIAdapter
+from tracecat.agent.runtime.pydantic_ai.adapter import PydanticAIAdapter
 from tracecat.agent.stream.events import AgentStreamEventTA
 from tracecat.config import TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
 from tracecat.logger import logger
@@ -164,12 +164,12 @@ class HttpStreamWriter(StreamWriter):
                     # Unified streaming: convert to UnifiedStreamEvent
                     unified_event = PydanticAIAdapter().to_unified_event(event)
                     logger.warning("STREAM EVENT", event=unified_event)
-                    json_payload = {"event": unified_event.model_dump_json()}
+                    json_payload = {"event": unified_event.to_dict()}
                 else:
                     # Legacy streaming: pass through raw AgentStreamEvent
                     logger.warning("STREAM EVENT", event=event)
                     json_payload = {
-                        "event": AgentStreamEventTA.dump_json(event).decode()
+                        "event": AgentStreamEventTA.dump_python(event, mode="json")
                     }
                 # Make a post request to the API to stream the event
                 async with session.post(self.url, json=json_payload) as response:

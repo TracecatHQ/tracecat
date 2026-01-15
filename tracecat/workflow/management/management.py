@@ -720,6 +720,7 @@ class WorkflowsManagementService(BaseService):
                 join_strategy=act_stmt.join_strategy,
             )
             new_action = Action(
+                id=uuid.uuid4(),
                 workspace_id=self.role.workspace_id,
                 workflow_id=workflow_id,
                 type=act_stmt.action,
