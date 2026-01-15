@@ -94,6 +94,7 @@ from tracecat.ee.interactions.service import InteractionManager
 from tracecat.exceptions import (
     TracecatException,
     TracecatExpressionError,
+    TracecatNotFoundError,
 )
 from tracecat.expressions.eval import is_template_only
 from tracecat.identifiers import WorkspaceID
@@ -391,7 +392,17 @@ class DSLWorkflow:
 
         # Consolidate trigger inputs
         if args.schedule_id:
-            raise RuntimeError("Schedule trigger inputs are not supported yet")
+            self.logger.debug("Fetching schedule trigger inputs")
+            try:
+                trigger_inputs = await self._get_schedule_trigger_inputs(
+                    schedule_id=args.schedule_id, worflow_id=args.wf_id
+                )
+            except TracecatNotFoundError as e:
+                raise ApplicationError(
+                    "Failed to fetch trigger inputs as the schedule was not found",
+                    non_retryable=True,
+                    type=e.__class__.__name__,
+                ) from e
         else:
             self.logger.debug("Using provided trigger inputs")
             trigger_inputs = (
@@ -1429,7 +1440,7 @@ class DSLWorkflow:
 
     async def _get_schedule_trigger_inputs(
         self, schedule_id: identifiers.ScheduleUUID, worflow_id: identifiers.WorkflowID
-    ) -> dict[str, Any] | None:
+    ) -> StoredObject | None:
         """Get the trigger inputs for a schedule.
 
         Raises
@@ -1444,13 +1455,13 @@ class DSLWorkflow:
         self.logger.debug(
             "Running get schedule activity", activity_inputs=activity_inputs
         )
-        schedule_read = await workflow.execute_activity(
-            WorkflowSchedulesService.get_schedule_activity,
+        result = await workflow.execute_activity(
+            WorkflowSchedulesService.get_schedule_trigger_inputs_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-        return schedule_read.inputs
+        return StoredObjectValidator.validate_python(result) if result else None
 
     def _get_scheduled_start_time(self, wf_info: workflow.Info) -> datetime | None:
         """Extract TemporalScheduledStartTime from search attributes if available.
