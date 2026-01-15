@@ -3,7 +3,7 @@
 # Tracecat multi-cluster management script
 #
 # Usage:
-#   ./cluster <cluster_num> [-p profile] <command> [args...]
+#   ./cluster [cluster_num] [-p profile] <command> [args...]
 #
 # Profiles:
 #   dev     docker-compose.dev.yml (default)
@@ -11,11 +11,12 @@
 #   prod    docker-compose.yml
 #
 # Examples:
-#   ./cluster 1 up -d              # Start cluster 1 (dev profile)
+#   ./cluster up -d                # Start next available cluster (auto-selects number)
+#   ./cluster down                 # Stop cluster (auto-selects if only one running)
+#   ./cluster 2 up -d              # Start cluster 2 explicitly
 #   ./cluster 2 -p local up -d     # Start cluster 2 with local profile
-#   ./cluster 1 down               # Stop cluster 1
-#   ./cluster 1 ps                 # Show cluster 1 containers
-#   ./cluster 1 logs api           # Show logs for api service in cluster 1
+#   ./cluster ps                   # Show containers (auto-selects cluster)
+#   ./cluster logs api             # Show logs (auto-selects cluster)
 #   ./cluster list                 # List all running clusters
 #   ./cluster 1 ports              # Show port mappings for cluster 1
 #
@@ -60,6 +61,76 @@ get_worktree_id() {
 
 WORKTREE_ID=$(get_worktree_id)
 
+# Get list of running cluster numbers for this worktree
+get_running_clusters() {
+    local prefix="tracecat-${WORKTREE_ID}-"
+
+    docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
+        if [[ "$project" == ${prefix}* ]]; then
+            local num="${project#$prefix}"
+            if [[ "$num" =~ ^[0-9]+$ ]]; then
+                echo "$num"
+            fi
+        fi
+    done | sort -n
+}
+
+# Find next available cluster number
+get_next_cluster_num() {
+    local running
+    running=$(get_running_clusters)
+
+    if [[ -z "$running" ]]; then
+        echo "1"
+        return
+    fi
+
+    # Find first gap or next number
+    local expected=1
+    while read -r num; do
+        if [[ "$num" -gt "$expected" ]]; then
+            echo "$expected"
+            return
+        fi
+        expected=$((num + 1))
+    done <<< "$running"
+
+    echo "$expected"
+}
+
+# Auto-select cluster: returns the only running cluster, or errors if multiple/none
+auto_select_cluster() {
+    local command=$1
+    local running
+    running=$(get_running_clusters)
+
+    # Count non-empty lines
+    local count=0
+    if [[ -n "$running" ]]; then
+        count=$(echo "$running" | wc -l | tr -d ' ')
+    fi
+
+    if [[ "$count" -eq 0 ]]; then
+        if [[ "$command" == "up" ]]; then
+            echo "1"
+        else
+            echo "Error: No clusters running for worktree '${WORKTREE_ID}'" >&2
+            echo "Run 'just cluster up -d' to start one" >&2
+            exit 1
+        fi
+    elif [[ "$count" -eq 1 ]]; then
+        echo "$running"
+    else
+        echo "Error: Multiple clusters running for worktree '${WORKTREE_ID}':" >&2
+        echo "$running" | while read -r num; do
+            calculate_ports "$num"
+            echo "  ${num}: http://localhost:${PUBLIC_APP_PORT}" >&2
+        done
+        echo "Please specify a cluster number" >&2
+        exit 1
+    fi
+}
+
 # Base ports (cluster 1 defaults)
 BASE_PUBLIC_APP_PORT=80
 BASE_UI_PORT=3000
@@ -93,8 +164,12 @@ get_compose_file() {
 
 usage() {
     cat <<EOF
-Usage: ./cluster <cluster_num> [-p profile] <command> [args...]
+Usage: ./cluster [cluster_num] [-p profile] <command> [args...]
        ./cluster list
+
+Cluster number is optional:
+  - For 'up': auto-selects next available number
+  - For other commands: auto-selects if only one cluster running
 
 Profiles:
   dev       docker-compose.dev.yml (default)
@@ -110,10 +185,13 @@ Commands:
   list          List all running Tracecat clusters
 
 Examples:
-  ./cluster 1 up -d              Start cluster 1 (dev profile)
+  ./cluster up -d                Start next available cluster
+  ./cluster down                 Stop cluster (auto-select if one running)
+  ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
-  ./cluster 1 down               Stop cluster 1
   ./cluster list                 List all clusters
+
+Current worktree: ${WORKTREE_ID}
 EOF
     exit 0
 }
@@ -224,14 +302,20 @@ if [[ "$1" == "list" ]]; then
     exit 0
 fi
 
-# Validate cluster number
-CLUSTER_NUM="$1"
-if ! [[ "$CLUSTER_NUM" =~ ^[0-9]+$ ]] || [[ "$CLUSTER_NUM" -lt 1 ]] || [[ "$CLUSTER_NUM" -gt 99 ]]; then
-    echo "Error: Cluster number must be between 1 and 99"
-    exit 1
-fi
+# Check if first arg is a cluster number or a command/flag
+CLUSTER_NUM=""
+AUTO_SELECT=true
 
-shift
+if [[ "$1" =~ ^[0-9]+$ ]]; then
+    # First arg is a number
+    CLUSTER_NUM="$1"
+    AUTO_SELECT=false
+    if [[ "$CLUSTER_NUM" -lt 1 ]] || [[ "$CLUSTER_NUM" -gt 99 ]]; then
+        echo "Error: Cluster number must be between 1 and 99"
+        exit 1
+    fi
+    shift
+fi
 
 if [[ $# -lt 1 ]]; then
     usage
@@ -253,6 +337,16 @@ fi
 
 COMMAND="$1"
 shift
+
+# Auto-select cluster number if not specified
+if [[ "$AUTO_SELECT" == "true" ]]; then
+    if [[ "$COMMAND" == "up" ]]; then
+        CLUSTER_NUM=$(get_next_cluster_num)
+        echo "Auto-selected cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
+    else
+        CLUSTER_NUM=$(auto_select_cluster "$COMMAND")
+    fi
+fi
 
 # Get compose file for profile
 COMPOSE_FILE=$(get_compose_file "$PROFILE")
