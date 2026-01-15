@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 from collections.abc import Callable, Coroutine
 from typing import Any
 
 import dateparser
 from aiocache import Cache
-from aiocache.backends.memory import asyncio
 from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
