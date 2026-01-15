@@ -21,11 +21,13 @@ import importlib
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import ExecutorBackendType
 
 if TYPE_CHECKING:
@@ -282,12 +284,13 @@ def simple_action_input_factory() -> Callable[..., RunActionInput]:
                 args=args or {"value": {"benchmark": True}},
                 ref=ref,
             ),
-            exec_context={},
+            exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
             run_context=RunContext(
                 wf_id=wf_id,
                 wf_exec_id=f"{wf_id.short()}/{exec_id.short()}",
                 wf_run_id=uuid.uuid4(),
                 environment="default",
+                logical_time=datetime.now(UTC),
             ),
             registry_lock=registry_lock,
         )

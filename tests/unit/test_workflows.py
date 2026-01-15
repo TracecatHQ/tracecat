@@ -10,16 +10,18 @@ Objectives
 
 import os
 import re
+import uuid
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 from uuid import UUID
 
 import pytest
 import yaml
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -53,10 +55,10 @@ from tracecat.dsl.schemas import (
     GatherArgs,
     RunActionInput,
     ScatterArgs,
+    TaskResult,
 )
 from tracecat.dsl.types import ActionErrorInfoAdapter
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import (
     WF_EXEC_ID_PATTERN,
@@ -67,11 +69,23 @@ from tracecat.identifiers.workflow import (
 from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    StoredObject,
+    StoredObjectValidator,
+    get_object_storage,
+)
+from tracecat.storage.utils import (
+    resolve_execution_context as resolve_exec_ctx_from_dict,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
+from tracecat.workflow.executions.common import unwrap_action_result
 from tracecat.workflow.executions.enums import WorkflowEventType
 from tracecat.workflow.executions.schemas import (
     EventGroup,
@@ -81,6 +95,34 @@ from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowUpdate
+
+type WorkerFactory = Callable[[Client], Worker]
+
+
+# Add a fixture that checks if we are running locally.
+# If we are, make it shut down executor and worker processes (docker)
+@pytest.fixture(autouse=True, scope="session")
+def shutdown_executor_and_worker(monkeysession: pytest.MonkeyPatch):
+    if os.environ.get("GITHUB_ACTIONS") is not None:
+        pytest.skip("Skip if running in GitHub Actions")
+    monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
+    # shutdown executor and worker processes
+    import subprocess
+
+    # grab prefixes from COMPOSE_PROJECT_NAME
+    compose_project_name = os.environ.get("COMPOSE_PROJECT_NAME")
+    if compose_project_name is None:
+        pytest.skip("COMPOSE_PROJECT_NAME is not set")
+    worker_prefix = f"{compose_project_name}-worker"
+    executor_prefix = f"{compose_project_name}-executor"
+    out = subprocess.run(
+        ["docker", "compose", "down", "-v", worker_prefix, executor_prefix]
+    )
+    if out.returncode != 0:
+        pytest.skip(
+            f"Failed to shut down executor and worker processes: {out.stderr.decode('utf-8')}"
+        )
+    logger.info("Shut down executor and worker processes")
 
 
 @pytest.fixture(scope="module")
@@ -113,16 +155,91 @@ def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
     return {key: (value or {}) for key, value in data.items()}
 
 
+ExecutionContextTA = TypeAdapter(ExecutionContext)
+
+
+def wrap_with_envelopes(expected: dict[str, Any]) -> ExecutionContext:
+    """Wrap expected values with StoredObject envelope for comparison.
+
+    Transforms raw YAML expected values into ExecutionContext format by wrapping
+    result values and TRIGGER in InlineObject envelopes.
+    """
+    transformed: dict[str, Any] = {}
+
+    # Wrap ACTIONS results in InlineObject envelopes
+    if "ACTIONS" in expected:
+        transformed["ACTIONS"] = {}
+        for action_ref, task_result in expected["ACTIONS"].items():
+            transformed["ACTIONS"][action_ref] = TaskResult.from_result(
+                result=task_result.get("result")
+            )
+
+    # Wrap TRIGGER in InlineObject envelope
+    transformed["TRIGGER"] = (
+        InlineObject(data=expected.get("TRIGGER")) if expected.get("TRIGGER") else None
+    )
+
+    return ExecutionContextTA.validate_python(transformed)
+
+
+def dict_to_exec_context(expected_dict: dict[str, Any]) -> ExecutionContext:
+    """Convert a dictionary to ExecutionContext, preserving result_typename.
+
+    This helper function converts test case dictionaries to ExecutionContext objects,
+    preserving the explicit result_typename values specified in test cases.
+    """
+    normalized = normalize_error_line_numbers(expected_dict)
+    return ExecutionContext(
+        ACTIONS={
+            ref: TaskResult(
+                result=InlineObject(data=task_result.get("result")),
+                result_typename=task_result.get("result_typename", "unknown"),
+                error=task_result.get("error"),
+            )
+            for ref, task_result in normalized.get("ACTIONS", {}).items()
+        },
+        TRIGGER=InlineObject(data=normalized.get("TRIGGER"))
+        if normalized.get("TRIGGER")
+        else None,
+    )
+
+
+async def resolve_execution_context(ctx: ExecutionContext) -> ExecutionContext:
+    """Resolve the execution context by unwrapping the StoredObjects."""
+    validated = ExecutionContextTA.validate_python(ctx)
+    for action_ref, task_result in validated["ACTIONS"].items():
+        data = await to_data(task_result.result)
+        try:
+            # If data is a nested execution context, resolve it
+            nested_validated = ExecutionContextTA.validate_python(data)
+            data = await resolve_execution_context(nested_validated)
+        except ValidationError:
+            pass
+
+        validated["ACTIONS"][action_ref] = TaskResult.from_result(data)
+    if validated["TRIGGER"] is not None:
+        validated["TRIGGER"] = await to_inline(validated["TRIGGER"])
+    return validated
+
+
+async def assert_context_equal(result: StoredObject, expected: ExecutionContext):
+    """Assert that the actual execution context is equal to the expected execution context."""
+    typed_result = await to_inline_exec_context(result)
+    resolved = await resolve_execution_context(typed_result.data)
+    assert resolved == expected
+
+
 @pytest.fixture
 def dsl_with_expected(
     request: pytest.FixtureRequest,
-) -> tuple[DSLInput, dict[str, Any]]:
+) -> tuple[DSLInput, ExecutionContext]:
     test_name = request.param
     data_path = Path("tests/data/workflows") / f"{test_name}.yml"
     expected_path = Path("tests/data/workflows") / f"{test_name}_expected.yml"
     dsl = DSLInput.from_yaml(data_path)
     expected = load_expected_dsl_output(expected_path)
-    return dsl, expected
+    # Transform expected to dict[str, TaskResult]
+    return dsl, wrap_with_envelopes(expected)
 
 
 def load_expected_dsl_output(path: Path) -> dict[str, Any]:
@@ -179,6 +296,77 @@ def runtime_config() -> DSLConfig:
     return config
 
 
+def is_externalized(obj: Any) -> TypeGuard[ExternalObject | CollectionObject]:
+    try:
+        stored = StoredObjectValidator.validate_python(obj)
+        return stored.type in ("external", "collection")
+    except ValidationError:
+        return False
+
+
+async def to_data(obj: StoredObject) -> Any:
+    validated = StoredObjectValidator.validate_python(obj)
+    match validated:
+        case InlineObject():
+            return validated.data
+        case ExternalObject() | CollectionObject():
+            storage = get_object_storage()
+            return await storage.retrieve(validated)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(validated).__name__}")
+
+
+async def to_inline(obj: StoredObject) -> InlineObject:
+    return InlineObject(data=await to_data(obj))
+
+
+def raw_data_to_exec_context(raw_data: dict[str, Any]) -> ExecutionContext:
+    """Convert raw workflow data to ExecutionContext by wrapping values in InlineObject."""
+    actions: dict[str, TaskResult] = {}
+    for ref, task_result in raw_data.get("ACTIONS", {}).items():
+        result_value = task_result.get("result")
+        # Wrap the result value in InlineObject if not already wrapped
+        if isinstance(result_value, dict) and result_value.get("type") in (
+            "inline",
+            "external",
+            "collection",
+        ):
+            # Already a StoredObject (InlineObject, ExternalObject, or CollectionObject)
+            result_obj = StoredObjectValidator.validate_python(result_value)
+        else:
+            result_obj = InlineObject(data=result_value)
+        actions[ref] = TaskResult(
+            result=result_obj,
+            result_typename=task_result.get("result_typename", "unknown"),
+            error=task_result.get("error"),
+        )
+    trigger_data = raw_data.get("TRIGGER")
+    trigger: StoredObject | None = None
+    if trigger_data is not None and trigger_data != {}:
+        if isinstance(trigger_data, dict) and trigger_data.get("type") in (
+            "inline",
+            "external",
+            "collection",
+        ):
+            trigger = StoredObjectValidator.validate_python(trigger_data)
+        else:
+            trigger = InlineObject(data=trigger_data)
+    return ExecutionContext(ACTIONS=actions, TRIGGER=trigger)
+
+
+async def to_inline_exec_context(obj: StoredObject) -> InlineObject[ExecutionContext]:
+    """Convert a StoredObject to an InlineObject[ExecutionContext]."""
+    try:
+        inlined = await to_inline(obj)
+        # Convert raw data to ExecutionContext by wrapping values
+        exec_context = raw_data_to_exec_context(inlined.data)
+        return InlineObject(data=exec_context)
+    except Exception as e:
+        pytest.fail(
+            f"Failed to convert StoredObject to InlineObject[ExecutionContext]: {e}"
+        )
+
+
 @pytest.mark.parametrize(
     "dsl",
     ["shared_adder_tree", "shared_kite", "shared_tree"],
@@ -187,7 +375,11 @@ def runtime_config() -> DSLConfig:
 )
 @pytest.mark.anyio
 async def test_workflow_can_run_from_yaml(
-    dsl, test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    dsl: DSLInput,
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -203,17 +395,22 @@ async def test_workflow_can_run_from_yaml(
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-    assert len(result[ExprContext.ACTIONS]) == len(dsl.actions)
+    typed_result = await to_inline_exec_context(result)
+    assert len(typed_result.data["ACTIONS"]) == len(dsl.actions)
 
 
-def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext):
-    act_outputs = final_context[ExprContext.ACTIONS]
+async def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext):
+    act_outputs = final_context["ACTIONS"]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:
-            source_order = act_outputs[source]["result"]  # type: ignore
-            target_order = act_outputs[target]["result"]  # type: ignore
-            assert source_order < target_order
+            # Results come back as dicts when deserialized through Temporal
+            source_task = TaskResult.model_validate(act_outputs[source])
+            target_task = TaskResult.model_validate(act_outputs[target])
+            # Unwrap StoredObject (handles both inline and external/S3)
+            source_data = await unwrap_action_result(source_task.result)
+            target_data = await unwrap_action_result(target_task.result)
+            assert source_data < target_data
 
 
 @pytest.mark.parametrize(
@@ -224,7 +421,11 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext)
 )
 @pytest.mark.anyio
 async def test_workflow_ordering_is_correct(
-    dsl, test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    dsl: DSLInput,
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """We need to test that the ordering of the workflow tasks is correct."""
 
@@ -248,7 +449,8 @@ async def test_workflow_ordering_is_correct(
     # and compare that in the topological ordering every LHS task in a pair executed before the RHS task
 
     # Check that the execution order respects the graph edges
-    assert_respectful_exec_order(dsl, result)
+    typed_result = await to_inline_exec_context(result)
+    await assert_respectful_exec_order(dsl, typed_result.data)
 
 
 @pytest.mark.parametrize(
@@ -271,11 +473,11 @@ async def test_workflow_ordering_is_correct(
 )
 @pytest.mark.anyio
 async def test_workflow_completes_and_correct(
-    dsl_with_expected,
-    test_role,
-    runtime_config,
-    test_worker_factory,
-    test_executor_worker_factory,
+    dsl_with_expected: tuple[DSLInput, ExecutionContext],
+    test_role: Role,
+    runtime_config: DSLConfig,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
@@ -301,12 +503,15 @@ async def test_workflow_completes_and_correct(
                 ],
             ),
         )
-    assert result == expected
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_workflow_set_environment_correct(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_workflow_set_environment_correct.__name__}"
     test_description = (
@@ -357,12 +562,16 @@ async def test_workflow_set_environment_correct(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    assert result == "__TEST_ENVIRONMENT__"
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    assert await to_data(result) == "__TEST_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
 async def test_workflow_override_environment_correct(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -414,12 +623,16 @@ async def test_workflow_override_environment_correct(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    assert result == "__CORRECT_ENVIRONMENT__"
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    assert await unwrap_action_result(result) == "__CORRECT_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
 async def test_workflow_default_environment_correct(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_workflow_default_environment_correct.__name__}"
     test_description = (
@@ -469,7 +682,8 @@ async def test_workflow_default_environment_correct(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    assert result == "default"
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    assert await to_data(result) == "default"
 
 
 """Child workflow"""
@@ -529,7 +743,10 @@ async def _run_workflow(
 
 @pytest.mark.anyio
 async def test_child_workflow_success(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_child_workflow_success.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -600,21 +817,24 @@ async def test_child_workflow_success(
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
-    expected = {
-        "ACTIONS": {
-            "parent": {
-                "result": [1001, 1002, 1003, 1004, 1005, 1006, 1007],
-                "result_typename": "list",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent": TaskResult(
+                result=InlineObject(data=[1001, 1002, 1003, 1004, 1005, 1006, 1007]),
+                result_typename="list",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_child_workflow_context_passing(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     # Setup
     test_name = f"{test_child_workflow_context_passing.__name__}"
@@ -690,43 +910,54 @@ async def test_child_workflow_context_passing(
         dsl=parent_dsl,
         role=test_role,
         wf_id=parent_workflow_id,
-        trigger_inputs={
-            "data": "__EXPECTED_DATA__",
-        },
+        trigger_inputs=InlineObject(
+            data={
+                "data": "__EXPECTED_DATA__",
+            }
+        ),
     )
 
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
-    expected = {
-        "ACTIONS": {
-            "parent_first_action": {
-                "result": {
-                    "reshaped_data": "__EXPECTED_DATA__",
-                },
-                "result_typename": "dict",
-            },
-            "parent_second_action": {
-                "result": {
-                    "ACTIONS": {
-                        "reshape_parent_data": {
-                            "result": {
-                                "parent_data": "Parent sent child __EXPECTED_DATA__"
-                            },
-                            "result_typename": "dict",
-                        }
-                    },
-                    "TRIGGER": {
-                        "data_from_parent": "Parent sent child __EXPECTED_DATA__"
-                    },
-                },
-                "result_typename": "dict",
-            },
+    # The child workflow's context has InlineObject envelopes
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent_first_action": TaskResult(
+                result=InlineObject(
+                    data={
+                        "reshaped_data": "__EXPECTED_DATA__",
+                    }
+                ),
+                result_typename="dict",
+            ),
+            "parent_second_action": TaskResult(
+                result=InlineObject(
+                    data=ExecutionContext(
+                        ACTIONS={
+                            "reshape_parent_data": TaskResult(
+                                result=InlineObject(
+                                    data={
+                                        "parent_data": "Parent sent child __EXPECTED_DATA__"
+                                    }
+                                ),
+                                result_typename="dict",
+                            )
+                        },
+                        TRIGGER=InlineObject(
+                            data={
+                                "data_from_parent": "Parent sent child __EXPECTED_DATA__"
+                            }
+                        ),
+                    )
+                ),
+                result_typename="dict",
+            ),
         },
-        "TRIGGER": {"data": "__EXPECTED_DATA__"},
-    }
-    assert result == expected
+        TRIGGER=InlineObject(data={"data": "__EXPECTED_DATA__"}),
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.fixture
@@ -814,46 +1045,50 @@ async def test_child_workflow_loop(
         dsl=parent_dsl,
         role=test_role,
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
-        trigger_inputs={
-            "data": "__EXPECTED_DATA__",
-        },
+        trigger_inputs=InlineObject(
+            data={
+                "data": "__EXPECTED_DATA__",
+            }
+        ),
     )
 
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
-    expected = {
-        "ACTIONS": {
-            "run_child": {
-                "result": [
-                    {
-                        "index": 0,
-                        "data": "Parent sent child __EXPECTED_DATA__",
-                    },
-                    {
-                        "index": 1,
-                        "data": "Parent sent child __EXPECTED_DATA__",
-                    },
-                    {
-                        "index": 2,
-                        "data": "Parent sent child __EXPECTED_DATA__",
-                    },
-                    {
-                        "index": 3,
-                        "data": "Parent sent child __EXPECTED_DATA__",
-                    },
-                    {
-                        "index": 4,
-                        "data": "Parent sent child __EXPECTED_DATA__",
-                    },
-                ],
-                "result_typename": "list",
-            },
+    expected = ExecutionContext(
+        ACTIONS={
+            "run_child": TaskResult(
+                result=InlineObject(
+                    data=[
+                        {
+                            "index": 0,
+                            "data": "Parent sent child __EXPECTED_DATA__",
+                        },
+                        {
+                            "index": 1,
+                            "data": "Parent sent child __EXPECTED_DATA__",
+                        },
+                        {
+                            "index": 2,
+                            "data": "Parent sent child __EXPECTED_DATA__",
+                        },
+                        {
+                            "index": 3,
+                            "data": "Parent sent child __EXPECTED_DATA__",
+                        },
+                        {
+                            "index": 4,
+                            "data": "Parent sent child __EXPECTED_DATA__",
+                        },
+                    ]
+                ),
+                result_typename="list",
+            ),
         },
-        "TRIGGER": {"data": "__EXPECTED_DATA__"},
-    }
-    assert result == expected
+        TRIGGER=InlineObject(data={"data": "__EXPECTED_DATA__"}),
+    )
+    await assert_context_equal(result, expected)
 
 
 # Test workflow alias
@@ -905,8 +1140,8 @@ async def test_single_child_workflow_alias(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    # Parent expected
-    assert result == {"data": "Test", "index": 0}
+    # Parent expected - unwrap StoredObject to compare actual data
+    assert await to_data(result) == {"data": "Test", "index": 0}
 
 
 @pytest.mark.parametrize(
@@ -982,13 +1217,13 @@ async def test_child_workflow_alias_with_loop(
         dsl=parent_dsl,
         role=test_role,
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
-        trigger_inputs="__EXPECTED_DATA__",
+        trigger_inputs=InlineObject(data="__EXPECTED_DATA__"),
     )
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     # Parent expected
-    assert result == [
+    assert await to_data(result) == [
         {
             "index": 0,
             "data": "Parent sent child __EXPECTED_DATA__",
@@ -1017,8 +1252,8 @@ async def test_child_workflow_with_expression_alias(
     test_role: Role,
     temporal_client: Client,
     child_dsl: DSLInput,
-    test_worker_factory: Callable[[Client], Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """Test that child workflows can be executed using expression-based aliases."""
     test_name = test_child_workflow_with_expression_alias.__name__
@@ -1079,12 +1314,15 @@ async def test_child_workflow_with_expression_alias(
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Verify the child workflow was called correctly
-    assert result == {"data": "Test data", "index": 42}
+    assert await to_data(result) == {"data": "Test data", "index": 42}
 
 
 @pytest.mark.anyio
 async def test_single_child_workflow_override_environment_correct(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_single_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1148,21 +1386,24 @@ async def test_single_child_workflow_override_environment_correct(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    expected = {
-        "ACTIONS": {
-            "parent": {
-                "result": "__TEST_ENVIRONMENT__",
-                "result_typename": "str",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent": TaskResult(
+                result=InlineObject(data="__TEST_ENVIRONMENT__"),
+                result_typename="str",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_override_environment_correct(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_multiple_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1226,21 +1467,26 @@ async def test_multiple_child_workflow_override_environment_correct(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    expected = {
-        "ACTIONS": {
-            "parent": {
-                "result": ["prod", "dev", "staging", "client1", "client2"],
-                "result_typename": "list",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent": TaskResult(
+                result=InlineObject(
+                    data=["prod", "dev", "staging", "client1", "client2"]
+                ),
+                result_typename="list",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_single_child_workflow_environment_has_correct_default(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = f"{test_single_child_workflow_environment_has_correct_default.__name__}"
     test_description = (
@@ -1304,22 +1550,25 @@ async def test_single_child_workflow_environment_has_correct_default(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    expected = {
-        "ACTIONS": {
-            "parent": {
-                "result": "__TESTING_DEFAULT__",
-                "result_typename": "str",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent": TaskResult(
+                result=InlineObject(data="__TESTING_DEFAULT__"),
+                result_typename="str",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_environments_have_correct_defaults(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
-):
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
     test_name = (
         f"{test_multiple_child_workflow_environments_have_correct_defaults.__name__}"
     )
@@ -1388,26 +1637,31 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    expected = {
-        "ACTIONS": {
-            "parent": {
-                "result": [
-                    "__TESTING_DEFAULT__ 1",
-                    "__TESTING_DEFAULT__ 2",
-                    "__TESTING_DEFAULT__ 3",
-                ],
-                "result_typename": "list",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent": TaskResult(
+                result=InlineObject(
+                    data=[
+                        "__TESTING_DEFAULT__ 1",
+                        "__TESTING_DEFAULT__ 2",
+                        "__TESTING_DEFAULT__ 3",
+                    ]
+                ),
+                result_typename="list",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_single_child_workflow_get_correct_secret_environment(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
-):
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
     # We need to set this on the API server, as we run it in a separate process
     # monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
     test_name = f"{test_single_child_workflow_get_correct_secret_environment.__name__}"
@@ -1491,25 +1745,30 @@ async def test_single_child_workflow_get_correct_secret_environment(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    expected = {
-        "ACTIONS": {
-            "parent": {
-                "result": [
-                    "KEY is FIRST_VALUE",
-                    "KEY is SECOND_VALUE",
-                ],
-                "result_typename": "list",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "parent": TaskResult(
+                result=InlineObject(
+                    data=[
+                        "KEY is FIRST_VALUE",
+                        "KEY is SECOND_VALUE",
+                    ]
+                ),
+                result_typename="list",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_workflow_can_access_workspace_variables(
-    test_role, temporal_client, test_worker_factory, test_executor_worker_factory
-):
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
     """Test that workflows can access workspace variables via VARS context."""
     test_name = f"{test_workflow_can_access_workspace_variables.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -1590,13 +1849,17 @@ async def test_workflow_can_access_workspace_variables(
         "enabled": True,
         "threshold": 100,
     }
-    assert result == expected
+
+    assert await to_data(result) == expected
 
 
 @pytest.mark.anyio
 async def test_pull_based_workflow_fetches_latest_version(
-    temporal_client, test_role, test_worker_factory, test_executor_worker_factory
-):
+    temporal_client: Client,
+    test_role: Role,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
     """Test that a pull-based workflow fetches the latest version after being updated.
 
     Steps
@@ -1660,7 +1923,7 @@ async def test_pull_based_workflow_fetches_latest_version(
         f"{wf_exec_id}:first", run_args, worker, executor_worker
     )
 
-    assert result == "__EXPECTED_FIRST_RESULT__"
+    assert await to_data(result) == "__EXPECTED_FIRST_RESULT__"
 
     second_dsl = DSLInput(
         **{
@@ -1695,7 +1958,7 @@ async def test_pull_based_workflow_fetches_latest_version(
     result = await _run_workflow(
         f"{wf_exec_id}:second", run_args, worker, executor_worker
     )
-    assert result == "__EXPECTED_SECOND_RESULT__"
+    assert await to_data(result) == "__EXPECTED_SECOND_RESULT__"
 
 
 # Get the line number dynamically
@@ -2131,12 +2394,12 @@ def _get_test_id(test_case):
 )
 @pytest.mark.anyio
 async def test_workflow_error_path(
-    test_role,
-    runtime_config,
-    dsl_data,
-    expected,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_role: Role,
+    runtime_config: DSLConfig,
+    dsl_data: dict[str, Any],
+    expected: dict[str, Any],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     dsl = DSLInput(**dsl_data)
     test_name = f"test_workflow_error-{dsl.title}"
@@ -2163,7 +2426,8 @@ async def test_workflow_error_path(
                 ],
             ),
         )
-        approximately_equal(result, expected)
+        data = await to_data(result)
+        approximately_equal(data, expected)
 
 
 @pytest.mark.anyio
@@ -2319,7 +2583,7 @@ async def test_workflow_multiple_entrypoints(
                 ],
             ),
         )
-    assert result == {
+    assert await to_data(result) == {
         "first": "ENTRYPOINT_1",
         "second": "ENTRYPOINT_2",
         "third": "ENTRYPOINT_3",
@@ -2328,12 +2592,12 @@ async def test_workflow_multiple_entrypoints(
 
 @pytest.mark.anyio
 async def test_workflow_runs_template_for_each(
-    test_role,
-    runtime_config,
-    temporal_client,
-    db_session_with_repo,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_role: Role,
+    runtime_config: DSLConfig,
+    temporal_client: Client,
+    db_session_with_repo: tuple[AsyncSession, uuid.UUID],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """Test workflow behavior with for_each.
 
@@ -2441,7 +2705,9 @@ async def test_workflow_runs_template_for_each(
                 ],
             ),
         )
-    assert result == [101, 102, 103, 104, 105]
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    assert data == [101, 102, 103, 104, 105]
 
 
 @dataclass
@@ -2613,9 +2879,13 @@ def assert_error_handler_initiated_correctly(
 
     # Use normalize_error_line_numbers on both sides to avoid flaky assertions when
     # line numbers change, newline formatting varies, or URLs include default ports
-    assert normalize_error_line_numbers(
-        group.action_input.trigger_inputs
-    ) == normalize_error_line_numbers(
+    # Extract .data from InlineObject envelope for comparison
+    trigger_data = (
+        group.action_input.trigger_inputs.data
+        if isinstance(group.action_input.trigger_inputs, InlineObject)
+        else group.action_input.trigger_inputs
+    )
+    assert normalize_error_line_numbers(trigger_data) == normalize_error_line_numbers(
         {
             "errors": [
                 {
@@ -2925,8 +3195,9 @@ async def test_workflow_lookup_table_success(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    assert "number" in result
-    assert result["number"] == 1
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    assert data["number"] == 1
 
 
 @pytest.mark.anyio
@@ -2935,8 +3206,8 @@ async def test_workflow_lookup_table_missing_value(
     test_role: Role,
     temporal_client: Client,
     test_admin_role: Role,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """
     Test that a workflow returns None when looking up a non-existent value in a table.
@@ -2989,7 +3260,9 @@ async def test_workflow_lookup_table_missing_value(
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    assert result is None
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    assert data is None
 
 
 @pytest.mark.anyio
@@ -2998,8 +3271,8 @@ async def test_workflow_insert_table_row_success(
     test_role: Role,
     temporal_client: Client,
     test_admin_role: Role,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """
     Test that a workflow can insert a row into a table.
@@ -3051,11 +3324,13 @@ async def test_workflow_insert_table_row_success(
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Verify the result indicates success
-    assert result is not None
-    assert isinstance(result, Mapping)
-    assert "id" in result
-    assert "number" in result
-    assert result["number"] == 42
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    assert data is not None
+    assert isinstance(data, Mapping)
+    assert "id" in data
+    assert "number" in data
+    assert data["number"] == 42
 
     # Verify the row was actually inserted
     async with TablesService.with_session(role=test_admin_role) as service:
@@ -3070,8 +3345,8 @@ async def test_workflow_table_actions_in_loop(
     test_role: Role,
     temporal_client: Client,
     test_admin_role: Role,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """
     Test that a workflow can perform table operations in a loop.
@@ -3158,18 +3433,20 @@ async def test_workflow_table_actions_in_loop(
 
     # Verify the results
     assert result is not None
-    assert "inserted_rows" in result
-    assert "looked_up_rows" in result
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    assert "inserted_rows" in data
+    assert "looked_up_rows" in data
 
     # Check inserted rows
-    inserted_rows = result["inserted_rows"]
+    inserted_rows = data["inserted_rows"]
     assert len(inserted_rows) == 5
     for i, row in enumerate(inserted_rows, 1):
         assert row["number"] == i
         assert row["squared"] == i * i
 
     # Check looked up rows
-    looked_up_rows = result["looked_up_rows"]
+    looked_up_rows = data["looked_up_rows"]
     assert len(looked_up_rows) == 5
     for i, row in enumerate(looked_up_rows, 1):
         assert row["number"] == i
@@ -3191,9 +3468,9 @@ async def test_workflow_table_actions_in_loop(
 async def test_workflow_detached_child_workflow(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory,
-    test_executor_worker_factory,
-):
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
     """
     Test that a workflow can detach a child workflow.
     Logic:
@@ -3281,7 +3558,8 @@ async def test_workflow_detached_child_workflow(
 
                 tg.create_task(child_handle.result())
 
-        results = tg.results()
+        # Unwrap StoredObject results (uniform envelope design)
+        results = [await unwrap_action_result(r) for r in tg.results()]
         assert results == [1001, 1002, 1003]
 
 
@@ -3290,9 +3568,9 @@ async def test_workflow_detached_child_workflow(
 async def test_scatter_with_child_workflow(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[[Client], Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
-):
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
     """Test that scatter works with child workflow execution.
 
     This test verifies that:
@@ -3361,16 +3639,16 @@ async def test_scatter_with_child_workflow(
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
 
     # Each item should be doubled: [1, 2, 3, 4] -> [2, 4, 6, 8]
-    expected = {
-        "ACTIONS": {
-            "gather": {
-                "result": [2, 4, 6, 8],
-                "result_typename": "list",
-            }
+    expected = ExecutionContext(
+        ACTIONS={
+            "gather": TaskResult(
+                result=InlineObject(data=[2, 4, 6, 8]),
+                result_typename="list",
+            )
         },
-        "TRIGGER": {},
-    }
-    assert result == expected
+        TRIGGER=None,
+    )
+    await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
@@ -3409,10 +3687,14 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {"gather": {"result": [2, 3, 4], "result_typename": "list"}},
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {"result": [2, 3, 4], "result_typename": "list"}
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="basic-for-loop",
         ),
         pytest.param(
@@ -3455,14 +3737,16 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "a": {"result": [1, 2, 3], "result_typename": "list"},
-                    "gather": {"result": [2, 3, 4], "result_typename": "list"},
-                    "c": {"result": [2, 3, 4], "result_typename": "list"},
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "a": {"result": [1, 2, 3], "result_typename": "list"},
+                        "gather": {"result": [2, 3, 4], "result_typename": "list"},
+                        "c": {"result": [2, 3, 4], "result_typename": "list"},
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-gather-with-surrounding-actions",
         ),
         # 2. Nested scatter-gather (original)
@@ -3524,12 +3808,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather2": {"result": [[2, 3], [4, 5]], "result_typename": "list"}
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather2": {
+                            "result": [[2, 3], [4, 5]],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="nested-for-loop",
         ),
         # 3. Scatter-Gather followed by Scatter-Gather (original)
@@ -3586,15 +3875,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    # First block: [10, 20] -> [11, 21]
-                    # Second block: [11, 21] -> [111, 121]
-                    "gather1": {"result": [11, 21], "result_typename": "list"},
-                    "gather2": {"result": [111, 121], "result_typename": "list"},
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        # First block: [10, 20] -> [11, 21]
+                        # Second block: [11, 21] -> [111, 121]
+                        "gather1": {"result": [11, 21], "result_typename": "list"},
+                        "gather2": {"result": [111, 121], "result_typename": "list"},
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="sequential-scatter-gather",
         ),
         # Parallel scatter/gather blocks, then join
@@ -3659,17 +3950,19 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    # ex1: [1,2] -> A: [2,4] -> im1: [2,4]
-                    # ex2: [10,20] -> B: [15,25] -> im2: [15,25]
-                    # C: [2,4,15,25]
-                    "im1": {"result": [2, 4], "result_typename": "list"},
-                    "im2": {"result": [15, 25], "result_typename": "list"},
-                    "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        # ex1: [1,2] -> A: [2,4] -> im1: [2,4]
+                        # ex2: [10,20] -> B: [15,25] -> im2: [15,25]
+                        # C: [2,4,15,25]
+                        "im1": {"result": [2, 4], "result_typename": "list"},
+                        "im2": {"result": [15, 25], "result_typename": "list"},
+                        "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="parallel-scatter-gather-join",
         ),
         # 4. Scatter followed by gather directly (no action in between)
@@ -3696,10 +3989,14 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {"gather": {"result": [5, 6, 7], "result_typename": "list"}},
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {"result": [5, 6, 7], "result_typename": "list"}
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-gather-direct",
         ),
         # 5. Scatter -> reshape (run_if even) -> gather
@@ -3734,17 +4031,19 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
-                    # Unset values are automatically removed
-                    "gather": {
-                        "result": [20, 40, 60],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                        # Unset values are automatically removed
+                        "gather": {
+                            "result": [20, 40, 60],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-reshape-even-gather",
         ),
         # 6. Scatter -> reshape (run_if even) -> gather with drop_nulls
@@ -3780,17 +4079,19 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
-                    # Everything else is dropped
-                    "gather": {
-                        "result": [20, 40, 60],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                        # Everything else is dropped
+                        "gather": {
+                            "result": [20, 40, 60],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-reshape-even-gather-drop-nulls",
         ),
         pytest.param(
@@ -3824,16 +4125,18 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    # Skip all nulls
-                    "gather": {
-                        "result": [1, 2, 3, 4, 5, 6],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        # Skip all nulls
+                        "gather": {
+                            "result": [1, 2, 3, 4, 5, 6],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-reshape-even-gather-drop-nulls-with-nones",
         ),
         # New test: A -> scatter -> B -> gather -> C, all reshapes, skip scatter, expect only A to run
@@ -3884,16 +4187,18 @@ async def test_scatter_with_child_workflow(
                     # Block 1 s houldn't run
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "a": {
-                        "result": 42,
-                        "result_typename": "int",
-                    }
-                    # No other actions should have run
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "a": {
+                            "result": 42,
+                            "result_typename": "int",
+                        }
+                        # No other actions should have run
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="skip-scatter-directly-only-first-runs",
         ),
         # --- NEW TEST CASE: scatter -> a (run_if False) -> gather, expect empty array ---
@@ -3926,15 +4231,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather": {
-                        "result": [],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {
+                            "result": [],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="skip-all-in-scatter",
         ),
         # Mixed Collection Scenarios
@@ -3996,17 +4303,19 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather_a": {"result": [10, 20, 30], "result_typename": "list"},
-                    "gather_b": {"result": [105, 205], "result_typename": "list"},
-                    "join": {
-                        "result": [10, 20, 30, 105, 205],
-                        "result_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather_a": {"result": [10, 20, 30], "result_typename": "list"},
+                        "gather_b": {"result": [105, 205], "result_typename": "list"},
+                        "join": {
+                            "result": [10, 20, 30, 105, 205],
+                            "result_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="parallel-different-sizes",
         ),
         # 2. Mixed data types preservation
@@ -4039,15 +4348,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather": {
-                        "result": [1, "hello", {"key": "value"}, None, [1, 2]],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {
+                            "result": [1, "hello", {"key": "value"}, None, [1, 2]],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="mixed-data-types",
         ),
         # 3. Variable nesting depths
@@ -4087,15 +4398,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "outer_gather": {
-                        "result": [[1, 2], [[3, 4], [5, 6]], 7, []],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "outer_gather": {
+                            "result": [[1, 2], [[3, 4], [5, 6]], 7, []],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="variable-nesting-depths",
         ),
         # 4. Empty and non-empty collections in parallel
@@ -4156,14 +4469,19 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather_nonempty": {"result": [2, 4, 6], "result_typename": "list"},
-                    "gather_empty": {"result": [], "result_typename": "list"},
-                    "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather_nonempty": {
+                            "result": [2, 4, 6],
+                            "result_typename": "list",
+                        },
+                        "gather_empty": {"result": [], "result_typename": "list"},
+                        "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="empty-nonempty-parallel",
         ),
         # 5. Collections with different lengths in nested scatter
@@ -4227,20 +4545,22 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "outer_gather": {
-                        # Explanation:
-                        # - The first sublist [1] is doubled to [2]
-                        # - The second sublist [2, 3] is doubled to [4, 6]
-                        # - The third sublist [4, 5, 6] is doubled to [8, 10, 12]
-                        # The gather operation preserves the nested structure.
-                        "result": [[2], [4, 6], [8, 10, 12]],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "outer_gather": {
+                            # Explanation:
+                            # - The first sublist [1] is doubled to [2]
+                            # - The second sublist [2, 3] is doubled to [4, 6]
+                            # - The third sublist [4, 5, 6] is doubled to [8, 10, 12]
+                            # The gather operation preserves the nested structure.
+                            "result": [[2], [4, 6], [8, 10, 12]],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="nested-varying-sizes",
         ),
         # 6. Mixed empty and non-empty in nested structure
@@ -4293,15 +4613,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "outer_gather": {
-                        "result": [[11, 12], [], [13]],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "outer_gather": {
+                            "result": [[11, 12], [], [13]],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="nested-mixed-empty-nonempty",
         ),
         # Empty collection scatter
@@ -4339,15 +4661,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather": {
-                        "result": [],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {
+                            "result": [],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-empty-collection",
         ),
         # None collection scatter (treated as empty)
@@ -4377,15 +4701,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather": {
-                        "result": [],
-                        "result_typename": "list",
-                    }
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {
+                            "result": [],
+                            "result_typename": "list",
+                        }
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-none-collection",
         ),
         pytest.param(
@@ -4424,13 +4750,15 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather": {"result": [], "result_typename": "list"},
-                    "reshape2": {"result": [], "result_typename": "list"},
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather": {"result": [], "result_typename": "list"},
+                        "reshape2": {"result": [], "result_typename": "list"},
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="scatter-empty-collection-between",
         ),
         pytest.param(
@@ -4496,20 +4824,22 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather1": {
-                        "result": [1, 2, 3],
-                        "result_typename": "list",
-                    },  # The outer gather collects the original items.
-                    # Only reshape2 is present because reshape (and thus gather2) are skipped.
-                    "reshape2": {
-                        "result": [1, 2, 3],
-                        "result_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather1": {
+                            "result": [1, 2, 3],
+                            "result_typename": "list",
+                        },  # The outer gather collects the original items.
+                        # Only reshape2 is present because reshape (and thus gather2) are skipped.
+                        "reshape2": {
+                            "result": [1, 2, 3],
+                            "result_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="nested-scatter-empty-collection-inside",
         ),
         pytest.param(
@@ -4588,15 +4918,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather1": {
-                        "result": [[1, 2], [3]],
-                        "result_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather1": {
+                            "result": [[1, 2], [3]],
+                            "result_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="2d-scatter-dag-inside",
         ),
         # 1D version: single-level scatter with DAG inside, all downstream actions should be skipped if scatter2 is empty
@@ -4653,15 +4985,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather1": {
-                        "result": [1, 2],
-                        "result_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather1": {
+                            "result": [1, 2],
+                            "result_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="1d-scatter-multi-condition",
         ),
         pytest.param(
@@ -4697,36 +5031,38 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather1": {
-                        "result": [],
-                        "result_typename": "list",
-                        "error": [
-                            {
-                                "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutionError",
-                                "expr_context": "ACTIONS",
-                                "attempt": 1,
-                                "stream_id": "<root>:0/scatter1:0",
-                                "children": None,
-                            },
-                            {
-                                "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutionError",
-                                "expr_context": "ACTIONS",
-                                "attempt": 1,
-                                "stream_id": "<root>:0/scatter1:1",
-                                "children": None,
-                            },
-                        ],
-                        "error_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather1": {
+                            "result": [],
+                            "result_typename": "list",
+                            "error": [
+                                {
+                                    "ref": "throw",
+                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "type": "ExecutionError",
+                                    "expr_context": "ACTIONS",
+                                    "attempt": 1,
+                                    "stream_id": "<root>:0/scatter1:0",
+                                    "children": None,
+                                },
+                                {
+                                    "ref": "throw",
+                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "type": "ExecutionError",
+                                    "expr_context": "ACTIONS",
+                                    "attempt": 1,
+                                    "stream_id": "<root>:0/scatter1:1",
+                                    "children": None,
+                                },
+                            ],
+                            "error_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="basic-error-handling-partition",
         ),
         pytest.param(
@@ -4763,15 +5099,17 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather1": {
-                        "result": [],
-                        "result_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather1": {
+                            "result": [],
+                            "result_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="basic-error-handling-drop",
         ),
         pytest.param(
@@ -4808,34 +5146,36 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "gather1": {
-                        "result": [
-                            {
-                                "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutionError",
-                                "expr_context": "ACTIONS",
-                                "attempt": 1,
-                                "stream_id": "<root>:0/scatter1:0",
-                                "children": None,
-                            },
-                            {
-                                "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
-                                "type": "ExecutionError",
-                                "expr_context": "ACTIONS",
-                                "attempt": 1,
-                                "stream_id": "<root>:0/scatter1:1",
-                                "children": None,
-                            },
-                        ],
-                        "result_typename": "list",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "gather1": {
+                            "result": [
+                                {
+                                    "ref": "throw",
+                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "type": "ExecutionError",
+                                    "expr_context": "ACTIONS",
+                                    "attempt": 1,
+                                    "stream_id": "<root>:0/scatter1:0",
+                                    "children": None,
+                                },
+                                {
+                                    "ref": "throw",
+                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "type": "ExecutionError",
+                                    "expr_context": "ACTIONS",
+                                    "attempt": 1,
+                                    "stream_id": "<root>:0/scatter1:1",
+                                    "children": None,
+                                },
+                            ],
+                            "result_typename": "list",
+                        },
                     },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="basic-error-handling-include",
         ),
         # Test: a -> scatter -> b -> gather, where b accesses a's data
@@ -4879,19 +5219,21 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "a": {
-                        "result": 42,
-                        "result_typename": "int",
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "a": {
+                            "result": 42,
+                            "result_typename": "int",
+                        },
+                        "gather1": {
+                            "result": [43, 44, 45],
+                            "result_typename": "list",
+                        },
                     },
-                    "gather1": {
-                        "result": [43, 44, 45],
-                        "result_typename": "list",
-                    },
-                },
-                "TRIGGER": {},
-            },
+                    "TRIGGER": {},
+                }
+            ),
             id="scope-shadowing-stream-lookup",
         ),
         pytest.param(
@@ -4935,13 +5277,15 @@ async def test_scatter_with_child_workflow(
                     ),
                 ],
             ),
-            {
-                "ACTIONS": {
-                    "outside": {"result": "__OUTSIDE__", "result_typename": "str"},
-                    "gather": {"result": [10, 20], "result_typename": "list"},
-                },
-                "TRIGGER": {},
-            },
+            dict_to_exec_context(
+                {
+                    "ACTIONS": {
+                        "outside": {"result": "__OUTSIDE__", "result_typename": "str"},
+                        "gather": {"result": [10, 20], "result_typename": "list"},
+                    },
+                    "TRIGGER": {},
+                }
+            ),
             id="run-if-stream-aware-context",
         ),
     ],
@@ -4949,11 +5293,11 @@ async def test_scatter_with_child_workflow(
 async def test_workflow_scatter_gather(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[[Client], Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
     dsl: DSLInput,
     expected: ExecutionContext,
-):
+) -> None:
     """
     Test that a workflow can scatter a collection.
     """
@@ -4973,18 +5317,40 @@ async def test_workflow_scatter_gather(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-        # Use normalize_error_line_numbers to avoid flaky assertions when line numbers change
-        assert normalize_error_line_numbers(result) == normalize_error_line_numbers(
-            expected
+        # Get result as ExecutionContext and normalize its data
+        result_ctx = await to_inline_exec_context(result)
+        resolved_result = await resolve_execution_context(result_ctx.data)
+        # Normalize the resolved result's data
+        normalized_resolved_result = ExecutionContext(
+            ACTIONS={
+                ref: TaskResult(
+                    result=InlineObject(
+                        data=normalize_error_line_numbers(
+                            await to_data(task_result.result)
+                        )
+                    ),
+                    result_typename=task_result.result_typename,
+                )
+                for ref, task_result in resolved_result["ACTIONS"].items()
+            },
+            TRIGGER=InlineObject(
+                data=normalize_error_line_numbers(
+                    await to_data(resolved_result["TRIGGER"])
+                )
+            )
+            if resolved_result["TRIGGER"]
+            else None,
         )
+        resolved_expected = await resolve_execution_context(expected)
+        assert normalized_resolved_result == resolved_expected
 
 
 @pytest.mark.anyio
 async def test_workflow_gather_error_strategy_raise(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[[Client], Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ) -> None:
     """Gather should fail-fast when configured with the raise error strategy."""
 
@@ -5067,8 +5433,8 @@ async def test_workflow_gather_error_strategy_raise(
 async def test_workflow_env_and_trigger_access_in_stream(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ) -> None:
     """
     Test that ENV and TRIGGER contexts are accessible from inside a stream.
@@ -5109,21 +5475,6 @@ async def test_workflow_env_and_trigger_access_in_stream(
         ],
     )
 
-    # Prepare expected result
-    expected = {
-        "ACTIONS": {
-            "gather": {
-                "result": [
-                    {"exec_id": wf_exec_id, "trigger": trigger_data},
-                    {"exec_id": wf_exec_id, "trigger": trigger_data},
-                    {"exec_id": wf_exec_id, "trigger": trigger_data},
-                ],
-                "result_typename": "list",
-            },
-        },
-        "TRIGGER": trigger_data,
-    }
-
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
     # Run the workflow and check the result
@@ -5135,7 +5486,7 @@ async def test_workflow_env_and_trigger_access_in_stream(
             dsl=dsl,
             role=test_role,
             wf_id=TEST_WF_ID,
-            trigger_inputs=trigger_data,
+            trigger_inputs=InlineObject(data=trigger_data),
         )
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
@@ -5144,7 +5495,22 @@ async def test_workflow_env_and_trigger_access_in_stream(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-        assert result == expected
+        expected_ctx = ExecutionContext(
+            ACTIONS={
+                "gather": TaskResult(
+                    result=InlineObject(
+                        data=[
+                            {"exec_id": wf_exec_id, "trigger": trigger_data},
+                            {"exec_id": wf_exec_id, "trigger": trigger_data},
+                            {"exec_id": wf_exec_id, "trigger": trigger_data},
+                        ]
+                    ),
+                    result_typename="list",
+                )
+            },
+            TRIGGER=InlineObject(data=trigger_data),
+        )
+        await assert_context_equal(result, expected_ctx)
 
 
 def assert_result_is_run_context(result: dict[str, Any]) -> bool:
@@ -5167,16 +5533,16 @@ def assert_result_is_run_context(result: dict[str, Any]) -> bool:
         # Context strategy returns the full context
         pytest.param(
             "context",
-            lambda result: result
-            == {
-                "ACTIONS": {
-                    "a": {
-                        "result": 42,
-                        "result_typename": "int",
-                    },
+            lambda result: ExecutionContextTA.validate_python(result)
+            == ExecutionContext(
+                ACTIONS={
+                    "a": TaskResult(
+                        result=InlineObject(data=42),
+                        result_typename="int",
+                    )
                 },
-                "TRIGGER": {},
-            },
+                TRIGGER=None,
+            ),
             id="context-strategy",
         ),
         # Minimal strategy returns the RunContext
@@ -5191,8 +5557,8 @@ def assert_result_is_run_context(result: dict[str, Any]) -> bool:
 async def test_workflow_return_strategy(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
     return_strategy: Literal["context", "minimal"],
     validator: Callable[[dict[str, Any]], bool],
     monkeypatch: pytest.MonkeyPatch,
@@ -5235,15 +5601,20 @@ async def test_workflow_return_strategy(
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-        assert validator(result)
+        # Unwrap StoredObject to compare actual data (handles both inline and external)
+        data = await to_data(result)
+        # For context strategy, resolve nested StoredObjects in ExecutionContext
+        if return_strategy == "context":
+            data = await resolve_exec_ctx_from_dict(data)
+        assert validator(data)
 
 
 @pytest.mark.anyio
 async def test_workflow_environment_override(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[[Client], Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -5319,23 +5690,24 @@ async def test_workflow_environment_override(
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             )
             # Verify that the action used the secret from the override environment
-            assert result == {
-                "ACTIONS": {
-                    "a": {
-                        "result": f"{test_name}_override_value",
-                        "result_typename": "str",
-                    },
+            expected = ExecutionContext(
+                ACTIONS={
+                    "a": TaskResult(
+                        result=InlineObject(data=f"{test_name}_override_value"),
+                        result_typename="str",
+                    )
                 },
-                "TRIGGER": {},
-            }
+                TRIGGER=None,
+            )
+            await assert_context_equal(result, expected)
 
 
 @pytest.mark.anyio
 async def test_workflow_trigger_defaults(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ) -> None:
     """
     Test that TRIGGER defaults are applied when not provided in DSLRunArgs.
@@ -5382,7 +5754,7 @@ async def test_workflow_trigger_defaults(
             dsl=dsl,
             role=test_role,
             wf_id=TEST_WF_ID,
-            trigger_inputs=trigger_data,
+            trigger_inputs=InlineObject(data=trigger_data),
         )
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
@@ -5391,15 +5763,17 @@ async def test_workflow_trigger_defaults(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-        assert result == expected
+        # Unwrap StoredObject to compare actual data (handles both inline and external)
+        data = await to_data(result)
+        assert data == expected
 
 
 @pytest.mark.anyio
 async def test_workflow_trigger_validation_error_details(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory,
-    test_executor_worker_factory,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ) -> None:
     """Ensure trigger validation errors surface field-level details to callers."""
 
@@ -5437,7 +5811,7 @@ async def test_workflow_trigger_validation_error_details(
             dsl=dsl,
             role=test_role,
             wf_id=TEST_WF_ID,
-            trigger_inputs=invalid_trigger_data,
+            trigger_inputs=InlineObject(data=invalid_trigger_data),
         )
         with pytest.raises(WorkflowFailureError) as exc_info:
             await temporal_client.execute_workflow(
@@ -5471,8 +5845,8 @@ async def test_workflow_trigger_validation_error_details(
 async def test_workflow_time_anchor_deterministic_time_functions(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[..., Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """Test that FN.now()/utcnow()/today() return logical time = time_anchor + elapsed.
 
@@ -5562,9 +5936,11 @@ async def test_workflow_time_anchor_deterministic_time_functions(
         )
 
     # Extract times from each action
-    action_1 = result["action_1"]
-    action_2 = result["action_2"]
-    action_3 = result["action_3"]
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    action_1 = data["action_1"]
+    action_2 = data["action_2"]
+    action_3 = data["action_3"]
 
     time_1 = datetime.fromisoformat(action_1["utcnow_iso"])
     time_2 = datetime.fromisoformat(action_2["utcnow_iso"])
@@ -5603,8 +5979,8 @@ async def test_workflow_time_anchor_deterministic_time_functions(
 async def test_workflow_time_anchor_inherited_by_child_workflow(
     test_role: Role,
     temporal_client: Client,
-    test_worker_factory: Callable[..., Worker],
-    test_executor_worker_factory: Callable[[Client], Worker],
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
 ):
     """Test that child workflows continue logical time from parent's current position.
 
@@ -5701,19 +6077,21 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
         )
 
     # Both parent and child times should be based on the same time_anchor
-    assert "2024-06-15" in result["parent_utcnow"]
-    assert "14:30:45" in result["parent_utcnow"]
+    # Unwrap StoredObject to compare actual data (handles both inline and external)
+    data = await to_data(result)
+    assert "2024-06-15" in data["parent_utcnow"]
+    assert "14:30:45" in data["parent_utcnow"]
 
-    assert "2024-06-15" in result["child_utcnow"]
-    assert "14:30:45" in result["child_utcnow"]
+    assert "2024-06-15" in data["child_utcnow"]
+    assert "14:30:45" in data["child_utcnow"]
 
     # Child time should be >= parent time since child continues from parent's position
     # (child starts after some workflow time has elapsed from when parent evaluated its time)
-    parent_time = datetime.fromisoformat(result["parent_utcnow"])
-    child_time = datetime.fromisoformat(result["child_utcnow"])
+    parent_time = datetime.fromisoformat(data["parent_utcnow"])
+    child_time = datetime.fromisoformat(data["child_utcnow"])
     assert child_time >= parent_time, (
         f"Child time {child_time} should be >= parent time {parent_time}"
     )
 
     # Child's today should also be based on the time_anchor
-    assert result["child_today"].startswith("2024-06-1")
+    assert data["child_today"].startswith("2024-06-1")

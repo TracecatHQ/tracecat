@@ -28,6 +28,7 @@ from tracecat.dsl.worker import get_activities
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.logger import logger
+from tracecat.storage.object import InlineObject, StoredObject
 
 
 @pytest.fixture
@@ -75,10 +76,12 @@ async def test_workflow_wait_until_future(
 
     # Mock out the execute_action_activity (replaces run_action_activity)
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(input: RunActionInput, role: Role) -> str:
+    async def execute_action_activity_mock(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
         nonlocal num_activity_executions
         num_activity_executions += 1
-        return input.task.args["value"]
+        return InlineObject(data=input.task.args["value"])
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -108,9 +111,12 @@ async def test_workflow_wait_until_future(
         # Expect more than 2 hours to have passed
         assert (await env.get_current_time() - start_time) > timedelta(hours=2)
 
-        # Verify result
+        # Verify result - workflow returns InlineObject(data=context)
         result = await handle.result()
-        assert result["ACTIONS"]["delayed_action"]["result"] == "test"
+        assert isinstance(result, InlineObject)
+        # result is InlineObject - use .data attribute
+        context = result.data
+        assert context["ACTIONS"]["delayed_action"]["result"]["data"] == "test"
 
 
 @pytest.mark.anyio
@@ -143,12 +149,12 @@ async def test_workflow_retry_until_condition(
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def execute_action_activity_mock(
         input: RunActionInput, role: Role
-    ) -> dict[str, str]:
+    ) -> StoredObject:
         nonlocal num_activity_executions
         num_activity_executions += 1
         if num_activity_executions < 3:
-            return {"status": "loading"}
-        return {"status": "success"}
+            return InlineObject(data={"status": "loading"})
+        return InlineObject(data={"status": "success"})
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -173,7 +179,11 @@ async def test_workflow_retry_until_condition(
         assert num_activity_executions == 3
 
         # Verify action was retried until condition met
-        assert result["ACTIONS"]["retry_action"]["result"]["status"] == "success"
+        assert isinstance(result, InlineObject)
+        context = result.data
+        assert (
+            context["ACTIONS"]["retry_action"]["result"]["data"]["status"] == "success"
+        )
 
 
 @pytest.mark.anyio
@@ -207,12 +217,12 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def execute_action_activity_mock(
         input: RunActionInput, role: Role
-    ) -> dict[str, str]:
+    ) -> StoredObject:
         nonlocal num_activity_executions
         num_activity_executions += 1
         if num_activity_executions < 3:
-            return {"status": "loading"}
-        return {"status": "success"}
+            return InlineObject(data={"status": "loading"})
+        return InlineObject(data={"status": "success"})
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -311,10 +321,10 @@ async def test_workflow_waits_until_tomorrow_9am(
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def execute_action_activity_mock(
         input: RunActionInput, role: Role
-    ) -> dict[str, str]:
+    ) -> StoredObject:
         nonlocal num_activity_executions
         num_activity_executions += 1
-        return {"status": "success"}
+        return InlineObject(data={"status": "success"})
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -397,12 +407,12 @@ async def test_workflow_retry_until_condition_with_wait_until(
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def execute_action_activity_mock(
         input: RunActionInput, role: Role
-    ) -> dict[str, str]:
+    ) -> StoredObject:
         nonlocal num_activity_executions
         num_activity_executions += 1
         if num_activity_executions < 3:
-            return {"status": "loading"}
-        return {"status": "success"}
+            return InlineObject(data={"status": "loading"})
+        return InlineObject(data={"status": "success"})
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -444,7 +454,11 @@ async def test_workflow_retry_until_condition_with_wait_until(
 
         # Verify action was retried until condition met
         result = await handle.result()
-        assert result["ACTIONS"]["retry_action"]["result"]["status"] == "success"
+        assert isinstance(result, InlineObject)
+        context = result.data
+        assert (
+            context["ACTIONS"]["retry_action"]["result"]["data"]["status"] == "success"
+        )
 
 
 @pytest.mark.parametrize(
@@ -490,8 +504,10 @@ async def test_workflow_wait_until_past(
 
     # Mock out the execute_action_activity
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(input: RunActionInput, role: Role) -> str:
-        return input.task.args["value"]
+    async def execute_action_activity_mock(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
+        return InlineObject(data=input.task.args["value"])
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -540,10 +556,12 @@ async def test_workflow_start_delay(
 
     # Mock out the execute_action_activity (replaces run_action_activity)
     @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(input: RunActionInput, role: Role) -> str:
+    async def execute_action_activity_mock(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
         nonlocal num_activity_executions
         num_activity_executions += 1
-        return "test"
+        return InlineObject(data="test")
 
     # Get base activities and add the mock
     activities = get_activities()
@@ -617,7 +635,9 @@ async def test_workflow_wait_until_precedence(
 
         # Verify wait_until time was used instead of start_delay
         assert end_time - start_time >= timedelta(hours=1)
-        assert result["ACTIONS"]["delayed_action"]["result"] == "test"
+        assert isinstance(result, InlineObject)
+        context = result.data
+        assert context["ACTIONS"]["delayed_action"]["result"]["data"] == "test"
 
 
 @pytest.mark.skip
@@ -778,9 +798,11 @@ async def test_workflow_multiple_timed_actions(
 
         # Verify timing and results
         assert end_time - start_time >= timedelta(minutes=30)
-        assert result["ACTIONS"]["action1"]["result"] == "first"
-        assert result["ACTIONS"]["action2"]["result"] == "second"
-        assert result["ACTIONS"]["action3"]["result"] == 3
+        assert isinstance(result, InlineObject)
+        context = result.data
+        assert context["ACTIONS"]["action1"]["result"]["data"] == "first"
+        assert context["ACTIONS"]["action2"]["result"]["data"] == "second"
+        assert context["ACTIONS"]["action3"]["result"]["data"] == 3
 
 
 @pytest.mark.skip
@@ -818,9 +840,12 @@ async def test_workflow_retry_until_time_condition(
             id=generate_test_exec_id("test_workflow_retry_until_time_condition"),
             task_queue=task_queue,
         )
-
+        assert isinstance(result, InlineObject)
         # Verify the final result time is after target time
-        final_time = datetime.fromisoformat(result["ACTIONS"]["retry_action"]["result"])
+        context = result.data
+        final_time = datetime.fromisoformat(
+            context["ACTIONS"]["retry_action"]["result"]["data"]
+        )
         assert final_time >= target_time
 
 

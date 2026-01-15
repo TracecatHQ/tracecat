@@ -7,9 +7,8 @@ import pytest
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import EdgeType
 from tracecat.dsl.scheduler import DSLScheduler
-from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, ExecutionContext
 from tracecat.dsl.types import Task
-from tracecat.expressions.common import ExprContext
 
 
 class _ControlledPutQueue:
@@ -54,7 +53,7 @@ async def test_queue_tasks_is_deterministic() -> None:
     scheduler = DSLScheduler(
         executor=executor,
         dsl=dsl,
-        context={ExprContext.ACTIONS: {}},
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
     )
 
     assert scheduler.adj["a"] == (("b", EdgeType.SUCCESS), ("c", EdgeType.SUCCESS))

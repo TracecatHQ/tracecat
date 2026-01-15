@@ -6,12 +6,14 @@ These tests cover the Temporal activity that handles action execution.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
+from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import ExecutionError, LoopExecutionError
@@ -19,6 +21,7 @@ from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import InlineObject
 
 
 @pytest.fixture
@@ -43,12 +46,13 @@ def mock_run_action_input() -> RunActionInput:
             args={"url": "https://example.com"},
             ref="test_action",
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=wf_id,
             wf_exec_id=f"{wf_id.short()}/exec_test",
             wf_run_id=uuid.uuid4(),
             environment="test",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=RegistryLock(
             origins={"tracecat_registry": "test-version"},
@@ -108,7 +112,9 @@ class TestExecuteActionActivity:
                 mock_run_action_input, mock_role
             )
 
-            assert result == expected_result
+            # Result is wrapped in StoredObject (InlineObject for small payloads)
+            assert isinstance(result, InlineObject)
+            assert result.data == expected_result
             mock_dispatch.assert_called_once_with(
                 backend=mock_backend.return_value, input=mock_run_action_input
             )

@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -29,7 +30,12 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionStatement,
+    ExecutionContext,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
@@ -264,12 +270,13 @@ def run_action_input_factory():
                 args=args or {"value": {"test": True}},
                 ref="test_action",
             ),
-            exec_context={},
+            exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
             run_context=RunContext(
                 wf_id=wf_id,
                 wf_exec_id=f"{wf_id.short()}/exec_test",
                 wf_run_id=uuid.uuid4(),
                 environment="default",
+                logical_time=datetime.now(UTC),
             ),
             registry_lock=RegistryLock(origins=origins, actions=actions),
         )
@@ -836,12 +843,13 @@ class TestMultitenantWorkloads:
                     args={"value": value},
                     ref="test_action",
                 ),
-                exec_context={},
+                exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
                 run_context=RunContext(
                     wf_id=wf_id,
                     wf_exec_id=f"{wf_id.short()}/exec_test",
                     wf_run_id=uuid.uuid4(),
                     environment="default",
+                    logical_time=datetime.now(UTC),
                 ),
                 registry_lock=RegistryLock(origins=origins, actions=actions),
             )

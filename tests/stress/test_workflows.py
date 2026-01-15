@@ -24,6 +24,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.storage.object import InlineObject
 
 
 @dataclass
@@ -146,11 +147,13 @@ async def test_stress_workflow_io(dsl, test_role, test_worker_factory):
                             dsl=dsl,
                             role=ctx_role.get(),
                             wf_id=TEST_WF_ID,
-                            trigger_inputs={
-                                "stress_server_url": server.docker_url,
-                                "delay_ms": delay_ms,
-                                "jitter_ms": jitter_ms,
-                            },
+                            trigger_inputs=InlineObject(
+                                data={
+                                    "stress_server_url": server.docker_url,
+                                    "delay_ms": delay_ms,
+                                    "jitter_ms": jitter_ms,
+                                },
+                            ),
                         ),
                         id=wf_exec_id,
                         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
@@ -228,7 +231,7 @@ async def test_stress_workflow_correctness(
                     dsl=dsl,
                     role=ctx_role.get(),
                     wf_id=TEST_WF_ID,
-                    trigger_inputs={"num": i},
+                    trigger_inputs=InlineObject(data={"num": i}),
                 )
                 tg.create_task(
                     temporal_client.execute_workflow(
