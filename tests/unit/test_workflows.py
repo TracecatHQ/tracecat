@@ -100,8 +100,9 @@ type WorkerFactory = Callable[[Client], Worker]
 # If we are, make it shut down executor and worker processes (docker)
 @pytest.fixture(autouse=True, scope="session")
 def shutdown_executor_and_worker(monkeysession: pytest.MonkeyPatch):
+    # In CI, do nothing - executor/worker are not running as separate containers
     if os.environ.get("GITHUB_ACTIONS") is not None:
-        pytest.skip("Skip if running in GitHub Actions")
+        return
     monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
     # shutdown executor and worker processes
     import subprocess
@@ -120,18 +121,6 @@ def shutdown_executor_and_worker(monkeysession: pytest.MonkeyPatch):
             f"Failed to shut down executor and worker processes: {out.stderr.decode('utf-8')}"
         )
     logger.info("Shut down executor and worker processes")
-
-
-@pytest.fixture(scope="module")
-def hotfix_local_api_url(monkeysession: pytest.MonkeyPatch):
-    """Hotfix to allow workflow tests to run locally.
-
-    We need to set the internal API url to the public API url
-    otherwise the tests will fail because it cannot reach the internal API.
-    """
-    if os.environ.get("GITHUB_ACTIONS") is not None:
-        pytest.skip("Skip if running in GitHub Actions")
-    monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
 
 
 @pytest.fixture
