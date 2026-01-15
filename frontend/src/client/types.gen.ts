@@ -1567,6 +1567,10 @@ export type Code = {
 
 export type lang = "yaml" | "python"
 
+export type CollectionObject = {
+  [key: string]: unknown
+}
+
 /**
  * Payload to continue a CE run after collecting approvals.
  */
@@ -2021,7 +2025,7 @@ export type ExecutionContext = {
   ACTIONS: {
     [key: string]: TaskResult
   }
-  TRIGGER?: InlineObject | ExternalObject
+  TRIGGER?: InlineObject | ExternalObject | CollectionObject
   ENV?: DSLEnvironment
   SECRETS?: {
     [key: string]: unknown
@@ -4444,7 +4448,7 @@ export type TaskPriorityChangedEventRead = {
  * - ExternalObject when data is large and externalization is enabled
  */
 export type TaskResult = {
-  result: InlineObject | ExternalObject
+  result: InlineObject | ExternalObject | CollectionObject
   result_typename: string
   error?: unknown | null
   error_typename?: string | null

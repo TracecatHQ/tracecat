@@ -5232,6 +5232,11 @@ export const $Code = {
   title: "Code",
 } as const
 
+export const $CollectionObject = {
+  additionalProperties: true,
+  type: "object",
+} as const
+
 export const $ContinueRunRequest = {
   properties: {
     kind: {
@@ -6553,11 +6558,15 @@ export const $ExecutionContext = {
         {
           $ref: "#/components/schemas/ExternalObject",
         },
+        {
+          $ref: "#/components/schemas/CollectionObject",
+        },
       ],
       title: "Trigger",
       discriminator: {
         propertyName: "type",
         mapping: {
+          collection: "#/components/schemas/CollectionObject",
           external: "#/components/schemas/ExternalObject",
           inline: "#/components/schemas/InlineObject",
         },
@@ -13651,11 +13660,15 @@ export const $TaskResult = {
         {
           $ref: "#/components/schemas/ExternalObject",
         },
+        {
+          $ref: "#/components/schemas/CollectionObject",
+        },
       ],
       title: "Result",
       discriminator: {
         propertyName: "type",
         mapping: {
+          collection: "#/components/schemas/CollectionObject",
           external: "#/components/schemas/ExternalObject",
           inline: "#/components/schemas/InlineObject",
         },

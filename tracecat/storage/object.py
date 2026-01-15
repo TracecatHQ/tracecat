@@ -26,13 +26,11 @@ Usage:
 
 from __future__ import annotations
 
-import hashlib
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-import orjson
-from pydantic import BaseModel, Discriminator, Field, model_serializer
+from pydantic import BaseModel, Discriminator, Field, TypeAdapter, model_serializer
 
 from tracecat import config
 from tracecat.logger import logger
@@ -81,19 +79,19 @@ class _StoredObjectBase(BaseModel):
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
         """Always include type field for discriminated union."""
-        result = handler(self)
+        result: dict[str, Any] = handler(self)  # type: ignore[assignment]
         # Access type from subclass (InlineObject or ExternalObject)
-        result["type"] = self.type  # pyright: ignore[reportAttributeAccessIssue]
+        result["type"] = self.type  # type: ignore[reportAttributeAccessIssue]
         return result
 
 
-class InlineObject(_StoredObjectBase):
+class InlineObject[T: Any](_StoredObjectBase):
     """Data stored inline (not externalized)."""
 
     type: Literal["inline"] = "inline"
     """Discriminator for tagged union."""
 
-    data: Any
+    data: T
     """The inline data. Can be any JSON-serializable value, including None."""
 
 
@@ -107,14 +105,79 @@ class ExternalObject(_StoredObjectBase):
     """Reference to the externalized data in blob storage."""
 
 
+class CollectionObject(_StoredObjectBase):
+    """Handle to a collection manifest stored in blob storage.
+
+    Represents huge collections without embedding list[StoredObject] in history.
+    The manifest contains chunk references for paged access.
+
+    This is a small, history-safe handle. The actual data lives in chunked
+    blobs referenced by the manifest.
+
+    Attributes:
+        manifest_ref: Reference to the manifest blob containing chunk refs.
+        count: Total number of elements in the collection.
+        chunk_size: Number of items per chunk.
+        element_kind: Whether elements are raw values or StoredObject handles.
+        schema_version: Manifest schema version for forward compatibility.
+    """
+
+    type: Literal["collection"] = "collection"
+    """Discriminator for tagged union."""
+
+    manifest_ref: ObjectRef
+    """Reference to the manifest blob in blob storage."""
+
+    count: int
+    """Total number of elements in the collection."""
+
+    chunk_size: int
+    """Number of items per chunk."""
+
+    element_kind: Literal["value", "stored_object"]
+    """Whether elements are raw values or StoredObject handles.
+
+    - 'value': Collection is list[Any] (pure JSON values).
+    - 'stored_object': Collection is list[StoredObject] (handles to retrieve).
+    """
+
+    schema_version: int = 1
+    """Manifest schema version for forward compatibility."""
+
+    index: int | None = None
+    """Optional index into the collection.
+
+    When set, indicates this handle refers to a specific item in the collection
+    rather than the entire collection. Downstream consumers should retrieve
+    just that item using get_collection_item(collection, index).
+    """
+
+    def __len__(self) -> int:
+        return self.count
+
+    def at(self, index: int) -> CollectionObject:
+        """Return a copy of this collection handle pointing to a specific index.
+
+        This creates a new handle that refers to a single item in the collection.
+        The manifest_ref remains the same, but the index field is set.
+        """
+        return self.model_copy(update={"index": index})
+
+
 StoredObject = Annotated[
-    InlineObject | ExternalObject,
+    InlineObject | ExternalObject | CollectionObject,
     Discriminator("type"),
 ]
-"""Result of a store operation. Either inline data or an external reference.
+"""Result of a store operation.
+
+With uniform envelope design, all results are wrapped in StoredObject:
+- InlineObject: Data kept in workflow history (small payloads).
+- ExternalObject: Single blob externalized to S3/MinIO (large payloads).
+- CollectionObject: Chunked manifest for huge collections (fanout outputs).
 
 Uses 'type' field as discriminator for Pydantic validation with TypeAdapter.
 """
+StoredObjectValidator: TypeAdapter[StoredObject] = TypeAdapter(StoredObject)
 
 
 # === Interface === #
@@ -160,184 +223,6 @@ class ObjectStorage(ABC):
         raise NotImplementedError
 
 
-# === Implementations === #
-
-
-class InMemoryObjectStorage(ObjectStorage):
-    """In-memory storage - no externalization, results always inline.
-
-    This is the default implementation that maintains current behavior.
-    Use this for testing or when S3/MinIO is not available.
-    """
-
-    async def store(
-        self,
-        key: str,
-        data: Any,
-    ) -> StoredObject:
-        """Store data inline (never externalizes)."""
-        del key  # Unused in inline storage
-        return InlineObject(data=data)
-
-    async def retrieve(self, stored: StoredObject) -> Any:
-        """Return inline data from StoredObject."""
-        match stored:
-            case InlineObject(data=data):
-                return data
-            case ExternalObject():
-                raise NotImplementedError(
-                    "InMemoryObjectStorage does not support externalized references. "
-                    "This ref was created by a different storage backend."
-                )
-
-
-class S3ObjectStorage(ObjectStorage):
-    """S3/MinIO storage with threshold-based externalization.
-
-    Data below the threshold is kept inline. Data above the threshold
-    is serialized to JSON and uploaded to S3/MinIO.
-    """
-
-    def __init__(
-        self,
-        bucket: str,
-        threshold_bytes: int = 256 * 1024,  # 256 KB default
-    ) -> None:
-        """Initialize S3 storage backend.
-
-        Args:
-            bucket: S3/MinIO bucket name
-            threshold_bytes: Externalize data larger than this (default 256 KB)
-        """
-        self.bucket = bucket
-        self.threshold_bytes = threshold_bytes
-
-    async def store(
-        self,
-        key: str,
-        data: Any,
-    ) -> StoredObject:
-        """Store data, externalizing if over threshold."""
-        # Serialize to JSON
-        serialized = serialize_object(data)
-        size_bytes = len(serialized)
-
-        # Keep inline if under threshold
-        if size_bytes <= self.threshold_bytes:
-            logger.debug(
-                "Keeping data inline",
-                key=key,
-                size_bytes=size_bytes,
-                threshold_bytes=self.threshold_bytes,
-            )
-            return InlineObject(data=data)
-
-        # Externalize to S3
-        sha256 = compute_sha256(serialized)
-
-        # Import here to avoid circular imports and allow testing without blob module
-        from tracecat.storage import blob
-
-        await blob.ensure_bucket_exists(self.bucket)
-        await blob.upload_file(
-            content=serialized,
-            key=key,
-            bucket=self.bucket,
-            content_type="application/json",
-        )
-
-        logger.info(
-            "Externalized large object to S3",
-            key=key,
-            bucket=self.bucket,
-            size_bytes=size_bytes,
-            threshold_bytes=self.threshold_bytes,
-        )
-
-        ref = ObjectRef(
-            backend="s3",
-            bucket=self.bucket,
-            key=key,
-            size_bytes=size_bytes,
-            sha256=sha256,
-            content_type="application/json",
-            encoding="json",
-        )
-
-        return ExternalObject(ref=ref)
-
-    async def retrieve(self, stored: StoredObject) -> Any:
-        """Retrieve data from StoredObject (inline or from S3)."""
-        match stored:
-            case InlineObject(data=data):
-                return data
-            case ExternalObject(ref=ref):
-                if ref.backend != "s3":
-                    raise ValueError(
-                        f"S3ObjectStorage cannot retrieve from backend: {ref.backend}"
-                    )
-
-                from tracecat.storage import blob
-
-                content = await blob.download_file(key=ref.key, bucket=ref.bucket)
-
-                # Verify integrity
-                actual_sha256 = compute_sha256(content)
-                if actual_sha256 != ref.sha256:
-                    raise ValueError(
-                        f"Integrity check failed for {ref.key}: "
-                        f"expected {ref.sha256}, got {actual_sha256}"
-                    )
-
-                logger.debug(
-                    "Retrieved externalized payload from S3",
-                    key=ref.key,
-                    bucket=ref.bucket,
-                    size_bytes=len(content),
-                )
-
-                return deserialize_object(content)
-
-
-# === Serialization Helpers === #
-
-
-def serialize_object(data: Any) -> bytes:
-    """Serialize data to JSON bytes using orjson.
-
-    Args:
-        data: Any JSON-serializable data
-
-    Returns:
-        UTF-8 encoded JSON bytes
-    """
-    return orjson.dumps(data, default=str)
-
-
-def deserialize_object(content: bytes) -> Any:
-    """Deserialize JSON bytes to Python object using orjson.
-
-    Args:
-        content: UTF-8 encoded JSON bytes
-
-    Returns:
-        Deserialized Python object
-    """
-    return orjson.loads(content)
-
-
-def compute_sha256(content: bytes) -> str:
-    """Compute SHA-256 hash of content.
-
-    Args:
-        content: Bytes to hash
-
-    Returns:
-        Hex-encoded SHA-256 hash
-    """
-    return hashlib.sha256(content).hexdigest()
-
-
 # === Dependency Injection === #
 
 _object_storage: ObjectStorage | None = None
@@ -346,15 +231,18 @@ _object_storage: ObjectStorage | None = None
 def get_object_storage() -> ObjectStorage:
     """Get the configured object storage backend.
 
-    Returns InMemoryObjectStorage by default (no externalization).
+    Returns InlineObjectStorage by default (no externalization).
     Returns S3ObjectStorage when TRACECAT__RESULT_EXTERNALIZATION_ENABLED=true.
     """
     global _object_storage
     if _object_storage is not None:
         return _object_storage
 
+    # Import here to avoid circular imports
+    from tracecat.storage.backends import InlineObjectStorage, S3ObjectStorage
+
     if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        storage: ObjectStorage = S3ObjectStorage(
+        storage = S3ObjectStorage(
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
             threshold_bytes=config.TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES,
         )
@@ -364,8 +252,8 @@ def get_object_storage() -> ObjectStorage:
             threshold_bytes=config.TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES,
         )
     else:
-        storage = InMemoryObjectStorage()
-        logger.debug("Using InMemoryObjectStorage (externalization disabled)")
+        storage = InlineObjectStorage()
+        logger.debug("Using InlineObjectStorage (externalization disabled)")
 
     _object_storage = storage
     return storage
@@ -385,3 +273,61 @@ def reset_object_storage() -> None:
     """Reset object storage to None, forcing re-initialization on next get."""
     global _object_storage
     _object_storage = None
+
+
+# === Object Key Helpers === #
+
+
+def trigger_key(workspace_id: str, wf_exec_id: str) -> str:
+    """Generate S3 key for workflow trigger inputs.
+
+    Format: {workspace_id}/{wf_exec_id}/trigger.json
+    """
+    return f"{workspace_id}/{wf_exec_id}/trigger.json"
+
+
+def return_key(workspace_id: str, wf_exec_id: str) -> str:
+    """Generate S3 key for workflow return value.
+
+    Format: {workspace_id}/{wf_exec_id}/return.json
+    """
+    return f"{workspace_id}/{wf_exec_id}/return.json"
+
+
+def action_key(workspace_id: str, wf_exec_id: str, stream_id: str, ref: str) -> str:
+    """Generate S3 key for action result.
+
+    Format: {workspace_id}/{wf_exec_id}/actions/{stream_id}/{ref}.json
+    """
+    return f"{workspace_id}/{wf_exec_id}/actions/{stream_id}/{ref}.json"
+
+
+def action_collection_prefix(
+    workspace_id: str, wf_exec_id: str, stream_id: str, ref: str
+) -> str:
+    """Generate S3 key prefix for action collection (manifest + chunks).
+
+    Format: {workspace_id}/{wf_exec_id}/actions/{stream_id}/{ref}
+    """
+    return f"{workspace_id}/{wf_exec_id}/actions/{stream_id}/{ref}"
+
+
+__all__ = [
+    # Types
+    "CollectionObject",
+    "ExternalObject",
+    "InlineObject",
+    "ObjectRef",
+    "ObjectStorage",
+    "StoredObject",
+    "StoredObjectValidator",
+    # DI
+    "get_object_storage",
+    "reset_object_storage",
+    "set_object_storage",
+    # Key helpers
+    "action_collection_prefix",
+    "action_key",
+    "return_key",
+    "trigger_key",
+]
