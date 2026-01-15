@@ -6127,9 +6127,6 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     assert "2024-06-15" in data["parent_utcnow"]
     assert "14:30:45" in data["parent_utcnow"]
 
-    assert "2024-06-15" in data["child_utcnow"]
-    assert "14:30:45" in data["child_utcnow"]
-
     # Child time should be >= parent time since child continues from parent's position
     # (child starts after some workflow time has elapsed from when parent evaluated its time)
     parent_time = datetime.fromisoformat(data["parent_utcnow"])
@@ -6137,6 +6134,8 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     assert child_time >= parent_time, (
         f"Child time {child_time} should be >= parent time {parent_time}"
     )
+    # Child should be based on the same date as parent (from the time_anchor)
+    assert child_time.date() == parent_time.date()
 
     # Child's today should also be based on the time_anchor
     assert data["child_today"].startswith("2024-06-1")

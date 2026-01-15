@@ -130,35 +130,7 @@ def subprocess_db_env(monkeypatch):
     engine_module._async_engine = old_engine
 
 
-@pytest.fixture(scope="module")
-def minio_server():
-    """Use docker-compose MinIO service instead of starting a new container.
-
-    This fixture assumes MinIO is already running via docker-compose on port 9000.
-    It's module-scoped to match the session-scoped conftest fixture behavior.
-    """
-    # Verify MinIO is accessible
-    import time
-
-    max_retries = 30
-    for i in range(max_retries):
-        try:
-            client = Minio(
-                MINIO_ENDPOINT,
-                access_key=MINIO_ACCESS_KEY,
-                secret_key=MINIO_SECRET_KEY,
-                secure=False,
-            )
-            list(client.list_buckets())
-            break
-        except Exception as e:
-            if i == max_retries - 1:
-                raise RuntimeError(
-                    f"MinIO not accessible at {MINIO_ENDPOINT} after {max_retries} retries: {e}"
-                ) from e
-            time.sleep(1)
-
-    yield  # No cleanup needed - docker-compose manages the container
+# minio_server fixture is provided by conftest.py (session-scoped)
 
 
 @pytest.fixture
