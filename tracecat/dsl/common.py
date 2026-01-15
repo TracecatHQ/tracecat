@@ -6,7 +6,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Any, Literal, NotRequired, Self, TypedDict, cast
+from typing import Any, Literal, NotRequired, Self, TypedDict
 
 import orjson
 import temporalio.api.common.v1
@@ -44,8 +44,8 @@ from tracecat.dsl.schemas import (
     ExecutionContext,
     RunContext,
     StreamID,
+    TaskResult,
     Trigger,
-    TriggerInputs,
 )
 from tracecat.dsl.view import (
     NodeVariant,
@@ -71,6 +71,7 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import CollectionObject, StoredObject
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -467,11 +468,28 @@ class DSLInput(BaseModel):
             raise e
 
 
+class SubflowContext(BaseModel):
+    """Shared context for child workflow execution (prepared once).
+
+    Contains workflow definition and execution context that is shared across
+    all iterations in a loop. Per-iteration config (environment, timeout) is
+    resolved separately via ResolvedSubflowBatch.
+    """
+
+    wf_id: WorkflowUUID
+    dsl: DSLInput
+    registry_lock: RegistryLock | None = None
+    run_context: RunContext
+    execution_type: ExecutionType
+    time_anchor: datetime
+    batch_size: int
+
+
 class DSLRunArgs(BaseModel):
     role: Role
     dsl: DSLInput | None = None
     wf_id: WorkflowUUID
-    trigger_inputs: TriggerInputs | None = None
+    trigger_inputs: StoredObject | None = None
     parent_run_context: RunContext | None = None
     runtime_config: DSLConfig = Field(
         default_factory=DSLConfig,
@@ -513,10 +531,9 @@ class DSLRunArgs(BaseModel):
         return WorkflowUUID.new(v)
 
 
-class ExecuteChildWorkflowArgs(BaseModel):
+class _BaseSubflowArgs(BaseModel):
     workflow_id: WorkflowUUID | None = None
     workflow_alias: str | None = None
-    trigger_inputs: TriggerInputs | None = None
     environment: str | None = None
     version: int | None = None
     loop_strategy: LoopStrategy = LoopStrategy.BATCH
@@ -526,7 +543,7 @@ class ExecuteChildWorkflowArgs(BaseModel):
     wait_strategy: WaitStrategy = WaitStrategy.WAIT
     time_anchor: datetime | None = Field(
         default=None,
-        description="Override time anchor for child workflow. If None, inherits from parent.",
+        description="Override time anchor for subflow. If None, inherits from parent.",
     )
 
     @model_validator(mode="after")
@@ -549,6 +566,109 @@ class ExecuteChildWorkflowArgs(BaseModel):
     def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
         """Convert any valid workflow ID format to WorkflowUUID."""
         return WorkflowUUID.new(v)
+
+
+class ExecuteSubflowArgs(_BaseSubflowArgs):
+    """Action arguments for executing a subflow. Use to validate user-provided subflow arguments."""
+
+    trigger_inputs: Any | None = None
+    """The unresolved trigger inputs for the subflow."""
+
+
+class ResolvedSubflowInput(_BaseSubflowArgs):
+    """Input for executing a subflow."""
+
+    trigger_inputs: StoredObject | None = None
+    ref_index: int | None = None
+
+
+class ResolvedSubflowConfig(BaseModel):
+    """Per-iteration DSL config for subflow execution.
+
+    Contains only the DSL primitives that can be overridden per iteration
+    via var expressions (e.g., environment: ${{ var.item.env }}).
+    """
+
+    environment: str | None = None
+    timeout: float | None = None
+
+
+class ResolvedSubflowBatch(BaseModel):
+    """Per-batch resolved args for looped subflow execution.
+
+    Separates DSL config (small, can be inlined) from trigger_inputs
+    (each stored as individual StoredObject for direct passing to child workflows).
+
+    The configs field is optimized: if all iterations share the same config
+    (no var expressions in DSL primitives), a single config is returned.
+    Otherwise, a list matching trigger_inputs length is returned.
+    """
+
+    configs: ResolvedSubflowConfig | list[ResolvedSubflowConfig]
+    trigger_inputs: list[StoredObject]
+    """Each item is the trigger_inputs for one iteration, stored as StoredObject."""
+
+    @model_validator(mode="after")
+    def validate_configs_length(self) -> Self:
+        if isinstance(self.configs, list):
+            if len(self.configs) != len(self.trigger_inputs):
+                raise ValueError(
+                    f"configs length ({len(self.configs)}) must match "
+                    f"trigger_inputs length ({len(self.trigger_inputs)})"
+                )
+        return self
+
+    def get_config(self, index: int) -> ResolvedSubflowConfig:
+        """Get config for iteration, handling shared vs per-iteration."""
+        if isinstance(self.configs, list):
+            return self.configs[index]
+        return self.configs
+
+    @property
+    def count(self) -> int:
+        """Number of iterations in this batch."""
+        return len(self.trigger_inputs)
+
+
+MAX_LOOP_ITERATIONS = 4096
+
+
+class PreparedSubflowResult(BaseModel):
+    """Result of prepare_subflow_activity containing all data needed to spawn child workflows.
+
+    For single subflows: trigger_inputs/runtime_configs are None, evaluate separately.
+    For looped subflows: trigger_inputs is a CollectionObject, runtime_configs uses T|list[T] optimization.
+    """
+
+    wf_id: WorkflowUUID
+    """Resolved workflow ID (from alias or direct)."""
+
+    dsl: DSLInput
+    """Workflow definition."""
+
+    registry_lock: RegistryLock | None = None
+    """Frozen dependency versions. May be None for workflows without locks."""
+
+    trigger_inputs: CollectionObject | None = None
+    """For loops: CollectionObject containing all trigger_inputs. None for single subflow."""
+
+    runtime_configs: DSLConfig | list[DSLConfig] | None = None
+    """For loops: T|list[T] optimized configs. None for single subflow."""
+
+    @property
+    def count(self) -> int:
+        """Number of iterations (1 for single subflow, N for loops)."""
+        if self.trigger_inputs is None:
+            return 1
+        return self.trigger_inputs.count
+
+    def get_config(self, index: int) -> DSLConfig:
+        """Get runtime config for iteration, handling T|list[T] optimization."""
+        if self.runtime_configs is None:
+            return self.dsl.config
+        if isinstance(self.runtime_configs, list):
+            return self.runtime_configs[index]
+        return self.runtime_configs
 
 
 class AgentActionMemo(BaseModel):
@@ -726,17 +846,19 @@ def build_action_statements_from_actions(
 
 
 def create_default_execution_context(
-    ACTIONS: dict[str, Any] | None = None,
-    TRIGGER: dict[str, Any] | None = None,
+    ACTIONS: dict[str, TaskResult] | None = None,
+    TRIGGER: StoredObject | None = None,
     ENV: DSLEnvironment | None = None,
     VARS: dict[str, Any] | None = None,
 ) -> ExecutionContext:
-    return {
-        ExprContext.ACTIONS: ACTIONS or {},
-        ExprContext.TRIGGER: TRIGGER or {},
-        ExprContext.ENV: cast(DSLEnvironment, ENV or {}),
-        ExprContext.VARS: VARS or {},
-    }
+    ctx = ExecutionContext(
+        ACTIONS=ACTIONS or {},
+        TRIGGER=TRIGGER,
+        ENV=ENV or DSLEnvironment(),
+    )
+    if VARS:
+        ctx["VARS"] = VARS
+    return ctx
 
 
 def dsl_execution_error_from_exception(e: BaseException) -> DSLExecutionError:

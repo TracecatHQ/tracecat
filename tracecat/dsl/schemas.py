@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
 from functools import cached_property
 from typing import Any, ClassVar, Literal, NotRequired, Self, TypedDict
 
@@ -34,15 +35,16 @@ TriggerInputs = Any
 class ExecutionContext(TypedDict):
     """Workflow execution context with typed fields.
 
-    All fields are optional since contexts may be built incrementally.
-    In practice, ACTIONS/TRIGGER/ENV are always present in workflow execution.
+    ACTIONS and TRIGGER are always present. Other fields are optional since
+    contexts may be built incrementally during workflow execution.
     """
 
     ACTIONS: dict[str, TaskResult]
     """Action results keyed by action ref. TaskResult.result is StoredObject."""
 
-    TRIGGER: NotRequired[StoredObject]
-    """Trigger inputs wrapped in StoredObject (InlineObject or ExternalObject)."""
+    TRIGGER: StoredObject | None
+    """Trigger inputs wrapped in StoredObject (InlineObject or ExternalObject).
+    Always present - None signals no trigger inputs were provided."""
 
     ENV: NotRequired[DSLEnvironment]
     """Environment metadata about the workflow."""
@@ -70,8 +72,8 @@ class TemplateExecutionContext(TypedDict):
     inputs: dict[str, Any]
     """Template action inputs."""
 
-    steps: dict[str, TaskResult]
-    """Template action step results."""
+    steps: dict[str, MaterializedTaskResult]
+    """Template action step results (materialized for expression access)."""
 
 
 class MaterializedTaskResult(TypedDict):
@@ -253,6 +255,22 @@ class TaskResult(BaseModel):
             }
         )
 
+    def to_materialized_dict(self) -> MaterializedTaskResult:
+        """Convert to a dict with unwrapped result for jsonpath access.
+
+        Used in template execution contexts where jsonpath needs dict-like
+        access to fields, including the raw result value.
+        """
+        return MaterializedTaskResult(
+            result=self.get_data() if self.result.type == "inline" else None,
+            result_typename=self.result_typename,
+            error=self.error,
+            error_typename=self.error_typename,
+            interaction=self.interaction,
+            interaction_id=self.interaction_id,
+            interaction_type=self.interaction_type,
+        )
+
 
 class ActionRetryPolicy(BaseModel):
     max_attempts: int = Field(
@@ -403,6 +421,8 @@ class RunContext(BaseModel):
     wf_exec_id: WorkflowExecutionID
     wf_run_id: WorkflowRunID
     environment: str
+    logical_time: datetime
+    """The logical start time for the workflow run."""
 
     @field_validator("wf_id", mode="before")
     @classmethod

@@ -4,7 +4,10 @@ from itertools import chain
 from typing import Any
 
 import lark
-from pydantic import ConfigDict, ValidationError
+from pydantic import (
+    ConfigDict,
+    ValidationError,
+)
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import (
@@ -16,7 +19,7 @@ from tracecat_registry import (
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryAction
-from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
+from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
@@ -287,7 +290,7 @@ async def validate_registry_action_args(
     try:
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
-                validated = ExecuteChildWorkflowArgs.model_validate(args)
+                validated = ExecuteSubflowArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)

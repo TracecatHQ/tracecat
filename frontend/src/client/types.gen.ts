@@ -1802,7 +1802,7 @@ export type DSLRunArgs = {
   role: Role
   dsl?: DSLInput | null
   wf_id: string
-  trigger_inputs?: unknown | null
+  trigger_inputs?: InlineObject | ExternalObject | CollectionObject | null
   parent_run_context?: RunContext | null
   /**
    * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
@@ -2018,14 +2018,14 @@ export type EventGroup_TypeVar_ = {
 /**
  * Workflow execution context with typed fields.
  *
- * All fields are optional since contexts may be built incrementally.
- * In practice, ACTIONS/TRIGGER/ENV are always present in workflow execution.
+ * ACTIONS and TRIGGER are always present. Other fields are optional since
+ * contexts may be built incrementally during workflow execution.
  */
 export type ExecutionContext = {
   ACTIONS: {
     [key: string]: TaskResult
   }
-  TRIGGER?: InlineObject | ExternalObject | CollectionObject
+  TRIGGER: InlineObject | ExternalObject | CollectionObject | null
   ENV?: DSLEnvironment
   SECRETS?: {
     [key: string]: unknown
@@ -3731,6 +3731,7 @@ export type RunContext = {
   wf_exec_id: string
   wf_run_id: string
   environment: string
+  logical_time: string
 }
 
 export type RunUsage = {

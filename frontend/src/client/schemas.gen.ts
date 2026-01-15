@@ -5796,7 +5796,27 @@ export const $DSLRunArgs = {
     },
     trigger_inputs: {
       anyOf: [
-        {},
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/InlineObject",
+            },
+            {
+              $ref: "#/components/schemas/ExternalObject",
+            },
+            {
+              $ref: "#/components/schemas/CollectionObject",
+            },
+          ],
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              collection: "#/components/schemas/CollectionObject",
+              external: "#/components/schemas/ExternalObject",
+              inline: "#/components/schemas/InlineObject",
+            },
+          },
+        },
         {
           type: "null",
         },
@@ -6551,26 +6571,33 @@ export const $ExecutionContext = {
       title: "Actions",
     },
     TRIGGER: {
-      oneOf: [
+      anyOf: [
         {
-          $ref: "#/components/schemas/InlineObject",
+          oneOf: [
+            {
+              $ref: "#/components/schemas/InlineObject",
+            },
+            {
+              $ref: "#/components/schemas/ExternalObject",
+            },
+            {
+              $ref: "#/components/schemas/CollectionObject",
+            },
+          ],
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              collection: "#/components/schemas/CollectionObject",
+              external: "#/components/schemas/ExternalObject",
+              inline: "#/components/schemas/InlineObject",
+            },
+          },
         },
         {
-          $ref: "#/components/schemas/ExternalObject",
-        },
-        {
-          $ref: "#/components/schemas/CollectionObject",
+          type: "null",
         },
       ],
       title: "Trigger",
-      discriminator: {
-        propertyName: "type",
-        mapping: {
-          collection: "#/components/schemas/CollectionObject",
-          external: "#/components/schemas/ExternalObject",
-          inline: "#/components/schemas/InlineObject",
-        },
-      },
     },
     ENV: {
       $ref: "#/components/schemas/DSLEnvironment",
@@ -6592,12 +6619,12 @@ export const $ExecutionContext = {
     },
   },
   type: "object",
-  required: ["ACTIONS"],
+  required: ["ACTIONS", "TRIGGER"],
   title: "ExecutionContext",
   description: `Workflow execution context with typed fields.
 
-All fields are optional since contexts may be built incrementally.
-In practice, ACTIONS/TRIGGER/ENV are always present in workflow execution.`,
+ACTIONS and TRIGGER are always present. Other fields are optional since
+contexts may be built incrementally during workflow execution.`,
 } as const
 
 export const $ExecutionType = {
@@ -11417,9 +11444,14 @@ export const $RunContext = {
       type: "string",
       title: "Environment",
     },
+    logical_time: {
+      type: "string",
+      format: "date-time",
+      title: "Logical Time",
+    },
   },
   type: "object",
-  required: ["wf_id", "wf_exec_id", "wf_run_id", "environment"],
+  required: ["wf_id", "wf_exec_id", "wf_run_id", "environment", "logical_time"],
   title: "RunContext",
   description:
     "This is the runtime context model for a workflow run. Passed into activities.",

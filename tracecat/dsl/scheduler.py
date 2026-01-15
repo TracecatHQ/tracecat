@@ -5,16 +5,18 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any
 
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
+
+from tracecat.contexts import ctx_role, ctx_run
+from tracecat.dsl.action import ScatterActionInput
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
-    from tracecat.common import is_iterable
     from tracecat.concurrency import cooperative
     from tracecat.contexts import ctx_stream_id
     from tracecat.dsl.action import DSLActivities
@@ -52,6 +54,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.logger import logger
+    from tracecat.storage.object import action_collection_prefix
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +149,19 @@ class DSLScheduler:
     def _adj_sort_key(adj: AdjDst) -> tuple[str, str]:
         dst_ref, edge_type = adj
         return dst_ref, edge_type.value
+
+    @property
+    def workspace_id(self) -> str:
+        role = ctx_role.get()
+        if role is None:
+            raise ValueError("No role found in context")
+        if role.workspace_id is None:
+            raise ValueError("Workspace ID is required")
+        return str(role.workspace_id)
+
+    @property
+    def wf_exec_id(self) -> str:
+        return ctx_run.get().wf_exec_id
 
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
@@ -646,7 +662,7 @@ class DSLScheduler:
         """Queue a skip stream for a task."""
         new_stream_id = StreamID.skip(task.ref, base_stream_id=stream_id)
         self.stream_hierarchy[new_stream_id] = stream_id
-        self.streams[new_stream_id] = ExecutionContext(ACTIONS={})
+        self.streams[new_stream_id] = ExecutionContext(ACTIONS={}, TRIGGER=None)
         unreachable = {
             DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
             for dst, edge_type in self.adj[task.ref]
@@ -664,7 +680,7 @@ class DSLScheduler:
             "Creating skip stream", task=task, new_stream_id=new_stream_id
         )
         self.stream_hierarchy[new_stream_id] = stream_id
-        self.streams[new_stream_id] = ExecutionContext(ACTIONS={})
+        self.streams[new_stream_id] = ExecutionContext(ACTIONS={}, TRIGGER=None)
         all_next = {
             DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
             for dst, edge_type in self.adj[task.ref]
@@ -697,10 +713,21 @@ class DSLScheduler:
 
         args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
+
+        collection_key = action_collection_prefix(
+            self.workspace_id, self.wf_exec_id, curr_stream_id, task.ref
+        )
+
         try:
             collection = await workflow.execute_activity(
-                DSLActivities.evaluate_templated_object_activity,
-                args=(args.collection, context),
+                DSLActivities.handle_scatter_input_activity,
+                arg=ScatterActionInput(
+                    task=stmt,
+                    stream_id=curr_stream_id,
+                    collection=args.collection,
+                    operand=context,
+                    key=collection_key,
+                ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
@@ -710,15 +737,6 @@ class DSLScheduler:
                     raise cause from None
                 case _:
                     raise
-
-        # Treat None as empty collection (will be handled by empty check below)
-        if collection is None:
-            collection = []
-        elif not is_iterable(collection):
-            raise ApplicationError(
-                f"Collection is not iterable: {type(collection)}: {collection}",
-                non_retryable=True,
-            )
 
         # 1) Create a new stream (ALWAYS)
         # ALWAYS initialize tracking structures (even for empty collections)
@@ -741,20 +759,7 @@ class DSLScheduler:
             interval=args.interval,
         )
 
-        # Store the collection using activity for potential externalization
-        wf_info = workflow.info()
-        collection_key = (
-            f"{wf_info.workflow_id}/{curr_stream_id}/{task.ref}/collection.json"
-        )
-        stored_collection = await workflow.execute_activity(
-            DSLActivities.store_scatter_collection_activity,
-            args=(collection_key, list(collection)),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-
-        # Create stream for each collection item
-        async for i, item in cooperative(enumerate(collection)):
+        async for i in cooperative(range(len(collection))):
             new_stream_id = StreamID.new(task.ref, i, base_stream_id=curr_stream_id)
             streams.append(new_stream_id)
 
@@ -763,11 +768,12 @@ class DSLScheduler:
             self.streams[new_stream_id] = ExecutionContext(
                 ACTIONS={
                     task.ref: TaskResult.from_collection_item(
-                        stored=stored_collection,
+                        stored=collection,
                         index=i,
-                        item_typename=type(item).__name__,
+                        item_typename="collection_item",
                     )
                 },
+                TRIGGER=None,
             )
 
             # Create tasks for all tasks in this stream
@@ -776,7 +782,6 @@ class DSLScheduler:
             new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id, delay=delay)
             self.logger.debug(
                 "Creating stream",
-                item=item,
                 stream_id=new_stream_id,
                 task=new_scoped_task,
             )
@@ -1145,25 +1150,28 @@ class DSLScheduler:
 
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
-        return cast(dict[str, TaskResult], context.get("ACTIONS", {}))
+        return context.get("ACTIONS", {})
 
     def build_stream_aware_context(
         self, task: ActionStatement, stream_id: StreamID
     ) -> ExecutionContext:
         """Build a context that is aware of the stream hierarchy."""
         expr_ctxs = extract_expressions(task.model_dump())
-        resolved_actions: dict[str, Any] = {}
+        resolved_actions: dict[str, TaskResult] = {}
         for action_ref in expr_ctxs[ExprContext.ACTIONS]:
-            resolved_actions[action_ref] = self.get_stream_aware_action_result(
-                action_ref, stream_id
-            )
-        return cast(
-            ExecutionContext, {**self._root_context, "ACTIONS": resolved_actions}
-        )
+            result = self.get_stream_aware_action_result(action_ref, stream_id)
+            # Only include actions that exist in the stream hierarchy.
+            # Actions that don't exist (return None) are omitted to prevent
+            # ValidationError in RunActionInput which expects TaskResult values.
+            if result is not None:
+                resolved_actions[action_ref] = result
+        new_context = self._root_context.copy()
+        new_context.update(ACTIONS=resolved_actions)
+        return new_context
 
     def get_stream_aware_action_result(
         self, action_ref: str, stream_id: StreamID
-    ) -> Any | None:
+    ) -> TaskResult | None:
         """
         Resolve an action expression in a stream-aware manner.
 

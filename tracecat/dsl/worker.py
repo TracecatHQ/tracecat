@@ -29,14 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
-    from tracecat.dsl.validation import (
-        normalize_trigger_inputs_activity,
-        resolve_time_anchor_activity,
-        validate_trigger_inputs_activity,
-    )
+    from tracecat.dsl.validation import resolve_time_anchor_activity
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.storage.collection import CollectionActivities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
         resolve_registry_lock_activity,
@@ -60,10 +57,13 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
     # Pass through tracecat modules to avoid class identity mismatches
     # when Pydantic validates discriminated unions (e.g., StoredObject = InlineObject | ExternalObject)
+    # Also pass through jsonpath_ng which is used for expression evaluation in workflows
     passthrough_modules = SandboxRestrictions.passthrough_modules_default | {
         "tracecat",
         "tracecat_ee",
         "tracecat_registry",
+        "jsonpath_ng",
+        "dateparser",
     }
 
     return SandboxedWorkflowRunner(
@@ -84,11 +84,10 @@ interrupt_event = asyncio.Event()
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
         *DSLActivities.load(),
+        *CollectionActivities.get_activities(),
         get_workflow_definition_activity,
         resolve_registry_lock_activity,
         *WorkflowSchedulesService.get_activities(),
-        validate_trigger_inputs_activity,
-        normalize_trigger_inputs_activity,
         resolve_time_anchor_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
