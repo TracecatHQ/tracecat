@@ -81,10 +81,10 @@ class RegistrySyncRunner:
             install_timeout: Timeout for package installation (default from config).
             discover_timeout: Timeout for action discovery (default from config).
         """
-        self.install_timeout = install_timeout or int(
+        self.install_timeout: int = install_timeout or int(
             os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT", 600)
         )
-        self.discover_timeout = discover_timeout or int(
+        self.discover_timeout: int = discover_timeout or int(
             os.environ.get("TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT", 300)
         )
 
@@ -176,6 +176,7 @@ class RegistrySyncRunner:
                 tarball_path=tarball_result.tarball_path,
                 repository_origin=request.origin,
                 commit_sha=commit_sha,
+                storage_namespace=request.storage_namespace,
             )
 
             logger.info(
@@ -242,7 +243,7 @@ class RegistrySyncRunner:
         if ssh_key:
             # Write SSH key to a temporary file
             ssh_key_path = work_dir / "ssh_key"
-            ssh_key_path.write_text(ssh_key)
+            _ = ssh_key_path.write_text(ssh_key)
             ssh_key_path.chmod(0o600)
 
             # Configure SSH to use the key
@@ -303,7 +304,7 @@ class RegistrySyncRunner:
                 ssh_key_path = work_dir / "ssh_key"
                 if ssh_key_path.exists():
                     # Overwrite with zeros before deletion
-                    ssh_key_path.write_bytes(b"\x00" * len(ssh_key))
+                    _ = ssh_key_path.write_bytes(b"\x00" * len(ssh_key))
                     ssh_key_path.unlink()
 
     async def _build_tarball_venv(
@@ -368,6 +369,7 @@ class RegistrySyncRunner:
         tarball_path: Path,
         repository_origin: str,
         commit_sha: str | None,
+        storage_namespace: str | None,
     ) -> str:
         """Upload the tarball venv to S3.
 
@@ -375,6 +377,7 @@ class RegistrySyncRunner:
             tarball_path: Local path to the tarball.
             repository_origin: Repository origin for S3 key generation.
             commit_sha: Commit SHA for version string (or timestamp if None).
+            storage_namespace: Namespace prefix for tarball storage.
 
         Returns:
             S3 URI of the uploaded tarball.
@@ -391,8 +394,9 @@ class RegistrySyncRunner:
         await blob.ensure_bucket_exists(bucket)
 
         # Generate S3 key
+        namespace = storage_namespace or str(config.TRACECAT__DEFAULT_ORG_ID)
         s3_key = get_tarball_venv_s3_key(
-            organization_id=str(config.TRACECAT__DEFAULT_ORG_ID),
+            organization_id=namespace,
             repository_origin=repository_origin,
             version=version,
         )

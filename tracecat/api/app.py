@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.router import router as ee_agent_router
 
 from tracecat import __version__ as APP_VERSION
@@ -281,6 +282,7 @@ def create_app(**kwargs) -> FastAPI:
         dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
     )
     app.include_router(ee_agent_router)
+    app.include_router(admin_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)

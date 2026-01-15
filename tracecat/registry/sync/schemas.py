@@ -78,6 +78,13 @@ class RegistrySyncRequest(BaseModel):
     validate_actions: bool = Field(
         default=False, description="Whether to validate template actions"
     )
+    storage_namespace: str | None = Field(
+        default=None,
+        description=(
+            "Storage namespace for tarball uploads (e.g., org ID or 'platform'). "
+            "Defaults to the deployment's default org ID when not provided."
+        ),
+    )
 
 
 class RegistrySyncResult(BaseModel):
