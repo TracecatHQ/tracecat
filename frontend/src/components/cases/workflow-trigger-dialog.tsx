@@ -131,12 +131,16 @@ export function WorkflowTriggerDialog({
   const handleSchemaSubmit = useCallback(
     async (values: TriggerFormValues) => {
       if (!workflowId) return
+      // Only inject case_id/task_id if they're defined in the schema
+      // to avoid Pydantic validation errors with extra="forbid"
+      const schemaHasCaseId = triggerSchema?.properties?.case_id !== undefined
+      const schemaHasTaskId = triggerSchema?.properties?.task_id !== undefined
       await createExecution({
         workflow_id: workflowId,
         inputs: {
           ...values,
-          case_id: caseData.id,
-          ...(taskId && { task_id: taskId }),
+          ...(schemaHasCaseId && { case_id: caseData.id }),
+          ...(schemaHasTaskId && taskId && { task_id: taskId }),
         },
       })
       showExecutionStartedToast()
@@ -145,6 +149,7 @@ export function WorkflowTriggerDialog({
     [
       caseData.id,
       taskId,
+      triggerSchema,
       createExecution,
       onOpenChange,
       showExecutionStartedToast,

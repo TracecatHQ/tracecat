@@ -48,6 +48,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 const isSelectableColumnType = (type?: string) =>
   type === "SELECT" || type === "MULTI_SELECT"
 
+const NO_DEFAULT_SENTINEL = "__tracecat_no_default__"
+
 const sanitizeColumnOptions = (options?: string[]) => {
   if (!options) return []
   const seen = new Set<string>()
@@ -535,14 +537,14 @@ function DefaultValueInput({
         <Select
           value={field.value ?? ""}
           onValueChange={(value) =>
-            field.onChange(value === "__none__" ? "" : value)
+            field.onChange(value === NO_DEFAULT_SENTINEL ? "" : value)
           }
         >
           <SelectTrigger>
             <SelectValue placeholder="Select a default value" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">No default</SelectItem>
+            <SelectItem value={NO_DEFAULT_SENTINEL}>No default</SelectItem>
             {sanitizedOptions.map((option) => (
               <SelectItem key={option} value={option}>
                 {option}
