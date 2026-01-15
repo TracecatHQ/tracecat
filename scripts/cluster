@@ -34,6 +34,32 @@ ENV_FILE="${REPO_ROOT}/.env"
 # Default profile
 PROFILE="dev"
 
+# Get worktree identifier for namespacing clusters
+# Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
+get_worktree_id() {
+    local git_dir git_common_dir
+
+    git_dir=$(git -C "${REPO_ROOT}" rev-parse --git-dir 2>/dev/null) || { echo "main"; return; }
+    git_common_dir=$(git -C "${REPO_ROOT}" rev-parse --git-common-dir 2>/dev/null) || { echo "main"; return; }
+
+    # Resolve to absolute paths for comparison
+    git_dir=$(cd "${REPO_ROOT}" && cd "${git_dir}" && pwd)
+    git_common_dir=$(cd "${REPO_ROOT}" && cd "${git_common_dir}" && pwd)
+
+    if [[ "$git_dir" == "$git_common_dir" ]]; then
+        # Main worktree
+        echo "main"
+    else
+        # In a worktree - use branch name, sanitized
+        local branch
+        branch=$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null) || branch="unknown"
+        # Sanitize: replace slashes and special chars with dashes, lowercase
+        echo "$branch" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+    fi
+}
+
+WORKTREE_ID=$(get_worktree_id)
+
 # Base ports (cluster 1 defaults)
 BASE_PUBLIC_APP_PORT=80
 BASE_UI_PORT=3000
@@ -117,8 +143,8 @@ build_env() {
     local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
     local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
 
-    # Export all variables
-    export COMPOSE_PROJECT_NAME="tracecat-${cluster_num}"
+    # Export all variables (include worktree ID for isolation)
+    export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
     export PUBLIC_APP_PORT
     export PUBLIC_APP_URL
     export PUBLIC_API_URL
@@ -147,7 +173,7 @@ show_ports() {
     calculate_ports "$cluster_num"
 
     cat <<EOF
-Cluster ${cluster_num} port mappings:
+Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
   UI (Caddy):      http://localhost:${PUBLIC_APP_PORT}
   API:             http://localhost:${PUBLIC_APP_PORT}/api (internal: ${API_PORT})
   PostgreSQL:      localhost:${PG_PORT}
@@ -161,18 +187,24 @@ EOF
 
 # List all running Tracecat clusters
 list_clusters() {
-    echo "Running Tracecat clusters:"
+    echo "Running Tracecat clusters (worktree: ${WORKTREE_ID}):"
     echo ""
 
     local found=false
+    local current_worktree_prefix="tracecat-${WORKTREE_ID}-"
+
     for project in $(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null || docker compose ls -q 2>/dev/null); do
-        if [[ "$project" =~ ^tracecat-[0-9]+$ ]]; then
+        # Match any tracecat cluster: tracecat-{worktree}-{num}
+        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
             found=true
-            local cluster_num="${project#tracecat-}"
+            local worktree="${BASH_REMATCH[1]}"
+            local cluster_num="${BASH_REMATCH[2]}"
             calculate_ports "$cluster_num"
             local status
             status=$(docker compose -p "$project" ps --format json 2>/dev/null | jq -r 'if type == "array" then .[0].State else .State end' 2>/dev/null || echo "unknown")
-            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT} (status: ${status:-running})"
+            local marker=""
+            [[ "$project" == "${current_worktree_prefix}${cluster_num}" ]] && marker=" (this worktree)"
+            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${marker}"
         fi
     done
 
@@ -245,4 +277,4 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 # Run docker compose with the configured environment
-exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${CLUSTER_NUM}" "$COMMAND" "$@"
+exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
