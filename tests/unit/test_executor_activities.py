@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from tests.shared import to_data
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -21,7 +22,6 @@ from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.object import InlineObject
 
 
 @pytest.fixture
@@ -103,18 +103,23 @@ class TestExecuteActionActivity:
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
+            patch(
+                "tracecat.executor.activities.materialize_context",
+                new_callable=AsyncMock,
+            ) as mock_materialize,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = expected_result
+            # Return the same exec_context to preserve the input
+            mock_materialize.return_value = mock_run_action_input.exec_context
 
             result = await ExecutorActivities.execute_action_activity(
                 mock_run_action_input, mock_role
             )
 
             # Result is wrapped in StoredObject (InlineObject for small payloads)
-            assert isinstance(result, InlineObject)
-            assert result.data == expected_result
+            assert await to_data(result) == expected_result
             mock_dispatch.assert_called_once_with(
                 backend=mock_backend.return_value, input=mock_run_action_input
             )

@@ -15,7 +15,7 @@ from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal, TypeGuard
+from typing import Any, Literal
 from uuid import UUID
 
 import pytest
@@ -28,7 +28,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data, to_inline
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
@@ -70,12 +70,9 @@ from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.storage.object import (
-    CollectionObject,
-    ExternalObject,
     InlineObject,
     StoredObject,
     StoredObjectValidator,
-    get_object_storage,
 )
 from tracecat.storage.utils import (
     resolve_execution_context as resolve_exec_ctx_from_dict,
@@ -365,30 +362,6 @@ def runtime_config() -> DSLConfig:
     config = DSLConfig(environment="default")
     logger.info(f"Runtime config: {config}")
     return config
-
-
-def is_externalized(obj: Any) -> TypeGuard[ExternalObject | CollectionObject]:
-    try:
-        stored = StoredObjectValidator.validate_python(obj)
-        return stored.type in ("external", "collection")
-    except ValidationError:
-        return False
-
-
-async def to_data(obj: StoredObject) -> Any:
-    validated = StoredObjectValidator.validate_python(obj)
-    match validated:
-        case InlineObject():
-            return validated.data
-        case ExternalObject() | CollectionObject():
-            storage = get_object_storage()
-            return await storage.retrieve(validated)
-        case _:
-            raise TypeError(f"Expected StoredObject, got {type(validated).__name__}")
-
-
-async def to_inline(obj: StoredObject) -> InlineObject:
-    return InlineObject(data=await to_data(obj))
 
 
 def raw_data_to_exec_context(raw_data: dict[str, Any]) -> ExecutionContext:
