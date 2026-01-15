@@ -37,6 +37,7 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import (
     cached_blob_download,
+    cached_select_item,
     compute_sha256,
     deserialize_object,
     serialize_object,
@@ -249,6 +250,27 @@ async def _fetch_chunk(ref: ObjectRef) -> CollectionChunkV1:
     return CollectionChunkV1.model_validate(data)
 
 
+async def _fetch_chunk_item(ref: ObjectRef, local_index: int) -> Any:
+    """Fetch a single item from a chunk using S3 Select with caching.
+
+    Uses S3 Select to retrieve only the requested array element instead of
+    downloading the entire chunk. Results are cached by (sha256, index).
+
+    Args:
+        ref: ObjectRef to the chunk.
+        local_index: Index within the chunk's items array.
+
+    Returns:
+        The item at the given index.
+    """
+    return await cached_select_item(
+        sha256=ref.sha256,
+        bucket=ref.bucket,
+        key=ref.key,
+        local_index=local_index,
+    )
+
+
 async def get_collection_page(
     collection: CollectionObject,
     offset: int = 0,
@@ -299,6 +321,8 @@ async def get_collection_page(
 async def get_collection_item(collection: CollectionObject, index: int) -> Any:
     """Get a single item from a collection by index.
 
+    Uses S3 Select to fetch only the requested item instead of the entire chunk.
+
     Args:
         collection: CollectionObject handle.
         index: Item index (0-indexed, supports negative indexing).
@@ -320,10 +344,10 @@ async def get_collection_item(collection: CollectionObject, index: int) -> Any:
     manifest = await _fetch_manifest(collection)
 
     chunk_idx = index // collection.chunk_size
-    chunk = await _fetch_chunk(manifest.chunks[chunk_idx])
-
     local_idx = index % collection.chunk_size
-    return chunk.items[local_idx]
+
+    # Use S3 Select for efficient single-item retrieval
+    return await _fetch_chunk_item(manifest.chunks[chunk_idx], local_idx)
 
 
 async def materialize_collection_values(

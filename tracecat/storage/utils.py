@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -14,8 +16,64 @@ from tracecat.storage import blob
 if TYPE_CHECKING:
     from tracecat.storage.object import InlineObject, StoredObject
 
-# Module-level cache for blob downloads (TTL: 5 minutes)
-_blob_cache = Cache(Cache.MEMORY, ttl=300)
+# Cache configuration
+MAX_CACHEABLE_BLOB_SIZE = 50 * 1024 * 1024  # 50 MB per item
+BLOB_CACHE_MAX_BYTES = 500 * 1024 * 1024  # 500 MB total pool
+BLOB_CACHE_TTL = 300.0  # 5 minutes
+
+
+class SizedMemoryCache:
+    """Byte-aware wrapper around aiocache SimpleMemoryCache with LRU eviction."""
+
+    def __init__(self, max_bytes: int, ttl: float = 300.0):
+        self._cache = Cache(Cache.MEMORY, ttl=ttl)
+        self._sizes: OrderedDict[str, int] = OrderedDict()
+        self._total_bytes = 0
+        self._max_bytes = max_bytes
+        self._lock = asyncio.Lock()
+
+    async def get(self, key: str) -> bytes | None:
+        value: bytes | None = await self._cache.get(key)
+        if value is None and key in self._sizes:
+            # TTL expired in underlying cache, sync our tracking
+            async with self._lock:
+                if key in self._sizes:
+                    self._total_bytes -= self._sizes.pop(key)
+        elif value is not None:
+            # Mark as recently used (LRU)
+            async with self._lock:
+                if key in self._sizes:
+                    self._sizes.move_to_end(key)
+        return value
+
+    async def set(self, key: str, value: bytes) -> None:
+        size = len(value)
+        async with self._lock:
+            # Remove old entry if exists
+            if key in self._sizes:
+                self._total_bytes -= self._sizes.pop(key)
+
+            # Evict LRU items until we have room
+            while self._total_bytes + size > self._max_bytes and self._sizes:
+                oldest_key, oldest_size = self._sizes.popitem(last=False)
+                self._total_bytes -= oldest_size
+                await self._cache.delete(oldest_key)
+
+            await self._cache.set(key, value)
+            self._sizes[key] = size
+            self._total_bytes += size
+
+    @property
+    def total_bytes(self) -> int:
+        return self._total_bytes
+
+    @property
+    def item_count(self) -> int:
+        return len(self._sizes)
+
+
+# Module-level cache for blob downloads and S3 Select results
+_blob_cache = SizedMemoryCache(max_bytes=BLOB_CACHE_MAX_BYTES, ttl=BLOB_CACHE_TTL)
 
 
 def serialize_object(data: Any) -> bytes:
@@ -60,6 +118,9 @@ async def cached_blob_download(sha256: str, bucket: str, key: str) -> bytes:
     Uses content-addressed caching: the SHA-256 hash is the cache key since
     objects are immutable. Cache hits avoid S3 round-trips.
 
+    Blobs larger than MAX_CACHEABLE_BLOB_SIZE (50 MB) are not cached to
+    prevent memory bloat.
+
     Args:
         sha256: SHA-256 hash of the content (cache key).
         bucket: S3/MinIO bucket name.
@@ -75,9 +136,61 @@ async def cached_blob_download(sha256: str, bucket: str, key: str) -> bytes:
 
     content = await blob.download_file(key=key, bucket=bucket)
 
-    await _blob_cache.set(sha256, content)
-    logger.debug("Cached blob", sha256=sha256[:16], size_bytes=len(content))
+    # Skip caching large blobs to prevent memory bloat
+    if len(content) <= MAX_CACHEABLE_BLOB_SIZE:
+        await _blob_cache.set(sha256, content)
+        logger.debug("Cached blob", sha256=sha256[:16], size_bytes=len(content))
+    else:
+        logger.debug(
+            "Blob too large to cache",
+            sha256=sha256[:16],
+            size_bytes=len(content),
+            max_size=MAX_CACHEABLE_BLOB_SIZE,
+        )
+
     return content
+
+
+async def cached_select_item(
+    sha256: str, bucket: str, key: str, local_index: int
+) -> Any:
+    """Select a single item from a chunk using S3 Select with caching.
+
+    Uses (sha256, local_index) as the cache key since chunks are immutable.
+    Cache hits avoid S3 Select round-trips. Shares the same cache pool as
+    blob downloads for unified memory management.
+
+    Args:
+        sha256: SHA-256 hash of the chunk (used for cache key).
+        bucket: S3/MinIO bucket name.
+        key: Object key within the bucket.
+        local_index: Index within the chunk's items array.
+
+    Returns:
+        The item at the given index.
+    """
+    cache_key = f"select:{sha256}:{local_index}"
+    cached = await _blob_cache.get(cache_key)
+    if cached is not None:
+        logger.debug("Select cache hit", sha256=sha256[:16], index=local_index)
+        return deserialize_object(cached)
+
+    expression = f"SELECT s.items[{local_index}] FROM s3object s"
+    result_bytes = await blob.select_object_content(
+        key=key,
+        bucket=bucket,
+        expression=expression,
+    )
+
+    # S3 Select returns {"_1": <item>} for indexed array access
+    data = deserialize_object(result_bytes)
+    item = data.get("_1")
+
+    # Serialize item for byte-aware cache
+    item_bytes = serialize_object(item)
+    await _blob_cache.set(cache_key, item_bytes)
+    logger.debug("Cached select item", sha256=sha256[:16], index=local_index)
+    return item
 
 
 async def resolve_to_inline(stored: StoredObject) -> InlineObject:

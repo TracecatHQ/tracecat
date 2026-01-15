@@ -226,6 +226,9 @@ class TestCollectionStorageFunctions:
     @pytest.fixture
     def mock_blob_storage(self, monkeypatch):
         """Mock blob storage for testing."""
+        import json
+        import re
+
         stored_blobs: dict[str, bytes] = {}
 
         async def mock_ensure_bucket_exists(bucket: str):
@@ -242,11 +245,32 @@ class TestCollectionStorageFunctions:
                 raise FileNotFoundError(f"Blob not found: {full_key}")
             return stored_blobs[full_key]
 
+        async def mock_select_object_content(
+            key: str, bucket: str, expression: str
+        ) -> bytes:
+            """Mock S3 Select by parsing the expression and extracting data."""
+            full_key = f"{bucket}/{key}"
+            if full_key not in stored_blobs:
+                raise FileNotFoundError(f"Blob not found: {full_key}")
+
+            data = json.loads(stored_blobs[full_key])
+
+            # Parse expression like "SELECT s.items[0] FROM s3object s"
+            match = re.search(r"s\.items\[(\d+)\]", expression)
+            if match:
+                index = int(match.group(1))
+                item = data["items"][index]
+                # S3 Select returns {"_1": <item>} for indexed access
+                return json.dumps({"_1": item}).encode()
+
+            raise ValueError(f"Unsupported expression: {expression}")
+
         from tracecat.storage import blob
 
         monkeypatch.setattr(blob, "ensure_bucket_exists", mock_ensure_bucket_exists)
         monkeypatch.setattr(blob, "upload_file", mock_upload_file)
         monkeypatch.setattr(blob, "download_file", mock_download_file)
+        monkeypatch.setattr(blob, "select_object_content", mock_select_object_content)
 
         return stored_blobs
 

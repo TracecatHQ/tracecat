@@ -327,3 +327,61 @@ async def file_exists(key: str, bucket: str) -> bool:
         if e.response.get("Error", {}).get("Code") == "404":
             return False
         raise
+
+
+async def select_object_content(
+    key: str,
+    bucket: str,
+    expression: str,
+) -> bytes:
+    """Execute S3 Select SQL query on a JSON object.
+
+    Uses S3 Select to query JSON documents without downloading the entire object.
+    Useful for extracting specific fields or array elements.
+
+    Args:
+        key: The S3 object key
+        bucket: Bucket name
+        expression: SQL expression (e.g., "SELECT s.items[0] FROM s3object s")
+
+    Returns:
+        Query result as JSON bytes
+
+    Raises:
+        ClientError: If the query fails
+    """
+    async with get_storage_client() as s3_client:
+        try:
+            response = await s3_client.select_object_content(
+                Bucket=bucket,
+                Key=key,
+                ExpressionType="SQL",
+                Expression=expression,
+                InputSerialization={"JSON": {"Type": "DOCUMENT"}},
+                OutputSerialization={"JSON": {}},
+            )
+
+            # Collect streaming response payload
+            result_bytes = b""
+            async for event in response["Payload"]:
+                if records := event.get("Records"):
+                    if payload := records.get("Payload"):
+                        result_bytes += payload
+
+            logger.debug(
+                "S3 Select query executed",
+                key=key,
+                bucket=bucket,
+                expression=expression,
+                result_size=len(result_bytes),
+            )
+            return result_bytes
+        except ClientError as e:
+            logger.error(
+                "S3 Select query failed",
+                key=key,
+                bucket=bucket,
+                expression=expression,
+                error=str(e),
+            )
+            raise
