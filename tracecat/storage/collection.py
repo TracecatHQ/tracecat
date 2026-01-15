@@ -267,8 +267,12 @@ async def get_collection_page(
         raise ValueError(f"offset must be >= 0, got {offset}")
     if offset >= collection.count:
         return []
+    if limit == 0:
+        return []
 
-    limit = limit or (collection.count - offset)
+    # None means all remaining items; explicit 0 handled above
+    if limit is None:
+        limit = collection.count - offset
     end = min(offset + limit, collection.count)
 
     manifest = await _fetch_manifest(collection)
