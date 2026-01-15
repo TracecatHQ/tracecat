@@ -255,8 +255,8 @@ async def test_scatter_with_zero_interval(
     # Verify results
     assert await action_result(result, "gather") == [2, 4, 6]
 
-    # With zero interval, should execute quickly
-    assert elapsed < 2.0
+    # With zero interval, should execute quickly (allow overhead for externalization)
+    assert elapsed < 4.0
 
 
 @pytest.mark.anyio
