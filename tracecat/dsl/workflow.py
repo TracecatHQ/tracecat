@@ -94,7 +94,6 @@ from tracecat.ee.interactions.service import InteractionManager
 from tracecat.exceptions import (
     TracecatException,
     TracecatExpressionError,
-    TracecatNotFoundError,
 )
 from tracecat.expressions.eval import is_template_only
 from tracecat.identifiers import WorkspaceID
@@ -393,17 +392,6 @@ class DSLWorkflow:
         # Consolidate trigger inputs
         if args.schedule_id:
             raise RuntimeError("Schedule trigger inputs are not supported yet")
-            self.logger.debug("Fetching schedule trigger inputs")
-            try:
-                trigger_inputs = await self._get_schedule_trigger_inputs(
-                    schedule_id=args.schedule_id, worflow_id=args.wf_id
-                )
-            except TracecatNotFoundError as e:
-                raise ApplicationError(
-                    "Failed to fetch trigger inputs as the schedule was not found",
-                    non_retryable=True,
-                    type=e.__class__.__name__,
-                ) from e
         else:
             self.logger.debug("Using provided trigger inputs")
             trigger_inputs = (
