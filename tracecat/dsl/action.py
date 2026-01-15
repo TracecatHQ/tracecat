@@ -6,7 +6,6 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 import dateparser
-from aiocache import Cache
 from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -57,7 +56,6 @@ from tracecat.storage.object import (
 )
 from tracecat.validation.schemas import ValidationDetail
 
-_cache = Cache(Cache.MEMORY, ttl=120)
 _thread_local = threading.local()
 
 
