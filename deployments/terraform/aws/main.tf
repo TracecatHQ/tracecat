@@ -59,6 +59,8 @@ module "eks" {
   api_replicas      = var.api_replicas
   worker_replicas   = var.worker_replicas
   executor_replicas = var.executor_replicas
+  executor_queue    = var.executor_queue
+  executor_backend  = var.executor_backend
   ui_replicas       = var.ui_replicas
 
   tags = var.tags

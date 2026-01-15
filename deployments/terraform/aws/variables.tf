@@ -182,6 +182,18 @@ variable "executor_replicas" {
   default     = 2
 }
 
+variable "executor_queue" {
+  description = "Queue name for executor workers"
+  type        = string
+  default     = "shared-action-queue"
+}
+
+variable "executor_backend" {
+  description = "Executor backend: 'pool', 'ephemeral', 'direct', or 'auto'"
+  type        = string
+  default     = "auto"
+}
+
 variable "ui_replicas" {
   description = "Number of UI replicas"
   type        = number

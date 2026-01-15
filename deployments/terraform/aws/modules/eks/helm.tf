@@ -119,6 +119,16 @@ resource "helm_release" "tracecat" {
   }
 
   set {
+    name  = "executor.queue"
+    value = var.executor_queue
+  }
+
+  set {
+    name  = "executor.backend"
+    value = var.executor_backend
+  }
+
+  set {
     name  = "ui.replicas"
     value = var.ui_replicas
   }

@@ -650,6 +650,8 @@ Merges: common + temporal + postgres + redis + executor-specific
 - name: TRACECAT__SANDBOX_CACHE_DIR
   value: "/var/lib/tracecat/sandbox-cache"
 {{- /* Executor settings */}}
+- name: TRACECAT__EXECUTOR_BACKEND
+  value: {{ .Values.executor.backend | quote }}
 - name: TRACECAT__EXECUTOR_QUEUE
   value: {{ .Values.executor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE

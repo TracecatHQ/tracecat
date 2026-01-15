@@ -180,6 +180,8 @@ worker:
 
 executor:
   replicas: 2
+  # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
+  backend: "auto"
   resources:
     requests:
       cpu: "1000m"
