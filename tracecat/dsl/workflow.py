@@ -705,12 +705,12 @@ class DSLWorkflow:
                     # _execute_child_workflow returns StoredObject directly
                     # Infer result_typename from the stored data
                     match stored_result:
-                        case InlineObject(data=data):
-                            result_typename = type(data).__name__
-                        case ExternalObject():
-                            result_typename = "external"
-                        case CollectionObject(element_kind=element_kind):
-                            result_typename = element_kind
+                        case InlineObject(data=data) as inline:
+                            result_typename = inline.typename or type(data).__name__
+                        case ExternalObject() as external:
+                            result_typename = external.typename or "external"
+                        case CollectionObject() as collection:
+                            result_typename = collection.typename or "list"
                     task_result = TaskResult(
                         result=stored_result,
                         result_typename=result_typename,
@@ -841,12 +841,12 @@ class DSLWorkflow:
                     # _run_action returns StoredObject directly
                     # Infer result_typename from the stored data
                     match stored_result:
-                        case InlineObject(data=data):
-                            result_typename = type(data).__name__
-                        case ExternalObject():
-                            result_typename = "external"
-                        case CollectionObject():
-                            result_typename = "collection"
+                        case InlineObject(data=data) as inline:
+                            result_typename = inline.typename or type(data).__name__
+                        case ExternalObject() as external:
+                            result_typename = external.typename or "external"
+                        case CollectionObject() as collection:
+                            result_typename = collection.typename or "list"
                     task_result = TaskResult(
                         result=stored_result,
                         result_typename=result_typename,

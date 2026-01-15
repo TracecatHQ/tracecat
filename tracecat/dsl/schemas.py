@@ -255,6 +255,17 @@ class TaskResult(BaseModel):
             }
         )
 
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        """Dict-like update helper for compatibility with legacy callers."""
+        updates: dict[str, Any] = {}
+        if args:
+            if len(args) != 1 or not isinstance(args[0], Mapping):
+                raise TypeError("update() takes at most one mapping positional arg")
+            updates.update(args[0])
+        updates.update(kwargs)
+        for key, value in updates.items():
+            setattr(self, key, value)
+
     def to_materialized_dict(self) -> MaterializedTaskResult:
         """Convert to a dict with unwrapped result for jsonpath access.
 

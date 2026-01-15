@@ -30,7 +30,14 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field, TypeAdapter, model_serializer
+from pydantic import (
+    BaseModel,
+    Discriminator,
+    Field,
+    TypeAdapter,
+    model_serializer,
+    model_validator,
+)
 
 from tracecat import config
 from tracecat.logger import logger
@@ -76,6 +83,9 @@ class _StoredObjectBase(BaseModel):
     Subclasses must define a `type` field as the discriminator.
     """
 
+    typename: str | None = None
+    """Optional type name of the original data (e.g., 'str', 'list')."""
+
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
         """Always include type field for discriminated union."""
@@ -93,6 +103,12 @@ class InlineObject[T: Any](_StoredObjectBase):
 
     data: T
     """The inline data. Can be any JSON-serializable value, including None."""
+
+    @model_validator(mode="after")
+    def _set_typename(self) -> InlineObject[T]:
+        if self.typename is None:
+            self.typename = type(self.data).__name__
+        return self
 
 
 class ExternalObject(_StoredObjectBase):
@@ -162,6 +178,12 @@ class CollectionObject(_StoredObjectBase):
         The manifest_ref remains the same, but the index field is set.
         """
         return self.model_copy(update={"index": index})
+
+    @model_validator(mode="after")
+    def _set_typename(self) -> CollectionObject:
+        if self.typename is None:
+            self.typename = "list"
+        return self
 
 
 StoredObject = Annotated[

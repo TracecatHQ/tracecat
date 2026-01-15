@@ -93,7 +93,7 @@ class S3ObjectStorage(ObjectStorage):
             encoding="json",
         )
 
-        return ExternalObject(ref=ref)
+        return ExternalObject(ref=ref, typename=type(data).__name__)
 
     async def retrieve(self, stored: StoredObject) -> Any:
         """Retrieve data from StoredObject (inline or from S3)."""

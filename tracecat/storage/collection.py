@@ -206,6 +206,7 @@ async def store_collection(
         count=count,
         chunk_size=chunk_size,
         element_kind=element_kind,
+        typename="list",
     )
 
 
