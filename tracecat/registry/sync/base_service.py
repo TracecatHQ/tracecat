@@ -133,6 +133,7 @@ class BaseRegistrySyncService[
         target_version: str | None = None,
         target_commit_sha: str | None = None,
         ssh_env: SshEnv | None = None,
+        git_repo_package_name: str | None = None,
         commit: bool = True,
     ) -> BaseSyncResult[VersionT]:
         """Sync a repository and create a versioned snapshot."""
@@ -153,6 +154,7 @@ class BaseRegistrySyncService[
                 target_version=target_version,
                 target_commit_sha=target_commit_sha,
                 ssh_env=ssh_env,
+                git_repo_package_name=git_repo_package_name,
                 commit=commit,
             )
 
@@ -161,6 +163,7 @@ class BaseRegistrySyncService[
             repository_id=repo_id,
             commit_sha=target_commit_sha,
             validate=True,
+            git_repo_package_name=git_repo_package_name,
         )
         actions = sync_result.actions
         commit_sha = sync_result.commit_sha
@@ -372,6 +375,7 @@ class BaseRegistrySyncService[
         target_version: str | None = None,
         target_commit_sha: str | None = None,
         ssh_env: SshEnv | None = None,
+        git_repo_package_name: str | None = None,
         commit: bool = True,
     ) -> BaseSyncResult[VersionT]:
         from temporalio.common import RetryPolicy
@@ -415,6 +419,7 @@ class BaseRegistrySyncService[
             origin_type=origin_type,
             git_url=origin if origin_type == "git" else None,
             commit_sha=target_commit_sha,
+            git_repo_package_name=git_repo_package_name,
             ssh_key=ssh_key,
             validate_actions=True,
             storage_namespace=self._get_storage_namespace(),

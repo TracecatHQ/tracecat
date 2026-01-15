@@ -127,6 +127,7 @@ class AdminRegistryService(BaseService):
                     sync_result = await sync_service.sync_repository_v2(
                         db_repo=repo,
                         ssh_env=ssh_env,
+                        git_repo_package_name=settings.git_repo_package_name,
                         commit=False,
                     )
             else:

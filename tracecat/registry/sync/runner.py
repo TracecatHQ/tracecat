@@ -163,6 +163,7 @@ class RegistrySyncRunner:
                 repository_id=request.repository_id,
                 origin=request.origin,
                 validate=request.validate_actions,
+                git_repo_package_name=request.git_repo_package_name,
             )
 
             logger.info(
@@ -332,6 +333,7 @@ class RegistrySyncRunner:
         repository_id: UUID,
         origin: str,
         validate: bool = False,
+        git_repo_package_name: str | None = None,
     ) -> tuple[
         list[RegistryActionCreate], dict[str, list[RegistryActionValidationErrorInfo]]
     ]:
@@ -345,6 +347,7 @@ class RegistrySyncRunner:
             repository_id: Database repository ID.
             origin: Repository origin (e.g., "tracecat_registry", "local", or git URL).
             validate: Whether to validate template actions.
+            git_repo_package_name: Optional override for git repository package name.
 
         Returns:
             Tuple of (actions, validation_errors).
@@ -358,6 +361,7 @@ class RegistrySyncRunner:
                 origin=origin,
                 repository_id=repository_id,
                 validate=validate,
+                git_repo_package_name=git_repo_package_name,
                 timeout=float(self.discover_timeout),
             )
             return result.actions, result.validation_errors

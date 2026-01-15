@@ -71,6 +71,10 @@ class RegistrySyncRequest(BaseModel):
     commit_sha: str | None = Field(
         default=None, description="Target commit SHA (git origins only)"
     )
+    git_repo_package_name: str | None = Field(
+        default=None,
+        description="Optional Python package name override for git repositories",
+    )
     ssh_key: str | None = Field(
         default=None,
         description="SSH private key for git clone (never enters nsjail sandbox)",
