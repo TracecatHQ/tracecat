@@ -480,8 +480,13 @@ class DSLActivities:
     def build_agent_args_activity(
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
-        """Build an AgentActionArgs from a dictionary of arguments."""
-        evaled_args = eval_templated_object(input.args, operand=input.operand)
+        """Build an AgentActionArgs from a dictionary of arguments.
+
+        Materializes any StoredObjects in operand before evaluation. This ensures
+        that expressions evaluate against raw values even when results are externalized.
+        """
+        materialized = run_sync(materialize_context(input.operand))
+        evaled_args = eval_templated_object(input.args, operand=materialized)
         return AgentActionArgs(**evaled_args)
 
     @staticmethod
@@ -489,8 +494,13 @@ class DSLActivities:
     def build_preset_agent_args_activity(
         input: BuildPresetAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
-        """Build a PresetAgentActionArgs from a dictionary of arguments."""
-        evaled_args = eval_templated_object(input.args, operand=input.operand)
+        """Build a PresetAgentActionArgs from a dictionary of arguments.
+
+        Materializes any StoredObjects in operand before evaluation. This ensures
+        that expressions evaluate against raw values even when results are externalized.
+        """
+        materialized = run_sync(materialize_context(input.operand))
+        evaled_args = eval_templated_object(input.args, operand=materialized)
         return PresetAgentActionArgs(**evaled_args)
 
     @staticmethod
