@@ -82,3 +82,7 @@ _check-temporal-cli:
 # Stop all running Temporal workflow executions
 temporal-stop-all: _check-temporal-cli
 	temporal workflow terminate --query "ExecutionStatus='Running'" --namespace default --yes
+
+# Manage multiple Tracecat clusters (run `just cluster` for usage)
+cluster *args:
+	./scripts/cluster {{args}}
