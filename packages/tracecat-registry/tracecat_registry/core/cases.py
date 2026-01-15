@@ -41,6 +41,7 @@ if not config.flags.registry_client or TYPE_CHECKING:
         CaseReadMinimal,
         CaseUpdate,
     )
+    from tracecat.cases.tags.schemas import CaseTagRead
     from tracecat.cases.service import CaseCommentsService, CasesService
     from tracecat.db.engine import get_async_session_context_manager
     from tracecat.exceptions import TracecatNotFoundError as InternalNotFoundError
@@ -492,6 +493,13 @@ async def list_cases(
                 status=case.status,
                 priority=case.priority,
                 severity=case.severity,
+                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+                if case.assignee
+                else None,
+                tags=[
+                    CaseTagRead.model_validate(tag, from_attributes=True)
+                    for tag in case.tags
+                ],
             ).model_dump(mode="json")
             for case in cases
         ],
@@ -628,6 +636,13 @@ async def search_cases(
                 status=case.status,
                 priority=case.priority,
                 severity=case.severity,
+                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+                if case.assignee
+                else None,
+                tags=[
+                    CaseTagRead.model_validate(tag, from_attributes=True)
+                    for tag in case.tags
+                ],
             ).model_dump(mode="json")
             for case in cases
         ],

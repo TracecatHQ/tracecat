@@ -35,6 +35,7 @@ def mock_case(test_workspace: Workspace) -> Case:
     case.id = uuid.UUID("cccccccc-cccc-4ccc-cccc-cccccccccccc")
     case.case_number = 1
     case.tags = []
+    case.assignee = None
     return case
 
 
