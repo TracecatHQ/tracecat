@@ -363,8 +363,9 @@ build_env "$CLUSTER_NUM"
 # Auto-create .env from .env.example if not present
 ENV_SCRIPT="${REPO_ROOT}/env.sh"
 if [[ ! -f "$ENV_FILE" ]] && [[ -f "$ENV_SCRIPT" ]]; then
-    echo "No .env file found. Running env.sh to create one..."
-    (cd "$REPO_ROOT" && bash "$ENV_SCRIPT")
+    echo "No .env file found. Running env.sh to create one with dev defaults..."
+    # Pass dev defaults: production=n, url=localhost, ssl=n, email=test@tracecat.com
+    (cd "$REPO_ROOT" && bash "$ENV_SCRIPT" <<< $'n\n\nn\ntest@tracecat.com')
 fi
 
 # Source the .env file for other variables (but our exports take precedence)
