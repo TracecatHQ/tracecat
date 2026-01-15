@@ -39,7 +39,6 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import ToolCallContent, UnifiedStreamEvent
-from tracecat.agent.executor.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -47,6 +46,7 @@ from tracecat.agent.executor.loopback import (
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.connector import AgentStream

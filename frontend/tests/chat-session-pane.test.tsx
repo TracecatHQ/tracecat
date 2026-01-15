@@ -23,7 +23,7 @@ const createChatFixture = (
   id: "chat-1",
   workspace_id: "workspace-1",
   title: "Test Chat",
-  user_id: "user-1",
+  created_by: "user-1",
   entity_type: "case",
   entity_id: "case-1",
   tools: [],

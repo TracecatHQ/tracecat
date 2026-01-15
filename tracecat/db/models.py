@@ -1831,21 +1831,21 @@ class AgentSession(WorkspaceModel):
         nullable=False,
         doc="Human-readable title for the session",
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("user.id", ondelete="CASCADE"),
         nullable=True,
-        doc="User who owns this session (nullable for workflow-initiated sessions)",
+        doc="User who created this session (nullable for workflow-initiated sessions)",
     )
     entity_type: Mapped[str] = mapped_column(
         String,
-        nullable=True,
+        nullable=False,
         index=True,
-        doc="The entity type this session is associated with (case, agent_preset, etc.)",
+        doc="The entity type this session is associated with (case, agent_preset, workflow, etc.)",
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        nullable=True,
+        nullable=False,
         doc="The ID of the associated entity",
     )
     tools: Mapped[list[str] | None] = mapped_column(
@@ -1887,7 +1887,7 @@ class AgentSession(WorkspaceModel):
     )
 
     # Relationships
-    user: Mapped[User | None] = relationship("User")
+    creator: Mapped[User | None] = relationship("User")
     history: Mapped[list[AgentSessionHistory]] = relationship(
         "AgentSessionHistory",
         back_populates="session",

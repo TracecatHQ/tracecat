@@ -21,6 +21,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.mcp.executor import execute_action
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
@@ -123,9 +124,6 @@ async def execute_user_mcp_tool(
         return json.dumps({"error": f"User MCP server '{server_name}' not authorized"})
 
     try:
-        # Convert claim to MCPServerConfig format for UserMCPClient
-        from tracecat.agent.common.types import MCPServerConfig
-
         config_dict: MCPServerConfig = {
             "name": server_config.name,
             "url": server_config.url,

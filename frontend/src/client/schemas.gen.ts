@@ -1386,10 +1386,17 @@ export const $AgentPresetUpdate = {
 export const $AgentSessionCreate = {
   properties: {
     id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Id",
-      description: "Session ID (optional, will be generated if not provided)",
+      description: "Session ID. If not provided, service generates one.",
     },
     title: {
       type: "string",
@@ -1399,7 +1406,7 @@ export const $AgentSessionCreate = {
       description: "Human-readable title for the session",
       default: "New Chat",
     },
-    user_id: {
+    created_by: {
       anyOf: [
         {
           type: "string",
@@ -1409,30 +1416,16 @@ export const $AgentSessionCreate = {
           type: "null",
         },
       ],
-      title: "User Id",
-      description: "User who owns this session",
+      title: "Created By",
+      description: "User who created this session",
     },
     entity_type: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/AgentSessionEntity",
-        },
-        {
-          type: "null",
-        },
-      ],
+      $ref: "#/components/schemas/AgentSessionEntity",
       description: "Type of entity this session is associated with",
     },
     entity_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid",
       title: "Entity Id",
       description: "ID of the associated entity",
     },
@@ -1472,6 +1465,7 @@ export const $AgentSessionCreate = {
     },
   },
   type: "object",
+  required: ["entity_type", "entity_id"],
   title: "AgentSessionCreate",
   description: "Request schema for creating an agent session.",
 } as const
@@ -1506,7 +1500,7 @@ export const $AgentSessionRead = {
       type: "string",
       title: "Title",
     },
-    user_id: {
+    created_by: {
       anyOf: [
         {
           type: "string",
@@ -1516,29 +1510,15 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
-      title: "User Id",
+      title: "Created By",
     },
     entity_type: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Entity Type",
     },
     entity_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid",
       title: "Entity Id",
     },
     tools: {
@@ -1605,7 +1585,7 @@ export const $AgentSessionRead = {
     "id",
     "workspace_id",
     "title",
-    "user_id",
+    "created_by",
     "entity_type",
     "entity_id",
     "tools",
@@ -1634,7 +1614,7 @@ export const $AgentSessionReadVercel = {
       type: "string",
       title: "Title",
     },
-    user_id: {
+    created_by: {
       anyOf: [
         {
           type: "string",
@@ -1644,29 +1624,15 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
-      title: "User Id",
+      title: "Created By",
     },
     entity_type: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Entity Type",
     },
     entity_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid",
       title: "Entity Id",
     },
     tools: {
@@ -1741,7 +1707,7 @@ export const $AgentSessionReadVercel = {
     "id",
     "workspace_id",
     "title",
-    "user_id",
+    "created_by",
     "entity_type",
     "entity_id",
     "tools",
@@ -1770,7 +1736,7 @@ export const $AgentSessionReadWithMessages = {
       type: "string",
       title: "Title",
     },
-    user_id: {
+    created_by: {
       anyOf: [
         {
           type: "string",
@@ -1780,29 +1746,15 @@ export const $AgentSessionReadWithMessages = {
           type: "null",
         },
       ],
-      title: "User Id",
+      title: "Created By",
     },
     entity_type: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Entity Type",
     },
     entity_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid",
       title: "Entity Id",
     },
     tools: {
@@ -1875,7 +1827,7 @@ export const $AgentSessionReadWithMessages = {
     "id",
     "workspace_id",
     "title",
-    "user_id",
+    "created_by",
     "entity_type",
     "entity_id",
     "tools",

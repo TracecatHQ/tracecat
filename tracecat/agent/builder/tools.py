@@ -169,7 +169,7 @@ async def build_agent_preset_builder_tools(
                         "Unable to list sessions: authentication required."
                     )
                 sessions = await service.list_sessions(
-                    user_id=service.role.user_id,
+                    created_by=service.role.user_id,
                     entity_type=AgentSessionEntity.AGENT_PRESET,
                     entity_id=preset_id,
                     limit=limit,
@@ -205,7 +205,7 @@ async def build_agent_preset_builder_tools(
                     id=session.id,
                     workspace_id=session.workspace_id,
                     title=session.title,
-                    user_id=session.user_id,
+                    created_by=session.created_by,
                     entity_type=session.entity_type,
                     entity_id=session.entity_id,
                     tools=session.tools,

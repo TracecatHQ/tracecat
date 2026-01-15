@@ -16,9 +16,9 @@ from tracecat.agent.session.types import AgentSessionEntity
 class AgentSessionCreate(BaseModel):
     """Request schema for creating an agent session."""
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        description="Session ID (optional, will be generated if not provided)",
+    id: uuid.UUID | None = Field(
+        default=None,
+        description="Session ID. If not provided, service generates one.",
     )
     # Metadata fields
     title: str = Field(
@@ -27,16 +27,16 @@ class AgentSessionCreate(BaseModel):
         min_length=1,
         max_length=200,
     )
-    user_id: uuid.UUID | None = Field(
+    created_by: uuid.UUID | None = Field(
         default=None,
-        description="User who owns this session",
+        description="User who created this session",
     )
-    entity_type: AgentSessionEntity | None = Field(
-        default=None,
+    entity_type: AgentSessionEntity = Field(
+        ...,
         description="Type of entity this session is associated with",
     )
-    entity_id: uuid.UUID | None = Field(
-        default=None,
+    entity_id: uuid.UUID = Field(
+        ...,
         description="ID of the associated entity",
     )
     tools: list[str] | None = Field(
@@ -94,9 +94,9 @@ class AgentSessionRead(BaseModel):
     workspace_id: uuid.UUID
     # Metadata
     title: str
-    user_id: uuid.UUID | None
-    entity_type: str | None
-    entity_id: uuid.UUID | None
+    created_by: uuid.UUID | None
+    entity_type: str
+    entity_id: uuid.UUID
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     # Harness

@@ -1,8 +1,8 @@
 """agent_sessions
 
-Revision ID: 3017e294b271
+Revision ID: f856d9b7ee5a
 Revises: 47e44115516c
-Create Date: 2026-01-07 20:33:55.174306
+Create Date: 2026-01-15 18:28:01.938505
 
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "3017e294b271"
+revision: str = "f856d9b7ee5a"
 down_revision: str | None = "47e44115516c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -26,9 +26,9 @@ def upgrade() -> None:
         "agent_session",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("title", sa.String(length=200), nullable=False),
-        sa.Column("user_id", sa.UUID(), nullable=True),
-        sa.Column("entity_type", sa.String(), nullable=True),
-        sa.Column("entity_id", sa.UUID(), nullable=True),
+        sa.Column("created_by", sa.UUID(), nullable=True),
+        sa.Column("entity_type", sa.String(), nullable=False),
+        sa.Column("entity_id", sa.UUID(), nullable=False),
         sa.Column("tools", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("agent_preset_id", sa.UUID(), nullable=True),
         sa.Column("harness_type", sa.String(length=50), nullable=True),
@@ -56,9 +56,9 @@ def upgrade() -> None:
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
-            ["user_id"],
+            ["created_by"],
             ["user.id"],
-            name=op.f("fk_agent_session_user_id_user"),
+            name=op.f("fk_agent_session_created_by_user"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(

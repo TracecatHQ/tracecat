@@ -55,12 +55,10 @@ class AgentWorkflowArgs(BaseModel):
     agent_args: RunAgentArgs
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
-    entity_type: AgentSessionEntity | None = Field(
-        default=None, description="Type of entity this session is associated with"
+    entity_type: AgentSessionEntity = Field(
+        ..., description="Type of entity this session is associated with"
     )
-    entity_id: uuid.UUID | None = Field(
-        default=None, description="ID of the associated entity"
-    )
+    entity_id: uuid.UUID = Field(..., description="ID of the associated entity")
     tools: list[str] | None = Field(
         default=None, description="Tools available to the agent"
     )
@@ -206,7 +204,7 @@ class DurableAgentWorkflow:
                 role=self.role,
                 session_id=self.session_id,
                 title=args.title,
-                user_id=self.role.user_id,
+                created_by=self.role.user_id,
                 entity_type=args.entity_type,
                 entity_id=args.entity_id,
                 tools=args.tools,

@@ -15,7 +15,6 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -27,7 +26,6 @@ from tracecat.agent.session.schemas import (
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.audit.logger import audit_log
-from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage, ChatReadMinimal
 from tracecat.chat.service import ChatService
@@ -63,9 +61,6 @@ class AgentSessionService(BaseWorkspaceService):
 
     service_name = "agent-session"
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role=role)
-
     async def create_session(
         self,
         args: AgentSessionCreate,
@@ -84,18 +79,20 @@ class AgentSessionService(BaseWorkspaceService):
             tools = get_default_tools(args.entity_type.value)
 
         agent_session = AgentSession(
-            id=args.id,
             workspace_id=self.workspace_id,
             # Metadata
             title=args.title,
-            user_id=self.role.user_id,
-            entity_type=args.entity_type.value if args.entity_type else None,
+            created_by=self.role.user_id,
+            entity_type=args.entity_type.value,
             entity_id=args.entity_id,
             tools=tools,
             agent_preset_id=args.agent_preset_id,
             # Harness
             harness_type=args.harness_type,
         )
+        # Use provided ID if given, otherwise DB default generates one
+        if args.id:
+            agent_session.id = args.id
         self.session.add(agent_session)
         await self.session.commit()
         await self.session.refresh(agent_session)
@@ -168,16 +165,17 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             Tuple of (AgentSession, created) where created is True if new.
         """
-        existing = await self.get_session(args.id)
-        if existing:
-            return existing, False
+        if args.id is not None:
+            existing = await self.get_session(args.id)
+            if existing:
+                return existing, False
         new_session = await self.create_session(args)
         return new_session, True
 
     async def list_sessions(
         self,
         *,
-        user_id: UserID | None = None,
+        created_by: UserID | None = None,
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
         limit: int = 100,
@@ -189,7 +187,7 @@ class AgentSessionService(BaseWorkspaceService):
         sorted by created_at. Legacy chats have is_readonly=True.
 
         Args:
-            user_id: Filter by user who owns the session.
+            created_by: Filter by user who created the session.
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             limit: Maximum number of results.
@@ -202,8 +200,8 @@ class AgentSessionService(BaseWorkspaceService):
         session_stmt = select(AgentSession).where(
             AgentSession.workspace_id == self.workspace_id
         )
-        if user_id is not None:
-            session_stmt = session_stmt.where(AgentSession.user_id == user_id)
+        if created_by is not None:
+            session_stmt = session_stmt.where(AgentSession.created_by == created_by)
         if entity_type is not None:
             session_stmt = session_stmt.where(
                 AgentSession.entity_type == entity_type.value
@@ -216,8 +214,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Query legacy Chat table
         chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
-        if user_id is not None:
-            chat_stmt = chat_stmt.where(Chat.user_id == user_id)
+        if created_by is not None:
+            chat_stmt = chat_stmt.where(Chat.user_id == created_by)
         if entity_type is not None:
             chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
         if entity_id is not None:
@@ -506,9 +504,7 @@ class AgentSessionService(BaseWorkspaceService):
                 role=self.role,
                 agent_args=args,
                 title=agent_session.title,
-                entity_type=AgentSessionEntity(agent_session.entity_type)
-                if agent_session.entity_type
-                else None,
+                entity_type=AgentSessionEntity(agent_session.entity_type),
                 entity_id=agent_session.entity_id,
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,

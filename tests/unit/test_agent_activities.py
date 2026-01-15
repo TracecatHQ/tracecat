@@ -27,6 +27,7 @@ from tracecat.agent.session.activities import (
     get_session_activities,
     load_session_activity,
 )
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 
@@ -92,6 +93,8 @@ class TestCreateSessionActivity:
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
             harness_type=HarnessType.CLAUDE_CODE,
         )
 
@@ -120,6 +123,8 @@ class TestCreateSessionActivity:
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         # Set up the mock service
@@ -145,6 +150,8 @@ class TestCreateSessionActivity:
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
             harness_type=HarnessType.CLAUDE_CODE,
         )
 

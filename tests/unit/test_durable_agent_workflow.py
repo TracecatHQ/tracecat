@@ -49,6 +49,7 @@ from tracecat.agent.session.activities import (
     LoadSessionInput,
     LoadSessionResult,
 )
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import User
@@ -327,6 +328,8 @@ def agent_workflow_args(
     return AgentWorkflowArgs(
         role=svc_role,
         agent_args=run_agent_args,
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
     )
 
 
@@ -454,6 +457,8 @@ async def test_agent_workflow_uses_agent_config_model_settings(
             user_prompt="Test prompt with settings",
             config=agent_config_with_settings,
         ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
     )
 
     async with agent_worker_factory(
@@ -533,6 +538,8 @@ async def test_agent_workflow_with_single_approval(
             user_prompt="Make a test HTTP request",
             config=agent_config_with_approvals,
         ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
     )
 
     wf_handle = None
@@ -650,6 +657,8 @@ async def test_agent_workflow_with_multiple_approvals(
             user_prompt="Make multiple test HTTP requests",
             config=agent_config_with_approvals,
         ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
     )
 
     wf_handle = None
@@ -759,6 +768,8 @@ async def test_agent_workflow_approval_with_override_args(
             user_prompt="Make HTTP request with override",
             config=agent_config_with_approvals,
         ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
     )
 
     wf_handle = None
@@ -885,6 +896,8 @@ async def test_agent_workflow_mixed_approvals_and_rejections(
             user_prompt="Make mixed requests",
             config=agent_config_with_approvals,
         ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
     )
 
     wf_handle = None

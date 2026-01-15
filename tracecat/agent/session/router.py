@@ -83,7 +83,7 @@ async def list_sessions(
 
     svc = AgentSessionService(session, role)
     return await svc.list_sessions(
-        user_id=role.user_id,
+        created_by=role.user_id,
         entity_type=entity_type,
         entity_id=entity_id,
         limit=limit,
@@ -111,7 +111,7 @@ async def get_session(
             id=agent_session.id,
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
-            user_id=agent_session.user_id,
+            created_by=agent_session.created_by,
             entity_type=agent_session.entity_type,
             entity_id=agent_session.entity_id,
             tools=agent_session.tools,
@@ -123,7 +123,7 @@ async def get_session(
             messages=messages,
         )
 
-    # Try legacy Chat
+    # Try legacy Chat (user_id remains for legacy Chat model)
     legacy_chat = await svc.get_legacy_chat(session_id)
     if legacy_chat:
         messages = await svc.list_messages(session_id)
@@ -171,7 +171,7 @@ async def get_session_vercel(
             id=agent_session.id,
             workspace_id=agent_session.workspace_id,
             title=agent_session.title,
-            user_id=agent_session.user_id,
+            created_by=agent_session.created_by,
             entity_type=agent_session.entity_type,
             entity_id=agent_session.entity_id,
             tools=agent_session.tools,
@@ -183,7 +183,7 @@ async def get_session_vercel(
             messages=ui_messages,
         )
 
-    # Try legacy Chat
+    # Try legacy Chat (user_id remains for legacy Chat model)
     legacy_chat = await svc.get_legacy_chat(session_id)
     if legacy_chat:
         messages = await svc.list_messages(session_id)

@@ -299,25 +299,25 @@ export type AgentPresetUpdate = {
  */
 export type AgentSessionCreate = {
   /**
-   * Session ID (optional, will be generated if not provided)
+   * Session ID. If not provided, service generates one.
    */
-  id?: string
+  id?: string | null
   /**
    * Human-readable title for the session
    */
   title?: string
   /**
-   * User who owns this session
+   * User who created this session
    */
-  user_id?: string | null
+  created_by?: string | null
   /**
    * Type of entity this session is associated with
    */
-  entity_type?: AgentSessionEntity | null
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
-  entity_id?: string | null
+  entity_id: string
   /**
    * Tools available to the agent for this session
    */
@@ -356,9 +356,9 @@ export type AgentSessionRead = {
   id: string
   workspace_id: string
   title: string
-  user_id: string | null
-  entity_type: string | null
-  entity_id: string | null
+  created_by: string | null
+  entity_type: string
+  entity_id: string
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -374,9 +374,9 @@ export type AgentSessionReadVercel = {
   id: string
   workspace_id: string
   title: string
-  user_id: string | null
-  entity_type: string | null
-  entity_id: string | null
+  created_by: string | null
+  entity_type: string
+  entity_id: string
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -396,9 +396,9 @@ export type AgentSessionReadWithMessages = {
   id: string
   workspace_id: string
   title: string
-  user_id: string | null
-  entity_type: string | null
-  entity_id: string | null
+  created_by: string | null
+  entity_type: string
+  entity_id: string
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null

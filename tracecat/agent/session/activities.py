@@ -27,11 +27,11 @@ class CreateSessionInput(BaseModel):
     role: Role
     session_id: uuid.UUID
     # Entity context
-    entity_type: AgentSessionEntity | None = None
-    entity_id: uuid.UUID | None = None
+    entity_type: AgentSessionEntity
+    entity_id: uuid.UUID
     # Session config
     title: str = "New Chat"
-    user_id: uuid.UUID | None = None
+    created_by: uuid.UUID | None = None
     tools: list[str] | None = None
     agent_preset_id: uuid.UUID | None = None
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
@@ -77,7 +77,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 AgentSessionCreate(
                     id=input.session_id,
                     title=input.title,
-                    user_id=input.user_id,
+                    created_by=input.created_by,
                     entity_type=input.entity_type,
                     entity_id=input.entity_id,
                     tools=input.tools,

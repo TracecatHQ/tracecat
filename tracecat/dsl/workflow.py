@@ -699,6 +699,7 @@ class DSLWorkflow:
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         entity_type=AgentSessionEntity.WORKFLOW,
+                        entity_id=self.run_context.wf_id,
                     )
                     action_result: Any = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -754,6 +755,7 @@ class DSLWorkflow:
                             use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
                         entity_type=AgentSessionEntity.WORKFLOW,
+                        entity_id=self.run_context.wf_id,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,

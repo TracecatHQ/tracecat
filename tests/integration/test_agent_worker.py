@@ -43,6 +43,7 @@ from tracecat.agent.session.activities import (
     LoadSessionResult,
     get_session_activities,
 )
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig, StreamKey
 from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES
@@ -261,6 +262,8 @@ class TestAgentWorkerSingleTenant:
                     actions=["core.http_request"],
                 ),
             ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         async with agent_worker_factory(
@@ -308,6 +311,8 @@ class TestAgentWorkerSingleTenant:
                     actions=["core.http_request"],
                 ),
             ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         async with agent_worker_factory(
@@ -367,6 +372,8 @@ class TestAgentWorkerSingleTenant:
                     actions=["core.http_request"],
                 ),
             ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         async with agent_worker_factory(
@@ -425,6 +432,8 @@ class TestAgentWorkerMultiTenant:
                     actions=["core.http_request"],
                 ),
             ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         workflow_args_b = AgentWorkflowArgs(
@@ -438,6 +447,8 @@ class TestAgentWorkerMultiTenant:
                     actions=["core.http_request"],
                 ),
             ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         # Verify workspace IDs are different
@@ -510,6 +521,8 @@ class TestAgentWorkerMultiTenant:
                     actions=["core.http_request"],
                 ),
             ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
         )
 
         async with agent_worker_factory(
@@ -559,6 +572,8 @@ class TestAgentWorkerMultiTenant:
                         actions=["core.http_request"],
                     ),
                 ),
+                entity_type=AgentSessionEntity.WORKFLOW,
+                entity_id=uuid.uuid4(),
             )
             for i, session_id in enumerate(session_ids)
         ]
@@ -640,6 +655,8 @@ class TestAgentWorkerThrashing:
                             actions=["core.http_request"],
                         ),
                     ),
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
                 )
 
                 handle = await temporal_client.start_workflow(
@@ -699,6 +716,8 @@ class TestAgentWorkerThrashing:
                             actions=["core.http_request"],
                         ),
                     ),
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
                 )
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
@@ -727,6 +746,8 @@ class TestAgentWorkerThrashing:
                             actions=["core.http_request"],
                         ),
                     ),
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
                 )
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
@@ -786,6 +807,8 @@ class TestAgentWorkerThrashing:
                                 actions=["core.http_request"],
                             ),
                         ),
+                        entity_type=AgentSessionEntity.WORKFLOW,
+                        entity_id=uuid.uuid4(),
                     )
                     handle = await temporal_client.start_workflow(
                         DurableAgentWorkflow.run,
