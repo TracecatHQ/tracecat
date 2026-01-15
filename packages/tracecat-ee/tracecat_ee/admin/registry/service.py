@@ -194,7 +194,10 @@ class AdminRegistryService(BaseService):
         stmt = select(PlatformRegistryVersion)
         if repository_id:
             stmt = stmt.where(PlatformRegistryVersion.repository_id == repository_id)
-        stmt = stmt.order_by(PlatformRegistryVersion.created_at.desc()).limit(limit)
+        stmt = stmt.order_by(
+            PlatformRegistryVersion.created_at.desc(),
+            PlatformRegistryVersion.id.desc(),
+        ).limit(limit)
 
         result = await self.session.execute(stmt)
         return [RegistryVersionRead.model_validate(v) for v in result.scalars().all()]

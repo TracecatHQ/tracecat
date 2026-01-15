@@ -68,7 +68,7 @@ class AdminOrgService(BaseService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise ValueError(f"Organization slug '{params.slug}' already exists") from e
+            raise ValueError(f"Organization slug '{org.slug}' already exists") from e
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
 

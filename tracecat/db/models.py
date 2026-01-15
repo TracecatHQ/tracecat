@@ -1263,6 +1263,10 @@ class BaseRegistryIndex(Base):
         doc="Action options",
     )
 
+    @property
+    def action(self) -> str:
+        return f"{self.namespace}.{self.name}"
+
 
 class RegistryIndex(OrganizationModel, BaseRegistryIndex):
     """Index of actions from a RegistryVersion manifest for fast lookups."""

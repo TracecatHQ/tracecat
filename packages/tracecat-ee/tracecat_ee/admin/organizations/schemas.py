@@ -20,8 +20,8 @@ class OrgCreate(Schema):
 class OrgUpdate(Schema):
     """Update organization request."""
 
-    name: str | None = None
-    slug: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    slug: str | None = Field(None, min_length=1, max_length=63, pattern=r"^[a-z0-9-]+$")
     is_active: bool | None = None
 
 
