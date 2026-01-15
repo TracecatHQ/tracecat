@@ -282,7 +282,7 @@ When enabled, payloads exceeding the threshold are stored in blob storage with
 only a small reference kept in Temporal workflow history. This prevents history
 bloat for workflows with large payloads.
 
-Default: false (all results kept inline, current behavior).
+Default: true.
 """
 
 TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = int(
@@ -291,7 +291,7 @@ TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = int(
 """Threshold in bytes above which payloads are externalized to blob storage.
 
 Payloads smaller than this are kept inline in workflow history.
-Default: 262144 (256 KB).
+Default: 0 (all payloads externalized when enabled).
 """
 
 # === Collection Manifests Config === #
