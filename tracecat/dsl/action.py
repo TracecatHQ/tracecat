@@ -52,6 +52,7 @@ from tracecat.storage.object import (
     ExternalObject,
     InlineObject,
     StoredObject,
+    StoredObjectValidator,
     get_object_storage,
 )
 from tracecat.validation.schemas import ValidationDetail
@@ -204,6 +205,11 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
             raw_result = await storage.retrieve(task_result.result)
         case CollectionObject():
             raw_result = await materialize_collection_values(task_result.result)
+        case _:
+            raise TypeError(
+                "Expected TaskResult.result to be a StoredObject, "
+                f"got {type(task_result.result).__name__}"
+            )
 
     # Handle scatter item extraction - if collection_index is set, extract the item
     if task_result.collection_index is not None and isinstance(raw_result, list):
@@ -256,12 +262,14 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     if actions := ctx.get("ACTIONS"):
         for ref, task_result in actions.items():
             action_refs.append(ref)
-            coros.append(_materialize_task_result(task_result))
+            validated = TaskResult.model_validate(task_result)
+            coros.append(_materialize_task_result(validated))
 
     # Materialize TRIGGER - always a StoredObject with uniform envelope
     if trigger := ctx.get("TRIGGER"):
         trigger_task_idx = len(action_refs)  # Index after all action tasks
-        coros.append(get_object_storage().retrieve(trigger))
+        validated = StoredObjectValidator.validate_python(trigger)
+        coros.append(get_object_storage().retrieve(validated))
 
     # Collect results and map back to their refs
     try:

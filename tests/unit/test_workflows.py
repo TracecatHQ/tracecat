@@ -114,7 +114,8 @@ def shutdown_executor_and_worker(monkeysession: pytest.MonkeyPatch):
     worker_prefix = f"{compose_project_name}-worker"
     executor_prefix = f"{compose_project_name}-executor"
     out = subprocess.run(
-        ["docker", "compose", "down", "-v", worker_prefix, executor_prefix]
+        ["docker", "compose", "down", "-v", worker_prefix, executor_prefix],
+        capture_output=True,
     )
     if out.returncode != 0:
         pytest.skip(
