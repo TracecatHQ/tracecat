@@ -286,12 +286,12 @@ Default: true.
 """
 
 TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = int(
-    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 0)
+    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024)
 )
 """Threshold in bytes above which payloads are externalized to blob storage.
 
 Payloads smaller than this are kept inline in workflow history.
-Default: 0 (all payloads externalized when enabled).
+Default: 128 KB.
 """
 
 # === Collection Manifests Config === #
