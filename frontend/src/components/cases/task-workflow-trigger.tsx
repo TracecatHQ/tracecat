@@ -42,6 +42,7 @@ export function TaskWorkflowTrigger({
         caseData={caseData}
         workflowId={workflowId}
         workflowTitle={workflowTitle}
+        taskId={task?.id}
         defaultTriggerValues={task?.default_trigger_values}
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
