@@ -323,7 +323,22 @@ async def _run_single_template_step(
         logger.info("Running template action async", action=action.name)
         if not action.template_action:
             raise ValueError("Template action missing template_action")
-        result = await _run_template_steps(action.template_action.definition, context)
+        defn = action.template_action.definition
+
+        # Validate args against nested template's expects and create fresh context
+        # with nested template's own inputs, but reuse parent's SECRETS/ENV/VARS
+        validated_args: dict[str, Any] = {}
+        if defn.expects:
+            validated_args = action.validate_args(args=args)
+
+        nested_context = TemplateExecutionContext(
+            SECRETS=context.get("SECRETS", {}),
+            ENV=context.get("ENV", DSLEnvironment()),
+            VARS=context.get("VARS", {}),
+            inputs=validated_args,
+            steps={},
+        )
+        result = await _run_template_steps(defn, nested_context)
     else:
         logger.trace("Running UDF async", action=action.name)
         # Get secrets from context
