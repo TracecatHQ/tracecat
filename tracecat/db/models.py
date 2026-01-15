@@ -1820,7 +1820,6 @@ class AgentSession(WorkspaceModel):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
-        nullable=False,
         unique=True,
         index=True,
         doc="Session identifier (matches RunAgentArgs.session_id)",

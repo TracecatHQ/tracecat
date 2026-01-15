@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_ai.messages import ToolCallPart
+    from pydantic_ai.tools import ToolApproved, ToolDenied
 
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.executor.activity import (
@@ -24,7 +25,7 @@ with workflow.unsafe.imports_passed_through():
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
     )
-    from tracecat.agent.schemas import AgentOutput, RunAgentArgs, ToolFilters
+    from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         LoadSessionInput,
@@ -403,7 +404,7 @@ class DurableAgentWorkflow:
                 output=None,  # NSJail path doesn't return structured output yet
                 message_history=result.messages,  # Messages fetched from DB by activity
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                usage=None,
+                usage=RunUsage(),  # TODO: Collect usage from sandbox runtime
                 session_id=self.session_id,
             )
 
@@ -415,8 +416,6 @@ class DurableAgentWorkflow:
 
         Uses the ApprovalManager's stored decisions to categorize each tool call.
         """
-        from pydantic_ai.tools import ToolApproved, ToolDenied
-
         approved: list[ApprovedToolCall] = []
         denied: list[DeniedToolCall] = []
 

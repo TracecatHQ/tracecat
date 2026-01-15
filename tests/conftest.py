@@ -1158,6 +1158,8 @@ async def mock_agent_session(session: AsyncSession, svc_role: Role):
         id=session_id,
         title="Mock Test Session",
         workspace_id=svc_role.workspace_id,
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
     )
     session.add(agent_session)
     await session.commit()

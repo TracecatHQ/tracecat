@@ -45,6 +45,7 @@ from tracecat import __version__ as APP_VERSION
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
+    import uvloop
     from tracecat_ee.agent.activities import AgentActivities
     from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
@@ -71,6 +72,12 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
         SandboxRestrictions.invalid_module_members_default.children
     )
     del invalid_module_member_children["datetime"]
+
+    # Add beartype to passthrough modules to avoid circular import issues
+    # with its custom import hooks conflicting with Temporal's sandbox
+    passthrough_modules = set(SandboxRestrictions.passthrough_modules_default)
+    passthrough_modules.add("beartype")
+
     return SandboxedWorkflowRunner(
         restrictions=dataclasses.replace(
             SandboxRestrictions.default,
@@ -78,6 +85,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
                 SandboxRestrictions.invalid_module_members_default,
                 children=invalid_module_member_children,
             ),
+            passthrough_modules=passthrough_modules,
         )
     )
 
@@ -272,7 +280,6 @@ def get_activities() -> list[Callable]:
 
 async def main() -> None:
     """Run the AgentWorker."""
-    task_queue = config.TRACECAT__AGENT_QUEUE
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES", 100)
     )
@@ -282,8 +289,6 @@ async def main() -> None:
 
     logger.info(
         "Starting AgentWorker",
-        task_queue=task_queue,
-        max_concurrent_activities=max_concurrent,
     )
 
     # Initialize services before accepting tasks
@@ -321,7 +326,7 @@ async def main() -> None:
 
             async with Worker(
                 client,
-                task_queue=task_queue,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
                 activities=activities,
                 workflows=workflows,
                 workflow_runner=new_sandbox_runner(),
@@ -332,8 +337,6 @@ async def main() -> None:
             ):
                 logger.info(
                     "AgentWorker started, ctrl+c to exit",
-                    task_queue=task_queue,
-                    max_concurrent_activities=max_concurrent,
                 )
                 await interrupt_event.wait()
                 logger.info("Shutting down AgentWorker")
@@ -354,6 +357,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     loop = asyncio.new_event_loop()
     loop.set_task_factory(asyncio.eager_task_factory)
     try:

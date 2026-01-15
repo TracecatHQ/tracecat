@@ -479,6 +479,70 @@ class ExecuteApprovedToolsResult(BaseModel):
     error: str | None = None
 
 
+HEARTBEAT_INTERVAL = 30  # seconds - must be less than heartbeat_timeout (60s)
+
+
+async def _execute_action_with_heartbeat(
+    action_name: str,
+    args: dict[str, Any],
+    claims: MCPTokenClaims,
+    registry_lock: RegistryLock,
+    tool_name: str,
+) -> Any:
+    """Execute an action with periodic heartbeats to Temporal.
+
+    Wraps execute_action in a polling loop that sends heartbeats every
+    HEARTBEAT_INTERVAL seconds to prevent Temporal from timing out the
+    activity during long-running tool executions.
+
+    Args:
+        action_name: The normalized action name to execute.
+        args: Arguments to pass to the action.
+        claims: MCP token claims for authorization.
+        registry_lock: Registry lock for action resolution.
+        tool_name: Original tool name for heartbeat messages.
+
+    Returns:
+        The result from execute_action.
+
+    Raises:
+        ActionExecutionError: If the action execution fails.
+        Exception: Any other error from the action.
+    """
+    # Create a task for the action execution
+    action_task = asyncio.create_task(
+        execute_action(
+            action_name=action_name,
+            args=args,
+            claims=claims,
+            registry_lock=registry_lock,
+        )
+    )
+
+    elapsed = 0
+    try:
+        while True:
+            try:
+                # Wait for completion with heartbeat interval timeout
+                result = await asyncio.wait_for(
+                    asyncio.shield(action_task),
+                    timeout=HEARTBEAT_INTERVAL,
+                )
+                return result
+            except TimeoutError:
+                # Action still running - send heartbeat and continue waiting
+                elapsed += HEARTBEAT_INTERVAL
+                activity.heartbeat(f"Executing tool {tool_name}: {elapsed}s elapsed")
+                logger.debug(
+                    "Heartbeat sent while executing tool",
+                    tool_name=tool_name,
+                    elapsed=elapsed,
+                )
+    finally:
+        if not action_task.done():
+            action_task.cancel()
+
+
 @activity.defn
 async def execute_approved_tools_activity(
     input: ExecuteApprovedToolsInput,
@@ -542,12 +606,13 @@ async def execute_approved_tools_activity(
                 action_name=action_name,
             )
 
-            # Execute the action via MCP executor
-            result = await execute_action(
+            # Execute the action via MCP executor with heartbeating
+            result = await _execute_action_with_heartbeat(
                 action_name=action_name,
                 args=tool_call.args,
                 claims=claims,
                 registry_lock=input.registry_lock,
+                tool_name=tool_call.tool_name,
             )
 
             tool_result = ToolExecutionResult(

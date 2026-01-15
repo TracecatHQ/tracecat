@@ -273,7 +273,7 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
-      # Blob storage (for S3/MinIO wheel access)
+      # Blob storage (for S3/MinIO tarball access)
       TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -288,8 +288,6 @@ services:
       temporal:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      minio:
         condition: service_healthy
   ui:
     build:

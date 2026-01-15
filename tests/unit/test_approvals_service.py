@@ -286,6 +286,7 @@ class TestApprovalService:
         self,
         approvals_service: ApprovalService,
         approval_create_params: ApprovalCreate,
+        session: AsyncSession,
     ) -> None:
         """Test that creating duplicate (workspace_id, session_id, tool_call_id) raises error."""
         # Create first approval
@@ -294,6 +295,10 @@ class TestApprovalService:
         # Attempt to create duplicate should raise IntegrityError
         with pytest.raises(IntegrityError):
             await approvals_service.create_approval(approval_create_params)
+
+        # Roll back the session to clear the failed transaction state
+        # This is necessary because IntegrityError leaves the session in an unusable state
+        await session.rollback()
 
     async def test_approval_with_null_args(
         self,
