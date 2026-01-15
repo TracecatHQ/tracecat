@@ -306,6 +306,13 @@ export function EditCustomFieldDialog({
             type: "manual",
             message: "A field with this name already exists",
           })
+        } else {
+          toast({
+            title: "Error updating field",
+            description:
+              (apiError.body as { detail?: string })?.detail ||
+              "Failed to update the case field. Please try again.",
+          })
         }
       } else {
         toast({
@@ -535,7 +542,7 @@ function DefaultValueInput({
     case "SELECT":
       return (
         <Select
-          value={field.value ?? ""}
+          value={field.value || NO_DEFAULT_SENTINEL}
           onValueChange={(value) =>
             field.onChange(value === NO_DEFAULT_SENTINEL ? "" : value)
           }
