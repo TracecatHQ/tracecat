@@ -302,7 +302,9 @@ async def _run_template_steps(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context["steps"][step.ref] = TaskResult.from_result(result)
+        template_context["steps"][step.ref] = TaskResult.from_result(
+            result
+        ).to_materialized_dict()
 
     # Handle returns
     return eval_templated_object(
@@ -443,9 +445,7 @@ async def _execute_template_action(
         # Evaluate step args with template context
         evaled_args = cast(
             dict[str, Any],
-            eval_templated_object(
-                step.args, operand=cast(ExprOperand, template_context)
-            ),
+            eval_templated_object(step.args, operand=template_context),
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -481,14 +481,14 @@ async def _execute_template_action(
                 info=ExecutorActionErrorInfo.from_exc(e, action_name=step.action)
             ) from e
 
-        # Store step result for subsequent steps
-        template_context["steps"][step.ref] = TaskResult.from_result(step_result)
+        # Store step result for subsequent steps (materialized for expression access)
+        template_context["steps"][step.ref] = TaskResult.from_result(
+            step_result
+        ).to_materialized_dict()
         logger.trace("Template step completed", step_ref=step.ref)
 
     # Evaluate returns expression with final template context
-    return eval_templated_object(
-        template_def.returns, operand=cast(ExprOperand, template_context)
-    )
+    return eval_templated_object(template_def.returns, operand=template_context)
 
 
 async def _invoke_step(
