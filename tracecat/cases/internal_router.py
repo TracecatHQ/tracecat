@@ -300,6 +300,7 @@ async def get_case(
                 default=f.default,
                 reserved=f.reserved,
                 options=f.options,
+                always_visible=f.always_visible,
                 value=fields.get(f.id),
             )
         )
@@ -358,6 +359,7 @@ async def create_case(
                 default=f.default,
                 reserved=f.reserved,
                 options=f.options,
+                always_visible=f.always_visible,
                 value=fields.get(f.id),
             )
         )
@@ -429,6 +431,7 @@ async def update_case(
                 default=f.default,
                 reserved=f.reserved,
                 options=f.options,
+                always_visible=f.always_visible,
                 value=fields.get(f.id),
             )
         )
