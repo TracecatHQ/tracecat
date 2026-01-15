@@ -189,15 +189,30 @@ def dict_to_exec_context(expected_dict: dict[str, Any]) -> ExecutionContext:
     preserving the explicit result_typename values specified in test cases.
     """
     normalized = normalize_error_line_numbers(expected_dict)
+    actions: dict[str, TaskResult] = {}
+    for ref, task_result in normalized.get("ACTIONS", {}).items():
+        result_value = task_result.get("result")
+        if isinstance(result_value, dict) and result_value.get("type") in (
+            "inline",
+            "external",
+            "collection",
+        ):
+            result_obj = StoredObjectValidator.validate_python(result_value)
+        else:
+            result_obj = InlineObject(data=result_value)
+
+        actions[ref] = TaskResult(
+            result=result_obj,
+            result_typename=task_result.get("result_typename", "unknown"),
+            error=task_result.get("error"),
+            error_typename=task_result.get("error_typename"),
+            interaction=task_result.get("interaction"),
+            interaction_id=task_result.get("interaction_id"),
+            interaction_type=task_result.get("interaction_type"),
+            collection_index=task_result.get("collection_index"),
+        )
     return ExecutionContext(
-        ACTIONS={
-            ref: TaskResult(
-                result=InlineObject(data=task_result.get("result")),
-                result_typename=task_result.get("result_typename", "unknown"),
-                error=task_result.get("error"),
-            )
-            for ref, task_result in normalized.get("ACTIONS", {}).items()
-        },
+        ACTIONS=actions,
         TRIGGER=InlineObject(data=normalized.get("TRIGGER"))
         if normalized.get("TRIGGER")
         else None,
@@ -216,10 +231,66 @@ async def resolve_execution_context(ctx: ExecutionContext) -> ExecutionContext:
         except ValidationError:
             pass
 
-        validated["ACTIONS"][action_ref] = TaskResult.from_result(data)
+        validated["ACTIONS"][action_ref] = task_result.model_copy(
+            update={"result": InlineObject(data=data)}
+        )
     if validated["TRIGGER"] is not None:
         validated["TRIGGER"] = await to_inline(validated["TRIGGER"])
     return validated
+
+
+@pytest.mark.anyio
+async def test_dict_to_exec_context_preserves_error_metadata() -> None:
+    ctx = dict_to_exec_context(
+        {
+            "ACTIONS": {
+                "a": {
+                    "result": 1,
+                    "result_typename": "int",
+                    "error": {"message": "oops"},
+                    "error_typename": "dict",
+                }
+            },
+            "TRIGGER": {},
+        }
+    )
+
+    task = ctx["ACTIONS"]["a"]
+    assert await to_data(task.result) == 1
+    assert task.result_typename == "int"
+    assert task.error == {"message": "oops"}
+    assert task.error_typename == "dict"
+
+
+@pytest.mark.anyio
+async def test_resolve_execution_context_preserves_task_result_metadata() -> None:
+    ctx: ExecutionContext = ExecutionContext(
+        ACTIONS={
+            "a": TaskResult(
+                result=InlineObject(data={"value": 1}),
+                result_typename="CustomType",
+                error={"message": "oops"},
+                error_typename="dict",
+                interaction={"kind": "test"},
+                interaction_id="interaction_1",
+                interaction_type="test",
+                collection_index=0,
+            )
+        },
+        TRIGGER=InlineObject(data={"trigger": True}),
+    )
+
+    resolved = await resolve_execution_context(ctx)
+    task = resolved["ACTIONS"]["a"]
+
+    assert await to_data(task.result) == {"value": 1}
+    assert task.result_typename == "CustomType"
+    assert task.error == {"message": "oops"}
+    assert task.error_typename == "dict"
+    assert task.interaction == {"kind": "test"}
+    assert task.interaction_id == "interaction_1"
+    assert task.interaction_type == "test"
+    assert task.collection_index == 0
 
 
 async def assert_context_equal(result: StoredObject, expected: ExecutionContext):
@@ -339,6 +410,11 @@ def raw_data_to_exec_context(raw_data: dict[str, Any]) -> ExecutionContext:
             result=result_obj,
             result_typename=task_result.get("result_typename", "unknown"),
             error=task_result.get("error"),
+            error_typename=task_result.get("error_typename"),
+            interaction=task_result.get("interaction"),
+            interaction_id=task_result.get("interaction_id"),
+            interaction_type=task_result.get("interaction_type"),
+            collection_index=task_result.get("collection_index"),
         )
     trigger_data = raw_data.get("TRIGGER")
     trigger: StoredObject | None = None
@@ -5330,6 +5406,12 @@ async def test_workflow_scatter_gather(
                         )
                     ),
                     result_typename=task_result.result_typename,
+                    error=normalize_error_line_numbers(task_result.error),
+                    error_typename=task_result.error_typename,
+                    interaction=task_result.interaction,
+                    interaction_id=task_result.interaction_id,
+                    interaction_type=task_result.interaction_type,
+                    collection_index=task_result.collection_index,
                 )
                 for ref, task_result in resolved_result["ACTIONS"].items()
             },
