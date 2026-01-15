@@ -34,14 +34,12 @@ import type { SqlType } from "@/lib/data-type"
 interface CustomFieldsTableProps {
   fields: CaseFieldReadMinimal[]
   onDeleteField: (fieldId: string) => Promise<void>
-  onEditField: (field: CaseFieldReadMinimal) => void
   isDeleting?: boolean
 }
 
 export function CustomFieldsTable({
   fields,
   onDeleteField,
-  onEditField,
   isDeleting,
 }: CustomFieldsTableProps) {
   const [selectedField, setSelectedField] =
@@ -189,11 +187,6 @@ export function CustomFieldsTable({
                         }
                       >
                         Copy field ID
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => onEditField(row.original)}
-                      >
-                        Edit field
                       </DropdownMenuItem>
                       <AlertDialogTrigger asChild>
                         <DropdownMenuItem

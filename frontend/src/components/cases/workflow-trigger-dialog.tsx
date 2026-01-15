@@ -37,7 +37,6 @@ interface WorkflowTriggerDialogProps {
   caseData: CaseRead
   workflowId: string | null
   workflowTitle?: string | null
-  taskId?: string | null
   defaultTriggerValues?: Record<string, unknown> | null
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -47,7 +46,6 @@ export function WorkflowTriggerDialog({
   caseData,
   workflowId,
   workflowTitle,
-  taskId,
   defaultTriggerValues,
   open,
   onOpenChange,
@@ -131,47 +129,27 @@ export function WorkflowTriggerDialog({
   const handleSchemaSubmit = useCallback(
     async (values: TriggerFormValues) => {
       if (!workflowId) return
-      // Only inject case_id/task_id if they're defined in the schema
-      // to avoid Pydantic validation errors with extra="forbid"
-      const schemaHasCaseId = triggerSchema?.properties?.case_id !== undefined
-      const schemaHasTaskId = triggerSchema?.properties?.task_id !== undefined
       await createExecution({
         workflow_id: workflowId,
-        inputs: {
-          ...values,
-          ...(schemaHasCaseId && { case_id: caseData.id }),
-          ...(schemaHasTaskId && taskId && { task_id: taskId }),
-        },
+        inputs: values,
       })
       showExecutionStartedToast()
       onOpenChange(false)
     },
-    [
-      caseData.id,
-      taskId,
-      triggerSchema,
-      createExecution,
-      onOpenChange,
-      showExecutionStartedToast,
-      workflowId,
-    ]
+    [createExecution, onOpenChange, showExecutionStartedToast, workflowId]
   )
 
   const handleTriggerWithoutSchema = useCallback(async () => {
     if (!workflowId) return
     await createExecution({
       workflow_id: workflowId,
-      inputs: {
-        ...fallbackInputs,
-        ...(taskId && { task_id: taskId }),
-      },
+      inputs: fallbackInputs,
     })
     showExecutionStartedToast()
     onOpenChange(false)
   }, [
     createExecution,
     fallbackInputs,
-    taskId,
     onOpenChange,
     showExecutionStartedToast,
     workflowId,
