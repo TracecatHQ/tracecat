@@ -58,7 +58,7 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
-from tracecat.custom_fields.schemas import CustomFieldCreate
+from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -933,6 +933,44 @@ class CaseFieldsService(CustomFieldsService):
             field_def["options"] = normalize_column_options(params.options)
 
         await self._update_field_schema(params.name, field_def)
+
+        await self.session.commit()
+
+    async def update_field(self, field_id: str, params: CustomFieldUpdate) -> None:
+        """Update a custom field column and update the schema if needed."""
+        await self._ensure_schema_ready()
+
+        # Get current schema to preserve type info
+        current_schema = await self.get_field_schema()
+        current_field_def = current_schema.get(field_id, {})
+
+        # Update the physical column (name, default, etc.)
+        await self.editor.update_column(field_id, params)
+
+        # Determine the new field name (if renamed)
+        new_field_id = params.name if params.name is not None else field_id
+
+        # Build updated field definition
+        # Preserve the type from current schema, or use params.type if provided
+        field_type = params.type.value if params.type else current_field_def.get("type")
+        if field_type:
+            new_field_def: dict[str, Any] = {"type": field_type}
+
+            # Update options if provided (even empty list clears options)
+            if params.options is not None:
+                normalized = normalize_column_options(params.options)
+                if normalized:
+                    new_field_def["options"] = normalized
+            elif "options" in current_field_def:
+                # Preserve existing options if not being updated
+                new_field_def["options"] = current_field_def["options"]
+
+            # If field was renamed, remove old entry
+            if new_field_id != field_id:
+                await self._update_field_schema(field_id, None)
+
+            # Update/add the field definition
+            await self._update_field_schema(new_field_id, new_field_def)
 
         await self.session.commit()
 
