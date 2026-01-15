@@ -97,8 +97,8 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
 }
 
 const UPDATE_ON_ACTIONS: Partial<Record<AgentSessionEntity, Array<string>>> = {
-  case: ["core__cases__update_case", "core__cases__create_comment"],
-  agent_preset_builder: ["update_agent_preset"],
+  case: ["core.cases.update_case", "core.cases.create_comment"],
+  agent_preset_builder: ["internal.builder.update_preset"],
 }
 
 // mapping from chatentity to
@@ -146,12 +146,25 @@ export const ENTITY_TO_INVALIDATION: Record<
       Boolean(UPDATE_ON_ACTIONS.agent_preset_builder?.includes(toolName)),
     handler: (queryClient, workspaceId, entityId) => {
       // Invalidate agent preset detail and workspace list
+      console.log("[agent_preset_builder handler] Invalidating queries...")
+      console.log("[agent_preset_builder handler] workspaceId:", workspaceId)
+      console.log("[agent_preset_builder handler] entityId:", entityId)
+      console.log("[agent_preset_builder handler] Query key 1:", [
+        "agent-presets",
+        workspaceId,
+      ])
+      console.log("[agent_preset_builder handler] Query key 2:", [
+        "agent-preset",
+        workspaceId,
+        entityId,
+      ])
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, entityId],
       })
+      console.log("[agent_preset_builder handler] Invalidation complete")
     },
   },
   copilot: {

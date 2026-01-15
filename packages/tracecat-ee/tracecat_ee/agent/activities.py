@@ -8,9 +8,14 @@ from pydantic import UUID4, BaseModel
 from temporalio import activity
 
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.mcp.internal_tools import (
+    BUILDER_BUNDLED_ACTIONS,
+    BUILDER_INTERNAL_TOOL_NAMES,
+    get_builder_internal_tool_definitions,
+)
 from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.schemas import ToolFilters
-from tracecat.agent.tokens import UserMCPServerClaim
+from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
@@ -24,6 +29,8 @@ class BuildToolDefsArgs(BaseModel):
     tool_approvals: dict[str, bool] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP server configurations to discover tools from."""
+    internal_tool_context: InternalToolContext | None = None
+    """Context for internal tools (e.g., preset_id for builder assistant)."""
 
 
 class BuildToolDefsResult(BaseModel):
@@ -31,6 +38,8 @@ class BuildToolDefsResult(BaseModel):
     registry_lock: RegistryLock
     user_mcp_claims: list[UserMCPServerClaim] | None = None
     """Resolved user MCP server configs for JWT claims."""
+    allowed_internal_tools: list[str] | None = None
+    """List of allowed internal tool names for JWT claims."""
 
 
 class ToolApprovalPayload(BaseModel):
@@ -70,9 +79,23 @@ class AgentActivities:
         self,
         args: BuildToolDefsArgs,
     ) -> BuildToolDefsResult:
+        # Check if this is a builder assistant session
+        is_builder = (
+            args.internal_tool_context is not None
+            and args.internal_tool_context.entity_type == "agent_preset_builder"
+        )
+
+        # For builder sessions, add bundled actions to the tool filters
+        actions_to_build = list(args.tool_filters.actions or [])
+        if is_builder:
+            # Add bundled registry actions for builder (core.table.*, tools.exa.*)
+            for action in BUILDER_BUNDLED_ACTIONS:
+                if action not in actions_to_build:
+                    actions_to_build.append(action)
+
         result = await build_agent_tools(
             namespaces=args.tool_filters.namespaces,
-            actions=args.tool_filters.actions,
+            actions=actions_to_build if actions_to_build else None,
             tool_approvals=args.tool_approvals,
         )
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
@@ -83,6 +106,19 @@ class AgentActivities:
                 name=tool.name,
                 description=tool.description,
                 parameters_json_schema=tool.parameters_json_schema,
+            )
+
+        # Add internal tools for builder assistant
+        allowed_internal_tools: list[str] | None = None
+        if is_builder:
+            # Add builder internal tools to definitions
+            internal_defs = get_builder_internal_tool_definitions()
+            defs.update(internal_defs)
+            allowed_internal_tools = list(BUILDER_INTERNAL_TOOL_NAMES)
+            logger.info(
+                "Added builder internal tools",
+                tool_count=len(internal_defs),
+                tools=list(internal_defs.keys()),
             )
 
         # Discover user MCP tools if configured
@@ -121,9 +157,11 @@ class AgentActivities:
 
         # Resolve registry lock for these actions
         # This provides origin→version mappings needed for action execution
-        # Note: User MCP tools don't need registry lock resolution
+        # Note: User MCP tools and internal tools don't need registry lock resolution
         registry_action_names = {
-            name for name in defs.keys() if not name.startswith("mcp__")
+            name
+            for name in defs.keys()
+            if not name.startswith("mcp__") and not name.startswith("internal.")
         }
         async with RegistryLockService.with_session() as lock_service:
             registry_lock = await lock_service.resolve_lock_with_bindings(
@@ -134,4 +172,5 @@ class AgentActivities:
             tool_definitions=defs,
             registry_lock=registry_lock,
             user_mcp_claims=user_mcp_claims,
+            allowed_internal_tools=allowed_internal_tools,
         )

@@ -14,20 +14,37 @@ from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
 )
+from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import delete, select
 
+import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionRead,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import ClaudeSDKMessageTA
+from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.audit.logger import audit_log
+from tracecat.cases.prompts import CaseCopilotPrompts
+from tracecat.cases.service import CasesService
 from tracecat.chat.enums import MessageKind
-from tracecat.chat.schemas import ApprovalRead, ChatMessage, ChatReadMinimal
+from tracecat.chat.schemas import (
+    ApprovalRead,
+    BasicChatRequest,
+    ChatMessage,
+    ChatReadMinimal,
+    ChatRequest,
+    ChatResponse,
+    ContinueRunRequest,
+    VercelChatRequest,
+)
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
@@ -37,15 +54,10 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
+from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
-    from tracecat.agent.types import AgentConfig
-    from tracecat.chat.schemas import (
-        ChatRequest,
-        ChatResponse,
-        ContinueRunRequest,
-    )
 
 
 @dataclass
@@ -254,8 +266,6 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The updated AgentSession.
         """
-        from tracecat.agent.preset.service import AgentPresetService
-
         set_fields = params.model_dump(exclude_unset=True)
 
         if "agent_preset_id" in set_fields:
@@ -431,15 +441,6 @@ class AgentSessionService(BaseWorkspaceService):
             DurableAgentWorkflow,
         )
 
-        import tracecat.agent.adapter.vercel
-        from tracecat.agent.schemas import RunAgentArgs
-        from tracecat.chat.schemas import (
-            BasicChatRequest,
-            ChatResponse,
-            ContinueRunRequest,
-            VercelChatRequest,
-        )
-
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
@@ -557,7 +558,6 @@ class AgentSessionService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If no active session exists.
         """
-        from pydantic_ai.tools import ToolApproved, ToolDenied
         from tracecat_ee.agent.approvals.service import ApprovalMap
         from tracecat_ee.agent.types import AgentWorkflowID
         from tracecat_ee.agent.workflows.durable import (
@@ -639,10 +639,6 @@ class AgentSessionService(BaseWorkspaceService):
             ValueError: If the session entity type is unsupported.
             TracecatNotFoundError: If required resources are not found.
         """
-        from tracecat.agent.builder.tools import build_agent_preset_builder_tools
-        from tracecat.agent.service import AgentManagementService
-        from tracecat.agent.types import AgentConfig
-
         agent_svc = AgentManagementService(self.session, self.role)
 
         if agent_session.entity_type is None:
@@ -694,9 +690,10 @@ class AgentSessionService(BaseWorkspaceService):
             if agent_session.entity_id is None:
                 raise ValueError("Agent preset builder requires entity_id")
             instructions = await self._entity_to_prompt(agent_session)
-            tools = await build_agent_preset_builder_tools(agent_session.entity_id)
             try:
                 # Agent preset builder uses workspace credentials
+                # Tools are resolved via MCP path in the durable workflow
+                # (internal tools + bundled registry actions)
                 async with agent_svc.with_model_config(
                     use_workspace_credentials=True
                 ) as model_config:
@@ -705,7 +702,6 @@ class AgentSessionService(BaseWorkspaceService):
                         model_name=model_config.name,
                         model_provider=model_config.provider,
                         actions=None,
-                        custom_tools=tools,
                     )
             except TracecatNotFoundError as exc:
                 raise ValueError(
@@ -744,12 +740,6 @@ class AgentSessionService(BaseWorkspaceService):
 
     async def _entity_to_prompt(self, agent_session: AgentSession) -> str:
         """Get the prompt for a given entity type."""
-        from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
-        from tracecat.agent.preset.service import AgentPresetService
-        from tracecat.cases.prompts import CaseCopilotPrompts
-        from tracecat.cases.service import CasesService
-        from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
-
         entity_type = agent_session.entity_type
         entity_id = agent_session.entity_id
 

@@ -158,6 +158,56 @@ def _make_user_mcp_handler(
     return _handler
 
 
+def _make_internal_handler(
+    tool_name: str,
+    auth_token: str,
+) -> Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]:
+    """Create handler for internal tools.
+
+    Internal tools are system-level tools (e.g., builder assistant tools)
+    that run on the trusted side with database access.
+    """
+
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        logger.info(
+            "Proxy forwarding internal tool call",
+            tool_name=tool_name,
+        )
+
+        try:
+            transport = _create_uds_transport(str(TRUSTED_MCP_SOCKET_PATH))
+            async with Client(transport) as client:
+                call_result = await client.call_tool(
+                    "execute_internal_tool",
+                    {
+                        "tool_name": tool_name,
+                        "args": args,
+                        "auth_token": auth_token,
+                    },
+                )
+
+            if call_result.content and len(call_result.content) > 0:
+                first_block = call_result.content[0]
+                result_text = getattr(first_block, "text", str(first_block))
+            else:
+                result_text = ""
+
+            return {"content": [{"type": "text", "text": result_text}]}
+
+        except Exception as e:
+            logger.error(
+                "Proxy request failed for internal tool",
+                tool_name=tool_name,
+                error=str(e),
+            )
+            return {
+                "content": [{"type": "text", "text": "Error: Proxy request failed"}],
+                "isError": True,
+            }
+
+    return _handler
+
+
 async def create_proxy_mcp_server(
     allowed_actions: dict[str, MCPToolDefinition],
     auth_token: str,
@@ -167,13 +217,15 @@ async def create_proxy_mcp_server(
     The proxy server exposes only the tools in allowed_actions and forwards
     execution requests to the trusted MCP server via Unix socket.
 
-    Handles two types of tools:
+    Handles three types of tools:
     - Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
     - User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
+    - Internal tools (e.g., internal.builder.get_preset_summary) -> execute_internal_tool
 
     Args:
         allowed_actions: Dict mapping action names to their definitions.
             User MCP tools use the format mcp__{server_name}__{tool_name}.
+            Internal tools use the format internal.{category}.{tool_name}.
         auth_token: JWT token for authenticating with trusted server.
 
     Returns:
@@ -193,11 +245,19 @@ async def create_proxy_mcp_server(
             )
             # Use the full prefixed name as MCP tool name (already in correct format)
             mcp_tool_name = action_name
+            tool_type = "user_mcp"
+        elif action_name.startswith("internal."):
+            # Internal tool: internal.{category}.{tool_name}
+            handler = _make_internal_handler(action_name, auth_token)
+            # Convert dots to underscores for MCP compatibility
+            mcp_tool_name = action_name_to_mcp_tool_name(action_name)
+            tool_type = "internal"
         else:
             # Registry action tool
             handler = _make_registry_handler(action_name, auth_token)
             # Convert dots to underscores for MCP compatibility
             mcp_tool_name = action_name_to_mcp_tool_name(action_name)
+            tool_type = "registry"
 
         decorated = tool(mcp_tool_name, defn.description, defn.parameters_json_schema)(
             handler
@@ -208,7 +268,7 @@ async def create_proxy_mcp_server(
             "Created proxy tool",
             action_name=action_name,
             mcp_tool_name=mcp_tool_name,
-            is_user_mcp=parsed is not None,
+            tool_type=tool_type,
         )
 
     logger.info(
