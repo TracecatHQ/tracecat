@@ -10,7 +10,7 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
-from tracecat.contexts import ctx_role, ctx_run
+from tracecat.auth.types import Role
 from tracecat.dsl.action import ScatterActionInput
 
 with workflow.unsafe.imports_passed_through():
@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         ActionStatement,
         ExecutionContext,
         GatherArgs,
+        RunContext,
         ScatterArgs,
         StreamID,
         TaskResult,
@@ -82,11 +83,15 @@ class DSLScheduler:
         dsl: DSLInput,
         skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
         context: ExecutionContext,
+        role: Role,
+        run_context: RunContext,
     ):
         # Static
         self.dsl = dsl
         self.executor = executor
         self.skip_strategy = skip_strategy
+        self.role = role
+        self.run_context = run_context
         # self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
         self.logger = logger
         self.tasks: dict[str, ActionStatement] = {}
@@ -152,16 +157,13 @@ class DSLScheduler:
 
     @property
     def workspace_id(self) -> str:
-        role = ctx_role.get()
-        if role is None:
-            raise ValueError("No role found in context")
-        if role.workspace_id is None:
+        if self.role.workspace_id is None:
             raise ValueError("Workspace ID is required")
-        return str(role.workspace_id)
+        return str(self.role.workspace_id)
 
     @property
     def wf_exec_id(self) -> str:
-        return ctx_run.get().wf_exec_id
+        return self.run_context.wf_exec_id
 
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()

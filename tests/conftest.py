@@ -532,7 +532,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
         sync_engine.dispose()
 
     # Seed both the per-test database and the default engine DB (used by services via with_session()).
-    target_uris = {TEST_DB_CONFIG.test_url_sync}
+    target_uris = {TEST_DB_CONFIG.test_url_sync, config.TRACECAT__DB_URI}
     for uri in sorted(target_uris):
         _seed_registry_version(uri)
 

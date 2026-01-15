@@ -13,7 +13,7 @@ import pytest
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data
 from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement, GatherArgs, ScatterArgs
@@ -94,6 +94,9 @@ async def test_scatter_with_interval_basic(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results are correct
     gathered_results = result["ACTIONS"]["gather"]["result"]
     assert len(gathered_results) == collection_size
@@ -168,6 +171,9 @@ async def test_scatter_without_interval(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results
     assert result["ACTIONS"]["gather"]["result"] == [2, 3, 4, 5]
 
@@ -236,6 +242,9 @@ async def test_scatter_with_zero_interval(
 
     end_time = time.time()
     elapsed = end_time - start_time
+
+    # Unwrap StoredObject result
+    result = await to_data(result)
 
     # Verify results
     assert result["ACTIONS"]["gather"]["result"] == [2, 4, 6]
@@ -312,6 +321,9 @@ async def test_scatter_interval_with_downstream_tasks(
 
     end_time = time.time()
     elapsed = end_time - start_time
+
+    # Unwrap StoredObject result
+    result = await to_data(result)
 
     # Verify results: 10+1+1=12, 20+1+1=22, 30+1+1=32
     assert result["ACTIONS"]["gather"]["result"] == [12, 22, 32]
@@ -403,6 +415,9 @@ async def test_nested_scatter_with_intervals(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results: [[10, 20], [30, 40]]
     # Only the final gather (gather2) appears in ACTIONS
     assert result["ACTIONS"]["gather2"]["result"] == [[10, 20], [30, 40]]
@@ -473,6 +488,9 @@ async def test_scatter_interval_with_empty_collection(
 
     end_time = time.time()
     elapsed = end_time - start_time
+
+    # Unwrap StoredObject result
+    result = await to_data(result)
 
     # Empty collection should result in empty gather
     assert result["ACTIONS"]["gather"]["result"] == []
@@ -555,6 +573,9 @@ async def test_scatter_interval_rate_limiting_use_case(
 
     end_time = time.time()
     elapsed = end_time - start_time
+
+    # Unwrap StoredObject result
+    result = await to_data(result)
 
     # Verify all requests completed
     responses = result["ACTIONS"]["gather_responses"]["result"]

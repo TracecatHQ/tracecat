@@ -516,6 +516,8 @@ class DSLWorkflow:
             executor=self.execute_task,
             dsl=self.dsl,
             context=self.context,
+            role=self.role,
+            run_context=self.run_context,
         )
         try:
             task_exceptions = await self.scheduler.start()

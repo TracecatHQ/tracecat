@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
+from datetime import UTC, datetime
 
 import pytest
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import EdgeType
 from tracecat.dsl.scheduler import DSLScheduler
-from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, ExecutionContext
+from tracecat.dsl.schemas import (
+    ROOT_STREAM,
+    ActionStatement,
+    ExecutionContext,
+    RunContext,
+)
 from tracecat.dsl.types import Task
+from tracecat.identifiers.workflow import WorkflowUUID
 
 
 class _ControlledPutQueue:
@@ -50,10 +59,26 @@ async def test_queue_tasks_is_deterministic() -> None:
             ActionStatement(ref="b", action="core.noop", depends_on=["a"]),
         ],
     )
+    wf_id = WorkflowUUID.new_uuid4()
+    test_role = Role(
+        type="service",
+        service_id="tracecat-runner",
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+    )
+    test_run_context = RunContext(
+        wf_id=wf_id,
+        wf_exec_id=f"{wf_id.short()}/exec_test",
+        wf_run_id=uuid.uuid4(),
+        environment="test",
+        logical_time=datetime.now(UTC),
+    )
     scheduler = DSLScheduler(
         executor=executor,
         dsl=dsl,
         context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=test_role,
+        run_context=test_run_context,
     )
 
     assert scheduler.adj["a"] == (("b", EdgeType.SUCCESS), ("c", EdgeType.SUCCESS))
