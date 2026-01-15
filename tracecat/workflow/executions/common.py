@@ -8,13 +8,14 @@ from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.compression import get_compression_payload_codec
-from tracecat.dsl.schemas import TaskResult
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.storage.object import (
+    CollectionObject,
     ExternalObject,
     InlineObject,
+    StoredObject,
     get_object_storage,
 )
 from tracecat.workflow.executions.enums import (
@@ -79,11 +80,14 @@ HISTORY_TO_WF_EVENT_TYPE = {
 }
 
 
-# Activities that use RunActionInput schema (allowlist approach)
-# Only these activities should be parsed as RunActionInput
+# Activities that use action schemas (allowlist approach)
+# These activities can be associated with action_ref in event history
+# - execute_action_activity and noop_gather_action_activity use RunActionInput
+# - handle_scatter_input_activity uses ScatterActionInput
 ACTION_ACTIVITIES = {
     ExecutorActivities.execute_action_activity.__name__,
     DSLActivities.noop_gather_action_activity.__name__,
+    DSLActivities.handle_scatter_input_activity.__name__,
 }
 
 
@@ -108,7 +112,7 @@ def is_action_activity(activity_name: str) -> bool:
     return activity_name in ACTION_ACTIVITIES
 
 
-async def unwrap_action_result(task_result: TaskResult) -> Any:
+async def unwrap_action_result(task_result: StoredObject) -> Any:
     """Unwrap TaskResult and materialize StoredObject for display.
 
     With uniform envelope design, action results in Temporal history are stored as:
@@ -118,27 +122,25 @@ async def unwrap_action_result(task_result: TaskResult) -> Any:
     - Validates StoredObject using TypeAdapter with discriminated union
     - For InlineObject: extracts 'data' directly
     - For ExternalObject: fetches from S3/MinIO storage
+    - For CollectionObject: returns metadata (don't materialize huge collections)
 
     Returns the original value unchanged if it doesn't match TaskResult structure.
     """
-    # Handle collection_index for scatter items
-    collection_index = task_result.collection_index
 
-    match stored := task_result.result:
+    match task_result:
         case InlineObject(data=data):
-            if collection_index is not None and isinstance(data, list):
-                return data[collection_index] if collection_index < len(data) else None
             return data
 
         case ExternalObject():
             storage = get_object_storage()
-            data = await storage.retrieve(stored)
-            if collection_index is not None and isinstance(data, list):
-                return data[collection_index] if collection_index < len(data) else None
+            data = await storage.retrieve(task_result)
             return data
 
+        case CollectionObject():
+            return task_result
 
-_task_result_validator: TypeAdapter[TaskResult] = TypeAdapter(TaskResult)
+
+_stored_object_validator: TypeAdapter[StoredObject] = TypeAdapter(StoredObject)
 
 
 async def get_result(event: HistoryEvent) -> Any:
@@ -164,8 +166,9 @@ async def get_result(event: HistoryEvent) -> Any:
 
     # Try to unwrap TaskResult/StoredObject for display
     # Fall back to raw result for backward compatibility
+    logger.debug("Unwrapping result", result=result, type=type(result).__name__)
     try:
-        task_result = _task_result_validator.validate_python(result)
+        task_result = _stored_object_validator.validate_python(result)
         return await unwrap_action_result(task_result)
     except ValidationError:
         # Pre-TaskResult format or non-action result - return as-is

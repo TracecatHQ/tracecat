@@ -25,6 +25,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
@@ -37,6 +38,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionTerminate,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 
@@ -235,7 +237,12 @@ async def create_workflow_execution(
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
-            registry_lock=defn.registry_lock,
+            # For regular workflow executions, use the registry lock from the workflow definition
+            registry_lock=(
+                RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None
+            ),
         )
         return response
     except TracecatValidationError as e:
@@ -260,7 +267,6 @@ async def create_draft_workflow_execution(
     Draft executions run the current draft workflow graph (not the committed definition).
     Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     service = await WorkflowExecutionsService.connect(role=role)
     wf_id = WorkflowUUID.new(params.workflow_id)
@@ -299,7 +305,7 @@ async def create_draft_workflow_execution(
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
-            registry_lock=workflow.registry_lock,
+            # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
         return response
     except TracecatValidationError as e:

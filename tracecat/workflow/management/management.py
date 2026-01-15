@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from temporalio import activity
 
 from tracecat.audit.logger import audit_log
+from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
     Tag,
@@ -21,17 +22,19 @@ from tracecat.db.models import (
     WorkflowDefinition,
     WorkflowTag,
 )
+from tracecat.dsl.action import materialize_context
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
     build_action_statements_from_actions,
 )
-from tracecat.dsl.schemas import DSLConfig
+from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
 from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatValidationError,
 )
+from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
@@ -761,11 +764,27 @@ class WorkflowsManagementService(BaseService):
     @staticmethod
     @activity.defn
     async def resolve_workflow_alias_activity(
+        ctx: RunContext,
+        operand: ExecutionContext,
         input: ResolveWorkflowAliasActivityInputs,
     ) -> WorkflowID | None:
+        # Resolve expr
+        # Materialize any StoredObjects in operand before evaluation
+        materialized = await materialize_context(operand)
+        token = ctx_logical_time.set(ctx.logical_time)
+        try:
+            evaluated_alias = eval_templated_object(
+                input.workflow_alias, operand=materialized
+            )
+        finally:
+            ctx_logical_time.reset(token)
+        if not isinstance(evaluated_alias, str):
+            raise TypeError(
+                f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
+            )
         async with WorkflowsManagementService.with_session(input.role) as service:
             return await service.resolve_workflow_alias(
-                input.workflow_alias, use_committed=input.use_committed
+                evaluated_alias, use_committed=input.use_committed
             )
 
     @staticmethod
