@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+#
+# Tracecat multi-cluster management script
+#
+# Usage:
+#   ./cluster <cluster_num> [-p profile] <command> [args...]
+#
+# Profiles:
+#   dev     docker-compose.dev.yml (default)
+#   local   docker-compose.local.yml
+#   prod    docker-compose.yml
+#
+# Examples:
+#   ./cluster 1 up -d              # Start cluster 1 (dev profile)
+#   ./cluster 2 -p local up -d     # Start cluster 2 with local profile
+#   ./cluster 1 down               # Stop cluster 1
+#   ./cluster 1 ps                 # Show cluster 1 containers
+#   ./cluster 1 logs api           # Show logs for api service in cluster 1
+#   ./cluster list                 # List all running clusters
+#   ./cluster 1 ports              # Show port mappings for cluster 1
+#
+# Port allocation (offset = (cluster_num - 1) * 100):
+#   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001
+#   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101
+#   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201
+#   ...
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/.env"
+
+# Default profile
+PROFILE="dev"
+
+# Base ports (cluster 1 defaults)
+BASE_PUBLIC_APP_PORT=80
+BASE_UI_PORT=3000
+BASE_PG_PORT=5432
+BASE_REDIS_PORT=6379
+BASE_TEMPORAL_PORT=7233
+BASE_API_PORT=8000
+BASE_TEMPORAL_UI_PORT=8081
+BASE_MINIO_PORT=9000
+BASE_MINIO_CONSOLE_PORT=9001
+
+# Map profile to compose file
+get_compose_file() {
+    local profile=$1
+    case "$profile" in
+        dev)
+            echo "${REPO_ROOT}/docker-compose.dev.yml"
+            ;;
+        local)
+            echo "${REPO_ROOT}/docker-compose.local.yml"
+            ;;
+        prod)
+            echo "${REPO_ROOT}/docker-compose.yml"
+            ;;
+        *)
+            echo "Error: Unknown profile '$profile'. Valid profiles: dev, local, prod" >&2
+            exit 1
+            ;;
+    esac
+}
+
+usage() {
+    cat <<EOF
+Usage: ./cluster <cluster_num> [-p profile] <command> [args...]
+       ./cluster list
+
+Profiles:
+  dev       docker-compose.dev.yml (default)
+  local     docker-compose.local.yml
+  prod      docker-compose.yml
+
+Commands:
+  up [args]     Start the cluster (e.g., up -d)
+  down          Stop the cluster
+  ps            Show running containers
+  logs [svc]    Show logs (optionally for specific service)
+  ports         Show port mappings for the cluster
+  list          List all running Tracecat clusters
+
+Examples:
+  ./cluster 1 up -d              Start cluster 1 (dev profile)
+  ./cluster 2 -p local up -d     Start cluster 2 with local profile
+  ./cluster 1 down               Stop cluster 1
+  ./cluster list                 List all clusters
+EOF
+    exit 0
+}
+
+# Calculate ports for a given cluster number
+calculate_ports() {
+    local cluster_num=$1
+    local offset=$(( (cluster_num - 1) * 100 ))
+
+    PUBLIC_APP_PORT=$(( BASE_PUBLIC_APP_PORT + offset ))
+    UI_PORT=$(( BASE_UI_PORT + offset ))
+    PG_PORT=$(( BASE_PG_PORT + offset ))
+    REDIS_PORT_HOST=$(( BASE_REDIS_PORT + offset ))
+    TEMPORAL_PORT=$(( BASE_TEMPORAL_PORT + offset ))
+    API_PORT=$(( BASE_API_PORT + offset ))
+    TEMPORAL_UI_PORT=$(( BASE_TEMPORAL_UI_PORT + offset ))
+    MINIO_PORT=$(( BASE_MINIO_PORT + offset ))
+    MINIO_CONSOLE_PORT=$(( BASE_MINIO_CONSOLE_PORT + offset ))
+}
+
+# Build environment variables for docker compose
+build_env() {
+    local cluster_num=$1
+    calculate_ports "$cluster_num"
+
+    # URLs that depend on ports
+    local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
+    local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
+
+    # Export all variables
+    export COMPOSE_PROJECT_NAME="tracecat-${cluster_num}"
+    export PUBLIC_APP_PORT
+    export PUBLIC_APP_URL
+    export PUBLIC_API_URL
+    export UI_PORT
+    export PG_PORT
+    export REDIS_PORT_HOST
+    export TEMPORAL_PORT
+    export API_PORT
+    export TEMPORAL_UI_PORT
+    export MINIO_PORT
+    export MINIO_CONSOLE_PORT
+
+    # URL variables that reference the public port
+    export TRACECAT__PUBLIC_APP_URL="${PUBLIC_APP_URL}"
+    export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
+    export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
+    export NEXT_PUBLIC_API_URL="http://localhost:${PUBLIC_APP_PORT}/api"
+
+    # Caddy configuration
+    export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
+}
+
+# Show port mappings for a cluster
+show_ports() {
+    local cluster_num=$1
+    calculate_ports "$cluster_num"
+
+    cat <<EOF
+Cluster ${cluster_num} port mappings:
+  UI (Caddy):      http://localhost:${PUBLIC_APP_PORT}
+  API:             http://localhost:${PUBLIC_APP_PORT}/api (internal: ${API_PORT})
+  PostgreSQL:      localhost:${PG_PORT}
+  Redis:           localhost:${REDIS_PORT_HOST}
+  Temporal:        localhost:${TEMPORAL_PORT}
+  Temporal UI:     http://localhost:${TEMPORAL_UI_PORT}
+  MinIO:           localhost:${MINIO_PORT}
+  MinIO Console:   http://localhost:${MINIO_CONSOLE_PORT}
+EOF
+}
+
+# List all running Tracecat clusters
+list_clusters() {
+    echo "Running Tracecat clusters:"
+    echo ""
+
+    local found=false
+    for project in $(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null || docker compose ls -q 2>/dev/null); do
+        if [[ "$project" =~ ^tracecat-[0-9]+$ ]]; then
+            found=true
+            local cluster_num="${project#tracecat-}"
+            calculate_ports "$cluster_num"
+            local status
+            status=$(docker compose -p "$project" ps --format json 2>/dev/null | jq -r 'if type == "array" then .[0].State else .State end' 2>/dev/null || echo "unknown")
+            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT} (status: ${status:-running})"
+        fi
+    done
+
+    if [[ "$found" == "false" ]]; then
+        echo "  No clusters running"
+    fi
+}
+
+# Main
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+# Handle 'list' command specially
+if [[ "$1" == "list" ]]; then
+    list_clusters
+    exit 0
+fi
+
+# Validate cluster number
+CLUSTER_NUM="$1"
+if ! [[ "$CLUSTER_NUM" =~ ^[0-9]+$ ]] || [[ "$CLUSTER_NUM" -lt 1 ]] || [[ "$CLUSTER_NUM" -gt 99 ]]; then
+    echo "Error: Cluster number must be between 1 and 99"
+    exit 1
+fi
+
+shift
+
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+# Parse optional -p/--profile flag
+if [[ "$1" == "-p" ]] || [[ "$1" == "--profile" ]]; then
+    if [[ $# -lt 2 ]]; then
+        echo "Error: -p/--profile requires a profile name"
+        exit 1
+    fi
+    PROFILE="$2"
+    shift 2
+fi
+
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+COMMAND="$1"
+shift
+
+# Get compose file for profile
+COMPOSE_FILE=$(get_compose_file "$PROFILE")
+
+# Handle 'ports' command
+if [[ "$COMMAND" == "ports" ]]; then
+    show_ports "$CLUSTER_NUM"
+    exit 0
+fi
+
+# Build environment and run docker compose
+build_env "$CLUSTER_NUM"
+
+# Source the .env file for other variables (but our exports take precedence)
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+    # Re-apply our overrides (source may have overwritten them)
+    build_env "$CLUSTER_NUM"
+fi
+
+# Run docker compose with the configured environment
+exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${CLUSTER_NUM}" "$COMMAND" "$@"
