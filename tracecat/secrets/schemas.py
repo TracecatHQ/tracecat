@@ -31,7 +31,7 @@ SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 """Validator for a secret key. e.g. 'access_key_id'"""
 
-SSHKeyTarget = Literal["registry", "store"]
+SSHKeyTarget = Literal["registry"]
 SSH_PRIVATE_KEY_NAME = "PRIVATE_KEY"
 TLS_CERTIFICATE_NAME = "TLS_CERTIFICATE"
 TLS_PRIVATE_KEY_NAME = "TLS_PRIVATE_KEY"
