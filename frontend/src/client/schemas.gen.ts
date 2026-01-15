@@ -3812,6 +3812,11 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    always_visible: {
+      type: "boolean",
+      title: "Always Visible",
+      default: false,
+    },
   },
   type: "object",
   required: ["name", "type"],
@@ -3864,6 +3869,11 @@ export const $CaseFieldRead = {
         },
       ],
       title: "Options",
+    },
+    always_visible: {
+      type: "boolean",
+      title: "Always Visible",
+      default: false,
     },
     value: {
       title: "Value",
@@ -3928,6 +3938,11 @@ export const $CaseFieldReadMinimal = {
         },
       ],
       title: "Options",
+    },
+    always_visible: {
+      type: "boolean",
+      title: "Always Visible",
+      default: false,
     },
   },
   type: "object",
@@ -4012,6 +4027,17 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    always_visible: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Always Visible",
     },
   },
   type: "object",

@@ -520,6 +520,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         .map((field) => field.id),
     [customFields, clearedCustomFieldIds]
   )
+  const alwaysVisibleCustomFieldIds = useMemo(
+    () =>
+      customFields
+        .filter((field) => field.always_visible)
+        .map((field) => field.id),
+    [customFields]
+  )
   useEffect(() => {
     setUserAddedCustomFieldIds((prev) =>
       prev.filter((id) => customFields.some((field) => field.id === id))
@@ -549,9 +556,18 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     )
   }, [customFields])
   const visibleCustomFieldIds = useMemo(() => {
-    const set = new Set([...nonEmptyCustomFieldIds, ...userAddedCustomFieldIds])
+    const set = new Set([
+      ...nonEmptyCustomFieldIds,
+      ...userAddedCustomFieldIds,
+      ...alwaysVisibleCustomFieldIds,
+    ])
     return customFields.map((field) => field.id).filter((id) => set.has(id))
-  }, [customFields, nonEmptyCustomFieldIds, userAddedCustomFieldIds])
+  }, [
+    customFields,
+    nonEmptyCustomFieldIds,
+    userAddedCustomFieldIds,
+    alwaysVisibleCustomFieldIds,
+  ])
   const visibleCustomFields = useMemo(
     () =>
       customFields.filter((field) => visibleCustomFieldIds.includes(field.id)),
@@ -599,6 +615,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   )
   const handleCustomFieldClearAndHide = useCallback(
     async (field: CaseFieldRead) => {
+      if (field.always_visible) {
+        try {
+          await updateCase({
+            fields: {
+              [field.id]: null,
+            },
+          })
+          handleCustomFieldValueChange(field.id, null)
+        } catch (error) {
+          console.error("Failed to clear custom field:", error)
+        }
+        return
+      }
       setClearedCustomFieldIds((prev) =>
         prev.includes(field.id) ? prev : [...prev, field.id]
       )
@@ -858,7 +887,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                                 >
                                   <X className="h-3.5 w-3.5" />
                                   <span className="sr-only">
-                                    Remove {label} field
+                                    {field.always_visible ? "Clear" : "Remove"}{" "}
+                                    {label} field
                                   </span>
                                 </Button>
                               </div>

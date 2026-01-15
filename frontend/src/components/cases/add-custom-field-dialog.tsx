@@ -9,6 +9,7 @@ import { ApiError, casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
@@ -73,6 +74,7 @@ const caseFieldFormSchema = z
     default: z.string().nullable().optional(),
     defaultMulti: z.array(z.string()).optional(), // For MULTI_SELECT defaults
     options: z.array(z.string().min(1, "Option cannot be empty")).optional(),
+    alwaysVisible: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (isSelectableColumnType(data.type)) {
@@ -137,6 +139,7 @@ export function AddCustomFieldDialog({
       default: null,
       defaultMulti: [],
       options: [],
+      alwaysVisible: false,
     },
   })
   const selectedType = form.watch("type")
@@ -263,6 +266,7 @@ export function AddCustomFieldDialog({
           options: isSelectableColumnType(data.type)
             ? sanitizeColumnOptions(data.options)
             : null,
+          always_visible: data.alwaysVisible,
         },
       })
 
@@ -436,6 +440,31 @@ export function AddCustomFieldDialog({
                 )}
               />
             )}
+
+            <FormField
+              control={form.control}
+              name="alwaysVisible"
+              render={({ field }) => (
+                <FormItem className="flex items-start space-x-2">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(checked) =>
+                        field.onChange(checked === true)
+                      }
+                    />
+                  </FormControl>
+                  <div className="space-y-1">
+                    <FormLabel className="leading-none">
+                      Always visible
+                    </FormLabel>
+                    <FormDescription>
+                      Always show this field on the case panel, even when empty.
+                    </FormDescription>
+                  </div>
+                </FormItem>
+              )}
+            />
 
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>

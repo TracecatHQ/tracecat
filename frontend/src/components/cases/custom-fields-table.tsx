@@ -93,6 +93,29 @@ export function CustomFieldsTable({
             enableHiding: false,
           },
           {
+            accessorKey: "always_visible",
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Always visible"
+              />
+            ),
+            cell: ({ row }) => {
+              const isAlwaysVisible =
+                row.getValue<CaseFieldReadMinimal["always_visible"]>(
+                  "always_visible"
+                )
+              return (
+                <div className="text-xs text-foreground/80">
+                  {isAlwaysVisible ? "Yes" : "No"}
+                </div>
+              )
+            },
+            enableSorting: true,
+            enableHiding: false,
+          },
+          {
             accessorKey: "default",
             header: ({ column }) => (
               <DataTableColumnHeader

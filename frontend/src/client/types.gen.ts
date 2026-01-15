@@ -1080,6 +1080,7 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  always_visible?: boolean
 }
 
 /**
@@ -1093,6 +1094,7 @@ export type CaseFieldRead = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  always_visible?: boolean
   value: unknown
 }
 
@@ -1107,6 +1109,7 @@ export type CaseFieldReadMinimal = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  always_visible?: boolean
 }
 
 /**
@@ -1134,6 +1137,7 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  always_visible?: boolean | null
 }
 
 /**

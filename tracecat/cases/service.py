@@ -58,7 +58,7 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
-from tracecat.custom_fields.schemas import CustomFieldCreate
+from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -920,13 +920,51 @@ class CaseFieldsService(CustomFieldsService):
 
         # Store field metadata in schema
         # Schema structure: {field_name: {type, options (only for SELECT/MULTI_SELECT)}}
-        field_def: dict[str, Any] = {"type": params.type.value}
+        field_def: dict[str, Any] = {
+            "type": params.type.value,
+            "always_visible": params.always_visible,
+        }
 
         # Only include options for SELECT/MULTI_SELECT types
         if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
             field_def["options"] = normalize_column_options(params.options)
 
         await self._update_field_schema(params.name, field_def)
+
+        await self.session.commit()
+
+    async def update_field(self, field_id: str, params: CustomFieldUpdate) -> None:
+        """Update a custom field column and its schema metadata."""
+
+        await self._ensure_schema_ready()
+        await self.editor.update_column(field_id, params)
+
+        schema = await self.get_field_schema()
+        field_def = dict(schema.get(field_id, {}))
+
+        if params.type is not None:
+            field_def["type"] = params.type.value
+            if params.type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                field_def.pop("options", None)
+
+        if params.options is not None:
+            target_type = params.type
+            if target_type is None and "type" in field_def:
+                target_type = SqlType(field_def["type"])
+            if target_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                field_def["options"] = normalize_column_options(params.options)
+            else:
+                field_def.pop("options", None)
+
+        if params.always_visible is not None:
+            field_def["always_visible"] = params.always_visible
+
+        target_field_id = params.name or field_id
+        if params.name and params.name != field_id:
+            await self._update_field_schema(field_id, None)
+
+        if field_def:
+            await self._update_field_schema(target_field_id, field_def)
 
         await self.session.commit()
 

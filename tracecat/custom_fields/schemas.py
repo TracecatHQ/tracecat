@@ -20,6 +20,7 @@ class CustomFieldRead(Schema):
     default: str | None
     reserved: bool
     options: list[str] | None = None
+    always_visible: bool = False
 
     @classmethod
     def from_sa(
@@ -61,6 +62,9 @@ class CustomFieldRead(Schema):
         if schema_metadata and "type" in schema_metadata:
             sql_type = SqlType(schema_metadata["type"])
             options = schema_metadata.get("options")
+        always_visible = (
+            bool(schema_metadata.get("always_visible")) if schema_metadata else False
+        )
 
         return cls(
             id=column["name"],
@@ -70,15 +74,20 @@ class CustomFieldRead(Schema):
             default=parse_postgres_default(column.get("default")),
             reserved=column["name"] in reserved_set,
             options=options,
+            always_visible=always_visible,
         )
 
 
 class CustomFieldCreate(TableColumnCreate):
     """Create a new custom field."""
 
+    always_visible: bool = False
+
 
 class CustomFieldUpdate(TableColumnUpdate):
     """Update a custom field."""
+
+    always_visible: bool | None = None
 
 
 __all__ = [
