@@ -216,7 +216,7 @@ class TaskResult(BaseModel):
 
     def is_externalized(self) -> bool:
         """Check if the result is stored externally (in S3/MinIO)."""
-        return self.result.type == "external"
+        return self.result.type in ("external", "collection")
 
     def get_data(self) -> Any:
         """Get the raw data from the StoredObject.
