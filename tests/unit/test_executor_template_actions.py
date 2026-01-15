@@ -649,3 +649,529 @@ async def test_template_action_for_each(
 
     # Each value has 10 added: [11, 12, 13]
     assert result == [11, 12, 13]
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_nested_template_steps_isolation(
+    test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that nested template's steps don't leak to parent template's steps.
+
+    The nested template should have its own isolated `steps` dict that doesn't
+    contain or affect the parent's steps.
+    """
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    session, db_repo_id = db_session_with_repo
+
+    # Inner template: has step "inner_step"
+    inner_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Inner Template",
+            description="Inner template with named step",
+            name="inner_with_step",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "value": ExpectedField(type="int", description="Input value"),
+            },
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="inner_step",
+                    action="core.transform.reshape",
+                    args={"value": "${{ inputs.value + 1 }}"},
+                ),
+            ],
+            returns="${{ steps.inner_step.result }}",
+        ),
+    )
+
+    # Outer template: has step "outer_step", calls inner, then has "final_step"
+    # The outer template should NOT be able to see "inner_step"
+    outer_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Outer Template",
+            description="Outer template that calls inner",
+            name="outer_with_step",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "value": ExpectedField(type="int", description="Input value"),
+            },
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="outer_step",
+                    action="core.transform.reshape",
+                    args={"value": "${{ inputs.value * 10 }}"},
+                ),
+                ActionStep(
+                    ref="nested_call",
+                    action="testing.inner_with_step",
+                    args={"value": "${{ steps.outer_step.result }}"},
+                ),
+                ActionStep(
+                    ref="final_step",
+                    action="core.transform.reshape",
+                    args={
+                        "value": {
+                            "outer_result": "${{ steps.outer_step.result }}",
+                            "nested_result": "${{ steps.nested_call.result }}",
+                        }
+                    },
+                ),
+            ],
+            returns="${{ steps.final_step.result }}",
+        ),
+    )
+
+    repo = Repository()
+    repo.register_template_action(inner_action)
+    repo.register_template_action(outer_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.inner_with_step"), db_repo_id)
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.outer_with_step"), db_repo_id)
+    )
+
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [repo.get("testing.inner_with_step"), repo.get("testing.outer_with_step")],
+    )
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.outer_with_step",
+            args={"value": 5},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=registry_lock,
+    )
+
+    result = await run_template_test(input, test_role)
+
+    # outer_step: 5 * 10 = 50
+    # nested_call (inner_step): 50 + 1 = 51
+    # final_step: returns both
+    assert result == {"outer_result": 50, "nested_result": 51}
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_nested_template_inputs_isolation(
+    test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that nested template gets its own inputs, not parent's inputs.
+
+    The nested template should only see the args passed to it, not the
+    parent template's inputs.
+    """
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    session, db_repo_id = db_session_with_repo
+
+    # Inner template expects "inner_val"
+    inner_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Inner Template",
+            description="Inner template with different input name",
+            name="inner_inputs",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "inner_val": ExpectedField(type="int", description="Inner input"),
+            },
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="use_inner",
+                    action="core.transform.reshape",
+                    args={"value": "${{ inputs.inner_val }}"},
+                ),
+            ],
+            returns="${{ steps.use_inner.result }}",
+        ),
+    )
+
+    # Outer template expects "outer_val"
+    outer_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Outer Template",
+            description="Outer template with different input name",
+            name="outer_inputs",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "outer_val": ExpectedField(type="int", description="Outer input"),
+            },
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="call_inner",
+                    action="testing.inner_inputs",
+                    args={"inner_val": "${{ inputs.outer_val + 100 }}"},
+                ),
+            ],
+            returns={
+                "outer_input": "${{ inputs.outer_val }}",
+                "inner_result": "${{ steps.call_inner.result }}",
+            },
+        ),
+    )
+
+    repo = Repository()
+    repo.register_template_action(inner_action)
+    repo.register_template_action(outer_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.inner_inputs"), db_repo_id)
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.outer_inputs"), db_repo_id)
+    )
+
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [repo.get("testing.inner_inputs"), repo.get("testing.outer_inputs")],
+    )
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.outer_inputs",
+            args={"outer_val": 42},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=registry_lock,
+    )
+
+    result = await run_template_test(input, test_role)
+
+    # outer_val = 42
+    # inner gets inner_val = 42 + 100 = 142
+    assert result == {"outer_input": 42, "inner_result": 142}
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_nested_template_vars_propagation(
+    test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that VARS from parent context are available in nested template.
+
+    VARS are fetched from the database at the top-level and propagated to nested
+    templates via resolved_context.variables.
+    """
+    from tracecat.db.models import WorkspaceVariable
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    session, db_repo_id = db_session_with_repo
+
+    # Create a workspace variable in the database
+    workspace_var = WorkspaceVariable(
+        workspace_id=test_role.workspace_id,
+        name="test_var",
+        description="Test variable for propagation",
+        values={"value": "propagated_value"},
+        environment="default",
+    )
+    session.add(workspace_var)
+    await session.commit()
+
+    # Inner template uses VARS
+    inner_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Inner Uses VARS",
+            description="Inner template that reads VARS",
+            name="inner_vars",
+            namespace="testing",
+            display_group="Testing",
+            expects={},
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="read_vars",
+                    action="core.transform.reshape",
+                    args={"value": "${{ VARS.test_var.value }}"},
+                ),
+            ],
+            returns="${{ steps.read_vars.result }}",
+        ),
+    )
+
+    # Outer template calls inner
+    outer_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Outer Calls Inner",
+            description="Outer template that calls inner which uses VARS",
+            name="outer_vars",
+            namespace="testing",
+            display_group="Testing",
+            expects={},
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="call_inner",
+                    action="testing.inner_vars",
+                    args={},
+                ),
+            ],
+            returns="${{ steps.call_inner.result }}",
+        ),
+    )
+
+    repo = Repository()
+    repo.register_template_action(inner_action)
+    repo.register_template_action(outer_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.inner_vars"), db_repo_id)
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.outer_vars"), db_repo_id)
+    )
+
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [repo.get("testing.inner_vars"), repo.get("testing.outer_vars")],
+    )
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.outer_vars",
+            args={},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=registry_lock,
+    )
+
+    result = await run_template_test(input, test_role)
+
+    # Inner template should have access to VARS.test_var.value
+    assert result == "propagated_value"
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_nested_template_env_propagation(
+    test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that ENV from parent context is available in nested template.
+
+    ENV is passed through exec_context and propagated to nested templates.
+    """
+    from tracecat.dsl.schemas import DSLEnvironment
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    session, db_repo_id = db_session_with_repo
+
+    # Inner template uses ENV
+    inner_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Inner Uses ENV",
+            description="Inner template that reads ENV",
+            name="inner_env",
+            namespace="testing",
+            display_group="Testing",
+            expects={},
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="read_env",
+                    action="core.transform.reshape",
+                    args={"value": "${{ ENV.environment }}"},
+                ),
+            ],
+            returns="${{ steps.read_env.result }}",
+        ),
+    )
+
+    # Outer template calls inner
+    outer_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Outer Calls Inner",
+            description="Outer template that calls inner which uses ENV",
+            name="outer_env",
+            namespace="testing",
+            display_group="Testing",
+            expects={},
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="call_inner",
+                    action="testing.inner_env",
+                    args={},
+                ),
+            ],
+            returns="${{ steps.call_inner.result }}",
+        ),
+    )
+
+    repo = Repository()
+    repo.register_template_action(inner_action)
+    repo.register_template_action(outer_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.inner_env"), db_repo_id)
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.outer_env"), db_repo_id)
+    )
+
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [repo.get("testing.inner_env"), repo.get("testing.outer_env")],
+    )
+
+    # Create execution context with ENV
+    exec_context = create_default_execution_context(
+        ENV=DSLEnvironment(environment="test_environment")
+    )
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.outer_env",
+            args={},
+        ),
+        exec_context=exec_context,
+        run_context=mock_run_context,
+        registry_lock=registry_lock,
+    )
+
+    result = await run_template_test(input, test_role)
+
+    # Inner template should have access to ENV.environment
+    assert result == "test_environment"
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_nested_template_args_passthrough(
+    test_role, db_session_with_repo, mock_run_context, monkeysession
+):
+    """Test that nested template args are passed through after evaluation.
+
+    Note: The dispatch_action path (_execute_template_action) does not perform
+    strict type validation on nested template args - values are passed through
+    after expression evaluation. This tests the current behavior where args
+    are successfully passed to nested templates regardless of expected types.
+    """
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
+    session, db_repo_id = db_session_with_repo
+
+    # Inner template declares expects but accepts any evaluated value
+    inner_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Inner Template",
+            description="Inner template that receives args",
+            name="inner_passthrough",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "input_value": ExpectedField(type="int", description="Input value"),
+            },
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="use_input",
+                    action="core.transform.reshape",
+                    args={"value": "${{ inputs.input_value }}"},
+                ),
+            ],
+            returns="${{ steps.use_input.result }}",
+        ),
+    )
+
+    # Outer template passes a string to inner (which expects int)
+    outer_action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Outer Template",
+            description="Outer template that passes value to inner",
+            name="outer_passthrough",
+            namespace="testing",
+            display_group="Testing",
+            expects={},
+            secrets=[],
+            steps=[
+                ActionStep(
+                    ref="call_inner",
+                    action="testing.inner_passthrough",
+                    args={"input_value": "string_value"},
+                ),
+            ],
+            returns="${{ steps.call_inner.result }}",
+        ),
+    )
+
+    repo = Repository()
+    repo.register_template_action(inner_action)
+    repo.register_template_action(outer_action)
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(
+            repo.get("testing.inner_passthrough"), db_repo_id
+        )
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(
+            repo.get("testing.outer_passthrough"), db_repo_id
+        )
+    )
+
+    registry_lock = await create_manifest_for_actions(
+        session,
+        db_repo_id,
+        [
+            repo.get("testing.inner_passthrough"),
+            repo.get("testing.outer_passthrough"),
+        ],
+    )
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.outer_passthrough",
+            args={},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=registry_lock,
+    )
+
+    # Args pass through without strict type validation
+    result = await run_template_test(input, test_role)
+
+    # The string value is passed through to inner template
+    assert result == "string_value"
