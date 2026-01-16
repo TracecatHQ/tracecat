@@ -12,13 +12,16 @@ resource "aws_security_group" "rds" {
     description     = "PostgreSQL from Tracecat pods with SecurityGroupPolicy"
   }
 
-  # Allow PostgreSQL access from any pod in the VPC (fallback for pods without SGP)
-  ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
-    description = "PostgreSQL from VPC CIDR (fallback)"
+  # Optional fallback for pods without SecurityGroupPolicy (off by default).
+  dynamic "ingress" {
+    for_each = var.rds_allow_vpc_cidr_fallback ? [1] : []
+    content {
+      from_port   = 5432
+      to_port     = 5432
+      protocol    = "tcp"
+      cidr_blocks = [data.aws_vpc.selected.cidr_block]
+      description = "PostgreSQL from VPC CIDR (fallback)"
+    }
   }
 
   egress {
@@ -94,9 +97,9 @@ resource "aws_db_instance" "tracecat" {
   backup_window          = "03:00-04:00"
   maintenance_window     = "Mon:04:00-Mon:05:00"
 
-  skip_final_snapshot       = true
-  final_snapshot_identifier = "${var.cluster_name}-postgres-${local.rds_suffix}-final"
-  deletion_protection       = false
+  skip_final_snapshot       = var.rds_skip_final_snapshot
+  final_snapshot_identifier = var.rds_skip_final_snapshot ? null : "${var.cluster_name}-postgres-${local.rds_suffix}-final"
+  deletion_protection       = var.rds_deletion_protection
 
   performance_insights_enabled = true
 
@@ -116,6 +119,7 @@ resource "null_resource" "create_temporal_databases" {
 
   provisioner "local-exec" {
     command = <<-EOT
+      set -euo pipefail
       kubectl delete job temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} --ignore-not-found
 
       cat <<EOF | kubectl apply -f -
@@ -124,9 +128,14 @@ kind: Job
 metadata:
   name: temporal-db-setup
   namespace: ${kubernetes_namespace.tracecat.metadata[0].name}
+  labels:
+    tracecat.com/access-postgres: "true"
 spec:
   ttlSecondsAfterFinished: 300
   template:
+    metadata:
+      labels:
+        tracecat.com/access-postgres: "true"
     spec:
       restartPolicy: Never
       containers:
@@ -154,7 +163,12 @@ spec:
 EOF
 
       echo "Waiting for temporal-db-setup job to complete..."
-      kubectl wait --for=condition=complete job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} --timeout=120s || true
+      if ! kubectl wait --for=condition=complete job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} --timeout=120s; then
+        echo "temporal-db-setup job did not complete; dumping logs for debugging"
+        kubectl logs job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} || true
+        kubectl describe job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} || true
+        exit 1
+      fi
     EOT
   }
 
