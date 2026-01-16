@@ -438,6 +438,20 @@ TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
 If not set, will be auto-detected from a known dependency's location.
 """
 
+TRACECAT__EXECUTOR_POOL_METRICS_ENABLED = os.environ.get(
+    "TRACECAT__EXECUTOR_POOL_METRICS_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable periodic metrics emission for the worker pool.
+
+When True, the pool emits metrics every 10 seconds including:
+- Pool utilization and capacity
+- Worker states (alive, dead, recycling)
+- Lock contention stats
+- Throughput metrics
+
+When False (default), metrics are not emitted to reduce log noise.
+"""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
