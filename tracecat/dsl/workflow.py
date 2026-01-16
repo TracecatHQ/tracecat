@@ -1087,7 +1087,7 @@ class DSLWorkflow:
         task: ActionStatement,
         prepared: PreparedSubflowResult,
         child_time_anchor: datetime,
-    ) -> CollectionObject:
+    ) -> StoredObject:
         """Execute child workflow loop using PreparedSubflowResult.
 
         Iterates over prepared.trigger_inputs (CollectionObject), passing
@@ -1165,12 +1165,9 @@ class DSLWorkflow:
                 loop_index = batch_start + i
                 config = prepared.get_config(loop_index)
 
-                # Use .at(index) to create a handle pointing to this specific item
-                trigger_inputs = (
-                    prepared.trigger_inputs.at(loop_index)
-                    if prepared.trigger_inputs is not None
-                    else None
-                )
+                # Get trigger_inputs for this specific iteration
+                # Works with both CollectionObject and InlineObject
+                trigger_inputs = prepared.get_trigger_input_at(loop_index)
 
                 yield (
                     loop_index,
@@ -1221,7 +1218,7 @@ class DSLWorkflow:
         self,
         task: ActionStatement,
         sf_context: SubflowContext,
-    ) -> CollectionObject:
+    ) -> StoredObject:
         """Execute child workflow in a loop with per-batch resolution.
 
         Uses resolve_subflow_batch_activity to evaluate args (including

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -19,7 +19,11 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.concurrency import cooperative
     from tracecat.contexts import ctx_stream_id
-    from tracecat.dsl.action import DSLActivities
+    from tracecat.dsl.action import (
+        DSLActivities,
+        EvaluateTemplatedObjectActivityInput,
+        FinalizeGatherActivityInput,
+    )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
         AdjDst,
@@ -55,7 +59,31 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.logger import logger
-    from tracecat.storage.object import action_collection_prefix
+    from tracecat.storage.object import (
+        CollectionObject,
+        InlineObject,
+        StoredObject,
+        StoredObjectValidator,
+        action_collection_prefix,
+        action_key,
+    )
+
+
+def _get_collection_size(stored: StoredObject) -> int:
+    """Get the size of a stored collection.
+
+    Works with both CollectionObject (externalized) and InlineObject (inline list).
+    """
+    match stored:
+        case CollectionObject() as col:
+            return col.count
+        case InlineObject(data=data) if isinstance(data, list):
+            return len(data)
+        case _:
+            raise TypeError(
+                f"Expected CollectionObject or InlineObject with list data, "
+                f"got {type(stored).__name__}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -746,8 +774,12 @@ class DSLScheduler:
 
         streams: list[StreamID] = []
         self.task_streams[task] = streams
+
+        # Get collection size - works with both CollectionObject and InlineObject
+        collection_size = _get_collection_size(collection)
+
         # -- SKIP STREAM
-        if not collection:
+        if collection_size == 0:
             # Mark scatter as observed
             self.open_streams[task] = 0
             self.logger.debug("Empty collection for scatter", task=task)
@@ -757,11 +789,11 @@ class DSLScheduler:
         self.logger.debug(
             "Scattering collection",
             task=task,
-            collection_size=len(collection),
+            collection_size=collection_size,
             interval=args.interval,
         )
 
-        async for i in cooperative(range(len(collection))):
+        async for i in cooperative(range(collection_size)):
             new_stream_id = StreamID.new(task.ref, i, base_stream_id=curr_stream_id)
             streams.append(new_stream_id)
 
@@ -795,7 +827,7 @@ class DSLScheduler:
         self.logger.debug(
             "Scatter completed",
             task=task,
-            collection_size=len(collection),
+            collection_size=collection_size,
             scopes_created=len(streams),
         )
 
@@ -829,7 +861,9 @@ class DSLScheduler:
             # Place an error object in the result
             # Do not pass the full object as some exceptions aren't serializable
             # Access the raw list via get_data() and modify in place
-            parent_action_context[gather_ref].get_data()[stream_idx] = err_info.details
+            parent_action_context[gather_ref].get_data()[stream_idx] = InlineObject(
+                data=ActionErrorInfoAdapter.dump_python(err_info.details)
+            )
             self.logger.debug("Set error object as result", task=task)
         else:
             # Regular skip path
@@ -926,11 +960,28 @@ class DSLScheduler:
                 )
                 if self._task_observed(scatter_task):
                     self.logger.debug(
-                        "Observed scatter, setting result to empty list", task=task
+                        "Observed scatter, setting result to empty collection",
+                        task=task,
                     )
                     parent_action_context = self._get_action_context(parent_stream)
-                    # We set this result if the corresponding scatter actually ran
-                    parent_action_context[task.ref] = TaskResult.from_result([])
+                    finalized = await workflow.execute_activity(
+                        DSLActivities.finalize_gather_activity,
+                        arg=FinalizeGatherActivityInput(
+                            collection=[],
+                            key=action_collection_prefix(
+                                self.workspace_id,
+                                self.wf_exec_id,
+                                str(parent_stream),
+                                task.ref,
+                            ),
+                        ),
+                        start_to_close_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    parent_action_context[task.ref] = TaskResult(
+                        result=finalized.result,
+                        result_typename=finalized.result.typename or "list",
+                    )
                 else:
                     self.logger.debug(
                         "Scatter not observed, skipping",
@@ -990,11 +1041,26 @@ class DSLScheduler:
 
         # Here onwards, we are not skipping.
         args = GatherArgs(**stmt.args)
+        gather_ref = task.ref
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
         current_context = self.get_context(stream_id)
         try:
-            items = await self.resolve_expression(args.items, current_context)
+            item = await workflow.execute_activity(
+                DSLActivities.evaluate_templated_object_activity,
+                arg=EvaluateTemplatedObjectActivityInput(
+                    obj=args.items,
+                    operand=current_context,
+                    key=action_key(
+                        self.workspace_id,
+                        self.wf_exec_id,
+                        str(stream_id),
+                        gather_ref,
+                    ),
+                ),
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
         except Exception as e:
             raise ApplicationError(
                 f"Error evaluating `items` expression in `core.transform.gather`: {e}",
@@ -1015,8 +1081,6 @@ class DSLScheduler:
         # We set the item as the result of the action in that stream
         # We should actually be placing this in parent.result[i]
 
-        gather_ref = task.ref
-
         # Set result array if this is the first stream
         if gather_ref not in parent_action_context:
             # NOTE: This block is executed by the first execution stream that finishes.
@@ -1027,7 +1091,7 @@ class DSLScheduler:
             parent_action_context[gather_ref] = TaskResult.from_result(result)
 
         # Access the raw list via get_data() and modify in place
-        parent_action_context[gather_ref].get_data()[stream_idx] = items
+        parent_action_context[gather_ref].get_data()[stream_idx] = item
 
         if self.open_streams[parent_scatter] == 0:
             await self._handle_gather_result(
@@ -1065,79 +1129,80 @@ class DSLScheduler:
             parent_action_context[gather_ref] = TaskResult.from_result([])
         task_result = parent_action_context[gather_ref]
 
-        # Generator - access raw list via get_data()
-        filtered_items = (
-            item
+        # Gather items are StoredObjects produced in each execution stream.
+        # Filter out unset values (Sentinel.GATHER_UNSET) here, then materialize + filter
+        # (drop_nulls, error strategy) inside an activity to avoid large payloads in history.
+        stored_items = [
+            StoredObjectValidator.validate_python(item)
             for item in task_result.get_data()
-            if not (
-                (item == Sentinel.GATHER_UNSET)
-                or (gather_args.drop_nulls and item is None)
-            )
+            if item != Sentinel.GATHER_UNSET
+        ]
+
+        finalized = await workflow.execute_activity(
+            DSLActivities.finalize_gather_activity,
+            arg=FinalizeGatherActivityInput(
+                collection=stored_items,
+                key=action_collection_prefix(
+                    self.workspace_id,
+                    self.wf_exec_id,
+                    str(parent_stream_id),
+                    gather_ref,
+                ),
+                drop_nulls=gather_args.drop_nulls,
+                error_strategy=gather_args.error_strategy,
+            ),
+            start_to_close_timeout=timedelta(seconds=120),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-
-        # Error handling strategy
-        results = []
-        errors: list[ActionErrorInfo] = []
-        # Consume generator here
-        match err_strategy := gather_args.error_strategy:
-            # Default behavior
-            case StreamErrorHandlingStrategy.PARTITION:
-                # Filter out and place in task result error
-                results, errors = _partition_errors(filtered_items)
-            case StreamErrorHandlingStrategy.DROP:
-                results = [item for item in filtered_items if not _is_error_info(item)]
-            case StreamErrorHandlingStrategy.INCLUDE:
-                results = list(filtered_items)
-            case StreamErrorHandlingStrategy.RAISE:
-                # 'raise' partitions first so we can raise an error if there are errors in the stream
-                # Only raise an error if there are errors in the stream
-                results, errors = _partition_errors(filtered_items)
-                if errors:
-                    message = (
-                        f"Gather '{gather_ref}' encountered {len(errors)} error(s)"
-                    )
-                    gather_error = ActionErrorInfo(
-                        ref=gather_ref,
-                        message=message,
-                        type=ApplicationError.__name__,
-                        children=errors,
-                        stream_id=parent_stream_id,
-                    )
-                    app_error = ApplicationError(
-                        message,
-                        {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
-                        non_retryable=True,
-                    )
-                    self.logger.warning(
-                        "Raising gather error", errors=errors, app_error=app_error
-                    )
-
-                    # Register the gather failure so the scheduler halts and the workflow error
-                    # handler can run, even though the exception originates from a non-root stream.
-                    self.task_exceptions[gather_ref] = TaskExceptionInfo(
-                        exception=app_error,
-                        details=gather_error,
-                    )
-                    raise app_error
-
-            case _:
-                raise ApplicationError(
-                    f"Invalid error handling strategy: {err_strategy}"
-                )
 
         self.logger.debug(
-            "Gather filtered result",
-            strategy=err_strategy,
+            "Gather finalized",
+            strategy=gather_args.error_strategy,
             task=task,
-            result_count=len(results),
-            error_count=len(errors),
+            result_count=_get_collection_size(finalized.result),
+            error_count=len(finalized.errors),
         )
 
-        # Update the result with the filtered version
-        task_result = task_result.with_result(results)
-        if errors:
-            task_result = task_result.with_error(errors)
-        # Store updated task_result back to context
+        if (
+            gather_args.error_strategy == StreamErrorHandlingStrategy.RAISE
+            and finalized.errors
+        ):
+            message = (
+                f"Gather '{gather_ref}' encountered {len(finalized.errors)} error(s)"
+            )
+            gather_error = ActionErrorInfo(
+                ref=gather_ref,
+                message=message,
+                type=ApplicationError.__name__,
+                children=finalized.errors,
+                stream_id=parent_stream_id,
+            )
+            app_error = ApplicationError(
+                message,
+                {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                non_retryable=True,
+            )
+            self.logger.warning(
+                "Raising gather error", errors=finalized.errors, app_error=app_error
+            )
+
+            # Register the gather failure so the scheduler halts and the workflow error
+            # handler can run, even though the exception originates from a non-root stream.
+            self.task_exceptions[gather_ref] = TaskExceptionInfo(
+                exception=app_error,
+                details=gather_error,
+            )
+            raise app_error
+
+        task_result = task_result.model_copy(
+            update={
+                "result": finalized.result,
+                "result_typename": finalized.result.typename or "list",
+            }
+        )
+        if finalized.errors:
+            task_result = task_result.with_error(finalized.errors)
+
         parent_action_context[gather_ref] = task_result
         self.logger.debug(
             "Gather complete. Go back up to parent stream",
@@ -1254,33 +1319,3 @@ class DSLScheduler:
                     raise cause from None
                 case _:
                     raise
-
-
-def _partition_errors(items: Iterable[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
-    results = []
-    errors = []
-    for item in items:
-        if info := _as_error_info(item):
-            errors.append(info)
-        else:
-            results.append(item)
-    return results, errors
-
-
-def _is_error_info(detail: Any) -> bool:
-    if isinstance(detail, ActionErrorInfo):
-        return True
-    if not isinstance(detail, Mapping):
-        return False
-    try:
-        ActionErrorInfoAdapter.validate_python(detail)
-        return True
-    except Exception:
-        return False
-
-
-def _as_error_info(detail: Any) -> ActionErrorInfo | None:
-    try:
-        return ActionErrorInfoAdapter.validate_python(detail)
-    except Exception:
-        return None

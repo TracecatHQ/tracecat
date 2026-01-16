@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any
 
 import dateparser
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
 from tracecat.dsl.common import (
@@ -21,6 +22,7 @@ from tracecat.dsl.common import (
     ResolvedSubflowBatch,
     ResolvedSubflowConfig,
 )
+from tracecat.dsl.enums import StreamErrorHandlingStrategy
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
@@ -31,6 +33,7 @@ from tracecat.dsl.schemas import (
     StreamID,
     TaskResult,
 )
+from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import ExprContext
@@ -103,6 +106,19 @@ class SynchronizeCollectionObjectActivityInput(BaseModel):
     collection: list[StoredObject]
     key: str
     """Storage key prefix for the collection."""
+
+
+class FinalizeGatherActivityInput(BaseModel):
+    collection: list[StoredObject]
+    key: str
+    drop_nulls: bool = False
+    error_strategy: StreamErrorHandlingStrategy = StreamErrorHandlingStrategy.PARTITION
+
+
+class FinalizeGatherActivityResult(BaseModel):
+    result: StoredObject
+    """Result collection. CollectionObject if externalized, else InlineObject."""
+    errors: list[ActionErrorInfo] = Field(default_factory=list)
 
 
 class BuildAgentArgsActivityInput(BaseModel):
@@ -414,14 +430,16 @@ class DSLActivities:
     @activity.defn
     def handle_scatter_input_activity(
         input: ScatterActionInput,
-    ) -> CollectionObject:
-        """Evaluate scatter collection and store as CollectionObject.
+    ) -> StoredObject:
+        """Evaluate scatter collection and store for scatter iteration.
 
         This activity is associated with the scatter action's ref via ScatterActionInput,
         allowing it to appear in workflow execution event history as a compact event.
 
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
+
+        Returns CollectionObject if externalized, InlineObject otherwise.
         """
         return _evaluate_scatter_input(input)
 
@@ -463,12 +481,14 @@ class DSLActivities:
     @activity.defn
     async def synchronize_collection_object_activity(
         input: SynchronizeCollectionObjectActivityInput,
-    ) -> CollectionObject:
+    ) -> StoredObject:
         """Materialize a list of StoredObjects and store as a single result.
 
         This activity synchronizes multiple child workflow results (each a StoredObject)
         by materializing each result and combining them into a list, then storing
         that list as a single StoredObject.
+
+        Returns CollectionObject if externalized, InlineObject otherwise.
         """
         # Materialize each StoredObject to get its raw value
         storage = get_object_storage()
@@ -477,9 +497,60 @@ class DSLActivities:
             value = await storage.retrieve(obj)
             values.append(value)
 
-        # Store the list of values as a CollectionObject
-        stored = await store_collection(input.key, values)
-        return stored
+        # Guard CollectionObject: only use chunked storage when externalization
+        # is enabled. Fall back to inline list for non-externalized deployments.
+        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+            return await store_collection(input.key, values)
+        else:
+            return InlineObject(data=values, typename="list")
+
+    @staticmethod
+    @activity.defn
+    async def finalize_gather_activity(
+        input: FinalizeGatherActivityInput,
+    ) -> FinalizeGatherActivityResult:
+        """Finalize gather by materializing items and storing as CollectionObject.
+
+        Takes a list of StoredObjects (one per execution stream), materializes
+        each to its raw value, applies drop_nulls + error_strategy, and stores
+        the resulting list as a CollectionObject.
+
+        Returns the CollectionObject handle and any partitioned errors.
+        """
+        storage = get_object_storage()
+        values: list[Any] = []
+        for obj in input.collection:
+            value = await storage.retrieve(obj)
+            values.append(value)
+
+        if input.drop_nulls:
+            values = [v for v in values if v is not None]
+
+        results: list[Any] = []
+        errors: list[ActionErrorInfo] = []
+        match input.error_strategy:
+            case StreamErrorHandlingStrategy.PARTITION:
+                results, errors = _partition_errors(values)
+            case StreamErrorHandlingStrategy.DROP:
+                results = [v for v in values if not _is_error_info(v)]
+            case StreamErrorHandlingStrategy.INCLUDE:
+                results = list(values)
+            case StreamErrorHandlingStrategy.RAISE:
+                # Caller is responsible for raising if errors are present.
+                results, errors = _partition_errors(values)
+            case _:
+                raise ApplicationError(
+                    f"Invalid error handling strategy: {input.error_strategy}",
+                    non_retryable=True,
+                )
+
+        # Guard CollectionObject: only use chunked storage when externalization
+        # is enabled. Fall back to inline list for non-externalized deployments.
+        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+            stored: StoredObject = await store_collection(input.key, results)
+        else:
+            stored = InlineObject(data=results, typename="list")
+        return FinalizeGatherActivityResult(result=stored, errors=errors)
 
     @staticmethod
     @activity.defn
@@ -597,8 +668,11 @@ def _evaluate_collection_object_input(
     return collection
 
 
-def _evaluate_scatter_input(input: ScatterActionInput) -> CollectionObject:
-    """Evaluate scatter collection expression and store as CollectionObject."""
+def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
+    """Evaluate scatter collection expression and store as CollectionObject.
+
+    Returns CollectionObject if externalized, InlineObject otherwise.
+    """
     # Materialize any StoredObjects in operand
     materialized = run_sync(materialize_context(input.operand))
     result = eval_templated_object(input.collection, operand=materialized)
@@ -612,9 +686,13 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> CollectionObject:
             non_retryable=True,
         )
 
-    # Store as chunked collection manifest
-    collection = run_sync(store_collection(input.key, list(result)))
-    return collection
+    items = list(result)
+    # Guard CollectionObject: only use chunked storage when externalization
+    # is enabled. Fall back to inline list for non-externalized deployments.
+    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+        return run_sync(store_collection(input.key, items))
+    else:
+        return InlineObject(data=items, typename="list")
 
 
 def _patch_object(
@@ -625,6 +703,36 @@ def _patch_object(
     for key in stem:
         obj = obj.setdefault(key, {})
     obj[leaf] = value
+
+
+def _partition_errors(items: list[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+    results: list[Any] = []
+    errors: list[ActionErrorInfo] = []
+    for item in items:
+        if info := _as_error_info(item):
+            errors.append(info)
+        else:
+            results.append(item)
+    return results, errors
+
+
+def _is_error_info(detail: Any) -> bool:
+    if isinstance(detail, ActionErrorInfo):
+        return True
+    if not isinstance(detail, Mapping):
+        return False
+    try:
+        ActionErrorInfoAdapter.validate_python(detail)
+        return True
+    except Exception:
+        return False
+
+
+def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+    try:
+        return ActionErrorInfoAdapter.validate_python(detail)
+    except Exception:
+        return None
 
 
 def _resolve_subflow_batch(
@@ -870,15 +978,20 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
         dsl_config=dsl.config,
     )
 
-    # Store trigger_inputs as CollectionObject (externalized) - I/O bound
-    trigger_inputs_collection = await store_collection(
-        f"{input.key}/trigger_inputs", trigger_inputs_list
-    )
+    # Guard CollectionObject: only use chunked storage when externalization
+    # is enabled. Fall back to inline list for non-externalized deployments.
+    trigger_inputs_stored: StoredObject
+    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+        trigger_inputs_stored = await store_collection(
+            f"{input.key}/trigger_inputs", trigger_inputs_list
+        )
+    else:
+        trigger_inputs_stored = InlineObject(data=trigger_inputs_list, typename="list")
 
     return PreparedSubflowResult(
         wf_id=wf_id,
         dsl=dsl,
         registry_lock=registry_lock,
-        trigger_inputs=trigger_inputs_collection,
+        trigger_inputs=trigger_inputs_stored,
         runtime_configs=runtime_configs,
     )

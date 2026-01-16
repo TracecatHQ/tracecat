@@ -71,7 +71,7 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.object import CollectionObject, StoredObject
+from tracecat.storage.object import CollectionObject, InlineObject, StoredObject
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -637,7 +637,7 @@ class PreparedSubflowResult(BaseModel):
     """Result of prepare_subflow_activity containing all data needed to spawn child workflows.
 
     For single subflows: trigger_inputs/runtime_configs are None, evaluate separately.
-    For looped subflows: trigger_inputs is a CollectionObject, runtime_configs uses T|list[T] optimization.
+    For looped subflows: trigger_inputs is stored collection, runtime_configs uses T|list[T].
     """
 
     wf_id: WorkflowUUID
@@ -649,8 +649,8 @@ class PreparedSubflowResult(BaseModel):
     registry_lock: RegistryLock | None = None
     """Frozen dependency versions. May be None for workflows without locks."""
 
-    trigger_inputs: CollectionObject | None = None
-    """For loops: CollectionObject containing all trigger_inputs. None for single subflow."""
+    trigger_inputs: StoredObject | None = None
+    """For loops: CollectionObject or InlineObject containing trigger_inputs list."""
 
     runtime_configs: DSLConfig | list[DSLConfig] | None = None
     """For loops: T|list[T] optimized configs. None for single subflow."""
@@ -658,9 +658,37 @@ class PreparedSubflowResult(BaseModel):
     @property
     def count(self) -> int:
         """Number of iterations (1 for single subflow, N for loops)."""
-        if self.trigger_inputs is None:
-            return 1
-        return self.trigger_inputs.count
+        match self.trigger_inputs:
+            case None:
+                return 1
+            case CollectionObject() as col:
+                return col.count
+            case InlineObject(data=data) if isinstance(data, list):
+                return len(data)
+            case _:
+                raise TypeError(
+                    f"Expected CollectionObject or InlineObject with list, "
+                    f"got {type(self.trigger_inputs).__name__}"
+                )
+
+    def get_trigger_input_at(self, index: int) -> StoredObject | None:
+        """Get trigger_inputs for a specific iteration.
+
+        For CollectionObject: returns a handle pointing to the indexed item.
+        For InlineObject: extracts the item and wraps in InlineObject.
+        """
+        match self.trigger_inputs:
+            case None:
+                return None
+            case CollectionObject() as col:
+                return col.at(index)
+            case InlineObject(data=data) if isinstance(data, list):
+                return InlineObject(data=data[index])
+            case _:
+                raise TypeError(
+                    f"Expected CollectionObject or InlineObject with list, "
+                    f"got {type(self.trigger_inputs).__name__}"
+                )
 
     def get_config(self, index: int) -> DSLConfig:
         """Get runtime config for iteration, handling T|list[T] optimization."""

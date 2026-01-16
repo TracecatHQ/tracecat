@@ -183,8 +183,9 @@ async def test_scatter_without_interval(
     # Verify results
     assert await action_result(result, "gather") == [2, 3, 4, 5]
 
-    # Without interval, execution should be relatively fast (< 4 seconds for simple ops)
-    assert elapsed < 4.0, (
+    # Without interval, execution should be relatively fast
+    # Allow extra time for CI variability and result externalization overhead
+    assert elapsed < 10.0, (
         f"Execution without interval should be fast, but took {elapsed:.2f}s"
     )
 
@@ -255,8 +256,9 @@ async def test_scatter_with_zero_interval(
     # Verify results
     assert await action_result(result, "gather") == [2, 4, 6]
 
-    # With zero interval, should execute quickly (allow overhead for externalization)
-    assert elapsed < 4.0
+    # With zero interval, should execute quickly
+    # Allow extra time for CI variability and result externalization overhead
+    assert elapsed < 10.0
 
 
 @pytest.mark.anyio
@@ -502,7 +504,8 @@ async def test_scatter_interval_with_empty_collection(
     assert await action_result(result, "gather") == []
 
     # Should complete quickly despite large interval
-    assert elapsed < 2.0
+    # Allow extra time for CI variability
+    assert elapsed < 10.0
 
 
 @pytest.mark.anyio

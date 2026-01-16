@@ -70,6 +70,7 @@ from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.storage.object import (
+    CollectionObject,
     InlineObject,
     StoredObject,
     StoredObjectValidator,
@@ -5358,6 +5359,17 @@ async def test_workflow_scatter_gather(
         )
         # Get result as ExecutionContext and normalize its data
         result_ctx = await to_inline_exec_context(result)
+        gather_refs = [
+            action.ref
+            for action in dsl.actions
+            if action.action == "core.transform.gather"
+            and action.ref in result_ctx.data["ACTIONS"]
+        ]
+        for gather_ref in gather_refs:
+            assert isinstance(
+                result_ctx.data["ACTIONS"][gather_ref].result,
+                CollectionObject,
+            )
         resolved_result = await resolve_execution_context(result_ctx.data)
         # Normalize the resolved result's data
         normalized_resolved_result = ExecutionContext(
