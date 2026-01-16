@@ -2,10 +2,12 @@ name: Frontend code quality
 
 on:
   push:
+    branches: ["main"]
     paths:
       - frontend/**
       - .github/workflows/lint-frontend.yml
   pull_request:
+    branches: ["main", "staging"]
     paths:
       - frontend/**
       - .github/workflows/lint-frontend.yml
