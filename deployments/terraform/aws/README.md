@@ -9,6 +9,7 @@ Deploy Tracecat on AWS EKS with managed services (RDS PostgreSQL, ElastiCache Re
 - Route53 hosted zone for your domain
 - AWS credentials
 - AWS CLI
+- `jq` to parse JSON from AWS CLI output
 
 ## Resources
 
@@ -60,10 +61,17 @@ aws secretsmanager create-secret --name tracecat/temporal-api-key \
 
 # 4. Store secret ARNs in variables
 tracecat_secrets_arn=$(aws secretsmanager describe-secret --secret-id tracecat/secrets | jq -r '.ARN')
-temporal_cloud_api_key_secret_arn=$(aws secretsmanager describe-secret --secret-id tracecat/temporal-api-key | jq -r '.ARN')
+temporal_cloud_api_key_secret_arn=""
+if aws secretsmanager describe-secret --secret-id tracecat/temporal-api-key >/dev/null 2>&1; then
+  temporal_cloud_api_key_secret_arn=$(aws secretsmanager describe-secret --secret-id tracecat/temporal-api-key | jq -r '.ARN')
+fi
 
 echo "Tracecat secrets ARN: $tracecat_secrets_arn"
-echo "Temporal Cloud API key ARN: $temporal_cloud_api_key_secret_arn"
+if [ -n "$temporal_cloud_api_key_secret_arn" ]; then
+  echo "Temporal Cloud API key ARN: $temporal_cloud_api_key_secret_arn"
+else
+  echo "Temporal Cloud API key ARN: (not set)"
+fi
 
 # 5. Run Terraform to deploy Tracecat
 export TF_VAR_tracecat_secrets_arn=$tracecat_secrets_arn
