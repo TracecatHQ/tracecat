@@ -159,7 +159,7 @@ EOF
 
   provisioner "local-exec" {
     when    = destroy
-    command = "kubectl delete externalsecret tracecat-postgres-credentials-pre -n tracecat --ignore-not-found"
+    command = "kubectl delete externalsecret tracecat-postgres-credentials-pre -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [null_resource.external_secrets_cluster_store, kubernetes_namespace.tracecat]

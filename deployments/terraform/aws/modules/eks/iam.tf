@@ -411,8 +411,10 @@ resource "aws_iam_role" "tracecat_s3" {
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
-          StringLike = {
-            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:tracecat:tracecat-*"
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = [
+              "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:${local.tracecat_service_account_name}"
+            ]
             "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
           }
         }

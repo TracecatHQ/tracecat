@@ -32,6 +32,9 @@ locals {
   # External Secrets Operator settings
   external_secrets_store_name = "tracecat-aws-secrets"
 
+  # Tracecat service account name for IRSA (matches Helm release defaults)
+  tracecat_service_account_name = "tracecat-app"
+
   # S3 bucket names (using random suffix instead of account ID for security)
   s3_suffix             = random_id.s3_suffix.hex
   s3_attachments_bucket = "tracecat-attachments-${local.s3_suffix}"
