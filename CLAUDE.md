@@ -44,6 +44,9 @@ just dev
 just build-dev
 # Or manually: docker compose -f docker-compose.dev.yml build --no-cache
 
+# Standalone stack for use with git worktrees
+just cluster
+
 # Access UI at http://localhost
 ```
 
