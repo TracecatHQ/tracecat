@@ -106,9 +106,8 @@ export function InboxDetail({
   } = useChatReadiness()
 
   // Check if the current session is already a forked session
-  // (either from DB or if sessionId differs from parentSessionId)
-  const isForkedSession =
-    chat?.parent_session_id != null || sessionId !== parentSessionId
+  // (sessionId differs from parentSessionId when viewing a fork)
+  const isForkedSession = sessionId !== parentSessionId
 
   /**
    * Fork the session and notify parent with the message to send.

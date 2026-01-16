@@ -23,14 +23,18 @@ function StatusIcon({ status }: { status: InboxItemStatus }) {
 
 /**
  * Get status text for the inbox item.
- * Shows "Completed" or "X approvals remaining" based on metadata.
+ * Shows "Completed", "Failed", or "X approvals remaining" based on status/metadata.
  */
 function getStatusText(item: InboxItem): string {
   const metadata = item.metadata as
     | { pending_count?: number; total_approvals?: number }
     | undefined
 
-  if (item.status === "completed" || item.status === "failed") {
+  if (item.status === "failed") {
+    return "Failed"
+  }
+
+  if (item.status === "completed") {
     return "Completed"
   }
 

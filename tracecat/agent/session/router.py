@@ -311,8 +311,9 @@ async def send_message(
             header_last_id = None
 
         # Prefer the stored cursor, otherwise the client header.
-        # When neither exists, start from "$" to only stream new events.
-        start_id = agent_session.last_stream_id or header_last_id or "$"
+        # When neither exists, start from "0-0" to read from beginning.
+        # Using "$" would miss events written during run_turn before SSE starts.
+        start_id = agent_session.last_stream_id or header_last_id or "0-0"
 
         # Run session turn (spawns DurableAgentWorkflow)
         await svc.run_turn(

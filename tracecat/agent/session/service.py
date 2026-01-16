@@ -234,6 +234,9 @@ class AgentSessionService(BaseWorkspaceService):
         sessions = list(session_result.scalars().all())
 
         # Query legacy Chat table
+        # Note: exclude_entity_types is not applied here because legacy Chat records
+        # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
+        # Legacy chats only have entity types like "case" or "agent_preset".
         chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
         if created_by is not None:
             chat_stmt = chat_stmt.where(Chat.user_id == created_by)
@@ -907,8 +910,8 @@ class AgentSessionService(BaseWorkspaceService):
         all_history_result = await self.session.execute(all_history_stmt)
         all_entries = list(all_history_result.scalars().all())
 
-        # Fetch all approvals for this session
-        approval_stmt = select(Approval).where(Approval.session_id == session_id)
+        # Fetch approvals for this session and parent session (for forked sessions)
+        approval_stmt = select(Approval).where(Approval.session_id.in_(session_ids))
         approval_result = await self.session.execute(approval_stmt)
         approvals = approval_result.scalars().all()
         approval_by_tool_id: dict[str, Approval] = {

@@ -287,16 +287,20 @@ export function ChatSessionPane({
     }
 
     const messageText = message.text || ""
-    setInput("")
 
-    // If onBeforeSend is provided, it handles forking first
-    // Returns the new session ID - parent will switch to that session
-    // and pass the message as pendingMessage for the new ChatSessionPane to send
     if (onBeforeSend) {
-      await onBeforeSend(messageText)
+      const result = await onBeforeSend(messageText)
+      // Only clear input if onBeforeSend succeeded (non-null)
+      // If null, the action was cancelled and user keeps their draft
+      if (result !== null) {
+        setInput("")
+      }
       // Parent will handle switching sessions and sending via pendingMessage
       return
     }
+
+    // Clear input for normal message sending
+    setInput("")
 
     try {
       clearError()

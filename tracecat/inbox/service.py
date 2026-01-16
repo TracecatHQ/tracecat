@@ -41,11 +41,16 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
 
         Aggregates items from all providers, sorts by status priority
         (pending first) then by created_at descending.
+
+        Offset and limit are applied after merging all provider results
+        to ensure correct global pagination across providers.
         """
         items: list[InboxItemRead] = []
 
+        # Fetch enough items from each provider to cover offset + limit
+        fetch_limit = offset + limit
         for provider in self.providers:
-            provider_items = await provider.list_items(limit=limit, offset=offset)
+            provider_items = await provider.list_items(limit=fetch_limit, offset=0)
             items.extend(provider_items)
 
         # Sort: pending first, then by created_at desc
@@ -56,7 +61,8 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
             )
         )
 
-        return items[:limit]
+        # Apply offset and limit after merging and sorting
+        return items[offset : offset + limit]
 
     async def list_items_paginated(
         self,
@@ -79,11 +85,24 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
 
         all_items: list[InboxItemRead] = []
 
+        # Decode cursor to get target item ID if present
+        cursor_id: str | None = None
+        if cursor:
+            cursor_data = self.decode_cursor(cursor)
+            cursor_id = cursor_data.id
+
+        # Initial fetch - get enough items to likely include cursor position.
+        # For cross-provider aggregation, we fetch a larger window to increase
+        # the likelihood of including the cursor item. This is a known limitation
+        # of in-memory aggregation; very large inboxes may need a unified table.
+        # Fetch more when we have a cursor to search for.
+        initial_fetch_limit = limit * 10 if cursor_id else limit * 2
+
         for provider in self.providers:
-            # Fetch more items than needed to ensure we have enough after merging
+            # Fetch items without cursor - handle pagination at aggregate level
             provider_response = await provider.list_items_paginated(
-                limit=limit * 2,
-                cursor=None,  # Don't pass cursor to providers - handle at aggregate level
+                limit=initial_fetch_limit,
+                cursor=None,
                 reverse=reverse,
                 order_by=order_by,
                 sort=sort,
@@ -111,11 +130,9 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
                 ),
             )
 
-        # Apply cursor filtering if cursor provided
+        # Find cursor position in merged results
         start_idx = 0
-        if cursor:
-            cursor_data = self.decode_cursor(cursor)
-            cursor_id = cursor_data.id
+        if cursor_id:
             for i, item in enumerate(all_items):
                 if item.id == cursor_id:
                     start_idx = i + 1 if not reverse else i

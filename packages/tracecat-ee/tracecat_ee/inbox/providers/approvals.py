@@ -100,32 +100,31 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         else:
             order_clause = AgentSession.created_at.desc()
 
-        # Apply cursor filtering
+        # Apply cursor filtering - use the same column as order_by
         if cursor:
             try:
                 cursor_data = self.decode_cursor(cursor)
                 cursor_value = cursor_data.sort_value
 
+                # Select the correct column based on sort_col
+                cursor_col = (
+                    AgentSession.updated_at
+                    if sort_col == "updated_at"
+                    else AgentSession.created_at
+                )
+
                 if sort_desc:
                     if reverse:
                         # Going backwards from cursor in desc order = get items after cursor
-                        base_stmt = base_stmt.where(
-                            AgentSession.created_at > cursor_value
-                        )
+                        base_stmt = base_stmt.where(cursor_col > cursor_value)
                     else:
                         # Going forward from cursor in desc order = get items before cursor
-                        base_stmt = base_stmt.where(
-                            AgentSession.created_at < cursor_value
-                        )
+                        base_stmt = base_stmt.where(cursor_col < cursor_value)
                 else:
                     if reverse:
-                        base_stmt = base_stmt.where(
-                            AgentSession.created_at < cursor_value
-                        )
+                        base_stmt = base_stmt.where(cursor_col < cursor_value)
                     else:
-                        base_stmt = base_stmt.where(
-                            AgentSession.created_at > cursor_value
-                        )
+                        base_stmt = base_stmt.where(cursor_col > cursor_value)
             except (ValueError, KeyError) as e:
                 logger.warning(f"Invalid cursor: {e}")
 
@@ -154,15 +153,21 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         if items:
             if has_more:
                 last_item = items[-1]
-                # Get the session for this item to access created_at
+                # Get the session for this item to access the sort column value
                 last_session = next(
                     (s for s in sessions if str(s.id) == last_item.source_id), None
                 )
                 if last_session:
+                    # Use the correct column value based on sort_col
+                    sort_value = (
+                        last_session.updated_at
+                        if sort_col == "updated_at"
+                        else last_session.created_at
+                    )
                     next_cursor = self.encode_cursor(
                         id=last_item.id,
                         sort_column=sort_col,
-                        sort_value=last_session.created_at,
+                        sort_value=sort_value,
                     )
             if cursor:
                 first_item = items[0]
@@ -170,10 +175,16 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                     (s for s in sessions if str(s.id) == first_item.source_id), None
                 )
                 if first_session:
+                    # Use the correct column value based on sort_col
+                    sort_value = (
+                        first_session.updated_at
+                        if sort_col == "updated_at"
+                        else first_session.created_at
+                    )
                     prev_cursor = self.encode_cursor(
                         id=first_item.id,
                         sort_column=sort_col,
-                        sort_value=first_session.created_at,
+                        sort_value=sort_value,
                     )
 
         return CursorPaginatedResponse(
