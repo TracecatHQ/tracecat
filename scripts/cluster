@@ -199,6 +199,7 @@ Commands:
   ps            Show running containers
   logs [svc]    Show logs (optionally for specific service)
   attach <svc>  Attach to a running service container (e.g., attach api)
+  db            Open lazysql to the cluster's PostgreSQL database
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
 
@@ -209,6 +210,7 @@ Examples:
   ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
   ./cluster attach api           Attach shell to api service
+  ./cluster db                   Open lazysql to the database
   ./cluster list                 List all clusters
 
 Current worktree: ${WORKTREE_ID}
@@ -375,6 +377,12 @@ COMPOSE_FILE=$(get_compose_file "$PROFILE")
 if [[ "$COMMAND" == "ports" ]]; then
     show_ports "$CLUSTER_NUM"
     exit 0
+fi
+
+# Handle 'db' command - open lazysql to postgres
+if [[ "$COMMAND" == "db" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    exec lazysql "postgres://postgres:postgres@localhost:${PG_PORT}/postgres"
 fi
 
 # Handle 'attach' command
