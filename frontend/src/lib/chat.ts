@@ -146,25 +146,12 @@ export const ENTITY_TO_INVALIDATION: Record<
       Boolean(UPDATE_ON_ACTIONS.agent_preset_builder?.includes(toolName)),
     handler: (queryClient, workspaceId, entityId) => {
       // Invalidate agent preset detail and workspace list
-      console.log("[agent_preset_builder handler] Invalidating queries...")
-      console.log("[agent_preset_builder handler] workspaceId:", workspaceId)
-      console.log("[agent_preset_builder handler] entityId:", entityId)
-      console.log("[agent_preset_builder handler] Query key 1:", [
-        "agent-presets",
-        workspaceId,
-      ])
-      console.log("[agent_preset_builder handler] Query key 2:", [
-        "agent-preset",
-        workspaceId,
-        entityId,
-      ])
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, entityId],
       })
-      console.log("[agent_preset_builder handler] Invalidation complete")
     },
   },
   copilot: {

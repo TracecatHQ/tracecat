@@ -1,5 +1,5 @@
 # Store default tools for each entity type
-from tracecat.agent.builder.tools import AGENT_PRESET_BUILDER_TOOL_NAMES
+from tracecat.agent.mcp.internal_tools import BUILDER_INTERNAL_TOOL_NAMES
 from tracecat.agent.session.types import AgentSessionEntity
 
 TOOL_DEFAULTS = {
@@ -11,7 +11,7 @@ TOOL_DEFAULTS = {
         "core.cases.list_comments",
     ],
     AgentSessionEntity.AGENT_PRESET: [],
-    AgentSessionEntity.AGENT_PRESET_BUILDER: AGENT_PRESET_BUILDER_TOOL_NAMES,
+    AgentSessionEntity.AGENT_PRESET_BUILDER: BUILDER_INTERNAL_TOOL_NAMES,
     AgentSessionEntity.COPILOT: [
         "core.table.list_tables",
         "core.table.get_table_metadata",
