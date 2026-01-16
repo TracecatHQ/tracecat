@@ -1540,7 +1540,14 @@ export const $AgentSessionCreate = {
 
 export const $AgentSessionEntity = {
   type: "string",
-  enum: ["case", "agent_preset", "agent_preset_builder", "copilot", "workflow"],
+  enum: [
+    "case",
+    "agent_preset",
+    "agent_preset_builder",
+    "copilot",
+    "workflow",
+    "approval",
+  ],
   title: "AgentSessionEntity",
   description: `The type of entity associated with an agent session.
 
@@ -1549,7 +1556,28 @@ Determines the context and behavior of the session:
 - AGENT_PRESET: Live chat testing a preset configuration
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
-- WORKFLOW: Workflow-initiated agent run (from action)`,
+- WORKFLOW: Workflow-initiated agent run (from action)
+- APPROVAL: Inbox approval continuation (hidden from main chat list)`,
+} as const
+
+export const $AgentSessionForkRequest = {
+  properties: {
+    entity_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AgentSessionEntity",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.",
+    },
+  },
+  type: "object",
+  title: "AgentSessionForkRequest",
+  description: "Request schema for forking an agent session.",
 } as const
 
 export const $AgentSessionRead = {
@@ -1636,6 +1664,18 @@ export const $AgentSessionRead = {
         },
       ],
       title: "Last Stream Id",
+    },
+    parent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Session Id",
     },
     created_at: {
       type: "string",
@@ -1750,6 +1790,18 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Last Stream Id",
+    },
+    parent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Session Id",
     },
     created_at: {
       type: "string",
@@ -1872,6 +1924,18 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Last Stream Id",
+    },
+    parent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Session Id",
     },
     created_at: {
       type: "string",

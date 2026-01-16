@@ -85,6 +85,8 @@ class AgentExecutorInput(BaseModel):
     sdk_session_data: str | None = None
     # True when resuming after approval decision (continuation prompt should be internal)
     is_approval_continuation: bool = False
+    # True when forking from parent session (SDK should use fork_session=True)
+    is_fork: bool = False
 
 
 class AgentExecutorResult(BaseModel):
@@ -150,6 +152,7 @@ class SandboxedAgentExecutor:
                 sdk_session_id=self.input.sdk_session_id,
                 sdk_session_data=self.input.sdk_session_data,
                 is_approval_continuation=self.input.is_approval_continuation,
+                is_fork=self.input.is_fork,
             )
             handler = LoopbackHandler(input=loopback_input)
 

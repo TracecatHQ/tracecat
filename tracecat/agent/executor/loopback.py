@@ -87,6 +87,7 @@ class LoopbackInput:
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
     is_approval_continuation: bool = False
+    is_fork: bool = False  # True when forking from parent session
 
 
 @dataclass(kw_only=True, slots=True)
@@ -199,6 +200,7 @@ class LoopbackHandler:
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
+            is_fork=self.input.is_fork,
         )
 
         payload_bytes = orjson.dumps(payload.to_dict())
