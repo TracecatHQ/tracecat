@@ -216,6 +216,10 @@ import type {
   GraphApplyGraphOperationsResponse,
   GraphGetGraphData,
   GraphGetGraphResponse,
+  InboxListItemsData,
+  InboxListItemsPaginatedData,
+  InboxListItemsPaginatedResponse,
+  InboxListItemsResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -3825,6 +3829,72 @@ export const adminDemoteFromSuperuser = (
     url: "/admin/users/{user_id}/demote",
     path: {
       user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Items
+ * List all inbox items for the workspace.
+ *
+ * Returns inbox items aggregated from all registered providers,
+ * sorted by status priority (pending first) then by creation time.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.offset
+ * @returns InboxItemRead Successful Response
+ * @throws ApiError
+ */
+export const inboxListItems = (
+  data: InboxListItemsData
+): CancelablePromise<InboxListItemsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/inbox",
+    query: {
+      limit: data.limit,
+      offset: data.offset,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Items Paginated
+ * List inbox items with cursor-based pagination.
+ *
+ * Supports sorting by created_at, updated_at, or status.
+ * Default sort is by created_at descending.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @param data.orderBy Column name to order by (created_at, updated_at, status)
+ * @param data.sort Sort direction (asc or desc)
+ * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
+ * @throws ApiError
+ */
+export const inboxListItemsPaginated = (
+  data: InboxListItemsPaginatedData
+): CancelablePromise<InboxListItemsPaginatedResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/inbox/paginated",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      order_by: data.orderBy,
+      sort: data.sort,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

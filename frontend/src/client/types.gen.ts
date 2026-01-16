@@ -1689,6 +1689,30 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_InboxItemRead_ = {
+  items: Array<InboxItemRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -2475,6 +2499,72 @@ export type ImageUrl = {
    */
   readonly identifier: string
 }
+
+/**
+ * Read model for inbox items.
+ */
+export type InboxItemRead = {
+  /**
+   * Unique inbox item ID
+   */
+  id: string
+  /**
+   * Type of inbox item
+   */
+  type: InboxItemType
+  /**
+   * Display title
+   */
+  title: string
+  /**
+   * Preview text
+   */
+  preview: string
+  /**
+   * Item status
+   */
+  status: InboxItemStatus
+  /**
+   * Whether the item is unread
+   */
+  unread: boolean
+  /**
+   * Creation timestamp
+   */
+  created_at: string
+  /**
+   * Last update timestamp
+   */
+  updated_at: string
+  /**
+   * Associated workflow
+   */
+  workflow?: WorkflowSummary | null
+  /**
+   * ID of the source entity
+   */
+  source_id: string
+  /**
+   * Type of source entity (e.g., agent_session)
+   */
+  source_type: string
+  /**
+   * Type-specific metadata
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Status of inbox items.
+ */
+export type InboxItemStatus = "pending" | "completed" | "failed"
+
+/**
+ * Types of inbox items.
+ */
+export type InboxItemType = "approval"
 
 /**
  * Inferred column mapping between CSV headers and table columns.
@@ -5553,6 +5643,24 @@ export type WorkflowReadMinimal = {
 }
 
 /**
+ * Summary of a workflow for inbox item context.
+ */
+export type WorkflowSummary = {
+  /**
+   * Workflow ID
+   */
+  id: string
+  /**
+   * Workflow title
+   */
+  title: string
+  /**
+   * Workflow alias
+   */
+  alias?: string | null
+}
+
+/**
  * Request model for pulling workflows from a Git repository.
  */
 export type WorkflowSyncPullRequest = {
@@ -6637,6 +6745,32 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type InboxListItemsData = {
+  limit?: number
+  offset?: number
+  workspaceId: string
+}
+
+export type InboxListItemsResponse = Array<InboxItemRead>
+
+export type InboxListItemsPaginatedData = {
+  cursor?: string | null
+  limit?: number
+  /**
+   * Column name to order by (created_at, updated_at, status)
+   */
+  orderBy?: string | null
+  reverse?: boolean
+  /**
+   * Sort direction (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
+  workspaceId: string
+}
+
+export type InboxListItemsPaginatedResponse =
+  CursorPaginatedResponse_InboxItemRead_
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -9452,6 +9586,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/inbox": {
+    get: {
+      req: InboxListItemsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<InboxItemRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/inbox/paginated": {
+    get: {
+      req: InboxListItemsPaginatedData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_InboxItemRead_
         /**
          * Validation Error
          */
