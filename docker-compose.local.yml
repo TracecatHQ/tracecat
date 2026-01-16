@@ -126,11 +126,8 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
-      # Blob Storage (MinIO) - required for result externalization
-      TRACECAT__BLOB_STORAGE_PROTOCOL: minio
+      # Blob Storage (S3/MinIO) - required for result externalization
       TRACECAT__BLOB_STORAGE_ENDPOINT: http://minio:9000
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       # Redis
       REDIS_URL: ${REDIS_URL}
     volumes:
@@ -267,10 +264,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO tarball access)
-      TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache

@@ -601,7 +601,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         config, "TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint
     )
     # Configure MinIO for result externalization (StoredObject -> S3)
-    monkeysession.setattr(config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
     monkeysession.setattr(
         config, "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
@@ -624,7 +623,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     monkeysession.setenv("TRACECAT__DB_URI", db_uri)
     monkeysession.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint)
-    monkeysession.setenv("TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
     monkeysession.setenv(
         "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
