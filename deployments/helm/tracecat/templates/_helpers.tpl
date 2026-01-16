@@ -356,8 +356,10 @@ Common environment variables shared across all backend services
 {{- end }}
 
 {{- define "tracecat.env.common" -}}
+{{- if .Values.tracecat.logLevel }}
 - name: LOG_LEVEL
   value: {{ .Values.tracecat.logLevel | quote }}
+{{- end }}
 - name: TRACECAT__APP_ENV
   value: {{ .Values.tracecat.appEnv | quote }}
 - name: TRACECAT__FEATURE_FLAGS

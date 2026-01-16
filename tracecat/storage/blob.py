@@ -120,7 +120,10 @@ async def generate_presigned_download_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
-            if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None:
+            if (
+                config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
+                and config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None
+            ):
                 url = url.replace(
                     config.TRACECAT__BLOB_STORAGE_ENDPOINT,
                     config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,

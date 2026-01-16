@@ -41,9 +41,18 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
             response = client.get_secret_value(SecretId=config.TRACECAT__DB_PASS__ARN)
             secret_string = response.get("SecretString")
             if not secret_string and response.get("SecretBinary"):
-                secret_string = base64.b64decode(response["SecretBinary"]).decode(
-                    "utf-8"
-                )
+                try:
+                    secret_string = base64.b64decode(response["SecretBinary"]).decode(
+                        "utf-8"
+                    )
+                except UnicodeDecodeError as e:
+                    logger.error(
+                        "Error decoding secret from AWS Secrets Manager."
+                        " SecretBinary must be UTF-8 encoded text or JSON."
+                        " Use SecretString for plain text credentials.",
+                        error=e,
+                    )
+                    raise e
             if not secret_string:
                 raise KeyError("SecretString")
 

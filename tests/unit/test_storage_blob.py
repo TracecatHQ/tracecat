@@ -394,6 +394,29 @@ class TestS3Operations:
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
+    async def test_presigned_url_no_replacement_without_blob_endpoint(
+        self, mock_config, mock_get_client
+    ):
+        """Skip presigned URL rewriting when blob endpoint is unset."""
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = None
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = "http://public/s3"
+
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        original_url = "https://s3.amazonaws.com/bucket/test.txt?AWSAccessKeyId=key&Signature=abc123&Expires=1234567890"
+        mock_client.generate_presigned_url.return_value = original_url
+
+        result = await generate_presigned_download_url(
+            "attachments/test.txt", "tracecat", 30
+        )
+
+        assert result == original_url
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_presigned_url_expiry_validation(self, mock_get_client):
         """Test that presigned URLs have appropriate expiry times."""
         mock_client = AsyncMock()
