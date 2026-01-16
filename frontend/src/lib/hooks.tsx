@@ -15,10 +15,10 @@ import {
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
   type AgentGetWorkspaceProvidersStatusResponse,
-  type AgentListAgentSessionsData,
-  type AgentListAgentSessionsResponse,
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
+  type AgentSessionsListSessionsData,
+  type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
   type ApiError,
   type AppSettingsRead,
@@ -33,10 +33,10 @@ import {
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
   agentGetWorkspaceProvidersStatus,
-  agentListAgentSessions,
   agentListModels,
   agentListProviderCredentialConfigs,
   agentListProviders,
+  agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
   type CaseCommentCreate,
@@ -4801,7 +4801,7 @@ interface UseAgentSessionsOptions {
 }
 
 export function useAgentSessions(
-  { workspaceId }: AgentListAgentSessionsData,
+  { workspaceId }: AgentSessionsListSessionsData,
   options?: UseAgentSessionsOptions
 ) {
   const autoRefreshEnabled = options?.autoRefresh ?? true
@@ -4822,9 +4822,9 @@ export function useAgentSessions(
   const computeRefetchInterval = useCallback(
     (
       query: Query<
-        AgentListAgentSessionsResponse,
+        AgentSessionsListSessionsResponse,
         TracecatApiError,
-        AgentListAgentSessionsResponse,
+        AgentSessionsListSessionsResponse,
         readonly unknown[]
       >
     ) => {
@@ -4871,12 +4871,12 @@ export function useAgentSessions(
     error: sessionsError,
     refetch: refetchSessions,
   } = useQuery<
-    AgentListAgentSessionsResponse,
+    AgentSessionsListSessionsResponse,
     TracecatApiError,
     AgentSessionWithStatus[]
   >({
     queryKey: ["agent-sessions", workspaceId],
-    queryFn: async () => await agentListAgentSessions({ workspaceId }),
+    queryFn: async () => await agentSessionsListSessions({ workspaceId }),
     select: (data) => data.map(enrichAgentSession),
     enabled: options?.enabled ?? Boolean(workspaceId),
     retry: retryHandler,

@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import type { ApprovalRead, UserReadMinimal } from "@/client"
+import type { ApprovalRead } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { getIcon } from "@/components/icons"
@@ -31,13 +31,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import UserAvatar from "@/components/user-avatar"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
   compareAgentStatusPriority,
   getAgentStatusMetadata,
 } from "@/lib/agents"
-import { User } from "@/lib/auth"
 import type { TracecatApiError } from "@/lib/errors"
 import { executionId as splitExecutionId } from "@/lib/event-history"
 import { cn, reconstructActionType, shortTimeAgo } from "@/lib/utils"
@@ -231,17 +229,6 @@ function StatusIndicator({
   )
 }
 
-function userReadMinimalToUser(user: UserReadMinimal): User {
-  return new User({
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    first_name: user.first_name ?? undefined,
-    last_name: user.last_name ?? undefined,
-    settings: {},
-  })
-}
-
 function isEmptyObjectOrArray(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.length === 0
@@ -327,8 +314,8 @@ function AgentSessionCard({
   const completedApprovals =
     session.approvals?.filter((approval) => approval.status !== "pending") ?? []
   const sortedCompletedApprovals = [...completedApprovals].sort((a, b) => {
-    const aTime = a.approved_at ?? a.updated_at
-    const bTime = b.approved_at ?? b.updated_at
+    const aTime = a.approved_at ?? a.created_at
+    const bTime = b.approved_at ?? b.created_at
     return new Date(bTime ?? 0).getTime() - new Date(aTime ?? 0).getTime()
   })
 
@@ -478,9 +465,7 @@ function AgentSessionCard({
             </span>
             <div className="flex flex-col gap-1.5">
               {sortedCompletedApprovals.map((approval) => {
-                const approverUser = approval.approved_by
-                  ? userReadMinimalToUser(approval.approved_by)
-                  : undefined
+                const approverUserId = approval.approved_by ?? null
                 const decisionPayload = approval.decision as unknown
                 const decisionKind =
                   typeof decisionPayload === "object" &&
@@ -505,8 +490,8 @@ function AgentSessionCard({
                     : "Rejected"
                 const decisionTime = approval.approved_at
                   ? shortTimeAgo(new Date(approval.approved_at))
-                  : approval.updated_at
-                    ? shortTimeAgo(new Date(approval.updated_at))
+                  : approval.created_at
+                    ? shortTimeAgo(new Date(approval.created_at))
                     : null
                 const reasonText =
                   approval.reason && approval.reason.length > 0
@@ -536,18 +521,9 @@ function AgentSessionCard({
                     className="w-full text-left flex items-start gap-2 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 transition-colors hover:bg-muted/30 disabled:opacity-50"
                     disabled={!hasExpandableContent}
                   >
-                    {approverUser ? (
-                      <UserAvatar
-                        user={approverUser}
-                        alt={approverUser.getDisplayName()}
-                        className="size-7"
-                        fallbackClassName="bg-primary/10 text-primary text-xs"
-                      />
-                    ) : (
-                      <div className="flex size-7 items-center justify-center rounded-full bg-muted text-[11px] text-muted-foreground">
-                        ?
-                      </div>
-                    )}
+                    <div className="flex size-7 items-center justify-center rounded-full bg-muted text-[11px] text-muted-foreground">
+                      {approverUserId ? "✓" : "?"}
+                    </div>
                     <div className="flex min-w-0 w-full flex-col gap-0.5">
                       <div className="flex min-w-0 items-start justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
@@ -579,11 +555,7 @@ function AgentSessionCard({
                       <span className="text-[11px] text-muted-foreground">
                         {decisionLabel}
                         {hasOverrideArgs ? " • Overrides applied" : ""}
-                        {approverUser
-                          ? ` by ${approverUser.getDisplayName()}`
-                          : approval.approved_by
-                            ? " by unknown user"
-                            : ""}
+                        {approverUserId ? " by user" : ""}
                         {decisionTime ? ` • ${decisionTime}` : ""}
                         {reasonText}
                       </span>

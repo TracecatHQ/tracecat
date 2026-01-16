@@ -52,6 +52,7 @@ async def execute_action(
     action_name: str,
     args: dict[str, Any],
     claims: MCPTokenClaims,
+    registry_lock: RegistryLock,
     timeout_seconds: int = 300,
 ) -> Any:
     """Execute an action using ActionRunner.
@@ -60,6 +61,7 @@ async def execute_action(
         action_name: The action to execute (e.g., "tools.slack.post_message")
         args: Arguments to pass to the action
         claims: Token claims containing role and allowed_actions
+        registry_lock: Registry lock with origin→version mappings for action resolution
         timeout_seconds: Maximum execution time
 
     Returns:
@@ -97,7 +99,7 @@ async def execute_action(
     resolved_context = await _resolve_context(action_name, args, claims)
 
     # Build minimal RunActionInput
-    run_input = _build_run_input(action_name, args)
+    run_input = _build_run_input(action_name, args, registry_lock)
 
     # Execute via ActionRunner with nsjail sandbox
     backend = EphemeralBackend()
@@ -199,8 +201,15 @@ async def _resolve_context(
 def _build_run_input(
     action_name: str,
     args: dict[str, Any],
+    registry_lock: RegistryLock,
 ) -> RunActionInput:
-    """Build a minimal RunActionInput for ActionRunner."""
+    """Build a minimal RunActionInput for ActionRunner.
+
+    Args:
+        action_name: The action to execute
+        args: Arguments for the action
+        registry_lock: Registry lock with origin→version mappings for action resolution
+    """
     # Create minimal action statement
     task = ActionStatement(
         ref=f"mcp_{action_name.replace('.', '_')}",
@@ -222,5 +231,5 @@ def _build_run_input(
         task=task,
         run_context=run_context,
         exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
-        registry_lock=RegistryLock(origins={}, actions={}),
+        registry_lock=registry_lock,
     )

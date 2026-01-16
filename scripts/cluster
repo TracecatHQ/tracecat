@@ -21,6 +21,7 @@
 #   ./cluster 1 ports              # Show port mappings for cluster 1
 #
 # Port allocation (offset = (cluster_num - 1) * 100):
+#   Cluster numbers are GLOBAL across all worktrees to avoid port conflicts.
 #   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001
 #   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101
 #   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201
@@ -61,7 +62,7 @@ get_worktree_id() {
 
 WORKTREE_ID=$(get_worktree_id)
 
-# Get list of running cluster numbers for this worktree
+# Get list of running cluster numbers for this worktree (used for auto-selection)
 get_running_clusters() {
     local prefix="tracecat-${WORKTREE_ID}-"
 
@@ -75,10 +76,23 @@ get_running_clusters() {
     done | sort -n
 }
 
-# Find next available cluster number
+# Get ALL running cluster numbers across all worktrees (used for port allocation)
+get_all_cluster_nums() {
+    local projects
+    projects=$(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null)
+
+    for project in $projects; do
+        # Match any tracecat cluster: tracecat-{worktree}-{num}
+        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
+            echo "${BASH_REMATCH[2]}"
+        fi
+    done | sort -n | uniq
+}
+
+# Find next available cluster number (globally, to avoid port conflicts)
 get_next_cluster_num() {
     local running
-    running=$(get_running_clusters)
+    running=$(get_all_cluster_nums)
 
     if [[ -z "$running" ]]; then
         echo "1"
@@ -342,7 +356,7 @@ shift
 if [[ "$AUTO_SELECT" == "true" ]]; then
     if [[ "$COMMAND" == "up" ]]; then
         CLUSTER_NUM=$(get_next_cluster_num)
-        echo "Auto-selected cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
+        echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
     else
         CLUSTER_NUM=$(auto_select_cluster "$COMMAND")
     fi
@@ -376,6 +390,13 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
     # Re-apply our overrides (source may have overwritten them)
     build_env "$CLUSTER_NUM"
+fi
+
+# Sync dependencies before starting cluster
+if [[ "$COMMAND" == "up" ]]; then
+    echo "Syncing dependencies..."
+    (cd "$REPO_ROOT" && uv sync --quiet)
+    (cd "$REPO_ROOT" && pnpm -C frontend install --silent)
 fi
 
 # Run docker compose with the configured environment

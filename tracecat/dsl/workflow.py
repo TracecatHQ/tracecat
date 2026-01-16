@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Generator, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from pydantic import ValidationError
 from temporalio import workflow
 from temporalio.common import (
     RetryPolicy,
@@ -20,122 +19,131 @@ from temporalio.exceptions import (
     ChildWorkflowError,
     FailureError,
 )
-from tracecat_ee.agent.types import AgentWorkflowID
-from tracecat_ee.agent.workflows.durable import (
-    AgentWorkflowArgs,
-    DurableAgentWorkflow,
-)
 
-from tracecat import config, identifiers
-from tracecat.agent.aliases import build_agent_alias
-from tracecat.agent.schemas import RunAgentArgs
-from tracecat.agent.types import AgentConfig
-from tracecat.concurrency import cooperative
-from tracecat.contexts import (
-    ctx_interaction,
-    ctx_logger,
-    ctx_logical_time,
-    ctx_role,
-    ctx_run,
-    ctx_stream_id,
-)
-from tracecat.dsl.action import (
-    BuildAgentArgsActivityInput,
-    BuildPresetAgentArgsActivityInput,
-    DSLActivities,
-    EvaluateLoopedSubflowInputActivityInput,
-    EvaluateTemplatedObjectActivityInput,
-    NormalizeTriggerInputsActivityInputs,
-    PrepareSubflowActivityInput,
-    ResolveSubflowBatchActivityInput,
-    SynchronizeCollectionObjectActivityInput,
-)
-from tracecat.dsl.common import (
-    RETRY_POLICIES,
-    AgentActionMemo,
-    ChildWorkflowMemo,
-    DSLInput,
-    DSLRunArgs,
-    ExecuteSubflowArgs,
-    PreparedSubflowResult,
-    ResolvedSubflowBatch,
-    ResolvedSubflowInput,
-    SubflowContext,
-    dsl_execution_error_from_exception,
-    get_trigger_type,
-)
-from tracecat.dsl.enums import (
-    FailStrategy,
-    LoopStrategy,
-    PlatformAction,
-    WaitStrategy,
-)
-from tracecat.dsl.scheduler import DSLScheduler
-from tracecat.dsl.schemas import (
-    ROOT_STREAM,
-    ActionStatement,
-    DSLConfig,
-    DSLEnvironment,
-    ExecutionContext,
-    RunActionInput,
-    RunContext,
-    StreamID,
-    TaskResult,
-)
-from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
-from tracecat.dsl.validation import (
-    ResolveTimeAnchorActivityInputs,
-    format_input_schema_validation_error,
-    resolve_time_anchor_activity,
-)
-from tracecat.ee.interactions.decorators import maybe_interactive
-from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
-from tracecat.ee.interactions.service import InteractionManager
-from tracecat.exceptions import (
-    TracecatException,
-    TracecatExpressionError,
-    TracecatNotFoundError,
-)
-from tracecat.expressions.eval import is_template_only
-from tracecat.identifiers import WorkspaceID
-from tracecat.identifiers.workflow import (
-    WorkflowExecutionID,
-    WorkflowID,
-    exec_id_to_parts,
-)
-from tracecat.logger import logger
-from tracecat.storage.object import (
-    CollectionObject,
-    ExternalObject,
-    InlineObject,
-    StoredObject,
-    StoredObjectValidator,
-    action_collection_prefix,
-    action_key,
-    return_key,
-    trigger_key,
-)
-from tracecat.validation.schemas import ValidationDetailListTA
-from tracecat.workflow.executions.enums import (
-    ExecutionType,
-    TemporalSearchAttr,
-    TriggerType,
-)
-from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
-from tracecat.workflow.management.definitions import (
-    get_workflow_definition_activity,
-    resolve_registry_lock_activity,
-)
-from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.schemas import (
-    GetErrorHandlerWorkflowIDActivityInputs,
-    GetWorkflowDefinitionActivityInputs,
-    ResolveRegistryLockActivityInputs,
-    ResolveWorkflowAliasActivityInputs,
-    WorkflowDefinitionActivityResult,
-)
-from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
-from tracecat.workflow.schedules.service import WorkflowSchedulesService
+with workflow.unsafe.imports_passed_through():
+    import dateparser  # noqa: F401
+    import jsonpath_ng.ext.parser  # noqa: F401
+    import jsonpath_ng.lexer  # noqa
+    import jsonpath_ng.parser  # noqa
+    import tracecat_registry  # noqa
+    from pydantic import ValidationError
+    from tracecat_ee.agent.types import AgentWorkflowID
+    from tracecat_ee.agent.workflows.durable import (
+        AgentWorkflowArgs,
+        DurableAgentWorkflow,
+    )
+
+    from tracecat import config, identifiers
+    from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.schemas import RunAgentArgs
+    from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.agent.types import AgentConfig
+    from tracecat.concurrency import cooperative
+    from tracecat.contexts import (
+        ctx_interaction,
+        ctx_logger,
+        ctx_logical_time,
+        ctx_role,
+        ctx_run,
+        ctx_stream_id,
+    )
+    from tracecat.dsl.action import (
+        BuildAgentArgsActivityInput,
+        BuildPresetAgentArgsActivityInput,
+        DSLActivities,
+        EvaluateLoopedSubflowInputActivityInput,
+        EvaluateTemplatedObjectActivityInput,
+        NormalizeTriggerInputsActivityInputs,
+        PrepareSubflowActivityInput,
+        ResolveSubflowBatchActivityInput,
+        SynchronizeCollectionObjectActivityInput,
+    )
+    from tracecat.dsl.common import (
+        RETRY_POLICIES,
+        AgentActionMemo,
+        ChildWorkflowMemo,
+        DSLInput,
+        DSLRunArgs,
+        ExecuteSubflowArgs,
+        PreparedSubflowResult,
+        ResolvedSubflowBatch,
+        ResolvedSubflowInput,
+        SubflowContext,
+        dsl_execution_error_from_exception,
+        get_trigger_type,
+    )
+    from tracecat.dsl.enums import (
+        FailStrategy,
+        LoopStrategy,
+        PlatformAction,
+        WaitStrategy,
+    )
+    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.schemas import (
+        ROOT_STREAM,
+        ActionStatement,
+        DSLConfig,
+        DSLEnvironment,
+        ExecutionContext,
+        RunActionInput,
+        RunContext,
+        StreamID,
+        TaskResult,
+    )
+    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
+    from tracecat.dsl.validation import (
+        ResolveTimeAnchorActivityInputs,
+        format_input_schema_validation_error,
+        resolve_time_anchor_activity,
+    )
+    from tracecat.ee.interactions.decorators import maybe_interactive
+    from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
+    from tracecat.ee.interactions.service import InteractionManager
+    from tracecat.exceptions import (
+        TracecatException,
+        TracecatExpressionError,
+        TracecatNotFoundError,
+    )
+    from tracecat.expressions.eval import is_template_only
+    from tracecat.identifiers import WorkspaceID
+    from tracecat.identifiers.workflow import (
+        WorkflowExecutionID,
+        WorkflowID,
+        exec_id_to_parts,
+    )
+    from tracecat.logger import logger
+    from tracecat.storage.object import (
+        CollectionObject,
+        ExternalObject,
+        InlineObject,
+        StoredObject,
+        StoredObjectValidator,
+        action_collection_prefix,
+        action_key,
+        return_key,
+        trigger_key,
+    )
+    from tracecat.validation.schemas import ValidationDetailListTA
+    from tracecat.workflow.executions.enums import (
+        ExecutionType,
+        TemporalSearchAttr,
+        TriggerType,
+    )
+    from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
+    from tracecat.workflow.management.definitions import (
+        get_workflow_definition_activity,
+        resolve_registry_lock_activity,
+    )
+    from tracecat.workflow.management.management import WorkflowsManagementService
+    from tracecat.workflow.management.schemas import (
+        GetErrorHandlerWorkflowIDActivityInputs,
+        GetWorkflowDefinitionActivityInputs,
+        ResolveRegistryLockActivityInputs,
+        ResolveWorkflowAliasActivityInputs,
+        WorkflowDefinitionActivityResult,
+    )
+    from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
+    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
 def _inherit_search_attributes_with_alias(
@@ -756,15 +764,18 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
+                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        entity_type=AgentSessionEntity.WORKFLOW,
+                        entity_id=self.run_context.wf_id,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
                         id=AgentWorkflowID(session_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                        # Propagate the parent workflow attributes to the child workflow
-                        task_queue=wf_info.task_queue,
+                        # Route to agent worker queue for session activities
+                        task_queue=config.TRACECAT__AGENT_QUEUE,
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,
@@ -813,14 +824,18 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
+                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
+                        entity_type=AgentSessionEntity.WORKFLOW,
+                        entity_id=self.run_context.wf_id,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
                         arg=arg,
                         id=AgentWorkflowID(session_id),
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                        task_queue=wf_info.task_queue,
+                        # Route to agent worker queue for session activities
+                        task_queue=config.TRACECAT__AGENT_QUEUE,
                         execution_timeout=wf_info.execution_timeout,
                         task_timeout=wf_info.task_timeout,
                         search_attributes=child_search_attributes,

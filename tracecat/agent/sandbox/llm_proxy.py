@@ -129,7 +129,7 @@ class LLMSocketProxy:
 
         try:
             # Parse the HTTP request
-            request = await self._parse_http_request(reader)
+            request = await self._parse_http_request(reader, writer)
             if not request:
                 return
 
@@ -151,11 +151,16 @@ class LLMSocketProxy:
             except Exception:
                 pass
 
-    async def _parse_http_request(self, reader: asyncio.StreamReader) -> dict | None:
+    async def _parse_http_request(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> dict | None:
         """Parse an HTTP request from the socket.
 
         Returns:
-            Dict with method, path, headers, and body, or None if connection closed.
+            Dict with method, path, headers, and body, or None if connection closed
+            or an error response was sent.
         """
         # Read request line
         request_line = await reader.readline()
@@ -166,10 +171,12 @@ class LLMSocketProxy:
             request_line_str = request_line.decode("utf-8").strip()
             parts = request_line_str.split(" ", 2)
             if len(parts) < 2:
+                await self._send_error_response(writer, 400, "Malformed request line")
                 return None
             method = parts[0]
             path = parts[1]
         except (UnicodeDecodeError, ValueError):
+            await self._send_error_response(writer, 400, "Invalid request encoding")
             return None
 
         # Read headers
@@ -198,6 +205,7 @@ class LLMSocketProxy:
                 content_length=content_length,
                 max_size=MAX_BODY_SIZE,
             )
+            await self._send_error_response(writer, 413, "Request body too large")
             return None
 
         # Read body if present
@@ -292,6 +300,9 @@ class LLMSocketProxy:
         status_messages = {
             400: "Bad Request",
             401: "Unauthorized",
+            403: "Forbidden",
+            404: "Not Found",
+            413: "Payload Too Large",
             429: "Too Many Requests",
             500: "Internal Server Error",
             502: "Bad Gateway",

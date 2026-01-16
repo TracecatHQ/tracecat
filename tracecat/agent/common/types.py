@@ -6,14 +6,36 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 class MCPServerConfig(TypedDict):
-    """Configuration for an MCP server."""
+    """Configuration for a user-defined MCP server.
+
+    Users can connect custom MCP servers to their agents - whether running as
+    Docker containers, local processes, or remote services. The server must
+    expose an HTTP or SSE endpoint.
+
+    Example:
+        {
+            "name": "internal-tools",
+            "url": "http://host.docker.internal:8080",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+        }
+    """
+
+    name: str
+    """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
 
     url: str
-    headers: dict[str, str]
+    """Required: HTTP/SSE endpoint URL for the MCP server."""
+
+    headers: NotRequired[dict[str, str]]
+    """Optional: Auth headers (can reference Tracecat secrets)."""
+
+    transport: NotRequired[Literal["http", "sse"]]
+    """Optional: Transport type. Defaults to 'http'."""
 
 
 @dataclass(kw_only=True, slots=True)

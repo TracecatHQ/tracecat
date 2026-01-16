@@ -297,13 +297,19 @@ class ClaudeAgentRuntime:
             self.tool_approvals is not None
             and self.tool_approvals.get(action_name) is True
         )
-        # Auto-approve user MCP server tools
-        if tool_name.startswith("mcp__user-mcp-") or (
+
+        is_user_mcp_tool = tool_name.startswith("mcp__tracecat-registry__mcp__")
+
+        # Auto-approve user MCP server tools (they're always auto-approved)
+        # Also auto-approve registry tools that don't require approval
+        if is_user_mcp_tool or (
             self.registry_tools is not None
             and action_name in self.registry_tools
             and not requires_approval
         ):
-            logger.debug("Auto-approving tool", tool_name=tool_name)
+            logger.debug(
+                "Auto-approving tool", tool_name=tool_name, is_user_mcp=is_user_mcp_tool
+            )
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -340,10 +346,7 @@ class ClaudeAgentRuntime:
         self, instructions: str | None, model: str | None = None
     ) -> str:
         """Build the system prompt for the agent."""
-        if model:
-            base = f"If asked about your identity, you are a Tracecat agent powered by {model}. Do not identify yourself by any other model or model provider."
-        else:
-            base = "If asked about your identity, you are a Tracecat agent. Do not identify yourself by any other model or model provider."
+        base = "If asked about your identity, you are a Tracecat automation assistant."
         return f"{base}\n\n{instructions}" if instructions else base
 
     async def run(self, payload: RuntimeInitPayload) -> None:
@@ -376,26 +379,33 @@ class ClaudeAgentRuntime:
 
         try:
             # Build MCP servers config and tool whitelist
+            # We only allow MCP tools - Claude's default toolset (Bash, Read, etc.) is disabled
             mcp_servers: dict[str, Any] = {}
 
             # Create proxy MCP server for Tracecat registry tools
             # Convert shared MCPToolDefinition to mcp.types.MCPToolDefinition
             if self.registry_tools:
+                from tracecat.agent.mcp.types import (
+                    MCPToolDefinition as MCPToolDefinitionPydantic,
+                )
+
+                pydantic_tools = {
+                    k: MCPToolDefinitionPydantic(
+                        name=v.name,
+                        description=v.description,
+                        parameters_json_schema=v.parameters_json_schema,
+                    )
+                    for k, v in self.registry_tools.items()
+                }
                 proxy_config = await create_proxy_mcp_server(
-                    allowed_actions=self.registry_tools,
+                    allowed_actions=pydantic_tools,
                     auth_token=payload.mcp_auth_token,
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
 
-            # Add user-defined MCP servers
-            if payload.config.mcp_servers:
-                for i, server_config in enumerate(payload.config.mcp_servers):
-                    server_name = f"user-mcp-{i}"
-                    mcp_servers[server_name] = {
-                        "type": "http",
-                        "url": server_config["url"],
-                        "headers": server_config.get("headers", {}),
-                    }
+            # User MCP tools are now handled via the proxy server
+            # They're included in allowed_actions and routed through the trusted server
+            # (The sandbox has no network access, so direct HTTP connections don't work)
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to logger for nsjail capture."""
@@ -418,9 +428,7 @@ class ClaudeAgentRuntime:
                     "ANTHROPIC_BASE_URL": LITELLM_URL,
                 },
                 model=payload.config.model_name,
-                system_prompt=self._build_system_prompt(
-                    payload.config.instructions, payload.config.model_name
-                ),
+                system_prompt=self._build_system_prompt(payload.config.instructions),
                 mcp_servers=mcp_servers,
                 stderr=handle_claude_stderr,
                 hooks={
@@ -463,89 +471,88 @@ class ClaudeAgentRuntime:
                     logger.debug(
                         "Received message", message_type=type(message).__name__
                     )
-                    match message:
-                        case StreamEvent():
-                            # Capture SDK session ID from first StreamEvent
-                            if not self._sdk_session_id and message.session_id:
-                                self._sdk_session_id = message.session_id
-                                # If resuming, set last_seen_line_index to current file length
-                                if resume_session_id:
-                                    session_file = self._get_session_file_path(
-                                        self._sdk_session_id
-                                    )
-                                    if session_file.exists():
-                                        file_content = await asyncio.to_thread(
-                                            session_file.read_text
-                                        )
-                                        self._last_seen_line_index = len(
-                                            file_content.splitlines()
-                                        )
-                                logger.debug(
-                                    "Captured SDK session ID",
-                                    sdk_session_id=self._sdk_session_id,
+                    if isinstance(message, StreamEvent):
+                        # Capture SDK session ID from first StreamEvent
+                        if not self._sdk_session_id and message.session_id:
+                            self._sdk_session_id = message.session_id
+                            # If resuming, set last_seen_line_index to current file length
+                            if resume_session_id:
+                                session_file = self._get_session_file_path(
+                                    self._sdk_session_id
                                 )
+                                if session_file.exists():
+                                    file_content = await asyncio.to_thread(
+                                        session_file.read_text
+                                    )
+                                    self._last_seen_line_index = len(
+                                        file_content.splitlines()
+                                    )
+                            logger.debug(
+                                "Captured SDK session ID",
+                                sdk_session_id=self._sdk_session_id,
+                            )
 
-                            # Partial streaming delta - forward to UI
-                            unified = ClaudeSDKAdapter().to_unified_event(message)
-                            await self._socket_writer.send_stream_event(unified)
+                        # Partial streaming delta - forward to UI
+                        unified = ClaudeSDKAdapter().to_unified_event(message)
+                        await self._socket_writer.send_stream_event(unified)
 
-                        case AssistantMessage():
-                            # Emit new JSONL lines for persistence (with full envelope)
-                            await self._emit_new_session_lines()
+                    elif isinstance(message, AssistantMessage):
+                        # Emit new JSONL lines for persistence (with full envelope)
+                        await self._emit_new_session_lines()
 
-                            # Also stream tool results for UI
-                            # (keep send_message for backward compat / UI events)
-                            await self._socket_writer.send_message(message)
+                        # Also stream tool results for UI
+                        # (keep send_message for backward compat / UI events)
+                        await self._socket_writer.send_message(message)
 
-                        case UserMessage():
-                            # Emit new JSONL lines for persistence (with full envelope)
-                            await self._emit_new_session_lines()
+                    elif isinstance(message, UserMessage):
+                        # Emit new JSONL lines for persistence (with full envelope)
+                        await self._emit_new_session_lines()
 
-                            # Also send message for UI events
-                            await self._socket_writer.send_message(message)
+                        # Also send message for UI events
+                        await self._socket_writer.send_message(message)
 
-                            # Stream tool results for UI
-                            if isinstance(message.content, list):
-                                for block in message.content:
-                                    if isinstance(block, ToolResultBlock):
-                                        # Skip denial results for pending approvals
-                                        if (
-                                            block.tool_use_id
-                                            in self._pending_approval_tool_ids
-                                        ):
-                                            continue
-                                        await self._socket_writer.send_stream_event(
-                                            UnifiedStreamEvent(
-                                                type=StreamEventType.TOOL_RESULT,
-                                                tool_call_id=block.tool_use_id,
-                                                tool_output=block.content,
-                                                is_error=block.is_error or False,
-                                            )
+                        # Stream tool results for UI
+                        if isinstance(message.content, list):
+                            for block in message.content:
+                                if isinstance(block, ToolResultBlock):
+                                    # Skip denial results for pending approvals
+                                    if (
+                                        block.tool_use_id
+                                        in self._pending_approval_tool_ids
+                                    ):
+                                        continue
+                                    await self._socket_writer.send_stream_event(
+                                        UnifiedStreamEvent(
+                                            type=StreamEventType.TOOL_RESULT,
+                                            tool_call_id=block.tool_use_id,
+                                            tool_output=block.content,
+                                            is_error=block.is_error or False,
                                         )
+                                    )
 
-                        case SystemMessage():
-                            # Emit new JSONL lines for persistence (with full envelope)
-                            await self._emit_new_session_lines()
+                    elif isinstance(message, SystemMessage):
+                        # Emit new JSONL lines for persistence (with full envelope)
+                        await self._emit_new_session_lines()
 
-                            # Also send message for backward compat
-                            await self._socket_writer.send_message(message)
+                        # Also send message for backward compat
+                        await self._socket_writer.send_message(message)
 
-                        case ResultMessage():
-                            # Final result - emit any remaining lines
-                            await self._emit_new_session_lines()
-                            await self._socket_writer.send_log(
-                                "info",
-                                "Agent turn completed",
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                usage=message.usage,
-                            )
-                            # Send result with usage data back to orchestrator
-                            await self._socket_writer.send_result(
-                                usage=message.usage,
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                            )
+                    elif isinstance(message, ResultMessage):
+                        # Final result - emit any remaining lines
+                        await self._emit_new_session_lines()
+                        await self._socket_writer.send_log(
+                            "info",
+                            "Agent turn completed",
+                            num_turns=message.num_turns,
+                            duration_ms=message.duration_ms,
+                            usage=message.usage,
+                        )
+                        # Send result with usage data back to orchestrator
+                        await self._socket_writer.send_result(
+                            usage=message.usage,
+                            num_turns=message.num_turns,
+                            duration_ms=message.duration_ms,
+                        )
 
         except Exception as e:
             await self._socket_writer.send_log(

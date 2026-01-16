@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import jwt
 from jwt import PyJWTError
@@ -45,6 +45,19 @@ MCP_REQUIRED_CLAIMS = (
 )
 
 
+class UserMCPServerClaim(BaseModel):
+    """User MCP server configuration in JWT claims."""
+
+    name: str
+    """Unique identifier for the server."""
+    url: str
+    """HTTP/SSE endpoint URL."""
+    transport: Literal["http", "sse"] = "http"
+    """Transport type: 'http' or 'sse'."""
+    headers: dict[str, str] = Field(default_factory=dict)
+    """Auth headers."""
+
+
 class MCPTokenClaims(BaseModel):
     """Claims extracted from a verified MCP token.
 
@@ -60,6 +73,8 @@ class MCPTokenClaims(BaseModel):
     """Agent session ID for traceability."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
+    user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
+    """User-defined MCP server configurations for proxying tool calls."""
 
 
 def mint_mcp_token(
@@ -68,6 +83,7 @@ def mint_mcp_token(
     allowed_actions: list[str],
     session_id: uuid.UUID,
     user_id: UserID | None = None,
+    user_mcp_servers: list[UserMCPServerClaim] | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing workspace identity and allowed actions.
@@ -84,6 +100,7 @@ def mint_mcp_token(
         allowed_actions: Set of allowed action names
         session_id: Agent session ID for traceability
         user_id: Optional user ID for audit/traceability
+        user_mcp_servers: User-defined MCP server configs for proxying
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -108,6 +125,9 @@ def mint_mcp_token(
 
     if user_id is not None:
         payload["user_id"] = str(user_id)
+
+    if user_mcp_servers:
+        payload["user_mcp_servers"] = [s.model_dump() for s in user_mcp_servers]
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 

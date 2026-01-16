@@ -2,19 +2,19 @@
 
 import { MessageCircle, Plus } from "lucide-react"
 import { useState } from "react"
-import { $ChatEntity, type ChatEntity } from "@/client"
+import { $AgentSessionEntity, type AgentSessionEntity } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCreateChat, useListChats } from "@/hooks/use-chat"
-import { isChatEntity } from "@/lib/chat"
+import { isAgentSessionEntity } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 
-const CHAT_ENTITIES = $ChatEntity.enum
+const CHAT_ENTITIES = $AgentSessionEntity.enum
 
 interface ChatListProps {
   workspaceId: string
-  entityType?: ChatEntity
+  entityType?: AgentSessionEntity
   entityId?: string
   selectedChatId?: string
   onChatSelect?: (chatId: string) => void
@@ -46,8 +46,8 @@ export function ChatList({
   const handleNewChat = async () => {
     if (!entityType || !entityId) return
 
-    // Validate that entityType is a valid ChatEntity value
-    if (!isChatEntity(entityType)) {
+    // Validate that entityType is a valid AgentSessionEntity value
+    if (!isAgentSessionEntity(entityType)) {
       console.error(
         `Invalid entity type: ${entityType}. Expected one of: ${CHAT_ENTITIES.join(
           ", "
