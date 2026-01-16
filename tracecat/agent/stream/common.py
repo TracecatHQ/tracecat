@@ -5,17 +5,14 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from tracecat.agent.persistence import DBMessageStore
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.stream.writers import AgentStreamWriter, StreamWriter
-from tracecat.agent.types import MessageStore
 
 
 @dataclass
 class PersistableStreamingAgentDeps:
     stream_writer: StreamWriter
-    message_store: MessageStore | None = None
 
     def to_spec(self) -> PersistableStreamingAgentDepsSpec:
         """Serialize the dependency metadata for transport."""
@@ -26,26 +23,15 @@ class PersistableStreamingAgentDeps:
         cls,
         session_id: uuid.UUID,
         workspace_id: uuid.UUID,
-        *,
-        persistent: bool = True,
-        namespace: str = "agent",
     ) -> PersistableStreamingAgentDeps:
-        stream = await AgentStream.new(session_id, workspace_id, namespace=namespace)
-        return cls(
-            stream_writer=AgentStreamWriter(stream=stream),
-            message_store=DBMessageStore() if persistent else None,
-        )
+        stream = await AgentStream.new(session_id, workspace_id)
+        return cls(stream_writer=AgentStreamWriter(stream=stream))
 
     @classmethod
     async def from_spec(
         cls, spec: PersistableStreamingAgentDepsSpec
     ) -> PersistableStreamingAgentDeps:
-        return await cls.new(
-            spec.session_id,
-            spec.workspace_id,
-            persistent=spec.persistent,
-            namespace=spec.namespace,
-        )
+        return await cls.new(spec.session_id, spec.workspace_id)
 
 
 class PersistableStreamingAgentDepsSpec(BaseModel):
@@ -53,8 +39,6 @@ class PersistableStreamingAgentDepsSpec(BaseModel):
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
-    persistent: bool
-    namespace: str
 
     async def build(self) -> PersistableStreamingAgentDeps:
         """Reconstruct dependencies from this spec."""
@@ -75,8 +59,6 @@ class PersistableStreamingAgentDepsSpec(BaseModel):
         return cls(
             session_id=stream.session_id,
             workspace_id=stream.workspace_id,
-            namespace=stream.namespace,
-            persistent=deps.message_store is not None,
         )
 
 

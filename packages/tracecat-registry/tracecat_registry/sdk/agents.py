@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import uuid
-from typing import Literal, TypedDict, cast
+from typing import Literal, NotRequired, TypedDict, cast
 
 from pydantic import BaseModel
 
@@ -27,10 +27,19 @@ type OutputType = (
 
 
 class MCPServerConfig(TypedDict):
-    """Configuration for an MCP server."""
+    """Configuration for a user-defined MCP server."""
+
+    name: str
+    """Required: Unique identifier for the server."""
 
     url: str
-    headers: dict[str, str]
+    """Required: HTTP/SSE endpoint URL for the MCP server."""
+
+    headers: NotRequired[dict[str, str]]
+    """Optional: Auth headers."""
+
+    transport: NotRequired[Literal["http", "sse"]]
+    """Optional: Transport type. Defaults to 'http'."""
 
 
 class RankableItem(TypedDict):

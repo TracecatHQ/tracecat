@@ -205,7 +205,6 @@ export function isAgentOutput(
   return (
     typeof actionResult === "object" &&
     actionResult !== null &&
-    "message_history" in actionResult &&
     Array.isArray((actionResult as AgentOutput).message_history)
   )
 }

@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
-from pydantic_ai.tools import Tool
+from pydantic_ai.tools import Tool as PATool
 from sqlalchemy import func, or_, select
 
 from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
+from tracecat.agent.runtime.pydantic_ai.adapter import to_pydantic_ai_tools
+from tracecat.agent.session.schemas import (
+    AgentSessionRead,
+    AgentSessionReadWithMessages,
+)
 from tracecat.agent.tools import build_agent_tools
-from tracecat.chat.schemas import ChatMessage, ChatRead, ChatReadMinimal
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryAction
@@ -27,8 +31,8 @@ from tracecat.logger import logger
 AGENT_PRESET_BUILDER_TOOL_NAMES = [
     "get_agent_preset_summary",
     "update_agent_preset",
-    "list_chats",
-    "get_chat",
+    "list_sessions",
+    "get_session",
 ]
 
 
@@ -47,8 +51,8 @@ async def _preset_service():
 
 
 @asynccontextmanager
-async def _chat_service():
-    from tracecat.chat.service import ChatService
+async def _session_service():
+    from tracecat.agent.session.service import AgentSessionService
 
     role = ctx_role.get()
     if role is None:
@@ -56,7 +60,7 @@ async def _chat_service():
             "Agent preset builder tools require an authenticated workspace role",
         )
 
-    async with ChatService.with_session(role=role) as service:
+    async with AgentSessionService.with_session(role=role) as service:
         yield service
 
 
@@ -78,7 +82,7 @@ class AgentToolSummary(TypedDict):
 
 async def build_agent_preset_builder_tools(
     preset_id: uuid.UUID,
-) -> list[Tool[Any]]:
+) -> list[PATool]:
     """Create tool instances bound to a specific preset ID."""
 
     async def get_agent_preset_summary() -> AgentPresetRead:
@@ -148,70 +152,75 @@ async def build_agent_preset_builder_tools(
                 raise ModelRetry(str(error)) from error
         return AgentPresetRead.model_validate(updated)
 
-    async def list_chats(
+    async def list_sessions(
         limit: int = 50,
-    ) -> list[ChatReadMinimal]:
-        """List chats where this agent preset is being used by end users.
+    ) -> list[AgentSessionRead]:
+        """List agent sessions where this agent preset is being used by end users.
 
         Args:
-            limit: Maximum number of chats to return (default 50).
+            limit: Maximum number of sessions to return (default 50).
         """
         try:
-            target_entity_type = "agent_preset"
-            target_entity_id = str(preset_id)
+            from tracecat.agent.session.types import AgentSessionEntity
 
-            async with _chat_service() as service:
+            async with _session_service() as service:
                 if service.role.user_id is None:
-                    raise ModelRetry("Unable to list chats: authentication required.")
-                chats = await service.list_chats(
-                    user_id=service.role.user_id,
-                    entity_type=target_entity_type,
-                    entity_id=target_entity_id,
+                    raise ModelRetry(
+                        "Unable to list sessions: authentication required."
+                    )
+                sessions = await service.list_sessions(
+                    created_by=service.role.user_id,
+                    entity_type=AgentSessionEntity.AGENT_PRESET,
+                    entity_id=preset_id,
                     limit=limit,
                 )
                 return [
-                    ChatReadMinimal.model_validate(chat, from_attributes=True)
-                    for chat in chats
+                    AgentSessionRead.model_validate(session, from_attributes=True)
+                    for session in sessions
                 ]
         except ModelRetry:
             raise
         except Exception as e:
-            logger.error("Failed to list chats", error=str(e), preset_id=str(preset_id))
-            raise ModelRetry("Unable to list chats at this time.") from e
+            logger.error(
+                "Failed to list sessions", error=str(e), preset_id=str(preset_id)
+            )
+            raise ModelRetry("Unable to list sessions at this time.") from e
 
-    async def get_chat(chat_id: str) -> ChatRead:
-        """Get the full message history and metadata for a specific chat.
+    async def get_session(session_id: str) -> AgentSessionReadWithMessages:
+        """Get the full message history and metadata for a specific agent session.
 
         Args:
-            chat_id: The UUID of the chat to retrieve.
+            session_id: The UUID of the session to retrieve.
         """
 
         try:
-            async with _chat_service() as service:
-                chat = await service.get_chat(uuid.UUID(chat_id), with_messages=True)
-                if not chat or str(chat.entity_id) != str(preset_id):
-                    raise ModelRetry(f"Chat {chat_id} not found.")
+            async with _session_service() as service:
+                session = await service.get_session(uuid.UUID(session_id))
+                if not session or str(session.entity_id) != str(preset_id):
+                    raise ModelRetry(f"Session {session_id} not found.")
 
-                return ChatRead(
-                    id=chat.id,
-                    title=chat.title,
-                    user_id=chat.user_id,
-                    entity_type=chat.entity_type,
-                    entity_id=chat.entity_id,
-                    tools=chat.tools,
-                    agent_preset_id=chat.agent_preset_id,
-                    created_at=chat.created_at,
-                    updated_at=chat.updated_at,
-                    last_stream_id=chat.last_stream_id,
-                    messages=[
-                        ChatMessage.from_db(message) for message in chat.messages
-                    ],
+                messages = await service.list_messages(session.id)
+
+                return AgentSessionReadWithMessages(
+                    id=session.id,
+                    workspace_id=session.workspace_id,
+                    title=session.title,
+                    created_by=session.created_by,
+                    entity_type=session.entity_type,
+                    entity_id=session.entity_id,
+                    tools=session.tools,
+                    agent_preset_id=session.agent_preset_id,
+                    harness_type=session.harness_type,
+                    created_at=session.created_at,
+                    updated_at=session.updated_at,
+                    last_stream_id=session.last_stream_id,
+                    messages=messages,
                 )
         except ModelRetry:
             raise
         except Exception as e:
-            logger.error("Failed to get chat", error=str(e), chat_id=chat_id)
-            raise ModelRetry(f"Unable to retrieve chat {chat_id}.") from e
+            logger.error("Failed to get session", error=str(e), session_id=session_id)
+            raise ModelRetry(f"Unable to retrieve session {session_id}.") from e
 
     # Tracecat tools
     build_tools_result = await build_agent_tools(
@@ -226,13 +235,15 @@ async def build_agent_preset_builder_tools(
             "tools.exa.research",
         ]
     )
+    # Convert Tracecat Tools to pydantic-ai Tools
+    pa_tools = to_pydantic_ai_tools(build_tools_result.tools)
 
     return [
         # Tool names must match ^[a-zA-Z0-9_-]{1,128}$ for some providers (e.g. Anthropic)
-        Tool(get_agent_preset_summary),
-        Tool(update_agent_preset),
-        Tool(list_available_agent_tools),
-        Tool(list_chats),
-        Tool(get_chat),
-        *build_tools_result.tools,
+        PATool(get_agent_preset_summary),
+        PATool(update_agent_preset),
+        PATool(list_available_agent_tools),
+        PATool(list_sessions),
+        PATool(get_session),
+        *pa_tools,
     ]

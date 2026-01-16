@@ -71,21 +71,21 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     try:
         claims = verify_llm_token(api_key)
     except ValueError as e:
-        logger.warning("LLM token validation failed", error=str(e))
+        logger.warning("LLM token validation failed")
         raise ProxyException(
-            message="Authentication failed",
+            message="Invalid or expired token",
             type="auth_error",
             param=None,
             code=401,
         ) from e
 
-    logger.info("Authenticated via LLM token", session_id=claims.session_id)
+    logger.debug("LLM token authenticated")
 
     return UserAPIKeyAuth(
         api_key="llm-token",
         metadata={
-            "workspace_id": claims.workspace_id,
-            "session_id": claims.session_id,
+            "workspace_id": str(claims.workspace_id),
+            "session_id": str(claims.session_id),
             "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
             "model_settings": claims.model_settings,

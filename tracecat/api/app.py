@@ -12,12 +12,13 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
-from tracecat_ee.agent.router import router as ee_agent_router
+from tracecat_ee.agent.approvals.router import router as approvals_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
+from tracecat.agent.session.router import router as agent_session_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -58,7 +59,6 @@ from tracecat.cases.tag_definitions.router import (
 )
 from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
-from tracecat.chat.router import router as chat_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
@@ -281,7 +281,8 @@ def create_app(**kwargs) -> FastAPI:
         agent_preset_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
     )
-    app.include_router(ee_agent_router)
+    app.include_router(agent_session_router)
+    app.include_router(approvals_router)
     app.include_router(admin_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
@@ -298,7 +299,6 @@ def create_app(**kwargs) -> FastAPI:
         case_durations_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
     )
-    app.include_router(chat_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)

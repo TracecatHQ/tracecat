@@ -202,15 +202,11 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
-export type AgentApprovalSubmission = {
-  approvals: ApprovalMap
-}
-
 export type AgentOutput = {
   output: unknown
-  message_history?: Array<ModelRequest | ModelResponse> | null
+  message_history?: Array<ChatMessage> | null
   duration: number
-  usage: RunUsage
+  usage?: RunUsage | null
   session_id: string
 }
 
@@ -298,19 +294,143 @@ export type AgentPresetUpdate = {
   retries?: number | null
 }
 
+/**
+ * Request schema for creating an agent session.
+ */
+export type AgentSessionCreate = {
+  /**
+   * Session ID. If not provided, service generates one.
+   */
+  id?: string | null
+  /**
+   * Human-readable title for the session
+   */
+  title?: string
+  /**
+   * User who created this session
+   */
+  created_by?: string | null
+  /**
+   * Type of entity this session is associated with
+   */
+  entity_type: AgentSessionEntity
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent for this session
+   */
+  tools?: Array<string> | null
+  /**
+   * Agent preset used for this session (if any)
+   */
+  agent_preset_id?: string | null
+  /**
+   * Agent harness type
+   */
+  harness_type?: HarnessType
+}
+
+/**
+ * The type of entity associated with an agent session.
+ *
+ * Determines the context and behavior of the session:
+ * - CASE: Chat attached to a Case entity for investigation
+ * - AGENT_PRESET: Live chat testing a preset configuration
+ * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
+ * - COPILOT: Workspace-level copilot assistant
+ * - WORKFLOW: Workflow-initiated agent run (from action)
+ */
+export type AgentSessionEntity =
+  | "case"
+  | "agent_preset"
+  | "agent_preset_builder"
+  | "copilot"
+  | "workflow"
+
+/**
+ * Response schema for agent session.
+ */
 export type AgentSessionRead = {
   id: string
+  workspace_id: string
+  title: string
+  created_by: string | null
+  entity_type: string
+  entity_id: string
+  tools: Array<string> | null
+  agent_preset_id: string | null
+  harness_type: string | null
+  last_stream_id?: string | null
   created_at: string
-  parent_id?: string | null
-  parent_run_id: string | null
-  root_id?: string | null
-  root_run_id?: string | null
-  status?: WorkflowExecutionStatus | null
-  approvals?: Array<ApprovalRead>
-  parent_workflow?: WorkflowSummary | null
-  root_workflow?: WorkflowSummary | null
-  action_ref?: string | null
-  action_title?: string | null
+  updated_at: string
+}
+
+/**
+ * Response schema for agent session with Vercel format messages.
+ */
+export type AgentSessionReadVercel = {
+  id: string
+  workspace_id: string
+  title: string
+  created_by: string | null
+  entity_type: string
+  entity_id: string
+  tools: Array<string> | null
+  agent_preset_id: string | null
+  harness_type: string | null
+  last_stream_id?: string | null
+  created_at: string
+  updated_at: string
+  /**
+   * Session messages in Vercel UI format
+   */
+  messages?: Array<UIMessage>
+}
+
+/**
+ * Response schema for agent session with message history.
+ */
+export type AgentSessionReadWithMessages = {
+  id: string
+  workspace_id: string
+  title: string
+  created_by: string | null
+  entity_type: string
+  entity_id: string
+  tools: Array<string> | null
+  agent_preset_id: string | null
+  harness_type: string | null
+  last_stream_id?: string | null
+  created_at: string
+  updated_at: string
+  /**
+   * Session messages
+   */
+  messages?: Array<unknown>
+}
+
+/**
+ * Request schema for updating an agent session.
+ */
+export type AgentSessionUpdate = {
+  /**
+   * Session title
+   */
+  title?: string | null
+  /**
+   * Tools available to the agent
+   */
+  tools?: Array<string> | null
+  /**
+   * Agent preset to use for this session
+   */
+  agent_preset_id?: string | null
+  /**
+   * Agent harness type
+   */
+  harness_type?: HarnessType | null
 }
 
 export type AgentSettingsRead = {
@@ -432,34 +552,39 @@ export type ApprovalMap = {
 }
 
 /**
- * Serialized approval record.
+ * Response schema for approval data in chat timeline.
  */
 export type ApprovalRead = {
   id: string
-  session_id: string
   tool_call_id: string
   tool_name: string
-  status: ApprovalStatus
-  reason: string | null
-  tool_call_args: {
+  tool_call_args?: {
     [key: string]: unknown
   } | null
-  decision:
+  status: ApprovalStatus
+  reason?: string | null
+  decision?:
     | boolean
     | {
         [key: string]: unknown
       }
     | null
-  approved_by?: UserReadMinimal | null
-  approved_at: string | null
+  approved_by?: string | null
+  approved_at?: string | null
   created_at: string
-  updated_at: string
 }
 
 /**
  * Possible states for a deferred tool approval.
  */
 export type ApprovalStatus = "pending" | "approved" | "rejected"
+
+/**
+ * Request model for submitting approval decisions.
+ */
+export type ApprovalSubmission = {
+  approvals: ApprovalMap
+}
 
 /**
  * Event for when a case assignee is changed.
@@ -719,52 +844,6 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
-}
-
-/**
- * @deprecated
- */
-export type BuiltinToolCallEvent = {
-  part: BuiltinToolCallPart
-  event_kind?: "builtin_tool_call"
-}
-
-export type BuiltinToolCallPart = {
-  tool_name: string
-  args?:
-    | string
-    | {
-        [key: string]: unknown
-      }
-    | null
-  tool_call_id?: string
-  id?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  provider_name?: string | null
-  part_kind?: "builtin-tool-call"
-}
-
-/**
- * @deprecated
- */
-export type BuiltinToolResultEvent = {
-  result: BuiltinToolReturnPart
-  event_kind?: "builtin_tool_result"
-}
-
-export type BuiltinToolReturnPart = {
-  tool_name: string
-  content: unknown
-  tool_call_id?: string
-  metadata?: unknown
-  timestamp?: string
-  provider_name?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_kind?: "builtin-tool-return"
 }
 
 export type CachePoint = {
@@ -1320,42 +1399,11 @@ export type CaseViewedEventRead = {
 }
 
 /**
- * Request model for creating a new chat.
- */
-export type ChatCreate = {
-  /**
-   * Human-readable title for the chat
-   */
-  title: string
-  /**
-   * Type of entity this chat is associated with
-   */
-  entity_type: ChatEntity
-  /**
-   * ID of the associated entity
-   */
-  entity_id: string
-  /**
-   * Tools available to the agent for this chat
-   */
-  tools?: Array<string> | null
-  /**
-   * Optional agent preset to use for the chat session
-   */
-  agent_preset_id?: string | null
-}
-
-/**
- * The type of entity associated with a chat.
- */
-export type ChatEntity =
-  | "case"
-  | "agent_preset"
-  | "agent_preset_builder"
-  | "copilot"
-
-/**
  * Model for a chat message with typed message payload.
+ *
+ * This model supports both regular messages and approval bubbles:
+ * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
+ * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
  */
 export type ChatMessage = {
   /**
@@ -1363,15 +1411,24 @@ export type ChatMessage = {
    */
   id: string
   /**
-   * The deserialized message
+   * Message kind for rendering
    */
-  message:
+  kind?: MessageKind
+  /**
+   * The deserialized message (for kind=CHAT_MESSAGE)
+   */
+  message?:
     | unknown
     | UserMessage
     | AssistantMessage
     | SystemMessage
     | ResultMessage
     | StreamEvent
+    | null
+  /**
+   * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
+   */
+  approval?: ApprovalRead | null
 }
 
 /**
@@ -1403,7 +1460,7 @@ export type ChatRead = {
    */
   tools: Array<string>
   /**
-   * Agent preset associated with the chat, if any
+   * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
   /**
@@ -1419,6 +1476,10 @@ export type ChatRead = {
    */
   last_stream_id?: string | null
   /**
+   * Whether this chat is read-only (legacy chats cannot be modified)
+   */
+  is_readonly?: boolean
+  /**
    * Chat messages from Redis stream
    */
   messages?: Array<ChatMessage>
@@ -1426,6 +1487,8 @@ export type ChatRead = {
 
 /**
  * Model for chat metadata without messages.
+ *
+ * Note: Legacy Chat records are read-only (is_readonly=True).
  */
 export type ChatReadMinimal = {
   /**
@@ -1453,7 +1516,7 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
-   * Agent preset associated with the chat, if any
+   * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
   /**
@@ -1468,6 +1531,10 @@ export type ChatReadMinimal = {
    * Last processed Redis stream ID for this chat
    */
   last_stream_id?: string | null
+  /**
+   * Whether this chat is read-only (legacy chats cannot be modified)
+   */
+  is_readonly?: boolean
 }
 
 /**
@@ -1499,7 +1566,7 @@ export type ChatReadVercel = {
    */
   tools: Array<string>
   /**
-   * Agent preset associated with the chat, if any
+   * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
   /**
@@ -1515,27 +1582,13 @@ export type ChatReadVercel = {
    */
   last_stream_id?: string | null
   /**
+   * Whether this chat is read-only (legacy chats cannot be modified)
+   */
+  is_readonly?: boolean
+  /**
    * Chat messages from Redis stream
    */
   messages?: Array<UIMessage>
-}
-
-/**
- * Request model for updating chat properties.
- */
-export type ChatUpdate = {
-  /**
-   * Tools available to the agent
-   */
-  tools?: Array<string> | null
-  /**
-   * Chat title
-   */
-  title?: string | null
-  /**
-   * Agent preset to use for the chat session (set to null for default instructions)
-   */
-  agent_preset_id?: string | null
 }
 
 /**
@@ -2109,16 +2162,6 @@ export type FieldDiff = {
   new: unknown
 }
 
-export type FilePart = {
-  content: BinaryContent
-  id?: string | null
-  provider_name?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_kind?: "file"
-}
-
 /**
  * A file part of a message.
  */
@@ -2132,12 +2175,6 @@ export type FileUIPart = {
       [key: string]: unknown
     }
   }
-}
-
-export type FinalResultEvent = {
-  tool_name: string | null
-  tool_call_id: string | null
-  event_kind?: "final_result"
 }
 
 export type Float = {
@@ -2156,28 +2193,6 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
-}
-
-export type FunctionToolCallEvent = {
-  part: ToolCallPart
-  event_kind?: "function_tool_call"
-}
-
-export type FunctionToolResultEvent = {
-  result: ToolReturnPart | RetryPromptPart
-  content?:
-    | string
-    | Array<
-        | string
-        | ImageUrl
-        | AudioUrl
-        | DocumentUrl
-        | VideoUrl
-        | BinaryContent
-        | CachePoint
-      >
-    | null
-  event_kind?: "function_tool_result"
 }
 
 export type GetWorkflowDefinitionActivityInputs = {
@@ -2378,6 +2393,11 @@ export type GraphResponse = {
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
+
+/**
+ * Supported agent harnesses.
+ */
+export type HarnessType = "pydantic-ai" | "claude_code"
 
 export type ImageUrl = {
   url: string
@@ -2696,14 +2716,39 @@ export type MCPIntegrationUpdate = {
 }
 
 /**
- * Configuration for an MCP server.
+ * Configuration for a user-defined MCP server.
+ *
+ * Users can connect custom MCP servers to their agents - whether running as
+ * Docker containers, local processes, or remote services. The server must
+ * expose an HTTP or SSE endpoint.
+ *
+ * Example:
+ * {
+ * "name": "internal-tools",
+ * "url": "http://host.docker.internal:8080",
+ * "transport": "http",
+ * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+ * }
  */
 export type MCPServerConfig = {
+  name: string
   url: string
-  headers: {
+  headers?: {
     [key: string]: string
   }
+  transport?: "http" | "sse"
 }
+
+export type transport = "http" | "sse"
+
+/**
+ * The type/kind of message stored in the chat.
+ */
+export type MessageKind =
+  | "chat-message"
+  | "approval-request"
+  | "approval-decision"
+  | "internal"
 
 export type ModelConfig = {
   /**
@@ -2747,49 +2792,6 @@ export type ModelCredentialUpdate = {
   credentials: {
     [key: string]: string
   }
-}
-
-export type ModelRequest = {
-  parts: Array<
-    SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
-  >
-  instructions?: string | null
-  kind?: "request"
-  run_id?: string | null
-  metadata?: {
-    [key: string]: unknown
-  } | null
-}
-
-export type ModelResponse = {
-  parts: Array<
-    | TextPart
-    | ToolCallPart
-    | BuiltinToolCallPart
-    | BuiltinToolReturnPart
-    | ThinkingPart
-    | FilePart
-  >
-  usage?: RequestUsage
-  model_name?: string | null
-  timestamp?: string
-  kind?: "response"
-  provider_name?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  provider_response_id?: string | null
-  finish_reason?:
-    | "stop"
-    | "length"
-    | "content_filter"
-    | "tool_call"
-    | "error"
-    | null
-  run_id?: string | null
-  metadata?: {
-    [key: string]: unknown
-  } | null
 }
 
 export type ModelSecretConfig = {
@@ -2894,52 +2896,6 @@ export type OutputType =
   | {
       [key: string]: unknown
     }
-
-export type PartDeltaEvent = {
-  index: number
-  delta: TextPartDelta | ThinkingPartDelta | ToolCallPartDelta
-  event_kind?: "part_delta"
-}
-
-export type PartEndEvent = {
-  index: number
-  part:
-    | TextPart
-    | ToolCallPart
-    | BuiltinToolCallPart
-    | BuiltinToolReturnPart
-    | ThinkingPart
-    | FilePart
-  next_part_kind?:
-    | "text"
-    | "thinking"
-    | "tool-call"
-    | "builtin-tool-call"
-    | "builtin-tool-return"
-    | "file"
-    | null
-  event_kind?: "part_end"
-}
-
-export type PartStartEvent = {
-  index: number
-  part:
-    | TextPart
-    | ToolCallPart
-    | BuiltinToolCallPart
-    | BuiltinToolReturnPart
-    | ThinkingPart
-    | FilePart
-  previous_part_kind?:
-    | "text"
-    | "thinking"
-    | "tool-call"
-    | "builtin-tool-call"
-    | "builtin-tool-return"
-    | "file"
-    | null
-  event_kind?: "part_start"
-}
 
 /**
  * Event for when a case payload is changed.
@@ -3667,19 +3623,6 @@ export type RepositorySyncResult = {
   actions_count?: number | null
 }
 
-export type RequestUsage = {
-  input_tokens?: number
-  cache_write_tokens?: number
-  cache_read_tokens?: number
-  output_tokens?: number
-  input_audio_tokens?: number
-  cache_audio_read_tokens?: number
-  output_audio_tokens?: number
-  details?: {
-    [key: string]: number
-  }
-}
-
 /**
  * Configuration for a response interaction.
  */
@@ -3752,6 +3695,7 @@ export type Role = {
     | "tracecat-bootstrap"
     | "tracecat-cli"
     | "tracecat-executor"
+    | "tracecat-agent-executor"
     | "tracecat-llm-gateway"
     | "tracecat-mcp"
     | "tracecat-runner"
@@ -3767,6 +3711,7 @@ export type service_id =
   | "tracecat-bootstrap"
   | "tracecat-cli"
   | "tracecat-executor"
+  | "tracecat-agent-executor"
   | "tracecat-llm-gateway"
   | "tracecat-mcp"
   | "tracecat-runner"
@@ -3799,19 +3744,14 @@ export type RunContext = {
   environment: string
 }
 
+/**
+ * LLM usage associated with an agent run.
+ */
 export type RunUsage = {
-  input_tokens?: number
-  cache_write_tokens?: number
-  cache_read_tokens?: number
-  output_tokens?: number
-  input_audio_tokens?: number
-  cache_audio_read_tokens?: number
-  output_audio_tokens?: number
-  details?: {
-    [key: string]: number
-  }
   requests?: number
   tool_calls?: number
+  input_tokens?: number
+  output_tokens?: number
 }
 
 export type SAMLDatabaseLoginResponse = {
@@ -4179,13 +4119,6 @@ export type SystemMessage = {
   data: {
     [key: string]: unknown
   }
-}
-
-export type SystemPromptPart = {
-  content: string
-  timestamp?: string
-  dynamic_ref?: string | null
-  part_kind?: "system-prompt"
 }
 
 /**
@@ -4713,23 +4646,6 @@ export type TextBlock = {
   text: string
 }
 
-export type TextPart = {
-  content: string
-  id?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_kind?: "text"
-}
-
-export type TextPartDelta = {
-  content_delta: string
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_delta_kind?: "text"
-}
-
 /**
  * A text part of a message.
  */
@@ -4749,27 +4665,6 @@ export type ThinkingBlock = {
   signature: string
 }
 
-export type ThinkingPart = {
-  content: string
-  id?: string | null
-  signature?: string | null
-  provider_name?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_kind?: "thinking"
-}
-
-export type ThinkingPartDelta = {
-  content_delta?: string | null
-  signature_delta?: string | null
-  provider_name?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_delta_kind?: "thinking"
-}
-
 export type Toggle = {
   label_on?: string
   label_off?: string
@@ -4781,37 +4676,6 @@ export type ToolApproved = {
     [key: string]: unknown
   } | null
   kind?: "tool-approved"
-}
-
-export type ToolCallPart = {
-  tool_name: string
-  args?:
-    | string
-    | {
-        [key: string]: unknown
-      }
-    | null
-  tool_call_id?: string
-  id?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_kind?: "tool-call"
-}
-
-export type ToolCallPartDelta = {
-  tool_name_delta?: string | null
-  args_delta?:
-    | string
-    | {
-        [key: string]: unknown
-      }
-    | null
-  tool_call_id?: string | null
-  provider_details?: {
-    [key: string]: unknown
-  } | null
-  part_delta_kind?: "tool_call"
 }
 
 export type ToolDenied = {
@@ -4846,15 +4710,6 @@ export type ToolReturn = {
     | null
   metadata?: unknown
   kind?: "tool-return"
-}
-
-export type ToolReturnPart = {
-  tool_name: string
-  content: unknown
-  tool_call_id?: string
-  metadata?: unknown
-  timestamp?: string
-  part_kind?: "tool-return"
 }
 
 export type ToolUIPartInputAvailable = {
@@ -5006,22 +4861,6 @@ export type UserMessage = {
   parent_tool_use_id?: string | null
 }
 
-export type UserPromptPart = {
-  content:
-    | string
-    | Array<
-        | string
-        | ImageUrl
-        | AudioUrl
-        | DocumentUrl
-        | VideoUrl
-        | BinaryContent
-        | CachePoint
-      >
-  timestamp?: string
-  part_kind?: "user-prompt"
-}
-
 export type UserRead = {
   id: string
   email: string
@@ -5034,14 +4873,6 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
-}
-
-export type UserReadMinimal = {
-  id: string
-  email: string
-  role: UserRole
-  first_name?: string | null
-  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
@@ -5635,12 +5466,6 @@ export type WorkflowReadMinimal = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
-}
-
-export type WorkflowSummary = {
-  id: string
-  title: string
-  alias?: string | null
 }
 
 /**
@@ -6570,31 +6395,92 @@ export type AgentPresetsGetAgentPresetBySlugData = {
 
 export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
 
-export type AgentListAgentSessionsData = {
+export type AgentSessionsCreateSessionData = {
+  requestBody: AgentSessionCreate
   workspaceId: string
 }
 
-export type AgentListAgentSessionsResponse = Array<AgentSessionRead>
+export type AgentSessionsCreateSessionResponse = AgentSessionRead
 
-export type AgentStreamAgentSessionData = {
+export type AgentSessionsListSessionsData = {
+  /**
+   * Filter by entity ID
+   */
+  entityId?: string | null
+  /**
+   * Filter by entity type
+   */
+  entityType?: AgentSessionEntity | null
+  /**
+   * Maximum number of sessions to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentSessionsListSessionsResponse = Array<
+  AgentSessionRead | ChatReadMinimal
+>
+
+export type AgentSessionsGetSessionData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsGetSessionResponse =
+  | AgentSessionReadWithMessages
+  | ChatRead
+
+export type AgentSessionsUpdateSessionData = {
+  requestBody: AgentSessionUpdate
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsUpdateSessionResponse = AgentSessionRead
+
+export type AgentSessionsDeleteSessionData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsDeleteSessionResponse = void
+
+export type AgentSessionsGetSessionVercelData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsGetSessionVercelResponse =
+  | AgentSessionReadVercel
+  | ChatReadVercel
+
+export type AgentSessionsSendMessageData = {
+  requestBody: VercelChatRequest | ContinueRunRequest
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsSendMessageResponse = unknown
+
+export type AgentSessionsStreamSessionEventsData = {
   /**
    * Streaming format (e.g. 'vercel')
    */
   format?: "vercel" | "basic"
-  lastEventId?: string
   sessionId: string
   workspaceId: string
 }
 
-export type AgentStreamAgentSessionResponse = unknown
+export type AgentSessionsStreamSessionEventsResponse = unknown
 
-export type AgentSubmitAgentApprovalsData = {
-  requestBody: AgentApprovalSubmission
+export type ApprovalsSubmitApprovalsData = {
+  requestBody: ApprovalSubmission
   sessionId: string
   workspaceId: string
 }
 
-export type AgentSubmitAgentApprovalsResponse = void
+export type ApprovalsSubmitApprovalsResponse = void
 
 export type AdminListOrganizationsResponse = Array<OrgRead>
 
@@ -7381,88 +7267,6 @@ export type CaseDurationsDeleteCaseDurationData = {
 }
 
 export type CaseDurationsDeleteCaseDurationResponse = void
-
-export type ChatCreateChatData = {
-  requestBody: ChatCreate
-  workspaceId: string
-}
-
-export type ChatCreateChatResponse = ChatReadMinimal
-
-export type ChatListChatsData = {
-  /**
-   * Filter by entity ID
-   */
-  entityId?: string | null
-  /**
-   * Filter by entity type
-   */
-  entityType?: string | null
-  /**
-   * Maximum number of chats to return
-   */
-  limit?: number
-  workspaceId: string
-}
-
-export type ChatListChatsResponse = Array<ChatReadMinimal>
-
-export type ChatGetChatData = {
-  chatId: string
-  workspaceId: string
-}
-
-export type ChatGetChatResponse = ChatRead
-
-export type ChatUpdateChatData = {
-  chatId: string
-  requestBody: ChatUpdate
-  workspaceId: string
-}
-
-export type ChatUpdateChatResponse = ChatReadMinimal
-
-export type ChatDeleteChatData = {
-  chatId: string
-  workspaceId: string
-}
-
-export type ChatDeleteChatResponse = void
-
-export type ChatGetChatVercelData = {
-  chatId: string
-  workspaceId: string
-}
-
-export type ChatGetChatVercelResponse = ChatReadVercel
-
-export type ChatChatWithVercelStreamingData = {
-  chatId: string
-  requestBody: VercelChatRequest | ContinueRunRequest
-  workspaceId: string
-}
-
-export type ChatChatWithVercelStreamingResponse = unknown
-
-export type ChatStreamChatEventsData = {
-  chatId: string
-  /**
-   * Streaming format (e.g. 'vercel')
-   */
-  format?: "vercel" | "basic"
-  workspaceId: string
-}
-
-export type ChatStreamChatEventsResponse = Array<
-  | PartStartEvent
-  | PartDeltaEvent
-  | PartEndEvent
-  | FinalResultEvent
-  | FunctionToolCallEvent
-  | FunctionToolResultEvent
-  | BuiltinToolCallEvent
-  | BuiltinToolResultEvent
->
 
 export type FoldersGetDirectoryData = {
   /**
@@ -9227,13 +9031,26 @@ export type $OpenApiTs = {
     }
   }
   "/agent/sessions": {
-    get: {
-      req: AgentListAgentSessionsData
+    post: {
+      req: AgentSessionsCreateSessionData
       res: {
         /**
          * Successful Response
          */
-        200: Array<AgentSessionRead>
+        200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: AgentSessionsListSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentSessionRead | ChatReadMinimal>
         /**
          * Validation Error
          */
@@ -9243,7 +9060,63 @@ export type $OpenApiTs = {
   }
   "/agent/sessions/{session_id}": {
     get: {
-      req: AgentStreamAgentSessionData
+      req: AgentSessionsGetSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionReadWithMessages | ChatRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentSessionsUpdateSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentSessionsDeleteSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/vercel": {
+    get: {
+      req: AgentSessionsGetSessionVercelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionReadVercel | ChatReadVercel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/messages": {
+    post: {
+      req: AgentSessionsSendMessageData
       res: {
         /**
          * Successful Response
@@ -9256,9 +9129,24 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/approvals": {
+  "/agent/sessions/{session_id}/stream": {
+    get: {
+      req: AgentSessionsStreamSessionEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/approvals/{session_id}": {
     post: {
-      req: AgentSubmitAgentApprovalsData
+      req: ApprovalsSubmitApprovalsData
       res: {
         /**
          * Successful Response
@@ -10650,127 +10538,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/chat": {
-    post: {
-      req: ChatCreateChatData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChatReadMinimal
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: ChatListChatsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ChatReadMinimal>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/chat/{chat_id}": {
-    get: {
-      req: ChatGetChatData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChatRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: ChatUpdateChatData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChatReadMinimal
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: ChatDeleteChatData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/chat/{chat_id}/vercel": {
-    get: {
-      req: ChatGetChatVercelData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChatReadVercel
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: ChatChatWithVercelStreamingData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: unknown
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/chat/{chat_id}/stream": {
-    get: {
-      req: ChatStreamChatEventsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<
-          | PartStartEvent
-          | PartDeltaEvent
-          | PartEndEvent
-          | FinalResultEvent
-          | FunctionToolCallEvent
-          | FunctionToolResultEvent
-          | BuiltinToolCallEvent
-          | BuiltinToolResultEvent
-        >
         /**
          * Validation Error
          */

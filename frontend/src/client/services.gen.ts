@@ -44,8 +44,6 @@ import type {
   AgentGetProvidersStatusResponse,
   AgentGetWorkspaceProvidersStatusData,
   AgentGetWorkspaceProvidersStatusResponse,
-  AgentListAgentSessionsData,
-  AgentListAgentSessionsResponse,
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
@@ -61,14 +59,28 @@ import type {
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentSessionsCreateSessionData,
+  AgentSessionsCreateSessionResponse,
+  AgentSessionsDeleteSessionData,
+  AgentSessionsDeleteSessionResponse,
+  AgentSessionsGetSessionData,
+  AgentSessionsGetSessionResponse,
+  AgentSessionsGetSessionVercelData,
+  AgentSessionsGetSessionVercelResponse,
+  AgentSessionsListSessionsData,
+  AgentSessionsListSessionsResponse,
+  AgentSessionsSendMessageData,
+  AgentSessionsSendMessageResponse,
+  AgentSessionsStreamSessionEventsData,
+  AgentSessionsStreamSessionEventsResponse,
+  AgentSessionsUpdateSessionData,
+  AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
-  AgentStreamAgentSessionData,
-  AgentStreamAgentSessionResponse,
-  AgentSubmitAgentApprovalsData,
-  AgentSubmitAgentApprovalsResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
+  ApprovalsSubmitApprovalsData,
+  ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
   AuthAuthDatabaseLoginResponse,
   AuthAuthDatabaseLogoutResponse,
@@ -171,22 +183,6 @@ import type {
   CaseTagsListCaseTagsResponse,
   CaseTagsUpdateCaseTagData,
   CaseTagsUpdateCaseTagResponse,
-  ChatChatWithVercelStreamingData,
-  ChatChatWithVercelStreamingResponse,
-  ChatCreateChatData,
-  ChatCreateChatResponse,
-  ChatDeleteChatData,
-  ChatDeleteChatResponse,
-  ChatGetChatData,
-  ChatGetChatResponse,
-  ChatGetChatVercelData,
-  ChatGetChatVercelResponse,
-  ChatListChatsData,
-  ChatListChatsResponse,
-  ChatStreamChatEventsData,
-  ChatStreamChatEventsResponse,
-  ChatUpdateChatData,
-  ChatUpdateChatResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -3239,19 +3235,83 @@ export const agentPresetsGetAgentPresetBySlug = (
 }
 
 /**
- * List Agent Sessions
- * List all agent sessions.
+ * Create Session
+ * Create a new agent session associated with an entity.
  * @param data The data for the request.
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns AgentSessionRead Successful Response
  * @throws ApiError
  */
-export const agentListAgentSessions = (
-  data: AgentListAgentSessionsData
-): CancelablePromise<AgentListAgentSessionsResponse> => {
+export const agentSessionsCreateSession = (
+  data: AgentSessionsCreateSessionData
+): CancelablePromise<AgentSessionsCreateSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sessions",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Sessions
+ * List agent sessions for the current workspace with optional filtering.
+ *
+ * Returns a list of sessions including both active AgentSessions and legacy
+ * Chat records. Legacy chats have is_readonly=True.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityType Filter by entity type
+ * @param data.entityId Filter by entity ID
+ * @param data.limit Maximum number of sessions to return
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsListSessions = (
+  data: AgentSessionsListSessionsData
+): CancelablePromise<AgentSessionsListSessionsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/agent/sessions",
+    query: {
+      entity_type: data.entityType,
+      entity_id: data.entityId,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Session
+ * Get an agent session or legacy chat with its message history.
+ *
+ * Legacy chats have is_readonly=True.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsGetSession = (
+  data: AgentSessionsGetSessionData
+): CancelablePromise<AgentSessionsGetSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/sessions/{session_id}",
+    path: {
+      session_id: data.sessionId,
+    },
     query: {
       workspace_id: data.workspaceId,
     },
@@ -3262,8 +3322,130 @@ export const agentListAgentSessions = (
 }
 
 /**
- * Stream Agent Session
- * Stream agent session events via Server-Sent Events (SSE).
+ * Update Session
+ * Update session properties.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsUpdateSession = (
+  data: AgentSessionsUpdateSessionData
+): CancelablePromise<AgentSessionsUpdateSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/sessions/{session_id}",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Session
+ * Delete an agent session.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsDeleteSession = (
+  data: AgentSessionsDeleteSessionData
+): CancelablePromise<AgentSessionsDeleteSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/sessions/{session_id}",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Session Vercel
+ * Get an agent session or legacy chat with message history in Vercel format.
+ *
+ * Legacy chats have is_readonly=True.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsGetSessionVercel = (
+  data: AgentSessionsGetSessionVercelData
+): CancelablePromise<AgentSessionsGetSessionVercelResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/sessions/{session_id}/vercel",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Send Message
+ * Send a message to the agent session with streaming response.
+ *
+ * This endpoint combines message sending with streaming response,
+ * compatible with Vercel's AI SDK useChat hook. It:
+ * 1. Accepts Vercel UI message format or continuation requests
+ * 2. Starts the agent execution
+ * 3. Streams the response back in Vercel's data protocol format
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsSendMessage = (
+  data: AgentSessionsSendMessageData
+): CancelablePromise<AgentSessionsSendMessageResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sessions/{session_id}/messages",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Session Events
+ * Stream session events via Server-Sent Events (SSE).
  *
  * This endpoint provides real-time streaming of AI agent execution steps
  * using Server-Sent Events. It supports automatic reconnection via the
@@ -3272,21 +3454,17 @@ export const agentListAgentSessions = (
  * @param data.sessionId
  * @param data.workspaceId
  * @param data.format Streaming format (e.g. 'vercel')
- * @param data.lastEventId
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const agentStreamAgentSession = (
-  data: AgentStreamAgentSessionData
-): CancelablePromise<AgentStreamAgentSessionResponse> => {
+export const agentSessionsStreamSessionEvents = (
+  data: AgentSessionsStreamSessionEventsData
+): CancelablePromise<AgentSessionsStreamSessionEventsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/agent/sessions/{session_id}",
+    url: "/agent/sessions/{session_id}/stream",
     path: {
       session_id: data.sessionId,
-    },
-    headers: {
-      "last-event-id": data.lastEventId,
     },
     query: {
       format: data.format,
@@ -3299,8 +3477,23 @@ export const agentStreamAgentSession = (
 }
 
 /**
- * Submit Agent Approvals
- * Submit approval decisions back to the running agent workflow.
+ * Submit Approvals
+ * Submit approval decisions to a running agent workflow.
+ *
+ * This endpoint sends approval decisions back to an agent workflow
+ * that is waiting for human-in-the-loop approval on tool calls.
+ *
+ * Args:
+ * role: The authenticated user role.
+ * session_id: The agent session ID (used to lookup the workflow).
+ * payload: The approval decisions mapping tool_call_id to decision.
+ * session: Database session for workspace-scoped lookups.
+ *
+ * Raises:
+ * HTTPException 400: If the approval submission fails validation.
+ * HTTPException 404: If the agent session/workflow is not found.
+ * HTTPException 502: If communication with Temporal fails.
+ * HTTPException 500: For unexpected errors.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
@@ -3308,12 +3501,12 @@ export const agentStreamAgentSession = (
  * @returns void Successful Response
  * @throws ApiError
  */
-export const agentSubmitAgentApprovals = (
-  data: AgentSubmitAgentApprovalsData
-): CancelablePromise<AgentSubmitAgentApprovalsResponse> => {
+export const approvalsSubmitApprovals = (
+  data: ApprovalsSubmitApprovalsData
+): CancelablePromise<ApprovalsSubmitApprovalsResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/agent/sessions/{session_id}/approvals",
+    url: "/approvals/{session_id}",
     path: {
       session_id: data.sessionId,
     },
@@ -5908,241 +6101,6 @@ export const caseDurationsDeleteCaseDuration = (
       duration_id: data.durationId,
     },
     query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Chat
- * Create a new chat associated with an entity.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns ChatReadMinimal Successful Response
- * @throws ApiError
- */
-export const chatCreateChat = (
-  data: ChatCreateChatData
-): CancelablePromise<ChatCreateChatResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/chat",
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Chats
- * List chats for the current workspace with optional filtering.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.entityType Filter by entity type
- * @param data.entityId Filter by entity ID
- * @param data.limit Maximum number of chats to return
- * @returns ChatReadMinimal Successful Response
- * @throws ApiError
- */
-export const chatListChats = (
-  data: ChatListChatsData
-): CancelablePromise<ChatListChatsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/chat",
-    query: {
-      entity_type: data.entityType,
-      entity_id: data.entityId,
-      limit: data.limit,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Chat
- * Get a chat with its message history.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @returns ChatRead Successful Response
- * @throws ApiError
- */
-export const chatGetChat = (
-  data: ChatGetChatData
-): CancelablePromise<ChatGetChatResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/chat/{chat_id}",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Update Chat
- * Update chat properties.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns ChatReadMinimal Successful Response
- * @throws ApiError
- */
-export const chatUpdateChat = (
-  data: ChatUpdateChatData
-): CancelablePromise<ChatUpdateChatResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/chat/{chat_id}",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Delete Chat
- * Delete a chat.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const chatDeleteChat = (
-  data: ChatDeleteChatData
-): CancelablePromise<ChatDeleteChatResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/chat/{chat_id}",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Chat Vercel
- * Get a chat with its message history in Vercel format.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @returns ChatReadVercel Successful Response
- * @throws ApiError
- */
-export const chatGetChatVercel = (
-  data: ChatGetChatVercelData
-): CancelablePromise<ChatGetChatVercelResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/chat/{chat_id}/vercel",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Chat With Vercel Streaming
- * Vercel AI SDK compatible chat endpoint with streaming.
- *
- * This endpoint combines chat turn initiation with streaming response,
- * compatible with Vercel's AI SDK useChat hook. It:
- * 1. Accepts Vercel UI message format
- * 2. Starts the agent execution
- * 3. Streams the response back in Vercel's data protocol format
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns unknown Successful Response
- * @throws ApiError
- */
-export const chatChatWithVercelStreaming = (
-  data: ChatChatWithVercelStreamingData
-): CancelablePromise<ChatChatWithVercelStreamingResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/chat/{chat_id}/vercel",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Stream Chat Events
- * Stream chat events via Server-Sent Events (SSE).
- *
- * This endpoint provides real-time streaming of AI agent execution steps
- * using Server-Sent Events. It supports automatic reconnection via the
- * Last-Event-ID header.
- * @param data The data for the request.
- * @param data.chatId
- * @param data.workspaceId
- * @param data.format Streaming format (e.g. 'vercel')
- * @returns unknown Successful Response
- * @throws ApiError
- */
-export const chatStreamChatEvents = (
-  data: ChatStreamChatEventsData
-): CancelablePromise<ChatStreamChatEventsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/chat/{chat_id}/stream",
-    path: {
-      chat_id: data.chatId,
-    },
-    query: {
-      format: data.format,
       workspace_id: data.workspaceId,
     },
     errors: {

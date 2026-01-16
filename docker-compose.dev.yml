@@ -209,6 +209,75 @@ services:
       minio:
         condition: service_healthy
 
+  agent-executor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    restart: unless-stopped
+    # Required for nsjail sandbox (agent runtime isolation)
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      # Common
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      # Compression (must match worker for codec compatibility)
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
+      # Registry
+      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Sandbox
+      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-auto}
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
+      TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
+      TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
+      TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      # Agent Worker configuration
+      TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      # Pool size auto-scales based on available CPUs if not set
+      TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
+      # Blob storage (for S3/MinIO tarball access)
+      TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./tracecat:/app/tracecat
+      - ./packages:/app/packages
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+      - sandbox-cache:/var/lib/tracecat/sandbox-cache
+    command: ["python", "-m", "tracecat.agent.worker"]
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   ui:
     # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.6}
     # container_name: ui

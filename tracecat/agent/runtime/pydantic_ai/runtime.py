@@ -9,13 +9,13 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
     TRACECAT__AGENT_MAX_RETRIES,
@@ -53,17 +53,20 @@ async def run_agent_sync(
         deferred_tool_results=deferred_tool_results,
     )
     end_time = default_timer()
-
+    message_history = [
+        ChatMessage(id=str(uuid.uuid4()), message=msg) for msg in result.all_messages()
+    ]
+    usage = RunUsage(
+        requests=result.usage().requests,
+        tool_calls=result.usage().tool_calls,
+        input_tokens=result.usage().input_tokens,
+        output_tokens=result.usage().output_tokens,
+    )
     return AgentOutput(
         output=try_parse_json(result.output),
-        message_history=result.all_messages(),
+        message_history=message_history,
         duration=end_time - start_time,
-        usage=RunUsage(
-            requests=result.usage().requests,
-            tool_calls=result.usage().tool_calls,
-            input_tokens=result.usage().input_tokens,
-            output_tokens=result.usage().output_tokens,
-        ),
+        usage=usage,
         session_id=uuid.uuid4(),
     )
 
@@ -151,6 +154,7 @@ async def run_agent(
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
         )
+
     start_time = default_timer()
 
     session_id = ctx_session_id.get() or uuid.uuid4()
@@ -160,9 +164,7 @@ async def run_agent(
     if role is None or role.workspace_id is None:
         raise TracecatAuthorizationError("Workspace context required for agent run")
 
-    deps = await PersistableStreamingAgentDeps.new(
-        session_id, role.workspace_id, persistent=False
-    )
+    deps = await PersistableStreamingAgentDeps.new(session_id, role.workspace_id)
     executor = AioStreamingAgentExecutor(deps=deps, role=role)
     try:
         # Merge legacy mcp_server_url/headers with new mcp_servers format
@@ -170,6 +172,7 @@ async def run_agent(
             if mcp_servers is None:
                 mcp_servers = []
             legacy_mcp_server = MCPServerConfig(
+                name="legacy",
                 url=mcp_server_url,
                 headers=mcp_server_headers or {},
             )
@@ -201,11 +204,21 @@ async def run_agent(
         if result is None:
             raise RuntimeError("Agent run did not complete successfully.")
         end_time = default_timer()
+        message_history = [
+            ChatMessage(id=str(uuid.uuid4()), message=msg)
+            for msg in result.all_messages()
+        ]
+        usage = RunUsage(
+            requests=result.usage().requests,
+            tool_calls=result.usage().tool_calls,
+            input_tokens=result.usage().input_tokens,
+            output_tokens=result.usage().output_tokens,
+        )
         return AgentOutput(
             output=try_parse_json(result.output),
-            message_history=result.all_messages(),
+            message_history=message_history,
             duration=end_time - start_time,
-            usage=result.usage(),
+            usage=usage,
             session_id=session_id,
         )
 

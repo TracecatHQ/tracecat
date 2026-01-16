@@ -1873,11 +1873,12 @@ class Approval(WorkspaceModel):
         index=True,
         doc="Unique approval identifier",
     )
-    session_id: Mapped[uuid.UUID] = mapped_column(
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
-        nullable=False,
+        ForeignKey("agent_session.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
-        doc="Agent session identifier",
+        doc="Agent session identifier (FK to agent_session.id)",
     )
     tool_call_id: Mapped[str] = mapped_column(
         String,
@@ -1921,6 +1922,136 @@ class Approval(WorkspaceModel):
     )
     approved_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class AgentSession(WorkspaceModel):
+    """Generic agent session/thread entity (harness-agnostic).
+
+    Represents an agent execution session that can be backed by different harnesses
+    (pydantic_ai, claude_code, etc.). This is the primary entity for all agent
+    interactions - both chat UI and workflow-initiated.
+
+    Replaces the legacy Chat model for new conversations.
+    """
+
+    __tablename__ = "agent_session"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        unique=True,
+        index=True,
+        doc="Session identifier (matches RunAgentArgs.session_id)",
+    )
+    title: Mapped[str] = mapped_column(
+        String(200),
+        default="New Chat",
+        nullable=False,
+        doc="Human-readable title for the session",
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="User who created this session (nullable for workflow-initiated sessions)",
+    )
+    entity_type: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        doc="The entity type this session is associated with (case, agent_preset, workflow, etc.)",
+    )
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="The ID of the associated entity",
+    )
+    tools: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        default=None,
+        nullable=True,
+        doc="The tools available to the agent for this session",
+    )
+    agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Agent preset used for this session (if any)",
+    )
+    # Agent harness fields
+    harness_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        doc="Agent harness type: 'pydantic_ai', 'claude_code', or None for legacy",
+    )
+    # Claude SDK session tracking (for resume)
+    sdk_session_id: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+        doc="Claude SDK internal session ID (for JSONL file naming on resume)",
+    )
+    # Current workflow run tracking (for approval continuation)
+    curr_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        index=True,
+        doc="Current workflow run ID - used to construct workflow handle for approvals",
+    )
+    # Stream position tracking (for resuming from last event)
+    last_stream_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        doc="Last processed Redis stream ID - used to resume streaming from correct position",
+    )
+
+    # Relationships
+    creator: Mapped[User | None] = relationship("User")
+    history: Mapped[list[AgentSessionHistory]] = relationship(
+        "AgentSessionHistory",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="AgentSessionHistory.surrogate_id",
+    )
+
+
+class AgentSessionHistory(WorkspaceModel):
+    """Harness-agnostic history storage for agent sessions.
+
+    Each row represents one message in the session. Ordered by created_at.
+    """
+
+    __tablename__ = "agent_session_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        doc="Harness-specific message content",
+    )
+    kind: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="internal",
+        index=True,
+        doc="Message kind for filtering (chat-message, internal). Default to internal - only user/assistant messages explicitly marked visible.",
+    )
+
+    session: Mapped[AgentSession] = relationship(
+        "AgentSession",
+        back_populates="history",
     )
 
 
