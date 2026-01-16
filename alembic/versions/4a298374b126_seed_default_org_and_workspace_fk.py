@@ -38,7 +38,7 @@ def upgrade() -> None:
     op.execute(
         """
         INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
-        SELECT
+        SELECT DISTINCT
             w.organization_id,
             'Organization ' || w.organization_id::text,
             'org-' || replace(w.organization_id::text, '-', ''),
@@ -48,6 +48,7 @@ def upgrade() -> None:
         FROM workspace AS w
         LEFT JOIN organization AS o ON o.id = w.organization_id
         WHERE o.id IS NULL
+        ON CONFLICT (id) DO NOTHING
         """
     )
 
