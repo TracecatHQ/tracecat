@@ -21,7 +21,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      tracecat.io/access-postgres: "true"
+      tracecat.com/access-postgres: "true"
   securityGroups:
     groupIds:
       - ${aws_security_group.tracecat_postgres_client.id}
@@ -31,7 +31,7 @@ EOF
 
   provisioner "local-exec" {
     when    = destroy
-    command = "kubectl delete securitygrouppolicy tracecat-postgres-access -n tracecat --ignore-not-found"
+    command = "kubectl delete securitygrouppolicy tracecat-postgres-access -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [aws_eks_addon.vpc_cni, kubernetes_namespace.tracecat]
@@ -57,7 +57,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      tracecat.io/access-redis: "true"
+      tracecat.com/access-redis: "true"
   securityGroups:
     groupIds:
       - ${aws_security_group.tracecat_redis_client.id}
@@ -67,7 +67,7 @@ EOF
 
   provisioner "local-exec" {
     when    = destroy
-    command = "kubectl delete securitygrouppolicy tracecat-redis-access -n tracecat --ignore-not-found"
+    command = "kubectl delete securitygrouppolicy tracecat-redis-access -n ${self.triggers.namespace} --ignore-not-found"
   }
 
   depends_on = [aws_eks_addon.vpc_cni, kubernetes_namespace.tracecat]

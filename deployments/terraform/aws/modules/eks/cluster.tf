@@ -105,7 +105,7 @@ resource "aws_eks_node_group" "tracecat" {
   ami_type = length(regexall("^t4g|^m6g|^c6g|^r6g", var.node_instance_types[0])) > 0 ? "AL2023_ARM_64_STANDARD" : "AL2023_x86_64_STANDARD"
 
   labels = {
-    "node.kubernetes.io/purpose" = "tracecat"
+    "tracecat.com/purpose" = "tracecat"
   }
 
   tags = var.tags
