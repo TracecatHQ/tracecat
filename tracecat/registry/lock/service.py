@@ -74,7 +74,7 @@ class RegistryLockService(BaseService):
             )
         )
         platform_result = await self.session.execute(platform_statement)
-        platform_rows = platform_result.all()
+        platform_rows = platform_result.tuples().all()
 
         # 2. Query org registries via current_version_id
         org_statement = (
@@ -93,7 +93,7 @@ class RegistryLockService(BaseService):
             )
         )
         org_result = await self.session.execute(org_statement)
-        org_rows = org_result.all()
+        org_rows = org_result.tuples().all()
 
         # 3. Combine: platform first, then org (org overrides for same origin)
         rows = list(platform_rows) + list(org_rows)
