@@ -166,6 +166,16 @@ class RecordModel(TimestampMixin, Base):
         )
 
 
+class Organization(Base, TimestampMixin):
+    """An organization in the platform."""
+
+    __tablename__ = "organization"
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, index=True)
+    slug: Mapped[str] = mapped_column(String, unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class OrganizationModel(RecordModel):
     """Base class for organization-scoped resources.
 
@@ -176,6 +186,12 @@ class OrganizationModel(RecordModel):
     __abstract__ = True
 
     organization_id: Mapped[OrganizationID] = mapped_column(UUID, nullable=False)
+
+
+class PlatformModel(RecordModel):
+    """Base class for platform-owned resources (not scoped to any org)."""
+
+    __abstract__ = True
 
 
 class WorkspaceModel(RecordModel):
@@ -434,6 +450,13 @@ class BaseSecret(Base):
 
 class OrganizationSecret(OrganizationModel, BaseSecret):
     __tablename__ = "organization_secret"
+    __table_args__ = (UniqueConstraint("name", "environment"),)
+
+
+class PlatformSecret(PlatformModel, BaseSecret):
+    """Platform-level secrets."""
+
+    __tablename__ = "platform_secret"
     __table_args__ = (UniqueConstraint("name", "environment"),)
 
 
@@ -969,10 +992,11 @@ class Action(WorkspaceModel):
         return action.ref(self.title)
 
 
-class RegistryRepository(OrganizationModel):
-    """A repository of templates and actions."""
+class BaseRegistryRepository(Base):
+    """Shared fields for registry repositories."""
 
-    __tablename__ = "registry_repository"
+    __abstract__ = True
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True
     )
@@ -994,6 +1018,12 @@ class RegistryRepository(OrganizationModel):
         doc="The SHA of the last commit that was synced from the repository",
     )
 
+
+class RegistryRepository(OrganizationModel, BaseRegistryRepository):
+    """A repository of templates and actions."""
+
+    __tablename__ = "registry_repository"
+
     actions: Mapped[list[RegistryAction]] = relationship(
         "RegistryAction",
         back_populates="repository",
@@ -1007,23 +1037,29 @@ class RegistryRepository(OrganizationModel):
     )
 
 
-class RegistryAction(OrganizationModel):
-    """A registry action.
+class PlatformRegistryRepository(PlatformModel, BaseRegistryRepository):
+    """A platform-owned repository of templates and actions."""
 
+    __tablename__ = "platform_registry_repository"
 
-    A registry action can be a template action or a udf.
-    A udf is a python user-defined function that can be used to create new actions.
-    A template action is a reusable action that can be used to create new actions.
-    Template actions loaded from tracecat base can be cloned but not edited.
-    This is to ensure portability of templates across different users/systems.
-    Custom template actions can be edited and cloned
-
-    """
-
-    __tablename__ = "registry_action"
-    __table_args__ = (
-        UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
+    actions: Mapped[list[PlatformRegistryAction]] = relationship(
+        "PlatformRegistryAction",
+        back_populates="repository",
+        cascade="all, delete",
+        lazy="selectin",
     )
+    versions: Mapped[list[PlatformRegistryVersion]] = relationship(
+        "PlatformRegistryVersion",
+        back_populates="repository",
+        cascade="all, delete",
+    )
+
+
+class BaseRegistryAction(Base):
+    """Shared fields for registry actions."""
+
+    __abstract__ = True
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True
     )
@@ -1069,6 +1105,19 @@ class RegistryAction(OrganizationModel):
         nullable=True,
         doc="The action's options",
     )
+
+    @property
+    def action(self) -> str:
+        return f"{self.namespace}.{self.name}"
+
+
+class RegistryAction(OrganizationModel, BaseRegistryAction):
+    """A registry action."""
+
+    __tablename__ = "registry_action"
+    __table_args__ = (
+        UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
+    )
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("registry_repository.id", ondelete="CASCADE"),
@@ -1077,29 +1126,30 @@ class RegistryAction(OrganizationModel):
 
     repository: Mapped[RegistryRepository] = relationship(back_populates="actions")
 
-    @property
-    def action(self):
-        return f"{self.namespace}.{self.name}"
+
+class PlatformRegistryAction(PlatformModel, BaseRegistryAction):
+    """A platform registry action."""
+
+    __tablename__ = "platform_registry_action"
+    __table_args__ = (UniqueConstraint("namespace", "name"),)
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("platform_registry_repository.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    repository: Mapped[PlatformRegistryRepository] = relationship(
+        back_populates="actions"
+    )
 
 
-class RegistryVersion(OrganizationModel):
-    """An immutable versioned snapshot of a registry repository.
+class BaseRegistryVersion(Base):
+    """Shared fields for registry versions."""
 
-    Stores frozen manifests (index of actions and how to load them).
-    Once created, never modified. Used to pin workflows to specific
-    registry versions for reproducible execution.
-    """
-
-    __tablename__ = "registry_version"
-    __table_args__ = (UniqueConstraint("organization_id", "repository_id", "version"),)
+    __abstract__ = True
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    repository_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("registry_repository.id", ondelete="CASCADE"),
-        nullable=False,
     )
     version: Mapped[str] = mapped_column(
         String,
@@ -1122,6 +1172,18 @@ class RegistryVersion(OrganizationModel):
         doc="S3 URI to the compressed tarball venv for action execution",
     )
 
+
+class RegistryVersion(OrganizationModel, BaseRegistryVersion):
+    """An immutable versioned snapshot of a registry repository."""
+
+    __tablename__ = "registry_version"
+    __table_args__ = (UniqueConstraint("organization_id", "repository_id", "version"),)
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("registry_repository.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
     repository: Mapped[RegistryRepository] = relationship(back_populates="versions")
     index_entries: Mapped[list[RegistryIndex]] = relationship(
         "RegistryIndex",
@@ -1131,24 +1193,38 @@ class RegistryVersion(OrganizationModel):
     )
 
 
-class RegistryIndex(OrganizationModel):
-    """Index of actions from a RegistryVersion manifest for fast lookups.
+class PlatformRegistryVersion(PlatformModel, BaseRegistryVersion):
+    """A platform-owned versioned snapshot of a registry repository."""
 
-    Derived from RegistryVersion.manifest - provides fast action lookups
-    for UI display and workflow validation. Equivalent to today's RegistryAction
-    but scoped to a specific version.
-    """
+    __tablename__ = "platform_registry_version"
+    __table_args__ = (
+        UniqueConstraint("id"),
+        UniqueConstraint("repository_id", "version"),
+    )
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("platform_registry_repository.id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
-    __tablename__ = "registry_index"
-    __table_args__ = (UniqueConstraint("registry_version_id", "namespace", "name"),)
+    repository: Mapped[PlatformRegistryRepository] = relationship(
+        back_populates="versions"
+    )
+    index_entries: Mapped[list[PlatformRegistryIndex]] = relationship(
+        "PlatformRegistryIndex",
+        back_populates="registry_version",
+        cascade="all, delete",
+        lazy="selectin",
+    )
+
+
+class BaseRegistryIndex(Base):
+    """Shared fields for registry indexes."""
+
+    __abstract__ = True
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    registry_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("registry_version.id", ondelete="CASCADE"),
-        nullable=False,
     )
     namespace: Mapped[str] = mapped_column(String, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -1190,13 +1266,44 @@ class RegistryIndex(OrganizationModel):
         doc="Action options",
     )
 
+    @property
+    def action(self) -> str:
+        return f"{self.namespace}.{self.name}"
+
+
+class RegistryIndex(OrganizationModel, BaseRegistryIndex):
+    """Index of actions from a RegistryVersion manifest for fast lookups."""
+
+    __tablename__ = "registry_index"
+    __table_args__ = (UniqueConstraint("registry_version_id", "namespace", "name"),)
+    registry_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("registry_version.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
     registry_version: Mapped[RegistryVersion] = relationship(
         back_populates="index_entries"
     )
 
-    @property
-    def action(self) -> str:
-        return f"{self.namespace}.{self.name}"
+
+class PlatformRegistryIndex(PlatformModel, BaseRegistryIndex):
+    """Platform index of actions from a registry manifest."""
+
+    __tablename__ = "platform_registry_index"
+    __table_args__ = (
+        UniqueConstraint("id"),
+        UniqueConstraint("registry_version_id", "namespace", "name"),
+    )
+    registry_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("platform_registry_version.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    registry_version: Mapped[PlatformRegistryVersion] = relationship(
+        back_populates="index_entries"
+    )
 
 
 class OrganizationSetting(OrganizationModel):
@@ -1229,6 +1336,19 @@ class OrganizationSetting(OrganizationModel):
         default=False,
         server_default=text("false"),
         doc="Whether the setting is encrypted",
+    )
+
+
+class PlatformSetting(Base, TimestampMixin):
+    """A platform-level setting (not scoped to any organization)."""
+
+    __tablename__ = "platform_settings"
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String, unique=True, index=True)
+    value: Mapped[bytes] = mapped_column(LargeBinary)
+    value_type: Mapped[str] = mapped_column(String)
+    is_encrypted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
     )
 
 

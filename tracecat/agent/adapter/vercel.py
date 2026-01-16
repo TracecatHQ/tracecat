@@ -1325,9 +1325,9 @@ def _is_internal_interrupt_message(chat_message: ChatMessage) -> bool:
 
     # Get content from various message types
     content: str | list[Any] | None = None
-    if isinstance(message_data, (AssistantMessage, UserMessage)):
+    if isinstance(message_data, AssistantMessage | UserMessage):
         content = message_data.content
-    elif isinstance(message_data, (ModelRequest, ModelResponse)):
+    elif isinstance(message_data, ModelRequest | ModelResponse):
         # pydantic-ai messages - check parts directly
         for part in message_data.parts:
             if isinstance(part, TextPart):

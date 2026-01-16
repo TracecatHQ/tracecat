@@ -16,6 +16,24 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
+  AdminCreateOrganizationData,
+  AdminCreateOrganizationResponse,
+  AdminDeleteOrganizationData,
+  AdminDeleteOrganizationResponse,
+  AdminGetOrganizationData,
+  AdminGetOrganizationResponse,
+  AdminGetRegistrySettingsResponse,
+  AdminGetRegistryStatusResponse,
+  AdminListOrganizationsResponse,
+  AdminListRegistryVersionsData,
+  AdminListRegistryVersionsResponse,
+  AdminSyncAllRepositoriesResponse,
+  AdminSyncRepositoryData,
+  AdminSyncRepositoryResponse,
+  AdminUpdateOrganizationData,
+  AdminUpdateOrganizationResponse,
+  AdminUpdateRegistrySettingsData,
+  AdminUpdateRegistrySettingsResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -3495,6 +3513,226 @@ export const approvalsSubmitApprovals = (
     query: {
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organizations
+ * List all organizations.
+ * @returns OrgRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrganizations =
+  (): CancelablePromise<AdminListOrganizationsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/organizations",
+    })
+  }
+
+/**
+ * Create Organization
+ * Create a new organization.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns OrgRead Successful Response
+ * @throws ApiError
+ */
+export const adminCreateOrganization = (
+  data: AdminCreateOrganizationData
+): CancelablePromise<AdminCreateOrganizationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Organization
+ * Get organization by ID.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns OrgRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetOrganization = (
+  data: AdminGetOrganizationData
+): CancelablePromise<AdminGetOrganizationResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Organization
+ * Update organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.requestBody
+ * @returns OrgRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateOrganization = (
+  data: AdminUpdateOrganizationData
+): CancelablePromise<AdminUpdateOrganizationResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/organizations/{org_id}",
+    path: {
+      org_id: data.orgId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Organization
+ * Delete organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminDeleteOrganization = (
+  data: AdminDeleteOrganizationData
+): CancelablePromise<AdminDeleteOrganizationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/organizations/{org_id}",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Sync All Repositories
+ * Trigger sync for all platform registry repositories.
+ * @returns RegistrySyncResponse Successful Response
+ * @throws ApiError
+ */
+export const adminSyncAllRepositories =
+  (): CancelablePromise<AdminSyncAllRepositoriesResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/registry/sync",
+    })
+  }
+
+/**
+ * Sync Repository
+ * Trigger sync for a specific platform registry repository.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @returns RegistrySyncResponse Successful Response
+ * @throws ApiError
+ */
+export const adminSyncRepository = (
+  data: AdminSyncRepositoryData
+): CancelablePromise<AdminSyncRepositoryResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/registry/sync/{repository_id}",
+    path: {
+      repository_id: data.repositoryId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Registry Status
+ * Get registry sync status and health.
+ * @returns RegistryStatusResponse Successful Response
+ * @throws ApiError
+ */
+export const adminGetRegistryStatus =
+  (): CancelablePromise<AdminGetRegistryStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/registry/status",
+    })
+  }
+
+/**
+ * List Registry Versions
+ * List registry versions with optional filtering.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.limit
+ * @returns RegistryVersionRead Successful Response
+ * @throws ApiError
+ */
+export const adminListRegistryVersions = (
+  data: AdminListRegistryVersionsData = {}
+): CancelablePromise<AdminListRegistryVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/registry/versions",
+    query: {
+      repository_id: data.repositoryId,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Registry Settings
+ * Get platform registry settings.
+ * @returns PlatformRegistrySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetRegistrySettings =
+  (): CancelablePromise<AdminGetRegistrySettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/registry",
+    })
+  }
+
+/**
+ * Update Registry Settings
+ * Update platform registry settings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformRegistrySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateRegistrySettings = (
+  data: AdminUpdateRegistrySettingsData
+): CancelablePromise<AdminUpdateRegistrySettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/registry",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

@@ -2864,6 +2864,14 @@ export type OAuthSettingsUpdate = {
   oauth_google_enabled?: boolean
 }
 
+/**
+ * Create organization request.
+ */
+export type OrgCreate = {
+  name: string
+  slug: string
+}
+
 export type OrgMemberRead = {
   user_id: string
   first_name: string | null
@@ -2874,6 +2882,27 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * Organization response.
+ */
+export type OrgRead = {
+  id: string
+  name: string
+  slug: string
+  is_active: boolean
+  created_at: string
+  updated_at?: string | null
+}
+
+/**
+ * Update organization request.
+ */
+export type OrgUpdate = {
+  name?: string | null
+  slug?: string | null
+  is_active?: boolean | null
 }
 
 /**
@@ -2924,6 +2953,24 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Platform registry settings response.
+ */
+export type PlatformRegistrySettingsRead = {
+  git_repo_url?: string | null
+  git_repo_package_name?: string | null
+  git_allowed_domains?: Array<string> | null
+}
+
+/**
+ * Update platform registry settings.
+ */
+export type PlatformRegistrySettingsUpdate = {
+  git_repo_url?: string | null
+  git_repo_package_name?: string | null
+  git_allowed_domains?: Array<string> | null
 }
 
 export type Position = {
@@ -3542,6 +3589,36 @@ export type RegistrySecretType_Output =
   | RegistryOAuthSecret_Output
 
 /**
+ * Registry health status.
+ */
+export type RegistryStatusResponse = {
+  total_repositories: number
+  last_sync_at: string | null
+  repositories: Array<RepositoryStatus>
+}
+
+/**
+ * Response from sync operation.
+ */
+export type RegistrySyncResponse = {
+  success: boolean
+  synced_at: string
+  repositories: Array<RepositorySyncResult>
+}
+
+/**
+ * Registry version details.
+ */
+export type RegistryVersionRead = {
+  id: string
+  repository_id: string
+  version: string
+  commit_sha: string | null
+  tarball_uri: string | null
+  created_at: string
+}
+
+/**
  * Event for when a case is reopened.
  */
 export type ReopenedEventRead = {
@@ -3560,6 +3637,29 @@ export type ReopenedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Status of a single repository.
+ */
+export type RepositoryStatus = {
+  id: string
+  name: string
+  origin: string
+  last_synced_at: string | null
+  commit_sha: string | null
+}
+
+/**
+ * Result of syncing a single repository.
+ */
+export type RepositorySyncResult = {
+  repository_id: string
+  repository_name: string
+  success: boolean
+  error?: string | null
+  version?: string | null
+  actions_count?: number | null
 }
 
 /**
@@ -6438,6 +6538,58 @@ export type ApprovalsSubmitApprovalsData = {
 
 export type ApprovalsSubmitApprovalsResponse = void
 
+export type AdminListOrganizationsResponse = Array<OrgRead>
+
+export type AdminCreateOrganizationData = {
+  requestBody: OrgCreate
+}
+
+export type AdminCreateOrganizationResponse = OrgRead
+
+export type AdminGetOrganizationData = {
+  orgId: string
+}
+
+export type AdminGetOrganizationResponse = OrgRead
+
+export type AdminUpdateOrganizationData = {
+  orgId: string
+  requestBody: OrgUpdate
+}
+
+export type AdminUpdateOrganizationResponse = OrgRead
+
+export type AdminDeleteOrganizationData = {
+  orgId: string
+}
+
+export type AdminDeleteOrganizationResponse = void
+
+export type AdminSyncAllRepositoriesResponse = RegistrySyncResponse
+
+export type AdminSyncRepositoryData = {
+  repositoryId: string
+}
+
+export type AdminSyncRepositoryResponse = RegistrySyncResponse
+
+export type AdminGetRegistryStatusResponse = RegistryStatusResponse
+
+export type AdminListRegistryVersionsData = {
+  limit?: number
+  repositoryId?: string | null
+}
+
+export type AdminListRegistryVersionsResponse = Array<RegistryVersionRead>
+
+export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
+
+export type AdminUpdateRegistrySettingsData = {
+  requestBody: PlatformRegistrySettingsUpdate
+}
+
+export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -9052,6 +9204,143 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgRead>
+      }
+    }
+    post: {
+      req: AdminCreateOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: OrgRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}": {
+    get: {
+      req: AdminGetOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AdminUpdateOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AdminDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/sync": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistrySyncResponse
+      }
+    }
+  }
+  "/admin/registry/sync/{repository_id}": {
+    post: {
+      req: AdminSyncRepositoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistrySyncResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryStatusResponse
+      }
+    }
+  }
+  "/admin/registry/versions": {
+    get: {
+      req: AdminListRegistryVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<RegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/registry": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformRegistrySettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateRegistrySettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformRegistrySettingsRead
         /**
          * Validation Error
          */

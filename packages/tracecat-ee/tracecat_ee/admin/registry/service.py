@@ -1,0 +1,204 @@
+"""Platform-level registry sync service."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import ClassVar
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from tracecat import config
+from tracecat.db.models import PlatformRegistryRepository, PlatformRegistryVersion
+from tracecat.git.utils import parse_git_url
+from tracecat.parse import safe_url
+from tracecat.registry.constants import (
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
+    DEFAULT_REGISTRY_ORIGIN,
+)
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.service import BaseService
+from tracecat.ssh import ssh_context
+from tracecat_ee.admin.registry.schemas import (
+    RegistryStatusResponse,
+    RegistrySyncResponse,
+    RegistryVersionRead,
+    RepositoryStatus,
+    RepositorySyncResult,
+)
+from tracecat_ee.admin.settings.service import AdminSettingsService
+
+
+class AdminRegistryService(BaseService):
+    """Platform-level registry management."""
+
+    service_name: ClassVar[str] = "admin_registry"
+
+    async def sync_all_repositories(self) -> RegistrySyncResponse:
+        """Sync all platform registry repositories."""
+        repos = await self._ensure_platform_repositories()
+
+        results: list[RepositorySyncResult] = []
+        for repo in repos:
+            sync_result = await self._sync_repository(repo)
+            results.append(sync_result)
+
+        return RegistrySyncResponse(
+            success=all(r.success for r in results),
+            synced_at=datetime.now(UTC),
+            repositories=results,
+        )
+
+    async def sync_repository(self, repository_id: uuid.UUID) -> RegistrySyncResponse:
+        """Sync a specific platform registry repository."""
+        stmt = select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.id == repository_id
+        )
+        result = await self.session.execute(stmt)
+        repo = result.scalar_one_or_none()
+
+        if not repo:
+            raise ValueError(f"Platform repository {repository_id} not found")
+
+        sync_result = await self._sync_repository(repo)
+        return RegistrySyncResponse(
+            success=sync_result.success,
+            synced_at=datetime.now(UTC),
+            repositories=[sync_result],
+        )
+
+    async def _ensure_platform_repositories(self) -> list[PlatformRegistryRepository]:
+        """Ensure default platform repositories exist for sync operations."""
+        stmt = select(PlatformRegistryRepository)
+        result = await self.session.execute(stmt)
+        repos = list(result.scalars().all())
+        origins = {repo.origin for repo in repos}
+        created = False
+
+        if DEFAULT_REGISTRY_ORIGIN not in origins:
+            self.session.add(PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN))
+            created = True
+
+        if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+            if DEFAULT_LOCAL_REGISTRY_ORIGIN not in origins:
+                self.session.add(
+                    PlatformRegistryRepository(origin=DEFAULT_LOCAL_REGISTRY_ORIGIN)
+                )
+                created = True
+
+        settings_service = AdminSettingsService(self.session, role=self.role)
+        settings = await settings_service.get_registry_settings()
+        if settings.git_repo_url:
+            cleaned_url = safe_url(settings.git_repo_url)
+            if cleaned_url not in origins:
+                self.session.add(PlatformRegistryRepository(origin=cleaned_url))
+                created = True
+
+        if created:
+            try:
+                await self.session.commit()
+            except IntegrityError:
+                await self.session.rollback()
+            stmt = select(PlatformRegistryRepository)
+            result = await self.session.execute(stmt)
+            repos = list(result.scalars().all())
+
+        return repos
+
+    async def _sync_repository(
+        self, repo: PlatformRegistryRepository
+    ) -> RepositorySyncResult:
+        """Internal: Execute sync for a repository."""
+        sync_service = PlatformRegistrySyncService(self.session, self.role)
+        last_synced_at = datetime.now(UTC)
+
+        try:
+            if repo.origin.startswith("git+ssh://"):
+                settings_service = AdminSettingsService(self.session, role=self.role)
+                settings = await settings_service.get_registry_settings()
+                allowed_domains = settings.git_allowed_domains or {"github.com"}
+                git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+
+                async with ssh_context(
+                    role=self.role, git_url=git_url, session=self.session
+                ) as ssh_env:
+                    sync_result = await sync_service.sync_repository_v2(
+                        db_repo=repo,
+                        ssh_env=ssh_env,
+                        git_repo_package_name=settings.git_repo_package_name,
+                        commit=False,
+                    )
+            else:
+                sync_result = await sync_service.sync_repository_v2(
+                    db_repo=repo,
+                    commit=False,
+                )
+
+            repo.commit_sha = sync_result.commit_sha
+            repo.last_synced_at = last_synced_at
+            self.session.add(repo)
+            await self.session.commit()
+            await self.session.refresh(repo)
+
+            return RepositorySyncResult(
+                repository_id=repo.id,
+                repository_name=repo.origin,
+                success=True,
+                error=None,
+                version=sync_result.version_string,
+                actions_count=sync_result.num_actions,
+            )
+        except Exception as exc:
+            await self.session.rollback()
+            return RepositorySyncResult(
+                repository_id=repo.id,
+                repository_name=repo.origin,
+                success=False,
+                error=str(exc),
+                version=None,
+                actions_count=None,
+            )
+
+    async def get_status(self) -> RegistryStatusResponse:
+        """Get registry health and sync status."""
+        stmt = select(PlatformRegistryRepository)
+        result = await self.session.execute(stmt)
+        repos = list(result.scalars().all())
+
+        last_sync = max(
+            (r.last_synced_at for r in repos if r.last_synced_at), default=None
+        )
+
+        return RegistryStatusResponse(
+            total_repositories=len(repos),
+            last_sync_at=last_sync,
+            repositories=[
+                RepositoryStatus(
+                    id=r.id,
+                    name=r.origin,
+                    origin=r.origin,
+                    last_synced_at=r.last_synced_at,
+                    commit_sha=r.commit_sha,
+                )
+                for r in repos
+            ],
+        )
+
+    async def list_versions(
+        self,
+        repository_id: uuid.UUID | None = None,
+        limit: int = 50,
+    ) -> Sequence[RegistryVersionRead]:
+        """List registry versions."""
+        stmt = select(PlatformRegistryVersion)
+        if repository_id:
+            stmt = stmt.where(PlatformRegistryVersion.repository_id == repository_id)
+        stmt = stmt.order_by(
+            PlatformRegistryVersion.created_at.desc(),
+            PlatformRegistryVersion.id.desc(),
+        ).limit(limit)
+
+        result = await self.session.execute(stmt)
+        return [RegistryVersionRead.model_validate(v) for v in result.scalars().all()]

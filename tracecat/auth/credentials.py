@@ -25,7 +25,11 @@ from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.auth.users import is_unprivileged, optional_current_active_user
+from tracecat.auth.users import (
+    current_active_user,
+    is_unprivileged,
+    optional_current_active_user,
+)
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
@@ -522,3 +526,36 @@ def RoleACL(
         return Depends(role_dependency_not_req_ws)
     else:
         raise ValueError(f"Invalid require_workspace value: {require_workspace}")
+
+
+# --- Platform-level (Superuser) Authentication ---
+
+
+async def _require_superuser(
+    user: Annotated[User, Depends(current_active_user)],
+) -> Role:
+    """Require superuser access for platform admin operations.
+
+    This dependency is used for /admin routes that require platform-level access.
+    Superusers can manage organizations, platform settings, and platform-level
+    registry sync operations.
+    """
+    if not user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser access required",
+        )
+    role = Role(
+        type="user",
+        user_id=user.id,
+        access_level=AccessLevel.ADMIN,
+        service_id="tracecat-api",
+        # NOTE: Platform routes are not org/workspace-scoped. Role still requires
+        # organization_id for backwards-compat in Phase 1.
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+    ctx_role.set(role)
+    return role
+
+
+SuperuserRole = Annotated[Role, Depends(_require_superuser)]
