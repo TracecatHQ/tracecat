@@ -1,7 +1,7 @@
 """add platform models and organization table
 
 Revision ID: 7aab03def5b6
-Revises: 47e44115516c
+Revises: f856d9b7ee5a
 Create Date: 2026-01-15 22:10:19.223956
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "7aab03def5b6"
-down_revision: str | None = "47e44115516c"
+down_revision: str | None = "f856d9b7ee5a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
