@@ -392,5 +392,12 @@ if [[ -f "$ENV_FILE" ]]; then
     build_env "$CLUSTER_NUM"
 fi
 
+# Sync dependencies before starting cluster
+if [[ "$COMMAND" == "up" ]]; then
+    echo "Syncing dependencies..."
+    (cd "$REPO_ROOT" && uv sync --quiet)
+    (cd "$REPO_ROOT" && pnpm -C frontend install --silent)
+fi
+
 # Run docker compose with the configured environment
 exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
