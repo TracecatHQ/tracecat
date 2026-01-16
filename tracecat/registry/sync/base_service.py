@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 class RepositoryProtocol(Protocol):
     id: Mapped[uuid.UUID]
     origin: Mapped[str]
+    current_version_id: Mapped[uuid.UUID | None]
 
 
 class VersionProtocol(Protocol):
@@ -230,6 +231,10 @@ class BaseRegistrySyncService[
             version=target_version,
             tarball_uri=artifacts.tarball_uri,
         )
+
+        # Auto-promote: set new version as current
+        db_repo.current_version_id = version.id
+        self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 
@@ -513,6 +518,10 @@ class BaseRegistrySyncService[
             version=target_version,
             tarball_uri=tarball_uri,
         )
+
+        # Auto-promote: set new version as current
+        db_repo.current_version_id = version.id
+        self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 

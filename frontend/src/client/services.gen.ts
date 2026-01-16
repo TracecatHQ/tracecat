@@ -289,6 +289,8 @@ import type {
   RegistryRepositoriesListRegistryRepositoriesResponse,
   RegistryRepositoriesListRepositoryCommitsData,
   RegistryRepositoriesListRepositoryCommitsResponse,
+  RegistryRepositoriesPromoteRegistryVersionData,
+  RegistryRepositoriesPromoteRegistryVersionResponse,
   RegistryRepositoriesReloadRegistryRepositoriesResponse,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoriesSyncRegistryRepositoryResponse,
@@ -4010,6 +4012,45 @@ export const registryRepositoriesListRepositoryCommits = (
     query: {
       branch: data.branch,
       limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Promote Registry Version
+ * Promote a specific version to be the current version of the repository.
+ *
+ * This endpoint allows administrators to manually promote or rollback to a
+ * specific registry version, overriding the auto-promotion that happens during sync.
+ *
+ * Args:
+ * repository_id: The ID of the repository
+ * version_id: The ID of the version to promote
+ *
+ * Returns:
+ * RegistryVersionPromoteResponse with previous and current version info
+ *
+ * Raises:
+ * 404: If repository or version not found
+ * 400: If version doesn't belong to repository or has no tarball
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns RegistryVersionPromoteResponse Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesPromoteRegistryVersion = (
+  data: RegistryRepositoriesPromoteRegistryVersionData
+): CancelablePromise<RegistryRepositoriesPromoteRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/registry/repos/{repository_id}/versions/{version_id}/promote",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
     },
     errors: {
       422: "Validation Error",

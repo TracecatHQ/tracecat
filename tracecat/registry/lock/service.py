@@ -6,7 +6,12 @@ from collections import deque
 
 from sqlalchemy import select
 
-from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import RegistryError
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
@@ -38,6 +43,10 @@ class RegistryLockService(BaseService):
         actions needed for execution (including nested template steps) are
         included in the lock.
 
+        Actions are resolved from both platform registries (globally shared)
+        and organization registries. Organization registries take precedence
+        when the same origin exists in both.
+
         Args:
             action_names: Top-level action names used in the workflow
 
@@ -46,9 +55,29 @@ class RegistryLockService(BaseService):
 
         Raises:
             RegistryError: If an action is not found in any registry or is ambiguous
+            RegistryError: If a repository has no current_version_id set
         """
-        # 1. Get latest versions for all repos with full manifest
-        statement = (
+        # 1. Query platform registries via current_version_id
+        platform_statement = (
+            select(
+                PlatformRegistryRepository.origin,
+                PlatformRegistryVersion.version,
+                PlatformRegistryVersion.manifest,
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+            )
+            .where(
+                PlatformRegistryRepository.current_version_id.is_not(None),
+            )
+        )
+        platform_result = await self.session.execute(platform_statement)
+        platform_rows = platform_result.all()
+
+        # 2. Query org registries via current_version_id
+        org_statement = (
             select(
                 RegistryRepository.origin,
                 RegistryVersion.version,
@@ -56,22 +85,18 @@ class RegistryLockService(BaseService):
             )
             .join(
                 RegistryVersion,
-                RegistryVersion.repository_id == RegistryRepository.id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
             )
             .where(
                 RegistryRepository.organization_id == self.organization_id,
-                RegistryVersion.organization_id == self.organization_id,
-            )
-            .distinct(RegistryVersion.repository_id)
-            .order_by(
-                RegistryVersion.repository_id,
-                RegistryVersion.created_at.desc(),
-                RegistryVersion.id.desc(),
+                RegistryRepository.current_version_id.is_not(None),
             )
         )
+        org_result = await self.session.execute(org_statement)
+        org_rows = org_result.all()
 
-        result = await self.session.execute(statement)
-        rows = result.all()
+        # 3. Combine: platform first, then org (org overrides for same origin)
+        rows = list(platform_rows) + list(org_rows)
 
         # 2. Build origins dict and parse manifests
         origins: dict[str, str] = {}
