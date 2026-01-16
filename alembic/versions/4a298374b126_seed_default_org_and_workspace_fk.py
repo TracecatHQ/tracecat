@@ -90,7 +90,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TRIGGER IF EXISTS workspace_organization_id_immutable ON workspace")
+    op.execute(
+        "DROP TRIGGER IF EXISTS workspace_organization_id_immutable ON workspace"
+    )
     op.execute("DROP FUNCTION IF EXISTS prevent_workspace_org_change")
     op.drop_constraint(
         op.f("fk_workspace_organization_id_organization"),

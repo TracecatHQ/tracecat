@@ -31,7 +31,9 @@ def upgrade() -> None:
     )
 
     # organization_settings: unique key -> (organization_id, key)
-    op.drop_index(op.f("ix_organization_settings_key"), table_name="organization_settings")
+    op.drop_index(
+        op.f("ix_organization_settings_key"), table_name="organization_settings"
+    )
     op.create_unique_constraint(
         op.f("uq_organization_settings_organization_id_key"),
         "organization_settings",

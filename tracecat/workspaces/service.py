@@ -30,12 +30,16 @@ class WorkspaceService(BaseService):
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
         """List all workspaces in the organization."""
-        statement = select(Workspace).options(
-            load_only(
-                *(getattr(Workspace, f) for f in self._load_only)
-            ),  # only what the route returns
-            noload("*"),  # disable all relationship loaders
-        ).where(Workspace.organization_id == self.organization_id)
+        statement = (
+            select(Workspace)
+            .options(
+                load_only(
+                    *(getattr(Workspace, f) for f in self._load_only)
+                ),  # only what the route returns
+                noload("*"),  # disable all relationship loaders
+            )
+            .where(Workspace.organization_id == self.organization_id)
+        )
         if limit is not None:
             if limit <= 0:
                 raise TracecatException("List workspace limit must be greater than 0")

@@ -314,9 +314,7 @@ class DirectBackend(ExecutorBackend):
         )
         return extracted_paths
 
-    async def _get_tarball_uris(
-        self, input: RunActionInput, role: Role
-    ) -> list[str]:
+    async def _get_tarball_uris(self, input: RunActionInput, role: Role) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering).
 
         Args:
