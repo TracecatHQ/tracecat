@@ -1,8 +1,8 @@
 """add platform models and organization table
 
-Revision ID: f97757d6d9a2
+Revision ID: 7aab03def5b6
 Revises: 47e44115516c
-Create Date: 2026-01-15 21:15:34.677526
+Create Date: 2026-01-15 22:10:19.223956
 
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "f97757d6d9a2"
+revision: str = "7aab03def5b6"
 down_revision: str | None = "47e44115516c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -216,6 +216,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "surrogate_id", name=op.f("pk_platform_registry_version")
         ),
+        sa.UniqueConstraint("id", name=op.f("uq_platform_registry_version_id")),
         sa.UniqueConstraint(
             "repository_id",
             "version",
@@ -268,6 +269,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "surrogate_id", name=op.f("pk_platform_registry_index")
         ),
+        sa.UniqueConstraint("id", name=op.f("uq_platform_registry_index_id")),
         sa.UniqueConstraint(
             "registry_version_id",
             "namespace",

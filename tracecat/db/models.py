@@ -1197,7 +1197,10 @@ class PlatformRegistryVersion(PlatformModel, BaseRegistryVersion):
     """A platform-owned versioned snapshot of a registry repository."""
 
     __tablename__ = "platform_registry_version"
-    __table_args__ = (UniqueConstraint("repository_id", "version"),)
+    __table_args__ = (
+        UniqueConstraint("id"),
+        UniqueConstraint("repository_id", "version"),
+    )
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("platform_registry_repository.id", ondelete="CASCADE"),
@@ -1288,7 +1291,10 @@ class PlatformRegistryIndex(PlatformModel, BaseRegistryIndex):
     """Platform index of actions from a registry manifest."""
 
     __tablename__ = "platform_registry_index"
-    __table_args__ = (UniqueConstraint("registry_version_id", "namespace", "name"),)
+    __table_args__ = (
+        UniqueConstraint("id"),
+        UniqueConstraint("registry_version_id", "namespace", "name"),
+    )
     registry_version_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("platform_registry_version.id", ondelete="CASCADE"),

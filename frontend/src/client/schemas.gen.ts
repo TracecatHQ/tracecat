@@ -8832,6 +8832,28 @@ export const $OAuthSettingsUpdate = {
   description: "Settings for OAuth authentication.",
 } as const
 
+export const $OrgCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9-]+$",
+      title: "Slug",
+    },
+  },
+  type: "object",
+  required: ["name", "slug"],
+  title: "OrgCreate",
+  description: "Create organization request.",
+} as const
+
 export const $OrgMemberRead = {
   properties: {
     user_id: {
@@ -8907,6 +8929,95 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $OrgRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "slug", "is_active", "created_at"],
+  title: "OrgRead",
+  description: "Organization response.",
+} as const
+
+export const $OrgUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+          pattern: "^[a-z0-9-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+    is_active: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Active",
+    },
+  },
+  type: "object",
+  title: "OrgUpdate",
+  description: "Update organization request.",
 } as const
 
 export const $OrganizationSecretRead = {
@@ -9236,6 +9347,96 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $PlatformRegistrySettingsRead = {
+  properties: {
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+    git_repo_package_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Package Name",
+    },
+    git_allowed_domains: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          uniqueItems: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Allowed Domains",
+    },
+  },
+  type: "object",
+  title: "PlatformRegistrySettingsRead",
+  description: "Platform registry settings response.",
+} as const
+
+export const $PlatformRegistrySettingsUpdate = {
+  properties: {
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+    git_repo_package_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Package Name",
+    },
+    git_allowed_domains: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          uniqueItems: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Allowed Domains",
+    },
+  },
+  type: "object",
+  title: "PlatformRegistrySettingsUpdate",
+  description: "Update platform registry settings.",
 } as const
 
 export const $Position = {
@@ -10900,6 +11101,120 @@ export const $RegistrySecretType_Output = {
   },
 } as const
 
+export const $RegistryStatusResponse = {
+  properties: {
+    total_repositories: {
+      type: "integer",
+      title: "Total Repositories",
+    },
+    last_sync_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Sync At",
+    },
+    repositories: {
+      items: {
+        $ref: "#/components/schemas/RepositoryStatus",
+      },
+      type: "array",
+      title: "Repositories",
+    },
+  },
+  type: "object",
+  required: ["total_repositories", "last_sync_at", "repositories"],
+  title: "RegistryStatusResponse",
+  description: "Registry health status.",
+} as const
+
+export const $RegistrySyncResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    synced_at: {
+      type: "string",
+      format: "date-time",
+      title: "Synced At",
+    },
+    repositories: {
+      items: {
+        $ref: "#/components/schemas/RepositorySyncResult",
+      },
+      type: "array",
+      title: "Repositories",
+    },
+  },
+  type: "object",
+  required: ["success", "synced_at", "repositories"],
+  title: "RegistrySyncResponse",
+  description: "Response from sync operation.",
+} as const
+
+export const $RegistryVersionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    repository_id: {
+      type: "string",
+      format: "uuid",
+      title: "Repository Id",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    tarball_uri: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tarball Uri",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "repository_id",
+    "version",
+    "commit_sha",
+    "tarball_uri",
+    "created_at",
+  ],
+  title: "RegistryVersionRead",
+  description: "Registry version details.",
+} as const
+
 export const $ReopenedEventRead = {
   properties: {
     wf_exec_id: {
@@ -10950,6 +11265,106 @@ export const $ReopenedEventRead = {
   required: ["old", "new", "created_at"],
   title: "ReopenedEventRead",
   description: "Event for when a case is reopened.",
+} as const
+
+export const $RepositoryStatus = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    last_synced_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Synced At",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "origin", "last_synced_at", "commit_sha"],
+  title: "RepositoryStatus",
+  description: "Status of a single repository.",
+} as const
+
+export const $RepositorySyncResult = {
+  properties: {
+    repository_id: {
+      type: "string",
+      format: "uuid",
+      title: "Repository Id",
+    },
+    repository_name: {
+      type: "string",
+      title: "Repository Name",
+    },
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+    },
+    actions_count: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions Count",
+    },
+  },
+  type: "object",
+  required: ["repository_id", "repository_name", "success"],
+  title: "RepositorySyncResult",
+  description: "Result of syncing a single repository.",
 } as const
 
 export const $RequestUsage = {
