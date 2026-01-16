@@ -33,7 +33,11 @@ with workflow.unsafe.imports_passed_through():
         load_session_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
-    from tracecat.agent.tokens import mint_llm_token, mint_mcp_token
+    from tracecat.agent.tokens import (
+        InternalToolContext,
+        mint_llm_token,
+        mint_mcp_token,
+    )
     from tracecat.agent.types import AgentConfig
     from tracecat.auth.types import Role
     from tracecat.contexts import ctx_role
@@ -221,6 +225,14 @@ class DurableAgentWorkflow:
                 non_retryable=True,
             )
 
+        # Build internal tool context for builder assistant sessions
+        internal_tool_context: InternalToolContext | None = None
+        if args.entity_type == AgentSessionEntity.AGENT_PRESET_BUILDER:
+            internal_tool_context = InternalToolContext(
+                preset_id=args.entity_id,
+                entity_type="agent_preset_builder",
+            )
+
         # Resolve tool definitions and registry lock from registry
         # Also discovers user MCP tools if configured
         build_result = await workflow.execute_activity_method(
@@ -232,6 +244,7 @@ class DurableAgentWorkflow:
                 ),
                 tool_approvals=cfg.tool_approvals,
                 mcp_servers=cfg.mcp_servers,
+                internal_tool_context=internal_tool_context,
             ),
             start_to_close_timeout=timedelta(seconds=120),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -239,6 +252,7 @@ class DurableAgentWorkflow:
         allowed_actions = build_result.tool_definitions
         self._registry_lock = build_result.registry_lock
         user_mcp_claims = build_result.user_mcp_claims
+        allowed_internal_tools = build_result.allowed_internal_tools
 
         logger.debug(
             "Resolved tool definitions",
@@ -270,6 +284,8 @@ class DurableAgentWorkflow:
             allowed_actions=list(allowed_actions.keys()),
             session_id=self.session_id,
             user_mcp_servers=user_mcp_claims,
+            allowed_internal_tools=allowed_internal_tools,
+            internal_tool_context=internal_tool_context,
         )
         litellm_auth_token = mint_llm_token(
             workspace_id=self.workspace_id,

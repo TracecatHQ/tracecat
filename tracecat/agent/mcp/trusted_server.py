@@ -23,6 +23,10 @@ from fastmcp import FastMCP
 
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.mcp.executor import execute_action
+from tracecat.agent.mcp.internal_tools import (
+    INTERNAL_TOOL_HANDLERS,
+    InternalToolError,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.tokens import verify_mcp_token
@@ -147,6 +151,70 @@ async def execute_user_mcp_tool(
         logger.error(
             "User MCP tool execution failed",
             server_name=server_name,
+            tool_name=tool_name,
+            workspace_id=str(claims.workspace_id),
+            error=str(e),
+        )
+        return json.dumps({"error": "Tool execution failed"})
+
+
+@mcp.tool
+async def execute_internal_tool(
+    tool_name: str,
+    args: dict[str, Any],
+    auth_token: str,
+) -> str:
+    """Execute an internal tool (not in registry).
+
+    Internal tools are system-level tools that have direct database access
+    but are not part of the registry (not usable in workflows). They are
+    used for specialized functionality like the builder assistant.
+
+    Args:
+        tool_name: The internal tool to execute (e.g., "internal.builder.get_preset_summary")
+        args: Arguments to pass to the tool
+        auth_token: JWT token for authentication and authorization
+
+    Returns:
+        JSON-encoded result from the tool
+    """
+    try:
+        claims = verify_mcp_token(auth_token)
+    except ValueError as e:
+        logger.warning("MCP token verification failed", error=str(e))
+        return json.dumps({"error": "Authentication failed"})
+
+    # Validate tool is in allowed_internal_tools
+    if tool_name not in claims.allowed_internal_tools:
+        logger.warning(
+            "Internal tool not authorized",
+            tool_name=tool_name,
+            allowed_internal_tools=claims.allowed_internal_tools,
+        )
+        return json.dumps({"error": f"Tool '{tool_name}' not authorized"})
+
+    # Look up handler
+    handler = INTERNAL_TOOL_HANDLERS.get(tool_name)
+    if not handler:
+        logger.warning("Unknown internal tool", tool_name=tool_name)
+        return json.dumps({"error": f"Unknown internal tool: {tool_name}"})
+
+    try:
+        result = await handler(args, claims)
+        return json.dumps(result, default=str)
+
+    except InternalToolError as e:
+        logger.warning(
+            "Internal tool execution error",
+            tool_name=tool_name,
+            workspace_id=str(claims.workspace_id),
+            error=str(e),
+        )
+        return json.dumps({"error": str(e)})
+
+    except Exception as e:
+        logger.error(
+            "Internal tool execution failed",
             tool_name=tool_name,
             workspace_id=str(claims.workspace_id),
             error=str(e),

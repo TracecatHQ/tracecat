@@ -97,8 +97,8 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
 }
 
 const UPDATE_ON_ACTIONS: Partial<Record<AgentSessionEntity, Array<string>>> = {
-  case: ["core__cases__update_case", "core__cases__create_comment"],
-  agent_preset_builder: ["update_agent_preset"],
+  case: ["core.cases.update_case", "core.cases.create_comment"],
+  agent_preset_builder: ["internal.builder.update_preset"],
 }
 
 // mapping from chatentity to

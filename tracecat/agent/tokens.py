@@ -58,6 +58,19 @@ class UserMCPServerClaim(BaseModel):
     """Auth headers."""
 
 
+class InternalToolContext(BaseModel):
+    """Context for internal tools (not in registry).
+
+    Internal tools are system-level tools that have direct database access
+    but are not part of the registry (not usable in workflows).
+    """
+
+    preset_id: uuid.UUID | None = None
+    """Agent preset ID for builder tools."""
+    entity_type: str | None = None
+    """Entity type (e.g., 'agent_preset_builder') to determine which internal tools to expose."""
+
+
 class MCPTokenClaims(BaseModel):
     """Claims extracted from a verified MCP token.
 
@@ -75,6 +88,10 @@ class MCPTokenClaims(BaseModel):
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
     """User-defined MCP server configurations for proxying tool calls."""
+    allowed_internal_tools: list[str] = Field(default_factory=list)
+    """Set of allowed internal tool names (e.g., {"internal.builder.get_preset_summary"})."""
+    internal_tool_context: InternalToolContext | None = None
+    """Context for internal tools (preset_id, entity_type, etc.)."""
 
 
 def mint_mcp_token(
@@ -84,6 +101,8 @@ def mint_mcp_token(
     session_id: uuid.UUID,
     user_id: UserID | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
+    allowed_internal_tools: list[str] | None = None,
+    internal_tool_context: InternalToolContext | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing workspace identity and allowed actions.
@@ -101,6 +120,8 @@ def mint_mcp_token(
         session_id: Agent session ID for traceability
         user_id: Optional user ID for audit/traceability
         user_mcp_servers: User-defined MCP server configs for proxying
+        allowed_internal_tools: Set of allowed internal tool names
+        internal_tool_context: Context for internal tools (preset_id, entity_type)
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -128,6 +149,12 @@ def mint_mcp_token(
 
     if user_mcp_servers:
         payload["user_mcp_servers"] = [s.model_dump() for s in user_mcp_servers]
+
+    if allowed_internal_tools:
+        payload["allowed_internal_tools"] = allowed_internal_tools
+
+    if internal_tool_context:
+        payload["internal_tool_context"] = internal_tool_context.model_dump(mode="json")
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 
