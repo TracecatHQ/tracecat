@@ -115,6 +115,24 @@ variable "rds_master_username" {
   default     = "tracecat"
 }
 
+variable "rds_skip_final_snapshot" {
+  description = "Whether to skip the final RDS snapshot on deletion"
+  type        = bool
+  default     = false
+}
+
+variable "rds_deletion_protection" {
+  description = "Whether to enable deletion protection for the RDS instance"
+  type        = bool
+  default     = true
+}
+
+variable "rds_allow_vpc_cidr_fallback" {
+  description = "Allow PostgreSQL access from the VPC CIDR. Required for t-series instances which don't support SecurityGroupPolicy (trunk ENI). Only disable if using m5/c5/r5/m6g/c6g/r6g instance types that support Security Groups for Pods."
+  type        = bool
+  default     = true
+}
+
 variable "elasticache_node_type" {
   description = "ElastiCache node type"
   type        = string
@@ -191,7 +209,7 @@ variable "executor_queue" {
 variable "executor_backend" {
   description = "Executor backend: 'pool', 'ephemeral', 'direct', or 'auto'"
   type        = string
-  default     = "auto"
+  default     = "ephemeral"
 }
 
 variable "ui_replicas" {

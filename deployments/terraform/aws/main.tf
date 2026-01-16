@@ -43,10 +43,13 @@ module "eks" {
   tracecat_secrets_arn = var.tracecat_secrets_arn
 
   # Data Services Configuration
-  rds_instance_class    = var.rds_instance_class
-  rds_allocated_storage = var.rds_allocated_storage
-  rds_master_username   = var.rds_master_username
-  elasticache_node_type = var.elasticache_node_type
+  rds_instance_class      = var.rds_instance_class
+  rds_allocated_storage   = var.rds_allocated_storage
+  rds_master_username     = var.rds_master_username
+  rds_skip_final_snapshot = var.rds_skip_final_snapshot
+  rds_deletion_protection = var.rds_deletion_protection
+  rds_allow_vpc_cidr_fallback = var.rds_allow_vpc_cidr_fallback
+  elasticache_node_type   = var.elasticache_node_type
 
   # Temporal Configuration
   temporal_mode                          = var.temporal_mode
