@@ -70,6 +70,7 @@ from tracecat.feature_flags import (
     is_feature_enabled,
 )
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
     mcp_router,
@@ -281,6 +282,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
     app.include_router(admin_router)
+    app.include_router(inbox_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)

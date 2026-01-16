@@ -166,6 +166,12 @@ export const ENTITY_TO_INVALIDATION: Record<
       // No invalidation logic for workflow entity
     },
   },
+  approval: {
+    predicate: () => false,
+    handler: (_queryClient, _workspaceId, _entityId) => {
+      // No invalidation logic for approval entity
+    },
+  },
 }
 
 export type ModelInfo = {

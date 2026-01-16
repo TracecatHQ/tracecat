@@ -63,6 +63,8 @@ import type {
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
   AgentSessionsDeleteSessionResponse,
+  AgentSessionsForkSessionData,
+  AgentSessionsForkSessionResponse,
   AgentSessionsGetSessionData,
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
@@ -209,6 +211,10 @@ import type {
   GraphApplyGraphOperationsResponse,
   GraphGetGraphData,
   GraphGetGraphResponse,
+  InboxListItemsData,
+  InboxListItemsPaginatedData,
+  InboxListItemsPaginatedResponse,
+  InboxListItemsResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -3270,6 +3276,7 @@ export const agentSessionsCreateSession = (
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
+ * @param data.excludeEntityTypes Entity types to exclude from results
  * @param data.limit Maximum number of sessions to return
  * @returns unknown Successful Response
  * @throws ApiError
@@ -3283,6 +3290,7 @@ export const agentSessionsListSessions = (
     query: {
       entity_type: data.entityType,
       entity_id: data.entityId,
+      exclude_entity_types: data.excludeEntityTypes,
       limit: data.limit,
       workspace_id: data.workspaceId,
     },
@@ -3470,6 +3478,41 @@ export const agentSessionsStreamSessionEvents = (
       format: data.format,
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Fork Session
+ * Fork an existing session to continue conversation post-decision.
+ *
+ * Creates a new session linked to the parent session, allowing users
+ * to ask the agent for context after making approval decisions.
+ *
+ * Set entity_type to 'approval' for inbox forks to hide from main chat list.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsForkSession = (
+  data: AgentSessionsForkSessionData
+): CancelablePromise<AgentSessionsForkSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sessions/{session_id}/fork",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -3735,6 +3778,72 @@ export const adminUpdateRegistrySettings = (
     url: "/admin/settings/registry",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Items
+ * List all inbox items for the workspace.
+ *
+ * Returns inbox items aggregated from all registered providers,
+ * sorted by status priority (pending first) then by creation time.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.offset
+ * @returns InboxItemRead Successful Response
+ * @throws ApiError
+ */
+export const inboxListItems = (
+  data: InboxListItemsData
+): CancelablePromise<InboxListItemsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/inbox",
+    query: {
+      limit: data.limit,
+      offset: data.offset,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Items Paginated
+ * List inbox items with cursor-based pagination.
+ *
+ * Supports sorting by created_at, updated_at, or status.
+ * Default sort is by created_at descending.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @param data.orderBy Column name to order by (created_at, updated_at, status)
+ * @param data.sort Sort direction (asc or desc)
+ * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
+ * @throws ApiError
+ */
+export const inboxListItemsPaginated = (
+  data: InboxListItemsPaginatedData
+): CancelablePromise<InboxListItemsPaginatedResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/inbox/paginated",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      order_by: data.orderBy,
+      sort: data.sort,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

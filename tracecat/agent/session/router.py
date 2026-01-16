@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from tracecat.agent.adapter import vercel
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
+    AgentSessionForkRequest,
     AgentSessionRead,
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
@@ -66,6 +67,9 @@ async def list_sessions(
         None, description="Filter by entity type"
     ),
     entity_id: uuid.UUID | None = Query(None, description="Filter by entity ID"),
+    exclude_entity_types: list[AgentSessionEntity] | None = Query(
+        None, description="Entity types to exclude from results"
+    ),
     limit: int = Query(
         50, ge=1, le=100, description="Maximum number of sessions to return"
     ),
@@ -86,6 +90,7 @@ async def list_sessions(
         created_by=role.user_id,
         entity_type=entity_type,
         entity_id=entity_id,
+        exclude_entity_types=exclude_entity_types,
         limit=limit,
     )
 
@@ -294,12 +299,6 @@ async def send_message(
                 detail="Legacy chat sessions are read-only and cannot receive new messages",
             )
 
-        # Run session turn (spawns DurableAgentWorkflow)
-        await svc.run_turn(
-            session_id=session_id,
-            request=request,
-        )
-
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise HTTPException(
@@ -307,9 +306,18 @@ async def send_message(
                 detail="Session not found",
             )
 
-        # Set up streaming with Vercel format
-        start_id = agent_session.last_stream_id or http_request.headers.get(
-            "Last-Event-ID", "0-0"
+        header_last_id = http_request.headers.get("Last-Event-ID")
+        if header_last_id == "0-0":
+            header_last_id = None
+
+        # Prefer the stored cursor, otherwise the client header.
+        # When neither exists, start from "$" to only stream new events.
+        start_id = agent_session.last_stream_id or header_last_id or "$"
+
+        # Run session turn (spawns DurableAgentWorkflow)
+        await svc.run_turn(
+            session_id=session_id,
+            request=request,
         )
 
         logger.info(
@@ -410,3 +418,29 @@ async def stream_session_events(
         media_type="text/event-stream",
         headers=headers,
     )
+
+
+@router.post("/{session_id}/fork")
+async def fork_session(
+    session_id: uuid.UUID,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    request: AgentSessionForkRequest | None = None,
+) -> AgentSessionRead:
+    """Fork an existing session to continue conversation post-decision.
+
+    Creates a new session linked to the parent session, allowing users
+    to ask the agent for context after making approval decisions.
+
+    Set entity_type to 'approval' for inbox forks to hide from main chat list.
+    """
+    try:
+        svc = AgentSessionService(session, role)
+        entity_type = request.entity_type if request else None
+        forked = await svc.fork_session(session_id, entity_type=entity_type)
+        return AgentSessionRead.model_validate(forked, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e

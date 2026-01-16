@@ -341,6 +341,7 @@ export type AgentSessionCreate = {
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
+ * - APPROVAL: Inbox approval continuation (hidden from main chat list)
  */
 export type AgentSessionEntity =
   | "case"
@@ -348,6 +349,17 @@ export type AgentSessionEntity =
   | "agent_preset_builder"
   | "copilot"
   | "workflow"
+  | "approval"
+
+/**
+ * Request schema for forking an agent session.
+ */
+export type AgentSessionForkRequest = {
+  /**
+   * Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.
+   */
+  entity_type?: AgentSessionEntity | null
+}
 
 /**
  * Response schema for agent session.
@@ -363,6 +375,7 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -381,6 +394,7 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -403,6 +417,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -1674,6 +1689,30 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_InboxItemRead_ = {
+  items: Array<InboxItemRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -2460,6 +2499,72 @@ export type ImageUrl = {
    */
   readonly identifier: string
 }
+
+/**
+ * Read model for inbox items.
+ */
+export type InboxItemRead = {
+  /**
+   * Unique inbox item ID
+   */
+  id: string
+  /**
+   * Type of inbox item
+   */
+  type: InboxItemType
+  /**
+   * Display title
+   */
+  title: string
+  /**
+   * Preview text
+   */
+  preview: string
+  /**
+   * Item status
+   */
+  status: InboxItemStatus
+  /**
+   * Whether the item is unread
+   */
+  unread: boolean
+  /**
+   * Creation timestamp
+   */
+  created_at: string
+  /**
+   * Last update timestamp
+   */
+  updated_at: string
+  /**
+   * Associated workflow
+   */
+  workflow?: WorkflowSummary | null
+  /**
+   * ID of the source entity
+   */
+  source_id: string
+  /**
+   * Type of source entity (e.g., agent_session)
+   */
+  source_type: string
+  /**
+   * Type-specific metadata
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Status of inbox items.
+ */
+export type InboxItemStatus = "pending" | "completed" | "failed"
+
+/**
+ * Types of inbox items.
+ */
+export type InboxItemType = "approval"
 
 /**
  * Inferred column mapping between CSV headers and table columns.
@@ -5525,6 +5630,24 @@ export type WorkflowReadMinimal = {
 }
 
 /**
+ * Summary of a workflow for inbox item context.
+ */
+export type WorkflowSummary = {
+  /**
+   * Workflow ID
+   */
+  id: string
+  /**
+   * Workflow title
+   */
+  title: string
+  /**
+   * Workflow alias
+   */
+  alias?: string | null
+}
+
+/**
  * Request model for pulling workflows from a Git repository.
  */
 export type WorkflowSyncPullRequest = {
@@ -6468,6 +6591,10 @@ export type AgentSessionsListSessionsData = {
    */
   entityType?: AgentSessionEntity | null
   /**
+   * Entity types to exclude from results
+   */
+  excludeEntityTypes?: Array<AgentSessionEntity> | null
+  /**
    * Maximum number of sessions to return
    */
   limit?: number
@@ -6530,6 +6657,14 @@ export type AgentSessionsStreamSessionEventsData = {
 
 export type AgentSessionsStreamSessionEventsResponse = unknown
 
+export type AgentSessionsForkSessionData = {
+  requestBody?: AgentSessionForkRequest | null
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsForkSessionResponse = AgentSessionRead
+
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
   sessionId: string
@@ -6589,6 +6724,32 @@ export type AdminUpdateRegistrySettingsData = {
 }
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
+
+export type InboxListItemsData = {
+  limit?: number
+  offset?: number
+  workspaceId: string
+}
+
+export type InboxListItemsResponse = Array<InboxItemRead>
+
+export type InboxListItemsPaginatedData = {
+  cursor?: string | null
+  limit?: number
+  /**
+   * Column name to order by (created_at, updated_at, status)
+   */
+  orderBy?: string | null
+  reverse?: boolean
+  /**
+   * Sort direction (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
+  workspaceId: string
+}
+
+export type InboxListItemsPaginatedResponse =
+  CursorPaginatedResponse_InboxItemRead_
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -9196,6 +9357,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/sessions/{session_id}/fork": {
+    post: {
+      req: AgentSessionsForkSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
@@ -9341,6 +9517,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PlatformRegistrySettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/inbox": {
+    get: {
+      req: InboxListItemsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<InboxItemRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/inbox/paginated": {
+    get: {
+      req: InboxListItemsPaginatedData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_InboxItemRead_
         /**
          * Validation Error
          */

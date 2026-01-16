@@ -1472,7 +1472,14 @@ export const $AgentSessionCreate = {
 
 export const $AgentSessionEntity = {
   type: "string",
-  enum: ["case", "agent_preset", "agent_preset_builder", "copilot", "workflow"],
+  enum: [
+    "case",
+    "agent_preset",
+    "agent_preset_builder",
+    "copilot",
+    "workflow",
+    "approval",
+  ],
   title: "AgentSessionEntity",
   description: `The type of entity associated with an agent session.
 
@@ -1481,7 +1488,28 @@ Determines the context and behavior of the session:
 - AGENT_PRESET: Live chat testing a preset configuration
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
-- WORKFLOW: Workflow-initiated agent run (from action)`,
+- WORKFLOW: Workflow-initiated agent run (from action)
+- APPROVAL: Inbox approval continuation (hidden from main chat list)`,
+} as const
+
+export const $AgentSessionForkRequest = {
+  properties: {
+    entity_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AgentSessionEntity",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.",
+    },
+  },
+  type: "object",
+  title: "AgentSessionForkRequest",
+  description: "Request schema for forking an agent session.",
 } as const
 
 export const $AgentSessionRead = {
@@ -1568,6 +1596,18 @@ export const $AgentSessionRead = {
         },
       ],
       title: "Last Stream Id",
+    },
+    parent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Session Id",
     },
     created_at: {
       type: "string",
@@ -1682,6 +1722,18 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Last Stream Id",
+    },
+    parent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Session Id",
     },
     created_at: {
       type: "string",
@@ -1804,6 +1856,18 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Last Stream Id",
+    },
+    parent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Session Id",
     },
     created_at: {
       type: "string",
@@ -5494,6 +5558,69 @@ export const $CursorPaginatedResponse_CaseReadMinimal_ = {
   title: "CursorPaginatedResponse[CaseReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_InboxItemRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/InboxItemRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[InboxItemRead]",
+} as const
+
 export const $CursorPaginatedResponse_TableRowRead_ = {
   properties: {
     items: {
@@ -7714,6 +7841,114 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
+} as const
+
+export const $InboxItemRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Unique inbox item ID",
+    },
+    type: {
+      $ref: "#/components/schemas/InboxItemType",
+      description: "Type of inbox item",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Display title",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+      description: "Preview text",
+    },
+    status: {
+      $ref: "#/components/schemas/InboxItemStatus",
+      description: "Item status",
+    },
+    unread: {
+      type: "boolean",
+      title: "Unread",
+      description: "Whether the item is unread",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "Creation timestamp",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "Last update timestamp",
+    },
+    workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Associated workflow",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+      description: "ID of the source entity",
+    },
+    source_type: {
+      type: "string",
+      title: "Source Type",
+      description: "Type of source entity (e.g., agent_session)",
+    },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+      description: "Type-specific metadata",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "title",
+    "preview",
+    "status",
+    "unread",
+    "created_at",
+    "updated_at",
+    "source_id",
+    "source_type",
+  ],
+  title: "InboxItemRead",
+  description: "Read model for inbox items.",
+} as const
+
+export const $InboxItemStatus = {
+  type: "string",
+  enum: ["pending", "completed", "failed"],
+  title: "InboxItemStatus",
+  description: "Status of inbox items.",
+} as const
+
+export const $InboxItemType = {
+  type: "string",
+  enum: ["approval"],
+  title: "InboxItemType",
+  description: "Types of inbox items.",
 } as const
 
 export const $InferredColumn = {
@@ -17347,6 +17582,37 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowSummary = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Workflow ID",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Workflow title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+      description: "Workflow alias",
+    },
+  },
+  type: "object",
+  required: ["id", "title"],
+  title: "WorkflowSummary",
+  description: "Summary of a workflow for inbox item context.",
 } as const
 
 export const $WorkflowSyncPullRequest = {

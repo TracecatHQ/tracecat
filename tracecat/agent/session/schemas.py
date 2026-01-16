@@ -103,6 +103,8 @@ class AgentSessionRead(BaseModel):
     harness_type: str | None
     # Stream tracking
     last_stream_id: str | None = None
+    # Fork tracking
+    parent_session_id: uuid.UUID | None = None
     # Timestamps
     created_at: datetime
     updated_at: datetime
@@ -123,4 +125,14 @@ class AgentSessionReadVercel(AgentSessionRead):
 
     messages: list[UIMessage] = Field(
         default_factory=list, description="Session messages in Vercel UI format"
+    )
+
+
+class AgentSessionForkRequest(BaseModel):
+    """Request schema for forking an agent session."""
+
+    entity_type: AgentSessionEntity | None = Field(
+        default=None,
+        description="Override entity type for the forked session. "
+        "Use 'approval' for inbox forks to hide from main chat list.",
     )
