@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-Tracecat is a modern, open source automation platform built for security and IT engineers. Alternative to Tines/Splunk SOAR with YAML-based templates, no-code UI workflows, built-in lookup tables, case management, and Temporal orchestration.
+Tracecat is a modern, open source automation platform built for security and IT engineers. No-code UI workflows, built-in lookup tables, case management, and Temporal orchestration.
 
 ## Development Commands
 

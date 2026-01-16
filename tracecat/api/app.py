@@ -230,8 +230,7 @@ def create_app(**kwargs) -> FastAPI:
     app = FastAPI(
         title="Tracecat API",
         description=(
-            "Tracecat is the open source Tines / Splunk SOAR alternative."
-            " You can operate Tracecat in headless mode by using the API to create, manage, and run workflows."
+            "Tracecat is the open source automation platform for enterprise."
         ),
         summary="Tracecat API",
         version="1",
@@ -412,9 +411,13 @@ def create_app(**kwargs) -> FastAPI:
 app = create_app()
 
 
+class HealthResponse(BaseModel):
+    status: str
+
+
 @app.get("/", include_in_schema=False)
-def root() -> dict[str, str]:
-    return {"message": "Hello world. I am the API."}
+def root() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 class AppInfo(BaseModel):
@@ -448,12 +451,12 @@ async def info(session: AsyncDBSession) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> dict[str, str]:
-    return {"message": "Hello world. I am the API. This is the health endpoint."}
+def check_health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 @app.get("/ready", tags=["public"])
-def check_ready() -> dict[str, str]:
+def check_ready() -> HealthResponse:
     """Readiness check - returns 200 only after startup is complete.
 
     Use this endpoint for Docker healthchecks to ensure the API has finished
@@ -464,4 +467,4 @@ def check_ready() -> dict[str, str]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="API is not ready yet",
         )
-    return {"status": "ready"}
+    return HealthResponse(status="ready")
