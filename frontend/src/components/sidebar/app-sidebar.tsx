@@ -3,13 +3,13 @@
 import {
   BlocksIcon,
   ChevronDown,
+  InboxIcon,
   LockKeyholeIcon,
   type LucideIcon,
   MessageSquare,
   SquareMousePointerIcon,
   SquareStackIcon,
   Table2Icon,
-  UserCheckIcon,
   UsersIcon,
   VariableIcon,
   WorkflowIcon,
@@ -107,10 +107,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname === `${basePath}/copilot`,
     },
     {
-      title: "Approvals",
-      url: `${basePath}/approvals`,
-      icon: UserCheckIcon,
-      isActive: pathname?.startsWith(`${basePath}/approvals`),
+      title: "Inbox",
+      url: `${basePath}/inbox`,
+      icon: InboxIcon,
+      isActive: pathname?.startsWith(`${basePath}/inbox`),
     },
   ]
 
