@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -1319,33 +1319,3 @@ class DSLScheduler:
                     raise cause from None
                 case _:
                     raise
-
-
-def _partition_errors(items: Iterable[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
-    results = []
-    errors = []
-    for item in items:
-        if info := _as_error_info(item):
-            errors.append(info)
-        else:
-            results.append(item)
-    return results, errors
-
-
-def _is_error_info(detail: Any) -> bool:
-    if isinstance(detail, ActionErrorInfo):
-        return True
-    if not isinstance(detail, Mapping):
-        return False
-    try:
-        ActionErrorInfoAdapter.validate_python(detail)
-        return True
-    except Exception:
-        return False
-
-
-def _as_error_info(detail: Any) -> ActionErrorInfo | None:
-    try:
-        return ActionErrorInfoAdapter.validate_python(detail)
-    except Exception:
-        return None
