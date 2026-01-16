@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.expressions.common import ExprContext
@@ -19,7 +20,7 @@ def test_run_action_input_drops_legacy_inputs_context():
         exec_context={
             "INPUTS": {"legacy": True},  # pyright: ignore[reportArgumentType]
             ExprContext.ACTIONS: {},
-            ExprContext.TRIGGER: {},
+            ExprContext.TRIGGER: None,
             ExprContext.ENV: {},
         },
         run_context=RunContext(
@@ -27,6 +28,7 @@ def test_run_action_input_drops_legacy_inputs_context():
             wf_exec_id=f"{wf_id.short()}/{exec_id.short()}",
             wf_run_id=uuid.uuid4(),
             environment="test",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=RegistryLock(
             origins={"tracecat_registry": "test-version"},

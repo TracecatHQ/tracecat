@@ -1,6 +1,8 @@
 # Shim for EE decorators with no-op fallback
 try:
-    from tracecat_ee.interactions.decorators import maybe_interactive  # type: ignore
+    from tracecat_ee.interactions.decorators import (  # type: ignore[import-not-found]
+        maybe_interactive as maybe_interactive,
+    )
 except ImportError:
     # Provide a no-op fallback when EE is not installed
     from collections.abc import Awaitable, Callable
@@ -12,3 +14,6 @@ except ImportError:
     ) -> Callable[..., Awaitable[TaskResult]]:
         """No-op decorator when EE is not installed."""
         return func
+
+
+__all__ = ["maybe_interactive"]

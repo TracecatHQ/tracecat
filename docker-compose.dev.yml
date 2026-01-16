@@ -125,6 +125,11 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
+      # Blob storage (for S3/MinIO)
+      TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
@@ -138,6 +143,8 @@ services:
       temporal:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   executor:

@@ -5,13 +5,23 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from types import ModuleType
+from typing import Any, TypeGuard
 
 import httpx
 import yaml
+from pydantic import ValidationError
 
 from tracecat.identifiers.action import ref
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
 from tracecat.registry.actions.schemas import TemplateAction
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    StoredObject,
+    StoredObjectValidator,
+    get_object_storage,
+)
 
 
 def user_client() -> httpx.AsyncClient:
@@ -54,3 +64,27 @@ def get_package_path(module: ModuleType) -> Path:
     if not module.__file__:
         raise ValueError("Module has no __file__ attribute")
     return Path(module.__file__).parent
+
+
+def is_externalized(obj: Any) -> TypeGuard[ExternalObject | CollectionObject]:
+    try:
+        stored = StoredObjectValidator.validate_python(obj)
+        return stored.type in ("external", "collection")
+    except ValidationError:
+        return False
+
+
+async def to_data(obj: StoredObject) -> Any:
+    validated = StoredObjectValidator.validate_python(obj)
+    match validated:
+        case InlineObject():
+            return validated.data
+        case ExternalObject() | CollectionObject():
+            storage = get_object_storage()
+            return await storage.retrieve(validated)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(validated).__name__}")
+
+
+async def to_inline(obj: StoredObject) -> InlineObject:
+    return InlineObject(data=await to_data(obj))

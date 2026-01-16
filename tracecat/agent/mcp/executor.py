@@ -6,6 +6,7 @@ To test locally, run in a Docker container with nsjail installed.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -13,7 +14,12 @@ from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionStatement,
+    ExecutionContext,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -218,11 +224,12 @@ def _build_run_input(
         wf_run_id=uuid4(),
         wf_exec_id=generate_exec_id(wf_id),
         environment="default",
+        logical_time=datetime.now(UTC),
     )
 
     return RunActionInput(
         task=task,
         run_context=run_context,
-        exec_context={},
+        exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
         registry_lock=registry_lock,
     )

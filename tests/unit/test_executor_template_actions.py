@@ -7,6 +7,7 @@ orchestration, including with different backends (direct, sandboxed).
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -127,6 +128,7 @@ def mock_run_context():
         wf_exec_id=wf_exec_id,
         wf_run_id=run_id,
         environment="default",
+        logical_time=datetime.now(UTC),
     )
 
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Literal, cast
-
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
@@ -18,11 +16,11 @@ from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
+from tracecat.storage.object import InlineObject
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
     ScheduleCreate,
-    ScheduleRead,
     ScheduleUpdate,
 )
 
@@ -288,8 +286,10 @@ class WorkflowSchedulesService(BaseService):
 
     @staticmethod
     @activity.defn
-    async def get_schedule_activity(input: GetScheduleActivityInputs) -> ScheduleRead:
-        """Temporal activity to get a schedule.
+    async def get_schedule_trigger_inputs_activity(
+        input: GetScheduleActivityInputs,
+    ) -> InlineObject | None:
+        """Temporal activity to get schedule trigger inputs.
 
         Parameters
         ----------
@@ -298,8 +298,8 @@ class WorkflowSchedulesService(BaseService):
 
         Returns
         -------
-        ScheduleRead
-            The schedule information.
+        InlineObject | None
+            The schedule trigger inputs wrapped in InlineObject, or None if no inputs.
 
         Raises
         ------
@@ -309,20 +309,8 @@ class WorkflowSchedulesService(BaseService):
         async with WorkflowSchedulesService.with_session(role=input.role) as service:
             try:
                 schedule = await service.get_schedule(input.schedule_id)
-                return ScheduleRead(
-                    id=ScheduleUUID.new(schedule.id),
-                    workspace_id=schedule.workspace_id,
-                    created_at=schedule.created_at,
-                    updated_at=schedule.updated_at,
-                    workflow_id=WorkflowUUID.new(schedule.workflow_id),
-                    inputs=schedule.inputs,
-                    every=schedule.every,
-                    offset=schedule.offset,
-                    start_at=schedule.start_at,
-                    end_at=schedule.end_at,
-                    timeout=schedule.timeout,
-                    cron=schedule.cron,
-                    status=cast(Literal["online", "offline"], schedule.status),
-                )
+                if schedule.inputs is None:
+                    return None
+                return InlineObject(data=schedule.inputs)
             except TracecatNotFoundError:
                 raise

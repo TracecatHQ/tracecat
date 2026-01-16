@@ -6,12 +6,15 @@ These tests cover the Temporal activity that handles action execution.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from tests.shared import to_data
 from tracecat.auth.types import Role
+from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import ExecutionError, LoopExecutionError
@@ -43,12 +46,13 @@ def mock_run_action_input() -> RunActionInput:
             args={"url": "https://example.com"},
             ref="test_action",
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=wf_id,
             wf_exec_id=f"{wf_id.short()}/exec_test",
             wf_run_id=uuid.uuid4(),
             environment="test",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=RegistryLock(
             origins={"tracecat_registry": "test-version"},
@@ -99,16 +103,23 @@ class TestExecuteActionActivity:
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
+            patch(
+                "tracecat.executor.activities.materialize_context",
+                new_callable=AsyncMock,
+            ) as mock_materialize,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = expected_result
+            # Return the same exec_context to preserve the input
+            mock_materialize.return_value = mock_run_action_input.exec_context
 
             result = await ExecutorActivities.execute_action_activity(
                 mock_run_action_input, mock_role
             )
 
-            assert result == expected_result
+            # Result is wrapped in StoredObject (InlineObject for small payloads)
+            assert await to_data(result) == expected_result
             mock_dispatch.assert_called_once_with(
                 backend=mock_backend.return_value, input=mock_run_action_input
             )
