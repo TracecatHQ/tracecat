@@ -852,8 +852,8 @@ def minio_server():
         try:
             client = Minio(
                 endpoint,
-                access_key=MINIO_ACCESS_KEY,
-                secret_key=MINIO_SECRET_KEY,
+                access_key=AWS_ACCESS_KEY_ID,
+                secret_key=AWS_SECRET_ACCESS_KEY,
                 secure=False,
             )
             list(client.list_buckets())
@@ -874,8 +874,8 @@ async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
     """Create MinIO client for testing."""
     client = Minio(
         f"localhost:{MINIO_PORT}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        access_key=AWS_ACCESS_KEY_ID,
+        secret_key=AWS_SECRET_ACCESS_KEY,
         secure=False,
     )
     yield client
@@ -911,8 +911,8 @@ async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
 def mock_s3_secrets():
     """Mock S3 secrets to use MinIO credentials."""
 
-    secrets_manager.set("AWS_ACCESS_KEY_ID", MINIO_ACCESS_KEY)
-    secrets_manager.set("AWS_SECRET_ACCESS_KEY", MINIO_SECRET_KEY)
+    secrets_manager.set("AWS_ACCESS_KEY_ID", AWS_ACCESS_KEY_ID)
+    secrets_manager.set("AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
     secrets_manager.set("AWS_REGION", "us-east-1")
 
 
@@ -923,8 +923,8 @@ async def aioboto3_minio_client(monkeypatch):
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():
         return aioboto3.Session(
-            aws_access_key_id=MINIO_ACCESS_KEY,
-            aws_secret_access_key=MINIO_SECRET_KEY,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             region_name="us-east-1",
         )
 
