@@ -68,8 +68,8 @@ class TestS3Operations:
             "http://localhost:9002",
             raising=False,
         )
-        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minio")
-        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "password")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minioadmin")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
@@ -81,8 +81,8 @@ class TestS3Operations:
             mock_session.client.assert_called_once_with(
                 "s3",
                 endpoint_url="http://localhost:9002",
-                aws_access_key_id="minio",
-                aws_secret_access_key="password",
+                aws_access_key_id="minioadmin",
+                aws_secret_access_key="minioadmin",
             )
 
     @pytest.mark.anyio

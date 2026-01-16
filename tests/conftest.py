@@ -59,8 +59,8 @@ else:
 # MinIO test configuration - uses docker-compose service on port 9000
 # Credentials match .env.example (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)
 MINIO_PORT = 9000
-AWS_ACCESS_KEY_ID = "minio"
-AWS_SECRET_ACCESS_KEY = "password"
+AWS_ACCESS_KEY_ID = "minioadmin"
+AWS_SECRET_ACCESS_KEY = "minioadmin"
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 
 # ---------------------------------------------------------------------------
@@ -628,8 +628,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true")
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", "0")
-    monkeysession.setenv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
-    monkeysession.setenv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     # Point API URL to appropriate host
     api_url = f"http://{api_host}:8000"
@@ -905,8 +903,8 @@ def workflow_bucket(minio_server, env_sandbox):
     # Create workflow bucket if it doesn't exist
     client = Minio(
         f"localhost:{MINIO_PORT}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        access_key=AWS_ACCESS_KEY_ID,
+        secret_key=AWS_SECRET_ACCESS_KEY,
         secure=False,
     )
     try:
