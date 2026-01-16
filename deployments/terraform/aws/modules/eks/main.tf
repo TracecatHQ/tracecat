@@ -5,6 +5,12 @@ data "aws_vpc" "selected" {
   id = var.vpc_id
 }
 
+# Fetch AWS RDS CA certificate bundle for TLS verification
+# https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html
+data "http" "rds_ca_bundle" {
+  url = "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem"
+}
+
 locals {
   aws_region     = data.aws_region.current.name
   aws_account_id = data.aws_caller_identity.current.account_id
