@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
 from tracecat.agent.schemas import AgentOutput
+from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
-from tracecat.chat.schemas import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import (
@@ -165,16 +165,21 @@ async def get_workflow_execution_compact(
                 # Successful validation asserts this is an AgentOutput
                 output = AgentOutput.model_validate(event.action_result)
                 if output.message_history:
-                    messages = [
-                        ChatMessage(
-                            id=f"{output.session_id}-msg-{i}",
-                            message=msg,
-                        )
-                        for i, msg in enumerate(output.message_history)
-                    ]
+                    # Re-deserialize the message field for each ChatMessage.
+                    # When data round-trips through Temporal, ChatMessage.message
+                    # becomes a raw dict instead of a typed ClaudeSDKMessage.
+                    # We need to re-validate it so convert_chat_messages_to_ui
+                    # can use isinstance() checks on the message types.
+                    for chat_msg in output.message_history:
+                        if chat_msg.message is not None and isinstance(
+                            chat_msg.message, dict
+                        ):
+                            chat_msg.message = ClaudeSDKMessageTA.validate_python(
+                                chat_msg.message
+                            )
                     event.session.events = (
                         tracecat.agent.adapter.vercel.convert_chat_messages_to_ui(
-                            messages
+                            output.message_history
                         )
                     )
             except Exception as e:

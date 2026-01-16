@@ -6,7 +6,7 @@ import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { ChatEntity } from "@/client"
+import type { AgentSessionEntity } from "@/client"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,7 +36,7 @@ interface ChatInputProps {
   disabled?: boolean
   placeholder?: string
   chatId: string
-  entityType?: ChatEntity
+  entityType?: AgentSessionEntity
 }
 
 export function ChatInput({

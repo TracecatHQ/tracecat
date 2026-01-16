@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
+    NotRequired,
     Protocol,
+    TypedDict,
     runtime_checkable,
 )
 
@@ -17,8 +18,6 @@ from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPServerConfig
-from tracecat.chat.enums import MessageKind
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
@@ -27,7 +26,6 @@ if TYPE_CHECKING:
     from pydantic_ai.tools import Tool as _PATool
 
     from tracecat.agent.stream.writers import StreamWriter
-    from tracecat.chat.schemas import ChatMessage
 
     CustomToolList = list[_PATool[Any]]
 else:
@@ -37,17 +35,44 @@ else:
     CustomToolList = list[Any]
 
 
+class MCPServerConfig(TypedDict):
+    """Configuration for a user-defined MCP server.
+
+    Users can connect custom MCP servers to their agents - whether running as
+    Docker containers, local processes, or remote services. The server must
+    expose an HTTP or SSE endpoint.
+
+    Example:
+        {
+            "name": "internal-tools",
+            "url": "http://host.docker.internal:8080",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+        }
+    """
+
+    name: str
+    """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
+
+    url: str
+    """Required: HTTP/SSE endpoint URL for the MCP server."""
+
+    headers: NotRequired[dict[str, str]]
+    """Optional: Auth headers (can reference Tracecat secrets)."""
+
+    transport: NotRequired[Literal["http", "sse"]]
+    """Optional: Transport type. Defaults to 'http'."""
+
+
 class StreamKey(str):
     def __new__(
         cls,
         workspace_id: uuid.UUID | str,
         session_id: uuid.UUID | str,
-        *,
-        namespace: str = "agent",
     ) -> StreamKey:
         return super().__new__(
             cls,
-            f"{namespace}-stream:{str(workspace_id)}:{str(session_id)}",
+            f"agent-stream:{str(workspace_id)}:{str(session_id)}",
         )
 
 
@@ -96,22 +121,8 @@ UnifiedMessage = ModelMessage | ClaudeSDKMessage
 
 
 @runtime_checkable
-class MessageStore(Protocol):
-    async def load(self, session_id: uuid.UUID) -> list[ChatMessage]: ...
-
-    async def store(
-        self,
-        session_id: uuid.UUID,
-        messages: Sequence[UnifiedMessage],
-        *,
-        kind: MessageKind = MessageKind.CHAT_MESSAGE,
-    ) -> None: ...
-
-
-@runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
-    message_store: MessageStore | None = None
 
 
 type OutputType = (

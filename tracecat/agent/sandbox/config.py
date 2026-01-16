@@ -88,12 +88,14 @@ class AgentResourceLimits:
         timeout_seconds: Maximum wall-clock execution time.
     """
 
-    memory_mb: int = TRACECAT__AGENT_SANDBOX_MEMORY_MB
-    cpu_seconds: int = TRACECAT__AGENT_SANDBOX_TIMEOUT
+    memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
+    cpu_seconds: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT)
     max_file_size_mb: int = 256
     max_open_files: int = 512
     max_processes: int = 128
-    timeout_seconds: int = TRACECAT__AGENT_SANDBOX_TIMEOUT
+    timeout_seconds: int = field(
+        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+    )
 
 
 @dataclass
@@ -315,12 +317,12 @@ def build_agent_nsjail_config(
             "",
             "# Mount only what the sandbox entrypoint needs:",
             "# - logger: lightweight loguru wrapper",
-            "# - agent/shared: lightweight types and protocol",
+            "# - agent/common: lightweight types and protocol",
             "# - agent/runtime: runtime implementations",
             "# - agent/sandbox: entrypoint and llm_bridge",
             "# - agent/mcp: proxy_server and utils",
             f'mount {{ src: "{tracecat_pkg_dir}/logger" dst: "/app/tracecat/logger" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/shared" dst: "/app/tracecat/agent/shared" is_bind: true rw: false }}',
+            f'mount {{ src: "{tracecat_pkg_dir}/agent/common" dst: "/app/tracecat/agent/common" is_bind: true rw: false }}',
             f'mount {{ src: "{tracecat_pkg_dir}/agent/runtime" dst: "/app/tracecat/agent/runtime" is_bind: true rw: false }}',
             f'mount {{ src: "{tracecat_pkg_dir}/agent/sandbox" dst: "/app/tracecat/agent/sandbox" is_bind: true rw: false }}',
             f'mount {{ src: "{tracecat_pkg_dir}/agent/mcp" dst: "/app/tracecat/agent/mcp" is_bind: true rw: false }}',

@@ -1137,3 +1137,31 @@ def mock_slack_secrets():
 
         mock_get.side_effect = side_effect
         yield mock_get
+
+
+# ---------------------------------------------------------------------------
+# Agent fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def mock_agent_session(session: AsyncSession, svc_role: Role):
+    """Create a mock AgentSession directly in the database.
+
+    This is a lightweight fixture for tests that need a valid session_id
+    to satisfy foreign key constraints (e.g., approval tests).
+    """
+    from tracecat.db.models import AgentSession
+
+    session_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=session_id,
+        title="Mock Test Session",
+        workspace_id=svc_role.workspace_id,
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.commit()
+    await session.refresh(agent_session)
+    return agent_session

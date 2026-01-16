@@ -16,15 +16,9 @@ from tracecat import __version__ as APP_VERSION
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
-    from tracecat_ee.agent.activities import AgentActivities
-    from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
     from tracecat import config
-    from tracecat.agent.preset.activities import (
-        resolve_agent_preset_config_activity,
-    )
-    from tracecat.agent.tools import SimpleToolExecutor
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -90,11 +84,6 @@ def get_activities() -> list[Callable]:
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
     ]
-    tool_executor = SimpleToolExecutor()
-    agent_activities = AgentActivities(tool_executor=tool_executor)
-    activities.extend(agent_activities.get_activities())
-    activities.extend(ApprovalManager.get_activities())
-    activities.append(resolve_agent_preset_config_activity)
     return activities
 
 

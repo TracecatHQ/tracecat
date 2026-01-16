@@ -1,5 +1,10 @@
 import type { UIMessage } from "ai"
-import type { AgentSessionRead, WorkflowExecutionStatus } from "@/client"
+import type {
+  AgentSessionRead,
+  ApprovalRead,
+  ChatReadMinimal,
+  WorkflowExecutionStatus,
+} from "@/client"
 import { undoSlugify } from "@/lib/utils"
 
 export type WorkflowSummary = {
@@ -8,11 +13,26 @@ export type WorkflowSummary = {
   alias?: string | null
 }
 
-export type AgentSessionReadWithMeta = AgentSessionRead & {
+/**
+ * Base session type that can be either AgentSessionRead or ChatReadMinimal.
+ * Used for backward compatibility with legacy Chat records.
+ */
+export type SessionBase = AgentSessionRead | ChatReadMinimal
+
+/**
+ * Extended session with optional metadata fields populated by the workflow API.
+ */
+export type AgentSessionReadWithMeta = SessionBase & {
   parent_workflow?: WorkflowSummary | null
   root_workflow?: WorkflowSummary | null
   action_ref?: string | null
   action_title?: string | null
+  approvals?: ApprovalRead[] | null
+  status?: WorkflowExecutionStatus | null
+  parent_id?: string | null
+  parent_run_id?: string | null
+  root_id?: string | null
+  root_run_id?: string | null
 }
 
 export function isUIMessageArray(value: unknown): value is UIMessage[] {

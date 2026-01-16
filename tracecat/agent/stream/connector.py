@@ -10,6 +10,7 @@ import orjson
 from pydantic_core import to_jsonable_python
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
@@ -24,7 +25,6 @@ from tracecat.agent.stream.events import (
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
-from tracecat.chat.service import ChatService
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -39,21 +39,16 @@ class AgentStream:
         client: RedisClient,
         workspace_id: uuid.UUID,
         session_id: uuid.UUID,
-        *,
-        namespace: str = "agent",
     ):
         self.client = client
         self.workspace_id = workspace_id
         self.session_id = session_id
-        self.namespace = namespace
-        self._stream_key = StreamKey(workspace_id, session_id, namespace=namespace)
+        self._stream_key = StreamKey(workspace_id, session_id)
 
     @classmethod
-    async def new(
-        cls, session_id: uuid.UUID, workspace_id: uuid.UUID, *, namespace: str = "agent"
-    ) -> AgentStream:
+    async def new(cls, session_id: uuid.UUID, workspace_id: uuid.UUID) -> AgentStream:
         client = await get_redis_client()
-        return cls(client, workspace_id, session_id, namespace=namespace)
+        return cls(client, workspace_id, session_id)
 
     async def append(self, event: Any) -> None:
         """Stream a message to a Redis stream."""
@@ -75,18 +70,16 @@ class AgentStream:
         await self.append({tokens.END_TOKEN: tokens.END_TOKEN_VALUE})
 
     async def _set_last_stream_id(self, last_stream_id: str) -> None:
-        async with ChatService.with_session() as chat_svc:
-            if chat := await chat_svc.get_chat(self.session_id):
-                await chat_svc.update_chat_last_stream_id(chat, last_stream_id)
+        """Update last stream ID for reconnection support."""
+
+        async with AgentSessionService.with_session() as session_svc:
+            if agent_session := await session_svc.get_session(self.session_id):
+                await session_svc.update_last_stream_id(agent_session, last_stream_id)
                 logger.debug(
-                    "Updated chat with last stream id",
-                    chat_id=chat.id,
+                    "Updated agent session with last stream id",
+                    session_id=agent_session.id,
                     last_stream_id=last_stream_id,
                 )
-            else:
-                # This is expected if we are streaming a session that
-                # was not created from a chat.
-                logger.debug("Chat not found", session_id=self.session_id)
 
     async def _stream_events(
         self, stop_condition: Callable[[], Awaitable[bool]], last_id: str

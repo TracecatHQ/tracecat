@@ -8,20 +8,21 @@ import {
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { useMemo, useState } from "react"
 import {
+  type AgentSessionCreate,
+  type AgentSessionEntity,
+  type AgentSessionRead,
+  type AgentSessionsGetSessionResponse,
+  type AgentSessionsGetSessionVercelResponse,
+  type AgentSessionsListSessionsResponse,
+  type AgentSessionUpdate,
   type ApiError,
-  type ChatCreate,
-  type ChatEntity,
-  type ChatRead,
-  type ChatReadMinimal,
-  type ChatReadVercel,
-  type ChatUpdate,
+  agentSessionsCreateSession,
+  agentSessionsDeleteSession,
+  agentSessionsGetSession,
+  agentSessionsGetSessionVercel,
+  agentSessionsListSessions,
+  agentSessionsUpdateSession,
   type ContinueRunRequest,
-  chatCreateChat,
-  chatDeleteChat,
-  chatGetChat,
-  chatGetChatVercel,
-  chatListChats,
-  chatUpdateChat,
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -88,15 +89,13 @@ export function useCreateChat(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const { mutateAsync: createChat, isPending: createChatPending } = useMutation<
-    ChatRead,
+    AgentSessionRead,
     ApiError,
-    ChatCreate
+    AgentSessionCreate
   >({
-    mutationFn: (request: ChatCreate) =>
-      chatCreateChat({ requestBody: request, workspaceId }),
+    mutationFn: (request: AgentSessionCreate) =>
+      agentSessionsCreateSession({ requestBody: request, workspaceId }),
     onSuccess: () => {
-      // Invalidate and refetch chat lists
-      // TODO: Add entityType/entityId here
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
   })
@@ -113,26 +112,29 @@ export function useListChats(
     limit = 50,
   }: {
     workspaceId: string
-    entityType?: ChatEntity
+    entityType?: AgentSessionEntity
     entityId?: string
     limit?: number
   },
   options?: { enabled?: boolean }
 ): {
-  chats: ChatRead[] | undefined
+  chats: AgentSessionsListSessionsResponse | undefined
   chatsLoading: boolean
-  chatsError: Error | null
-  refetchChats: UseQueryResult<ChatRead[], Error>["refetch"]
+  chatsError: ApiError | null
+  refetchChats: UseQueryResult<
+    AgentSessionsListSessionsResponse,
+    ApiError
+  >["refetch"]
 } {
   const {
     data: chats,
     isLoading: chatsLoading,
     error: chatsError,
     refetch,
-  } = useQuery<ChatRead[]>({
+  } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
     queryKey: ["chats", workspaceId, entityType, entityId, limit],
     queryFn: () =>
-      chatListChats({
+      agentSessionsListSessions({
         workspaceId,
         entityType: entityType || null,
         entityId: entityId || null,
@@ -156,9 +158,9 @@ export function useGetChat({
     data: chat,
     isLoading,
     error,
-  } = useQuery<ChatRead, ApiError>({
+  } = useQuery<AgentSessionsGetSessionResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId],
-    queryFn: () => chatGetChat({ chatId, workspaceId }),
+    queryFn: () => agentSessionsGetSession({ sessionId: chatId, workspaceId }),
     enabled: !!chatId && !!workspaceId,
   })
 
@@ -170,18 +172,17 @@ export function useUpdateChat(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const mutation = useMutation<
-    ChatReadMinimal,
+    AgentSessionRead,
     ApiError,
-    { chatId: string; update: ChatUpdate }
+    { chatId: string; update: AgentSessionUpdate }
   >({
     mutationFn: ({ chatId, update }) =>
-      chatUpdateChat({
-        chatId,
+      agentSessionsUpdateSession({
+        sessionId: chatId,
         workspaceId,
         requestBody: update,
       }),
     onSuccess: (_, variables) => {
-      // Invalidate and refetch chat data
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],
       })
@@ -207,12 +208,11 @@ export function useDeleteChat(workspaceId: string) {
 
   const mutation = useMutation<void, ApiError, { chatId: string }>({
     mutationFn: ({ chatId }) =>
-      chatDeleteChat({
-        chatId,
+      agentSessionsDeleteSession({
+        sessionId: chatId,
         workspaceId,
       }),
     onSuccess: (_, variables) => {
-      // Invalidate and refetch chat data
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],
       })
@@ -243,13 +243,16 @@ export function useGetChatVercel({
     data: chat,
     isLoading: chatLoading,
     error: chatError,
-  } = useQuery<ChatReadVercel, ApiError>({
+  } = useQuery<AgentSessionsGetSessionVercelResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
     queryFn: async () => {
       if (!chatId) {
         throw new Error("No chat ID available")
       }
-      return await chatGetChatVercel({ chatId, workspaceId })
+      return await agentSessionsGetSessionVercel({
+        sessionId: chatId,
+        workspaceId,
+      })
     },
     enabled: !!chatId,
   })
@@ -274,7 +277,7 @@ export function useVercelChat({
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
     if (!chatId) return ""
-    const url = new URL(`/api/chat/${chatId}/vercel`, getBaseUrl())
+    const url = new URL(`/api/agent/sessions/${chatId}/messages`, getBaseUrl())
     url.searchParams.set("workspace_id", workspaceId)
     return url.toString()
   }, [chatId, workspaceId])

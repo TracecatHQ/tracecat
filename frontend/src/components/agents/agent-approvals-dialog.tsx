@@ -3,7 +3,7 @@
 import type { JSONSchema7 } from "json-schema"
 import { AlertTriangleIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { agentSubmitAgentApprovals } from "@/client"
+import { approvalsSubmitApprovals } from "@/client"
 import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Button } from "@/components/ui/button"
@@ -202,7 +202,7 @@ export function AgentApprovalsDialog({
     setIsSubmitting(true)
     setFormError(null)
     try {
-      await agentSubmitAgentApprovals({
+      await approvalsSubmitApprovals({
         workspaceId,
         sessionId: session.id,
         requestBody: {

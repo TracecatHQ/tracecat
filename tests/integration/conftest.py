@@ -170,6 +170,28 @@ def role_workspace_b() -> Role:
     )
 
 
+@pytest.fixture
+def role_workspace_agent_a() -> Role:
+    """Role for workspace A (test tenant 1) for agent workflows."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        user_id=uuid.uuid4(),
+    )
+
+
+@pytest.fixture
+def role_workspace_agent_b() -> Role:
+    """Role for workspace B (test tenant 2) for agent workflows."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
+        user_id=uuid.uuid4(),
+    )
+
+
 # =============================================================================
 # Mock Module Fixtures
 # =============================================================================
