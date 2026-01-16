@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 from temporalio import activity
 from temporalio.client import Client, WorkflowFailureError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Worker
 from tracecat_ee.agent.activities import AgentActivities
 from tracecat_ee.agent.approvals.service import ApprovalManager
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
@@ -47,6 +47,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig, StreamKey
 from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES
+from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.redis.client import get_redis_client
 
 # Use a unique test queue to avoid collision with docker-compose workers
@@ -183,7 +184,7 @@ def agent_worker_factory(
             task_queue=task_queue,
             activities=activities,
             workflows=[DurableAgentWorkflow],
-            workflow_runner=UnsandboxedWorkflowRunner(),
+            workflow_runner=new_sandbox_runner(),
             activity_executor=threadpool,
         )
 
