@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from tracecat import config
 from tracecat.exceptions import RegistryError
 from tracecat.executor import registry_resolver
 from tracecat.registry.lock.types import RegistryLock
@@ -132,7 +133,9 @@ class TestResolveAction:
             return_value=(manifest, impl_index),
         ):
             action_impl = await registry_resolver.resolve_action(
-                "core.transform.reshape", lock
+                "core.transform.reshape",
+                lock,
+                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             )
 
         assert action_impl.type == "udf"
@@ -148,7 +151,11 @@ class TestResolveAction:
         )
 
         with pytest.raises(RegistryError) as exc_info:
-            await registry_resolver.resolve_action("core.transform.reshape", lock)
+            await registry_resolver.resolve_action(
+                "core.transform.reshape",
+                lock,
+                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            )
 
         assert "not bound in registry_lock" in str(exc_info.value)
 
@@ -185,7 +192,11 @@ class TestResolveAction:
             side_effect=RegistryError("Registry version not found"),
         ):
             with pytest.raises(RegistryError) as exc_info:
-                await registry_resolver.resolve_action("core.transform.reshape", lock)
+                await registry_resolver.resolve_action(
+                    "core.transform.reshape",
+                    lock,
+                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                )
 
             assert "Registry version not found" in str(exc_info.value)
 
@@ -228,7 +239,9 @@ class TestCollectActionSecretsFromManifest:
             return_value=(manifest, impl_index),
         ):
             secrets = await registry_resolver.collect_action_secrets_from_manifest(
-                "tools.api.call", lock
+                "tools.api.call",
+                lock,
+                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             )
 
         assert len(secrets) == 1
@@ -245,7 +258,9 @@ class TestCollectActionSecretsFromManifest:
 
         with pytest.raises(RegistryError) as exc_info:
             await registry_resolver.collect_action_secrets_from_manifest(
-                "tools.api.call", lock
+                "tools.api.call",
+                lock,
+                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
             )
 
         assert "not bound in registry_lock" in str(exc_info.value)

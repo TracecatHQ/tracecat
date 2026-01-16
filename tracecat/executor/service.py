@@ -99,7 +99,7 @@ def _artifact_cache_key(
 
 async def get_registry_artifacts_for_lock(
     origins: dict[str, str],
-    organization_id: OrganizationID | None = None,
+    organization_id: OrganizationID,
 ) -> list[RegistryArtifactsContext]:
     """Get registry tarball URIs for specific locked versions.
 
@@ -108,6 +108,7 @@ async def get_registry_artifacts_for_lock(
     Args:
         origins: Maps origin -> version string from RegistryLock["origins"].
             Example: {"tracecat_registry": "2024.12.10.123456", "git+ssh://...": "abc1234"}
+        organization_id: The organization ID for scoping the registry lookup.
 
     Returns:
         List of RegistryArtifactsContext for the locked versions.
@@ -119,10 +120,8 @@ async def get_registry_artifacts_for_lock(
     cached_artifacts: list[RegistryArtifactsContext] = []
     misses: list[tuple[str, str]] = []
 
-    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
-
     for origin, version in origins.items():
-        key = _artifact_cache_key(origin, version, org_id)
+        key = _artifact_cache_key(origin, version, organization_id)
         cached = await _artifact_cache.get(key=key)
         if cached is not None:
             cached_artifacts.append(cached)
@@ -156,7 +155,7 @@ async def get_registry_artifacts_for_lock(
                 RegistryVersion.repository_id == RegistryRepository.id,
             )
             .where(
-                RegistryRepository.organization_id == org_id,
+                RegistryRepository.organization_id == organization_id,
                 or_(*conditions),
             )
         )
@@ -187,7 +186,7 @@ async def get_registry_artifacts_for_lock(
             if artifact is not None:
                 fetched_artifacts.append(artifact)
                 # Cache the artifact
-                key = _artifact_cache_key(origin, version, org_id)
+                key = _artifact_cache_key(origin, version, organization_id)
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(

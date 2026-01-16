@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 
-from tracecat import config
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError
@@ -64,10 +63,9 @@ async def _fetch_manifest(
     session: AsyncSession,
     origin: str,
     version: str,
-    organization_id: OrganizationID | None,
+    organization_id: OrganizationID,
 ) -> RegistryVersionManifest:
     """Fetch manifest from database for a specific origin and version."""
-    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
     statement = (
         select(RegistryVersion.manifest)
         .join(
@@ -75,8 +73,8 @@ async def _fetch_manifest(
             RegistryVersion.repository_id == RegistryRepository.id,
         )
         .where(
-            RegistryRepository.organization_id == org_id,
-            RegistryVersion.organization_id == org_id,
+            RegistryRepository.organization_id == organization_id,
+            RegistryVersion.organization_id == organization_id,
             RegistryRepository.origin == origin,
             RegistryVersion.version == version,
         )
@@ -97,11 +95,10 @@ def _manifest_key_builder(
     fn: object,
     origin: str,
     version: str,
-    organization_id: OrganizationID | None,
+    organization_id: OrganizationID,
 ) -> str:
     """Build cache key for manifest entries."""
-    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
-    return f"manifest:{org_id}:{origin}:{version}"
+    return f"manifest:{organization_id}:{origin}:{version}"
 
 
 @cached(
@@ -112,7 +109,7 @@ def _manifest_key_builder(
 async def _get_manifest_entry(
     origin: str,
     version: str,
-    organization_id: OrganizationID | None,
+    organization_id: OrganizationID,
 ) -> tuple[RegistryVersionManifest, dict[str, ActionImplementation]]:
     """Fetch manifest and build impl index (cached with TTL).
 
@@ -132,9 +129,7 @@ async def _get_manifest_entry(
         return (manifest, impl_index)
 
 
-async def prefetch_lock(
-    lock: RegistryLock, organization_id: OrganizationID | None = None
-) -> None:
+async def prefetch_lock(lock: RegistryLock, organization_id: OrganizationID) -> None:
     """Prefetch all manifests for a registry lock into cache.
 
     Call this once at the start of action execution to warm the cache.
@@ -156,7 +151,7 @@ async def prefetch_lock(
 async def resolve_action(
     action_name: str,
     lock: RegistryLock,
-    organization_id: OrganizationID | None = None,
+    organization_id: OrganizationID,
 ) -> ActionImplementation:
     """Resolve action implementation from registry lock.
 
@@ -206,7 +201,7 @@ async def resolve_action(
 async def collect_action_secrets_from_manifest(
     action_name: str,
     lock: RegistryLock,
-    organization_id: OrganizationID | None = None,
+    organization_id: OrganizationID,
 ) -> set[RegistrySecretType]:
     """Collect all secrets required by an action from manifest.
 
@@ -249,7 +244,7 @@ async def _collect_secrets_recursive(
     manifest_action: RegistryVersionManifestAction,
     lock: RegistryLock,
     secrets: set[RegistrySecretType],
-    organization_id: OrganizationID | None,
+    organization_id: OrganizationID,
 ) -> None:
     """Recursively collect secrets from an action and its template steps."""
     impl = RegistryActionImplValidator.validate_python(manifest_action.implementation)

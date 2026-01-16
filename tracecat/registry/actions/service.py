@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict
 from typing import cast as typing_cast
 
-from pydantic import UUID4, ValidationError
+from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean, cast, func, or_, select
 from tracecat_registry import (
@@ -235,7 +235,6 @@ class RegistryActionsService(BaseService):
     async def create_action(
         self,
         params: RegistryActionCreate,
-        organization_id: UUID4 | None = None,
         *,
         commit: bool = True,
     ) -> RegistryAction:
@@ -256,7 +255,7 @@ class RegistryActionsService(BaseService):
             interface = params.interface
 
         action = RegistryAction(
-            organization_id=organization_id or self.organization_id,
+            organization_id=self.organization_id,
             interface=to_jsonable_python(interface),
             **params.model_dump(exclude={"interface"}),
         )

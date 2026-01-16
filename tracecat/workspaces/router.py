@@ -116,9 +116,7 @@ async def create_workspace(
     """
     service = WorkspaceService(session, role=role)
     try:
-        workspace = await service.create_workspace(
-            params.name, organization_id=params.organization_id
-        )
+        workspace = await service.create_workspace(params.name)
     except TracecatAuthorizationError as e:
         logger.warning(
             "User does not have the appropriate access level",

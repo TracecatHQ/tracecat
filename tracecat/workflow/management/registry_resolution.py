@@ -8,7 +8,6 @@ from uuid import UUID
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.db.models import RegistryIndex, RegistryRepository, RegistryVersion
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
@@ -35,7 +34,7 @@ async def resolve_action_origins_from_lock(
     session: AsyncSession,
     dsl: DSLInput,
     registry_lock: dict[str, str],
-    organization_id: OrganizationID | None = None,
+    organization_id: OrganizationID,
 ) -> tuple[dict[str, str], list[RegistryActionResolutionError]]:
     """Resolve action -> registry origin using RegistryIndex + RegistryVersion manifests.
 
@@ -67,7 +66,6 @@ async def resolve_action_origins_from_lock(
             )
             for action in sorted(roots)
         ]
-    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
     lock_stmt = (
         select(
             RegistryRepository.origin,
@@ -77,8 +75,8 @@ async def resolve_action_origins_from_lock(
         )
         .join(RegistryVersion, RegistryVersion.repository_id == RegistryRepository.id)
         .where(
-            RegistryRepository.organization_id == org_id,
-            RegistryVersion.organization_id == org_id,
+            RegistryRepository.organization_id == organization_id,
+            RegistryVersion.organization_id == organization_id,
             tuple_(RegistryRepository.origin, RegistryVersion.version).in_(lock_pairs),
         )
     )
