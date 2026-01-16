@@ -142,6 +142,55 @@ For CloudNativePG, this is auto-generated as <cluster-name>-app
 {{- end }}
 
 {{/*
+PostgreSQL TLS CA ConfigMap Name
+Returns the name of the ConfigMap containing the CA certificate for TLS verification
+*/}}
+{{- define "tracecat.postgres.caConfigMapName" -}}
+{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA }}
+{{- if .Values.externalPostgres.tls.existingConfigMap }}
+{{- .Values.externalPostgres.tls.existingConfigMap }}
+{{- else if .Values.externalPostgres.tls.caCert }}
+{{- printf "%s-postgres-ca" (include "tracecat.fullname" .) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+PostgreSQL TLS CA Certificate Path
+Returns the mount path for the CA certificate file
+*/}}
+{{- define "tracecat.postgres.caCertPath" -}}
+{{- "/etc/tracecat/certs/postgres/ca-bundle.pem" }}
+{{- end }}
+
+{{/*
+PostgreSQL TLS CA Volume
+Returns the volume definition for mounting the CA certificate
+*/}}
+{{- define "tracecat.postgres.caVolume" -}}
+{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA (include "tracecat.postgres.caConfigMapName" .) }}
+- name: postgres-ca
+  configMap:
+    name: {{ include "tracecat.postgres.caConfigMapName" . }}
+    items:
+      - key: {{ .Values.externalPostgres.tls.configMapKey | default "ca-bundle.pem" }}
+        path: ca-bundle.pem
+{{- end }}
+{{- end }}
+
+{{/*
+PostgreSQL TLS CA Volume Mount
+Returns the volume mount definition for the CA certificate
+*/}}
+{{- define "tracecat.postgres.caVolumeMount" -}}
+{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA (include "tracecat.postgres.caConfigMapName" .) }}
+- name: postgres-ca
+  mountPath: /etc/tracecat/certs/postgres
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{/*
 =============================================================================
 Redis/Valkey Helpers
 =============================================================================

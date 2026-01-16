@@ -284,6 +284,15 @@ externalPostgres:
     username: ""
     # SecretString should be JSON with `password` (and optional `username`) or a raw password when username is set.
     secretArn: null
+  tls:
+    # Enable TLS certificate verification (requires caCert to be set)
+    verifyCA: false
+    # CA certificate for verifying the database server certificate (PEM format)
+    # For AWS RDS, use the RDS CA bundle from https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+    caCert: ""
+    # Or reference an existing ConfigMap containing the CA certificate
+    existingConfigMap: ""
+    configMapKey: "ca-bundle.pem"
 
 externalRedis:
   enabled: false
