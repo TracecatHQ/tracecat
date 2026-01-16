@@ -4,7 +4,9 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  available_azs = data.aws_availability_zones.available.names
+  az_count      = min(var.az_count, length(local.available_azs))
+  azs           = slice(local.available_azs, 0, local.az_count)
 }
 
 # VPC
@@ -20,7 +22,7 @@ resource "aws_vpc" "tracecat" {
 
 # Public Subnets
 resource "aws_subnet" "public" {
-  count = var.az_count
+  count = local.az_count
 
   vpc_id                  = aws_vpc.tracecat.id
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index + 1)
@@ -30,13 +32,13 @@ resource "aws_subnet" "public" {
   tags = merge(var.tags, {
     Name                                        = "tracecat-public-${local.azs[count.index]}"
     "kubernetes.io/role/elb"                    = "1"
-    "kubernetes.io/cluster/tracecat-eks"        = "shared"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   })
 }
 
 # Private Subnets
 resource "aws_subnet" "private" {
-  count = var.az_count
+  count = local.az_count
 
   vpc_id                  = aws_vpc.tracecat.id
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index + 10)
@@ -46,7 +48,7 @@ resource "aws_subnet" "private" {
   tags = merge(var.tags, {
     Name                                        = "tracecat-private-${local.azs[count.index]}"
     "kubernetes.io/role/internal-elb"           = "1"
-    "kubernetes.io/cluster/tracecat-eks"        = "shared"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   })
 }
 
@@ -61,7 +63,7 @@ resource "aws_internet_gateway" "tracecat" {
 
 # Elastic IPs for NAT Gateways
 resource "aws_eip" "nat" {
-  count = var.az_count
+  count = local.az_count
 
   domain = "vpc"
 
@@ -74,7 +76,7 @@ resource "aws_eip" "nat" {
 
 # NAT Gateways
 resource "aws_nat_gateway" "tracecat" {
-  count = var.az_count
+  count = local.az_count
 
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
@@ -102,7 +104,7 @@ resource "aws_route_table" "public" {
 
 # Public Subnet Route Table Associations
 resource "aws_route_table_association" "public" {
-  count = var.az_count
+  count = local.az_count
 
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
@@ -110,7 +112,7 @@ resource "aws_route_table_association" "public" {
 
 # Private Route Tables (one per AZ for HA)
 resource "aws_route_table" "private" {
-  count = var.az_count
+  count = local.az_count
 
   vpc_id = aws_vpc.tracecat.id
 
@@ -126,7 +128,7 @@ resource "aws_route_table" "private" {
 
 # Private Subnet Route Table Associations
 resource "aws_route_table_association" "private" {
-  count = var.az_count
+  count = local.az_count
 
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private[count.index].id

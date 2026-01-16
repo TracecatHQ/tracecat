@@ -7,6 +7,7 @@ module "network" {
   hosted_zone_id = var.hosted_zone_id
   vpc_cidr       = var.vpc_cidr
   az_count       = var.az_count
+  cluster_name   = var.cluster_name
   tags           = var.tags
 }
 

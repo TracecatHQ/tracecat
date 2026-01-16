@@ -45,7 +45,7 @@ spec:
 
               echo "Temporal namespace exists, checking search attributes..."
               RETRY_COUNT=0
-              until true; do
+              while true; do
                 EXISTING_ATTRS=$(temporal operator search-attribute list 2>/dev/null || echo "")
                 MISSING_ATTRS=0
                 {{- range $name, $type := .Values.tracecat.temporal.searchAttributes }}

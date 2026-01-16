@@ -18,6 +18,10 @@ resource "kubernetes_namespace" "tracecat" {
 
 # Redis URL stored in AWS Secrets Manager (for ESO to sync)
 # This creates the secret in AWS, not K8s - ESO handles the K8s secret creation
+locals {
+  redis_url = "rediss://:${random_password.redis_auth.result}@${aws_elasticache_replication_group.tracecat.primary_endpoint_address}:6379"
+}
+
 resource "aws_secretsmanager_secret" "redis_url" {
   name        = "tracecat/redis-${random_id.s3_suffix.hex}"
   description = "Redis URL for Tracecat"
@@ -26,6 +30,7 @@ resource "aws_secretsmanager_secret" "redis_url" {
 }
 
 resource "aws_secretsmanager_secret_version" "redis_url" {
-  secret_id     = aws_secretsmanager_secret.redis_url.id
-  secret_string = "rediss://:${random_password.redis_auth.result}@${aws_elasticache_replication_group.tracecat.primary_endpoint_address}:6379"
+  secret_id                = aws_secretsmanager_secret.redis_url.id
+  secret_string_wo         = local.redis_url
+  secret_string_wo_version = parseint(substr(md5(local.redis_url), 0, 8), 16)
 }

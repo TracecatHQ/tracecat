@@ -152,7 +152,8 @@ EOF
         echo "Waiting for secret sync... ($i/12)"
         sleep 5
       done
-      echo "Warning: Secret may not have synced yet, continuing anyway"
+      echo "Error: Secret did not sync within timeout" >&2
+      exit 1
     EOT
   }
 
