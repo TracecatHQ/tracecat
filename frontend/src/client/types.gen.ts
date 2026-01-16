@@ -5567,7 +5567,7 @@ export type WorkflowUpdate = {
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
-  organization_id?: string
+  organization_id?: string | null
 }
 
 export type WorkspaceMember = {

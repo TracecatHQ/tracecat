@@ -6,7 +6,6 @@ from collections import deque
 
 from sqlalchemy import select
 
-from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import RegistryError
@@ -60,8 +59,8 @@ class RegistryLockService(BaseService):
                 RegistryVersion.repository_id == RegistryRepository.id,
             )
             .where(
-                RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
-                RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryVersion.organization_id == self.organization_id,
             )
             .distinct(RegistryVersion.repository_id)
             .order_by(

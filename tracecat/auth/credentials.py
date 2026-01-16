@@ -278,10 +278,21 @@ async def _role_dependency(
             workspace_role = membership_with_org.membership.role
             organization_id = membership_with_org.org_id
         else:
-            # Privileged user doesn't need workspace role verification
+            # No workspace specified; infer org from memberships when possible.
             workspace_role = None
-            # For privileged users, get organization_id from default or user's first workspace
             organization_id = config.TRACECAT__DEFAULT_ORG_ID
+            svc = MembershipService(session)
+            memberships_with_org = await svc.list_user_memberships_with_org(
+                user_id=user.id
+            )
+            org_ids = {m.org_id for m in memberships_with_org}
+            if len(org_ids) == 1:
+                organization_id = next(iter(org_ids))
+            elif len(org_ids) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Multiple organizations found. Provide workspace_id to select an organization.",
+                )
 
         role = get_role_from_user(
             user,

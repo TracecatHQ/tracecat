@@ -46,6 +46,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
 TRACECAT__DEFAULT_ORG_ID = uuid.UUID(int=0)
+"""Deprecated: This config is being remove in favor of platform-scoped models."""
 
 # === DB Config === #
 TRACECAT__DB_URI = os.environ.get(

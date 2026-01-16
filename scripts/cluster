@@ -404,6 +404,12 @@ if [[ "$COMMAND" == "ports" ]]; then
     exit 0
 fi
 
+# Handle 'db' command - open lazysql to postgres
+if [[ "$COMMAND" == "db" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    exec lazysql "postgres://postgres:postgres@localhost:${PG_PORT}/postgres"
+fi
+
 # Handle 'attach' command
 if [[ "$COMMAND" == "attach" ]]; then
     if [[ $# -lt 1 ]]; then

@@ -274,7 +274,7 @@ class BaseRegistrySyncService[
         )
 
     def _get_storage_namespace(self) -> str:
-        return self._storage_namespace() or str(config.TRACECAT__DEFAULT_ORG_ID)
+        return self._storage_namespace() or str(self.organization_id)
 
     async def _build_and_upload_artifacts(
         self,

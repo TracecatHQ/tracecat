@@ -9,7 +9,6 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
@@ -113,7 +112,9 @@ class SettingsService(BaseService):
         Returns:
             Sequence[OrganizationSetting]: List of matching organization settings
         """
-        statement = select(OrganizationSetting)
+        statement = select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == self.organization_id
+        )
 
         if keys is not None:
             statement = statement.where(OrganizationSetting.key.in_(keys))
@@ -143,7 +144,10 @@ class SettingsService(BaseService):
             self.logger.debug("Blocked attempted access to private setting", key=key)
             return None
 
-        statement = select(OrganizationSetting).where(OrganizationSetting.key == key)
+        statement = select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == self.organization_id,
+            OrganizationSetting.key == key,
+        )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
@@ -160,7 +164,7 @@ class SettingsService(BaseService):
         else:
             value = value_bytes
         setting = OrganizationSetting(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=self.organization_id,
             key=params.key,
             value_type=params.value_type,
             value=value,

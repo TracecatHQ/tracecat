@@ -4,10 +4,12 @@ from typing import Any, ClassVar, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 
 
@@ -20,6 +22,12 @@ class BaseService:
         self.session = session
         self.role = role or ctx_role.get()
         self.logger = logger.bind(service=self.service_name)
+
+    @property
+    def organization_id(self) -> OrganizationID:
+        if self.role is None:
+            return config.TRACECAT__DEFAULT_ORG_ID
+        return self.role.organization_id
 
     @classmethod
     @asynccontextmanager
