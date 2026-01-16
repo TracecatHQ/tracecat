@@ -6977,7 +6977,7 @@ export const authSsoAcs = (
 
 /**
  * Check Health
- * @returns string Successful Response
+ * @returns HealthResponse Successful Response
  * @throws ApiError
  */
 export const publicCheckHealth =
@@ -6994,7 +6994,7 @@ export const publicCheckHealth =
  *
  * Use this endpoint for Docker healthchecks to ensure the API has finished
  * initializing (including registry sync) before accepting traffic.
- * @returns string Successful Response
+ * @returns HealthResponse Successful Response
  * @throws ApiError
  */
 export const publicCheckReady =

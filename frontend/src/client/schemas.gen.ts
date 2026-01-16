@@ -7646,6 +7646,18 @@ export const $HarnessType = {
   description: "Supported agent harnesses.",
 } as const
 
+export const $HealthResponse = {
+  properties: {
+    status: {
+      type: "string",
+      title: "Status",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "HealthResponse",
+} as const
+
 export const $ImageUrl = {
   properties: {
     url: {
