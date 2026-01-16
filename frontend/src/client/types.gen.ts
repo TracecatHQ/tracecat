@@ -2399,6 +2399,10 @@ export type HTTPValidationError = {
  */
 export type HarnessType = "pydantic-ai" | "claude_code"
 
+export type HealthResponse = {
+  status: string
+}
+
 export type ImageUrl = {
   url: string
   force_download?: boolean
@@ -7422,13 +7426,9 @@ export type AuthSsoAcsData = {
 
 export type AuthSsoAcsResponse = unknown
 
-export type PublicCheckHealthResponse = {
-  [key: string]: string
-}
+export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = {
-  [key: string]: string
-}
+export type PublicCheckReadyResponse = HealthResponse
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -10971,9 +10971,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: HealthResponse
       }
     }
   }
@@ -10983,9 +10981,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: HealthResponse
       }
     }
   }
