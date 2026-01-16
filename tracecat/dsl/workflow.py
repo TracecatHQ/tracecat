@@ -766,6 +766,7 @@ class DSLWorkflow:
                             max_tool_calls=action_args.max_tool_calls,
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
                     )
@@ -826,6 +827,7 @@ class DSLWorkflow:
                             max_tool_calls=preset_action_args.max_tool_calls,
                             use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
+                        title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
                     )

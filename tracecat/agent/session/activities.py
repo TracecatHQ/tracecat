@@ -35,6 +35,8 @@ class CreateSessionInput(BaseModel):
     tools: list[str] | None = None
     agent_preset_id: uuid.UUID | None = None
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
+    # Workflow run tracking (for approval lookups)
+    curr_run_id: uuid.UUID | None = None
 
 
 class CreateSessionResult(BaseModel):
@@ -58,6 +60,7 @@ class LoadSessionResult(BaseModel):
     found: bool
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
+    is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
     error: str | None = None
 
 
@@ -68,12 +71,15 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
     This is called at the start of an agent workflow to establish
     the session record that will track the agent's execution.
     Idempotent - safe to call multiple times for the same session_id.
+
+    If curr_run_id is provided, it will be set on the session to enable
+    approval submission to locate the running workflow.
     """
     ctx_role.set(input.role)
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            _, created = await service.get_or_create_session(
+            agent_session, created = await service.get_or_create_session(
                 AgentSessionCreate(
                     id=input.session_id,
                     title=input.title,
@@ -85,6 +91,12 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     harness_type=input.harness_type,
                 )
             )
+
+            # Set curr_run_id if provided (for workflow-initiated sessions)
+            if input.curr_run_id is not None:
+                agent_session.curr_run_id = input.curr_run_id
+                service.session.add(agent_session)
+                await service.session.commit()
 
         if created:
             logger.info(
@@ -138,6 +150,7 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
                 found=True,
                 sdk_session_id=history.sdk_session_id,
                 sdk_session_data=history.sdk_session_data,
+                is_fork=history.is_fork,
             )
 
     except Exception as e:
