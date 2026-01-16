@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any
 
 import dateparser
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
@@ -21,6 +21,7 @@ from tracecat.dsl.common import (
     ResolvedSubflowBatch,
     ResolvedSubflowConfig,
 )
+from tracecat.dsl.enums import StreamErrorHandlingStrategy
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
@@ -31,6 +32,7 @@ from tracecat.dsl.schemas import (
     StreamID,
     TaskResult,
 )
+from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import ExprContext
@@ -103,6 +105,18 @@ class SynchronizeCollectionObjectActivityInput(BaseModel):
     collection: list[StoredObject]
     key: str
     """Storage key prefix for the collection."""
+
+
+class FinalizeGatherActivityInput(BaseModel):
+    collection: list[StoredObject]
+    key: str
+    drop_nulls: bool = False
+    error_strategy: StreamErrorHandlingStrategy = StreamErrorHandlingStrategy.PARTITION
+
+
+class FinalizeGatherActivityResult(BaseModel):
+    result: CollectionObject
+    errors: list[ActionErrorInfo] = Field(default_factory=list)
 
 
 class BuildAgentArgsActivityInput(BaseModel):
@@ -483,6 +497,49 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
+    async def finalize_gather_activity(
+        input: FinalizeGatherActivityInput,
+    ) -> FinalizeGatherActivityResult:
+        """Finalize gather by materializing items and storing as CollectionObject.
+
+        Takes a list of StoredObjects (one per execution stream), materializes
+        each to its raw value, applies drop_nulls + error_strategy, and stores
+        the resulting list as a CollectionObject.
+
+        Returns the CollectionObject handle and any partitioned errors.
+        """
+        storage = get_object_storage()
+        values: list[Any] = []
+        for obj in input.collection:
+            value = await storage.retrieve(obj)
+            values.append(value)
+
+        if input.drop_nulls:
+            values = [v for v in values if v is not None]
+
+        results: list[Any] = []
+        errors: list[ActionErrorInfo] = []
+        match input.error_strategy:
+            case StreamErrorHandlingStrategy.PARTITION:
+                results, errors = _partition_errors(values)
+            case StreamErrorHandlingStrategy.DROP:
+                results = [v for v in values if not _is_error_info(v)]
+            case StreamErrorHandlingStrategy.INCLUDE:
+                results = list(values)
+            case StreamErrorHandlingStrategy.RAISE:
+                # Caller is responsible for raising if errors are present.
+                results, errors = _partition_errors(values)
+            case _:
+                raise ApplicationError(
+                    f"Invalid error handling strategy: {input.error_strategy}",
+                    non_retryable=True,
+                )
+
+        stored = await store_collection(input.key, results)
+        return FinalizeGatherActivityResult(result=stored, errors=errors)
+
+    @staticmethod
+    @activity.defn
     def build_agent_args_activity(
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
@@ -625,6 +682,36 @@ def _patch_object(
     for key in stem:
         obj = obj.setdefault(key, {})
     obj[leaf] = value
+
+
+def _partition_errors(items: list[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
+    results: list[Any] = []
+    errors: list[ActionErrorInfo] = []
+    for item in items:
+        if info := _as_error_info(item):
+            errors.append(info)
+        else:
+            results.append(item)
+    return results, errors
+
+
+def _is_error_info(detail: Any) -> bool:
+    if isinstance(detail, ActionErrorInfo):
+        return True
+    if not isinstance(detail, Mapping):
+        return False
+    try:
+        ActionErrorInfoAdapter.validate_python(detail)
+        return True
+    except Exception:
+        return False
+
+
+def _as_error_info(detail: Any) -> ActionErrorInfo | None:
+    try:
+        return ActionErrorInfoAdapter.validate_python(detail)
+    except Exception:
+        return None
 
 
 def _resolve_subflow_batch(
