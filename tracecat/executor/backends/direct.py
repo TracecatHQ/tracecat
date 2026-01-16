@@ -120,7 +120,7 @@ class DirectBackend(ExecutorBackend):
         )
 
         # Download and extract tarballs for custom registries
-        tarball_paths = await self._ensure_registry_tarballs(input)
+        tarball_paths = await self._ensure_registry_tarballs(input, role)
 
         if tarball_paths:
             logger.debug(
@@ -269,7 +269,9 @@ class DirectBackend(ExecutorBackend):
             )
             return service.get_bound(reg_action, mode="execution")
 
-    async def _ensure_registry_tarballs(self, input: RunActionInput) -> list[str]:
+    async def _ensure_registry_tarballs(
+        self, input: RunActionInput, role: Role
+    ) -> list[str]:
         """Download and extract registry tarballs, returning paths to add to sys.path.
 
         This ensures custom registry modules are available for in-process execution.
@@ -285,7 +287,7 @@ class DirectBackend(ExecutorBackend):
             return []
 
         # Get tarball URIs for all origins in the registry lock
-        tarball_uris = await self._get_tarball_uris(input)
+        tarball_uris = await self._get_tarball_uris(input, role)
         if not tarball_uris:
             logger.debug("No tarball URIs found, using empty paths")
             return []
@@ -312,7 +314,9 @@ class DirectBackend(ExecutorBackend):
         )
         return extracted_paths
 
-    async def _get_tarball_uris(self, input: RunActionInput) -> list[str]:
+    async def _get_tarball_uris(
+        self, input: RunActionInput, role: Role
+    ) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering).
 
         Args:
@@ -324,7 +328,7 @@ class DirectBackend(ExecutorBackend):
         """
         try:
             artifacts = await get_registry_artifacts_for_lock(
-                input.registry_lock.origins
+                input.registry_lock.origins, role.organization_id
             )
             return self._sort_tarball_uris(artifacts)
         except Exception as e:

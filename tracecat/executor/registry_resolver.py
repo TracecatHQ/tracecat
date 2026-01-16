@@ -17,6 +17,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError
 from tracecat.executor.schemas import ActionImplementation
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.lock.types import RegistryLock
@@ -63,8 +64,10 @@ async def _fetch_manifest(
     session: AsyncSession,
     origin: str,
     version: str,
+    organization_id: OrganizationID | None,
 ) -> RegistryVersionManifest:
     """Fetch manifest from database for a specific origin and version."""
+    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
     statement = (
         select(RegistryVersion.manifest)
         .join(
@@ -72,8 +75,8 @@ async def _fetch_manifest(
             RegistryVersion.repository_id == RegistryRepository.id,
         )
         .where(
-            RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
-            RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryRepository.organization_id == org_id,
+            RegistryVersion.organization_id == org_id,
             RegistryRepository.origin == origin,
             RegistryVersion.version == version,
         )
@@ -94,9 +97,11 @@ def _manifest_key_builder(
     fn: object,
     origin: str,
     version: str,
+    organization_id: OrganizationID | None,
 ) -> str:
     """Build cache key for manifest entries."""
-    return f"manifest:{origin}:{version}"
+    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
+    return f"manifest:{org_id}:{origin}:{version}"
 
 
 @cached(
@@ -107,13 +112,14 @@ def _manifest_key_builder(
 async def _get_manifest_entry(
     origin: str,
     version: str,
+    organization_id: OrganizationID | None,
 ) -> tuple[RegistryVersionManifest, dict[str, ActionImplementation]]:
     """Fetch manifest and build impl index (cached with TTL).
 
     This function handles its own DB session and caching via aiocache.
     """
     async with get_async_session_context_manager() as session:
-        manifest = await _fetch_manifest(session, origin, version)
+        manifest = await _fetch_manifest(session, origin, version, organization_id)
         impl_index = _build_impl_index(manifest, origin)
 
         logger.debug(
@@ -126,14 +132,17 @@ async def _get_manifest_entry(
         return (manifest, impl_index)
 
 
-async def prefetch_lock(lock: RegistryLock) -> None:
+async def prefetch_lock(
+    lock: RegistryLock, organization_id: OrganizationID | None = None
+) -> None:
     """Prefetch all manifests for a registry lock into cache.
 
     Call this once at the start of action execution to warm the cache.
     Uses aiocache with TTL - no session needed (managed internally).
     """
     tasks = [
-        _get_manifest_entry(origin, version) for origin, version in lock.origins.items()
+        _get_manifest_entry(origin, version, organization_id)
+        for origin, version in lock.origins.items()
     ]
     await asyncio.gather(*tasks)
 
@@ -144,7 +153,11 @@ async def prefetch_lock(lock: RegistryLock) -> None:
     )
 
 
-async def resolve_action(action_name: str, lock: RegistryLock) -> ActionImplementation:
+async def resolve_action(
+    action_name: str,
+    lock: RegistryLock,
+    organization_id: OrganizationID | None = None,
+) -> ActionImplementation:
     """Resolve action implementation from registry lock.
 
     O(1) lookup using action-level bindings in the lock.
@@ -179,7 +192,7 @@ async def resolve_action(action_name: str, lock: RegistryLock) -> ActionImplemen
     version = lock.origins[origin]
 
     # Get from cache (or fetch if miss)
-    _, impl_index = await _get_manifest_entry(origin, version)
+    _, impl_index = await _get_manifest_entry(origin, version, organization_id)
 
     if action_name not in impl_index:
         raise RegistryError(
@@ -193,6 +206,7 @@ async def resolve_action(action_name: str, lock: RegistryLock) -> ActionImplemen
 async def collect_action_secrets_from_manifest(
     action_name: str,
     lock: RegistryLock,
+    organization_id: OrganizationID | None = None,
 ) -> set[RegistrySecretType]:
     """Collect all secrets required by an action from manifest.
 
@@ -216,7 +230,7 @@ async def collect_action_secrets_from_manifest(
         raise RegistryError(f"Origin '{origin}' not found in registry_lock")
 
     # Get from cache (or fetch if miss)
-    manifest, _ = await _get_manifest_entry(origin, version)
+    manifest, _ = await _get_manifest_entry(origin, version, organization_id)
 
     manifest_action = manifest.actions.get(action_name)
     if manifest_action is None:
@@ -226,7 +240,7 @@ async def collect_action_secrets_from_manifest(
         )
 
     # Collect secrets from this action
-    await _collect_secrets_recursive(manifest_action, lock, secrets)
+    await _collect_secrets_recursive(manifest_action, lock, secrets, organization_id)
 
     return secrets
 
@@ -235,6 +249,7 @@ async def _collect_secrets_recursive(
     manifest_action: RegistryVersionManifestAction,
     lock: RegistryLock,
     secrets: set[RegistrySecretType],
+    organization_id: OrganizationID | None,
 ) -> None:
     """Recursively collect secrets from an action and its template steps."""
     impl = RegistryActionImplValidator.validate_python(manifest_action.implementation)
@@ -264,7 +279,9 @@ async def _collect_secrets_recursive(
 
             # Get from cache (will be a cache hit if prefetch was called)
             try:
-                step_manifest, _ = await _get_manifest_entry(step_origin, step_version)
+                step_manifest, _ = await _get_manifest_entry(
+                    step_origin, step_version, organization_id
+                )
             except RegistryError:
                 # Step manifest not available - skip
                 continue
@@ -273,7 +290,9 @@ async def _collect_secrets_recursive(
             if step_manifest_action is None:
                 continue
 
-            await _collect_secrets_recursive(step_manifest_action, lock, secrets)
+            await _collect_secrets_recursive(
+                step_manifest_action, lock, secrets, organization_id
+            )
 
 
 async def clear_cache() -> None:

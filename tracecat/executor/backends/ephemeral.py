@@ -75,7 +75,7 @@ class EphemeralBackend(ExecutorBackend):
         )
 
         # Get ALL tarball URIs for registry environment (deterministic ordering)
-        tarball_uris = await self._get_tarball_uris(input)
+        tarball_uris = await self._get_tarball_uris(input, role)
 
         # Error out early if no tarballs resolved (unless local repository is enabled)
         if not tarball_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
@@ -119,6 +119,7 @@ class EphemeralBackend(ExecutorBackend):
     async def _get_tarball_uris(
         self,
         input: RunActionInput,
+        role: Role,
     ) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering).
 
@@ -134,7 +135,7 @@ class EphemeralBackend(ExecutorBackend):
 
         try:
             artifacts = await get_registry_artifacts_for_lock(
-                input.registry_lock.origins
+                input.registry_lock.origins, role.organization_id
             )
             return self._sort_tarball_uris(artifacts)
         except Exception as e:

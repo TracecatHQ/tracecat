@@ -93,7 +93,7 @@ class WorkspaceSettingsUpdate(Schema):
 class WorkspaceCreate(Schema):
     name: str = Field(..., min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
-    organization_id: OrganizationID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
+    organization_id: OrganizationID | None = None
 
 
 class WorkspaceUpdate(Schema):

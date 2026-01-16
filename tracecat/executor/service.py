@@ -49,6 +49,7 @@ from tracecat.expressions.eval import (
     eval_templated_object,
     get_iterables_from_expression,
 )
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.bound import BoundRegistryAction
@@ -90,12 +91,15 @@ class RegistryArtifactsContext:
 _artifact_cache = Cache(Cache.MEMORY, ttl=60)
 
 
-def _artifact_cache_key(origin: str, version: str) -> str:
-    return f"artifact:{origin}:{version}"
+def _artifact_cache_key(
+    origin: str, version: str, organization_id: OrganizationID
+) -> str:
+    return f"artifact:{organization_id}:{origin}:{version}"
 
 
 async def get_registry_artifacts_for_lock(
     origins: dict[str, str],
+    organization_id: OrganizationID | None = None,
 ) -> list[RegistryArtifactsContext]:
     """Get registry tarball URIs for specific locked versions.
 
@@ -115,8 +119,10 @@ async def get_registry_artifacts_for_lock(
     cached_artifacts: list[RegistryArtifactsContext] = []
     misses: list[tuple[str, str]] = []
 
+    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
+
     for origin, version in origins.items():
-        key = _artifact_cache_key(origin, version)
+        key = _artifact_cache_key(origin, version, org_id)
         cached = await _artifact_cache.get(key=key)
         if cached is not None:
             cached_artifacts.append(cached)
@@ -150,7 +156,7 @@ async def get_registry_artifacts_for_lock(
                 RegistryVersion.repository_id == RegistryRepository.id,
             )
             .where(
-                RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+                RegistryRepository.organization_id == org_id,
                 or_(*conditions),
             )
         )
@@ -181,7 +187,7 @@ async def get_registry_artifacts_for_lock(
             if artifact is not None:
                 fetched_artifacts.append(artifact)
                 # Cache the artifact
-                key = _artifact_cache_key(origin, version)
+                key = _artifact_cache_key(origin, version, org_id)
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(
@@ -365,7 +371,7 @@ async def _prepare_step_context(
     """
     # Resolve action implementation via registry resolver (O(1) manifest-based lookup)
     action_impl = await registry_resolver.resolve_action(
-        step_action, input.registry_lock
+        step_action, input.registry_lock, role.organization_id
     )
 
     # Mint new executor token for step (required for SDK authentication)
@@ -586,10 +592,10 @@ async def prepare_resolved_context(
 
     # Resolve action implementation and secrets via registry resolver (O(1) manifest-based lookup)
     action_impl = await registry_resolver.resolve_action(
-        action_name, input.registry_lock
+        action_name, input.registry_lock, role.organization_id
     )
     action_secrets = await registry_resolver.collect_action_secrets_from_manifest(
-        action_name, input.registry_lock
+        action_name, input.registry_lock, role.organization_id
     )
 
     # Collect expressions to know what secrets/variables are needed
@@ -701,7 +707,7 @@ async def invoke_once(
     timeout = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
     # Prefetch registry lock manifests into cache for O(1) resolution
-    await registry_resolver.prefetch_lock(input.registry_lock)
+    await registry_resolver.prefetch_lock(input.registry_lock, role.organization_id)
 
     try:
         # Prepare resolved context (secrets, variables, action impl, evaluated args)

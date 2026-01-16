@@ -12,6 +12,7 @@ from tracecat import config
 from tracecat.db.models import RegistryIndex, RegistryRepository, RegistryVersion
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
+from tracecat.identifiers import OrganizationID
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
@@ -34,6 +35,7 @@ async def resolve_action_origins_from_lock(
     session: AsyncSession,
     dsl: DSLInput,
     registry_lock: dict[str, str],
+    organization_id: OrganizationID | None = None,
 ) -> tuple[dict[str, str], list[RegistryActionResolutionError]]:
     """Resolve action -> registry origin using RegistryIndex + RegistryVersion manifests.
 
@@ -65,6 +67,7 @@ async def resolve_action_origins_from_lock(
             )
             for action in sorted(roots)
         ]
+    org_id = organization_id or config.TRACECAT__DEFAULT_ORG_ID
     lock_stmt = (
         select(
             RegistryRepository.origin,
@@ -74,8 +77,8 @@ async def resolve_action_origins_from_lock(
         )
         .join(RegistryVersion, RegistryVersion.repository_id == RegistryRepository.id)
         .where(
-            RegistryRepository.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
-            RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryRepository.organization_id == org_id,
+            RegistryVersion.organization_id == org_id,
             tuple_(RegistryRepository.origin, RegistryVersion.version).in_(lock_pairs),
         )
     )

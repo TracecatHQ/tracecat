@@ -6,7 +6,6 @@ from pydantic import UUID4
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat import config
 from tracecat.db.models import RegistryRepository
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
@@ -22,7 +21,9 @@ class RegistryReposService(BaseService):
 
     async def list_repositories(self) -> Sequence[RegistryRepository]:
         """Get all registry repositories."""
-        statement = select(RegistryRepository)
+        statement = select(RegistryRepository).where(
+            RegistryRepository.organization_id == self.organization_id
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 
@@ -31,7 +32,10 @@ class RegistryReposService(BaseService):
         statement = (
             select(RegistryRepository)
             .options(selectinload(RegistryRepository.actions))
-            .where(RegistryRepository.origin == origin)
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.origin == origin,
+            )
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
@@ -41,7 +45,10 @@ class RegistryReposService(BaseService):
         statement = (
             select(RegistryRepository)
             .options(selectinload(RegistryRepository.actions))
-            .where(RegistryRepository.id == id)
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.id == id,
+            )
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
@@ -51,7 +58,7 @@ class RegistryReposService(BaseService):
     ) -> RegistryRepository:
         """Create a new registry repository."""
         repository = RegistryRepository(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID, origin=params.origin
+            organization_id=self.organization_id, origin=params.origin
         )
         self.session.add(repository)
         await self.session.commit()

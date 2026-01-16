@@ -6,7 +6,6 @@ from pydantic import UUID4
 from sqlalchemy import select
 from sqlalchemy.orm import load_only, noload
 
-from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
@@ -36,7 +35,7 @@ class WorkspaceService(BaseService):
                 *(getattr(Workspace, f) for f in self._load_only)
             ),  # only what the route returns
             noload("*"),  # disable all relationship loaders
-        )
+        ).where(Workspace.organization_id == self.organization_id)
         if limit is not None:
             if limit <= 0:
                 raise TracecatException("List workspace limit must be greater than 0")
@@ -71,11 +70,12 @@ class WorkspaceService(BaseService):
         self,
         name: str,
         *,
-        organization_id: OrganizationID = config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id: OrganizationID | None = None,
         override_id: UUID4 | None = None,
         users: list[User] | None = None,
     ) -> Workspace:
         """Create a new workspace."""
+        organization_id = organization_id or self.organization_id
         kwargs = {
             "name": name,
             "organization_id": organization_id,
@@ -117,7 +117,10 @@ class WorkspaceService(BaseService):
 
     async def get_workspace(self, workspace_id: WorkspaceID) -> Workspace | None:
         """Retrieve a workspace by ID."""
-        statement = select(Workspace).where(Workspace.id == workspace_id)
+        statement = select(Workspace).where(
+            Workspace.organization_id == self.organization_id,
+            Workspace.id == workspace_id,
+        )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
@@ -145,7 +148,10 @@ class WorkspaceService(BaseService):
             raise TracecatManagementError(
                 "There must be at least one workspace in the organization."
             )
-        statement = select(Workspace).where(Workspace.id == workspace_id)
+        statement = select(Workspace).where(
+            Workspace.organization_id == self.organization_id,
+            Workspace.id == workspace_id,
+        )
         result = await self.session.execute(statement)
         workspace = result.scalar_one()
         bootstrap_role = Role(
@@ -172,7 +178,9 @@ class WorkspaceService(BaseService):
 
     async def search_workspaces(self, params: WorkspaceSearch) -> Sequence[Workspace]:
         """Retrieve a workspace by ID."""
-        statement = select(Workspace)
+        statement = select(Workspace).where(
+            Workspace.organization_id == self.organization_id
+        )
         if self.role.access_level < AccessLevel.ADMIN:
             # Only list workspaces where user is a member
             statement = statement.where(

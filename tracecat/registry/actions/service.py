@@ -14,7 +14,6 @@ from tracecat_registry import (
     RegistrySecretTypeValidator,
 )
 
-from tracecat import config
 from tracecat.db.models import RegistryAction, RegistryRepository
 from tracecat.exceptions import (
     RegistryActionValidationError,
@@ -75,7 +74,9 @@ class RegistryActionsService(BaseService):
         include_marked: bool = False,
         include_keys: set[str] | None = None,
     ) -> Sequence[RegistryAction]:
-        statement = select(RegistryAction)
+        statement = select(RegistryAction).where(
+            RegistryAction.organization_id == self.organization_id
+        )
 
         if not include_marked:
             statement = statement.where(
@@ -101,11 +102,7 @@ class RegistryActionsService(BaseService):
         return result.scalars().all()
 
     async def get_aggregated_secrets(self) -> list[SecretDefinition]:
-        organization_id = (
-            self.role.organization_id
-            if self.role is not None
-            else config.TRACECAT__DEFAULT_ORG_ID
-        )
+        organization_id = self.organization_id
         statement = select(RegistryAction).where(
             RegistryAction.organization_id == organization_id,
             RegistryAction.secrets.is_not(None),
@@ -182,7 +179,7 @@ class RegistryActionsService(BaseService):
             ) from None
 
         statement = select(RegistryAction).where(
-            RegistryAction.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryAction.organization_id == self.organization_id,
             RegistryAction.namespace == namespace,
             RegistryAction.name == name,
         )
@@ -210,7 +207,7 @@ class RegistryActionsService(BaseService):
         """
         # Query for UDF actions that match the module and function name
         statement = select(RegistryAction).where(
-            RegistryAction.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryAction.organization_id == self.organization_id,
             RegistryAction.implementation["type"].astext == "udf",
             RegistryAction.implementation["module"].astext == module,
             RegistryAction.implementation["name"].astext == name,
@@ -227,7 +224,7 @@ class RegistryActionsService(BaseService):
     async def get_actions(self, action_names: list[str]) -> Sequence[RegistryAction]:
         """Get actions by name."""
         statement = select(RegistryAction).where(
-            RegistryAction.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            RegistryAction.organization_id == self.organization_id,
             func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
                 action_names
             ),
@@ -238,7 +235,7 @@ class RegistryActionsService(BaseService):
     async def create_action(
         self,
         params: RegistryActionCreate,
-        organization_id: UUID4 = config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id: UUID4 | None = None,
         *,
         commit: bool = True,
     ) -> RegistryAction:
@@ -259,7 +256,7 @@ class RegistryActionsService(BaseService):
             interface = params.interface
 
         action = RegistryAction(
-            organization_id=organization_id,
+            organization_id=organization_id or self.organization_id,
             interface=to_jsonable_python(interface),
             **params.model_dump(exclude={"interface"}),
         )
