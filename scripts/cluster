@@ -13,10 +13,12 @@
 # Examples:
 #   ./cluster up -d                # Start next available cluster (auto-selects number)
 #   ./cluster down                 # Stop cluster (auto-selects if only one running)
+#   ./cluster restart api          # Restart the api service
 #   ./cluster 2 up -d              # Start cluster 2 explicitly
 #   ./cluster 2 -p local up -d     # Start cluster 2 with local profile
 #   ./cluster ps                   # Show containers (auto-selects cluster)
 #   ./cluster logs api             # Show logs (auto-selects cluster)
+#   ./cluster attach api           # Attach shell to api service
 #   ./cluster list                 # List all running clusters
 #   ./cluster 1 ports              # Show port mappings for cluster 1
 #
@@ -193,16 +195,20 @@ Profiles:
 Commands:
   up [args]     Start the cluster (e.g., up -d)
   down          Stop the cluster
+  restart [svc] Restart the cluster or specific service
   ps            Show running containers
   logs [svc]    Show logs (optionally for specific service)
+  attach <svc>  Attach to a running service container (e.g., attach api)
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
 
 Examples:
   ./cluster up -d                Start next available cluster
   ./cluster down                 Stop cluster (auto-select if one running)
+  ./cluster restart api          Restart the api service
   ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
+  ./cluster attach api           Attach shell to api service
   ./cluster list                 List all clusters
 
 Current worktree: ${WORKTREE_ID}
@@ -371,6 +377,27 @@ if [[ "$COMMAND" == "ports" ]]; then
     exit 0
 fi
 
+# Handle 'attach' command
+if [[ "$COMMAND" == "attach" ]]; then
+    if [[ $# -lt 1 ]]; then
+        echo "Error: attach requires a service name (e.g., attach api)"
+        exit 1
+    fi
+    SERVICE="$1"
+    shift
+    build_env "$CLUSTER_NUM"
+
+    # Try bash first, fall back to sh
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
+        || exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
+fi
+
+# Handle 'restart' command
+if [[ "$COMMAND" == "restart" ]]; then
+    build_env "$CLUSTER_NUM"
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
+fi
+
 # Build environment and run docker compose
 build_env "$CLUSTER_NUM"
 
@@ -380,6 +407,13 @@ if [[ ! -f "$ENV_FILE" ]] && [[ -f "$ENV_SCRIPT" ]]; then
     echo "No .env file found. Running env.sh to create one with dev defaults..."
     # Pass dev defaults: production=n, url=localhost, ssl=n, email=test@tracecat.com
     (cd "$REPO_ROOT" && bash "$ENV_SCRIPT" <<< $'n\n\nn\ntest@tracecat.com')
+
+    # Auto-populate all feature flags for dev environment
+    FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
+    if [[ -n "$FEATURE_FLAGS" ]]; then
+        echo "TRACECAT__FEATURE_FLAGS=${FEATURE_FLAGS}" >> "$ENV_FILE"
+        echo "Enabled all feature flags: $FEATURE_FLAGS"
+    fi
 fi
 
 # Source the .env file for other variables (but our exports take precedence)
