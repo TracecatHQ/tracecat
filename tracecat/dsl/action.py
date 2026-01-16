@@ -11,6 +11,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
 from tracecat.dsl.common import (
@@ -115,7 +116,8 @@ class FinalizeGatherActivityInput(BaseModel):
 
 
 class FinalizeGatherActivityResult(BaseModel):
-    result: CollectionObject
+    result: StoredObject
+    """Result collection. CollectionObject if externalized, else InlineObject."""
     errors: list[ActionErrorInfo] = Field(default_factory=list)
 
 
@@ -428,14 +430,16 @@ class DSLActivities:
     @activity.defn
     def handle_scatter_input_activity(
         input: ScatterActionInput,
-    ) -> CollectionObject:
-        """Evaluate scatter collection and store as CollectionObject.
+    ) -> StoredObject:
+        """Evaluate scatter collection and store for scatter iteration.
 
         This activity is associated with the scatter action's ref via ScatterActionInput,
         allowing it to appear in workflow execution event history as a compact event.
 
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
+
+        Returns CollectionObject if externalized, InlineObject otherwise.
         """
         return _evaluate_scatter_input(input)
 
@@ -477,12 +481,14 @@ class DSLActivities:
     @activity.defn
     async def synchronize_collection_object_activity(
         input: SynchronizeCollectionObjectActivityInput,
-    ) -> CollectionObject:
+    ) -> StoredObject:
         """Materialize a list of StoredObjects and store as a single result.
 
         This activity synchronizes multiple child workflow results (each a StoredObject)
         by materializing each result and combining them into a list, then storing
         that list as a single StoredObject.
+
+        Returns CollectionObject if externalized, InlineObject otherwise.
         """
         # Materialize each StoredObject to get its raw value
         storage = get_object_storage()
@@ -491,9 +497,12 @@ class DSLActivities:
             value = await storage.retrieve(obj)
             values.append(value)
 
-        # Store the list of values as a CollectionObject
-        stored = await store_collection(input.key, values)
-        return stored
+        # Guard CollectionObject: only use chunked storage when externalization
+        # is enabled. Fall back to inline list for non-externalized deployments.
+        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+            return await store_collection(input.key, values)
+        else:
+            return InlineObject(data=values, typename="list")
 
     @staticmethod
     @activity.defn
@@ -535,7 +544,12 @@ class DSLActivities:
                     non_retryable=True,
                 )
 
-        stored = await store_collection(input.key, results)
+        # Guard CollectionObject: only use chunked storage when externalization
+        # is enabled. Fall back to inline list for non-externalized deployments.
+        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+            stored: StoredObject = await store_collection(input.key, results)
+        else:
+            stored = InlineObject(data=results, typename="list")
         return FinalizeGatherActivityResult(result=stored, errors=errors)
 
     @staticmethod
@@ -654,8 +668,11 @@ def _evaluate_collection_object_input(
     return collection
 
 
-def _evaluate_scatter_input(input: ScatterActionInput) -> CollectionObject:
-    """Evaluate scatter collection expression and store as CollectionObject."""
+def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
+    """Evaluate scatter collection expression and store as CollectionObject.
+
+    Returns CollectionObject if externalized, InlineObject otherwise.
+    """
     # Materialize any StoredObjects in operand
     materialized = run_sync(materialize_context(input.operand))
     result = eval_templated_object(input.collection, operand=materialized)
@@ -669,9 +686,13 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> CollectionObject:
             non_retryable=True,
         )
 
-    # Store as chunked collection manifest
-    collection = run_sync(store_collection(input.key, list(result)))
-    return collection
+    items = list(result)
+    # Guard CollectionObject: only use chunked storage when externalization
+    # is enabled. Fall back to inline list for non-externalized deployments.
+    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+        return run_sync(store_collection(input.key, items))
+    else:
+        return InlineObject(data=items, typename="list")
 
 
 def _patch_object(
@@ -957,15 +978,20 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
         dsl_config=dsl.config,
     )
 
-    # Store trigger_inputs as CollectionObject (externalized) - I/O bound
-    trigger_inputs_collection = await store_collection(
-        f"{input.key}/trigger_inputs", trigger_inputs_list
-    )
+    # Guard CollectionObject: only use chunked storage when externalization
+    # is enabled. Fall back to inline list for non-externalized deployments.
+    trigger_inputs_stored: StoredObject
+    if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+        trigger_inputs_stored = await store_collection(
+            f"{input.key}/trigger_inputs", trigger_inputs_list
+        )
+    else:
+        trigger_inputs_stored = InlineObject(data=trigger_inputs_list, typename="list")
 
     return PreparedSubflowResult(
         wf_id=wf_id,
         dsl=dsl,
         registry_lock=registry_lock,
-        trigger_inputs=trigger_inputs_collection,
+        trigger_inputs=trigger_inputs_stored,
         runtime_configs=runtime_configs,
     )

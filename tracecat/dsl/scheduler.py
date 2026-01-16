@@ -60,11 +60,30 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.core import extract_expressions
     from tracecat.logger import logger
     from tracecat.storage.object import (
+        CollectionObject,
         InlineObject,
+        StoredObject,
         StoredObjectValidator,
         action_collection_prefix,
         action_key,
     )
+
+
+def _get_collection_size(stored: StoredObject) -> int:
+    """Get the size of a stored collection.
+
+    Works with both CollectionObject (externalized) and InlineObject (inline list).
+    """
+    match stored:
+        case CollectionObject() as col:
+            return col.count
+        case InlineObject(data=data) if isinstance(data, list):
+            return len(data)
+        case _:
+            raise TypeError(
+                f"Expected CollectionObject or InlineObject with list data, "
+                f"got {type(stored).__name__}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -755,8 +774,12 @@ class DSLScheduler:
 
         streams: list[StreamID] = []
         self.task_streams[task] = streams
+
+        # Get collection size - works with both CollectionObject and InlineObject
+        collection_size = _get_collection_size(collection)
+
         # -- SKIP STREAM
-        if not collection:
+        if collection_size == 0:
             # Mark scatter as observed
             self.open_streams[task] = 0
             self.logger.debug("Empty collection for scatter", task=task)
@@ -766,11 +789,11 @@ class DSLScheduler:
         self.logger.debug(
             "Scattering collection",
             task=task,
-            collection_size=len(collection),
+            collection_size=collection_size,
             interval=args.interval,
         )
 
-        async for i in cooperative(range(len(collection))):
+        async for i in cooperative(range(collection_size)):
             new_stream_id = StreamID.new(task.ref, i, base_stream_id=curr_stream_id)
             streams.append(new_stream_id)
 
@@ -804,7 +827,7 @@ class DSLScheduler:
         self.logger.debug(
             "Scatter completed",
             task=task,
-            collection_size=len(collection),
+            collection_size=collection_size,
             scopes_created=len(streams),
         )
 
@@ -1136,7 +1159,7 @@ class DSLScheduler:
             "Gather finalized",
             strategy=gather_args.error_strategy,
             task=task,
-            result_count=finalized.result.count,
+            result_count=_get_collection_size(finalized.result),
             error_count=len(finalized.errors),
         )
 
