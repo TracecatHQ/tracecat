@@ -27,7 +27,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
     session = aioboto3.Session()
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None:
-        # MinIO configuration - use MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
+        # MinIO configuration - use AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
         async with session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,

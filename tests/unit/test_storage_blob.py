@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import pytest
 from botocore.exceptions import ClientError
 
+from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
     delete_file,
     download_file,
@@ -54,23 +55,16 @@ class TestS3Operations:
 
     @pytest.mark.anyio
     async def test_get_storage_client_minio_uses_endpoint_and_env(self, monkeypatch):
-        """get_storage_client for MinIO uses endpoint and MINIO_* env creds."""
-        from tracecat.storage import blob as blob_module
+        """get_storage_client for MinIO uses endpoint and AWS env vars"""
 
-        monkeypatch.setattr(
-            blob_module.config,
-            "TRACECAT__BLOB_STORAGE_PROTOCOL",
-            "minio",
-            raising=False,
-        )
         monkeypatch.setattr(
             blob_module.config,
             "TRACECAT__BLOB_STORAGE_ENDPOINT",
             "http://localhost:9002",
             raising=False,
         )
-        monkeypatch.setenv("MINIO_ROOT_USER", "minio")
-        monkeypatch.setenv("MINIO_ROOT_PASSWORD", "password")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minio")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "password")
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
@@ -89,11 +83,6 @@ class TestS3Operations:
     @pytest.mark.anyio
     async def test_get_storage_client_s3_defaults(self, monkeypatch):
         """get_storage_client for S3 uses default session client without endpoint."""
-        from tracecat.storage import blob as blob_module
-
-        monkeypatch.setattr(
-            blob_module.config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "s3", raising=False
-        )
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
@@ -339,7 +328,6 @@ class TestS3Operations:
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
             "http://localhost/s3"
         )
-        mock_config.TRACECAT__BLOB_STORAGE_PROTOCOL = "minio"
         mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
 
         # Setup mock client

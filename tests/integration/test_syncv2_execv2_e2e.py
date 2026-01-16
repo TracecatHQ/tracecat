@@ -57,8 +57,8 @@ from tracecat.storage import blob
 # MinIO test configuration - uses docker-compose services (port 9000)
 # These match the docker-compose.local.yml configuration
 MINIO_ENDPOINT = "localhost:9000"
-MINIO_ACCESS_KEY = "minio"
-MINIO_SECRET_KEY = "password"
+AWS_ACCESS_KEY_ID = "minio"
+AWS_SECRET_ACCESS_KEY = "password"
 TEST_BUCKET = "test-tracecat-registry"
 
 
@@ -139,8 +139,8 @@ def minio_server():
         try:
             client = Minio(
                 MINIO_ENDPOINT,
-                access_key=MINIO_ACCESS_KEY,
-                secret_key=MINIO_SECRET_KEY,
+                access_key=AWS_ACCESS_KEY_ID,
+                secret_key=AWS_SECRET_ACCESS_KEY,
                 secure=False,
             )
             list(client.list_buckets())
@@ -160,8 +160,8 @@ def minio_client(minio_server) -> Minio:
     """Create MinIO client using docker-compose service endpoint."""
     return Minio(
         MINIO_ENDPOINT,
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        access_key=AWS_ACCESS_KEY_ID,
+        secret_key=AWS_SECRET_ACCESS_KEY,
         secure=False,
     )
 
@@ -169,13 +169,12 @@ def minio_client(minio_server) -> Minio:
 @pytest.fixture(autouse=True)
 def configure_minio_for_tests(monkeypatch):
     """Configure blob storage to use test MinIO instance."""
-    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
     monkeypatch.setattr(
         config, "TRACECAT__BLOB_STORAGE_ENDPOINT", f"http://{MINIO_ENDPOINT}"
     )
     monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", TEST_BUCKET)
-    monkeypatch.setenv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
-    monkeypatch.setenv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", AWS_ACCESS_KEY_ID)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
 
     # Disable nsjail for all tests (use subprocess mode for macOS/CI)
     monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")

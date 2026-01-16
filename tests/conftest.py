@@ -57,10 +57,10 @@ else:
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
 # MinIO test configuration - uses docker-compose service on port 9000
-# Credentials match .env.example (MINIO_ROOT_USER/MINIO_ROOT_PASSWORD)
+# Credentials match .env.example (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)
 MINIO_PORT = 9000
-MINIO_ACCESS_KEY = "minio"
-MINIO_SECRET_KEY = "password"
+AWS_ACCESS_KEY_ID = "minio"
+AWS_SECRET_ACCESS_KEY = "password"
 
 # ---------------------------------------------------------------------------
 # Redis test configuration
