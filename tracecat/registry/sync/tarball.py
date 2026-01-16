@@ -461,17 +461,17 @@ async def download_tarball_venv(
     Returns:
         The local path to the downloaded tarball
     """
-    content = await blob.download_file(key=key, bucket=bucket)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Use asyncio.to_thread to avoid blocking the event loop for large files
-    await asyncio.to_thread(output_path.write_bytes, content)
+    size_bytes = await blob.download_file_to_path(
+        key=key,
+        bucket=bucket,
+        output_path=output_path,
+    )
 
     logger.info(
         "Tarball venv downloaded successfully",
         key=key,
         bucket=bucket,
         output_path=str(output_path),
-        size=len(content),
+        size=size_bytes,
     )
     return output_path
