@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
+    NotRequired,
     Protocol,
     TypedDict,
     runtime_checkable,
@@ -16,28 +16,52 @@ from typing import (
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
-from pydantic_ai import ModelResponse
-from pydantic_ai.messages import ModelMessage
-from pydantic_ai.tools import Tool as _PATool
 
-from tracecat import config
-from tracecat.agent.stream.types import ToolCallContent
-from tracecat.chat.enums import MessageKind
+from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
+    from pydantic_ai import ModelResponse
+    from pydantic_ai.messages import ModelMessage
+    from pydantic_ai.tools import Tool as _PATool
+
     from tracecat.agent.stream.writers import StreamWriter
-    from tracecat.chat.schemas import ChatMessage
 
     CustomToolList = list[_PATool[Any]]
-else:  # pragma: no cover - runtime type hint fallback to appease pydantic
+else:
+    # Runtime fallbacks for types only used in annotations
+    ModelResponse = Any
+    ModelMessage = Any
     CustomToolList = list[Any]
 
 
 class MCPServerConfig(TypedDict):
-    """Configuration for an MCP server."""
+    """Configuration for a user-defined MCP server.
+
+    Users can connect custom MCP servers to their agents - whether running as
+    Docker containers, local processes, or remote services. The server must
+    expose an HTTP or SSE endpoint.
+
+    Example:
+        {
+            "name": "internal-tools",
+            "url": "http://host.docker.internal:8080",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+        }
+    """
+
+    name: str
+    """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
 
     url: str
-    headers: dict[str, str]
+    """Required: HTTP/SSE endpoint URL for the MCP server."""
+
+    headers: NotRequired[dict[str, str]]
+    """Optional: Auth headers (can reference Tracecat secrets)."""
+
+    transport: NotRequired[Literal["http", "sse"]]
+    """Optional: Transport type. Defaults to 'http'."""
 
 
 class StreamKey(str):
@@ -45,40 +69,60 @@ class StreamKey(str):
         cls,
         workspace_id: uuid.UUID | str,
         session_id: uuid.UUID | str,
-        *,
-        namespace: str = "agent",
     ) -> StreamKey:
         return super().__new__(
             cls,
-            f"{namespace}-stream:{str(workspace_id)}:{str(session_id)}",
+            f"agent-stream:{str(workspace_id)}:{str(session_id)}",
         )
 
 
-ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
-ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
+# TypeAdapters for pydantic-ai message types - created lazily to avoid import overhead
+# These are used by the legacy pydantic-ai harness, not the sandbox runtime
 ClaudeSDKMessageTA: TypeAdapter[ClaudeSDKMessage] = TypeAdapter(ClaudeSDKMessage)
 
+
+class _LazyTypeAdapter:
+    """Lazy wrapper for TypeAdapter that imports pydantic-ai only when used."""
+
+    def __init__(self, import_path: str, type_name: str):
+        self._import_path = import_path
+        self._type_name = type_name
+        self._adapter: TypeAdapter[Any] | None = None
+
+    def _ensure_adapter(self) -> TypeAdapter[Any]:
+        if self._adapter is None:
+            import importlib
+
+            module = importlib.import_module(self._import_path)
+            type_cls = getattr(module, self._type_name)
+            self._adapter = TypeAdapter(type_cls)
+        return self._adapter
+
+    def validate_python(self, obj: Any) -> Any:
+        return self._ensure_adapter().validate_python(obj)
+
+    def dump_python(self, obj: Any, **kwargs: Any) -> Any:
+        return self._ensure_adapter().dump_python(obj, **kwargs)
+
+    def validate_json(self, data: bytes | str) -> Any:
+        return self._ensure_adapter().validate_json(data)
+
+    def dump_json(self, obj: Any, **kwargs: Any) -> bytes:
+        return self._ensure_adapter().dump_json(obj, **kwargs)
+
+
+# Lazy TypeAdapters that only import pydantic-ai when methods are called
+ModelMessageTA: Any = _LazyTypeAdapter("pydantic_ai.messages", "ModelMessage")
+ModelResponseTA: Any = _LazyTypeAdapter("pydantic_ai", "ModelResponse")
+
 # Union type for messages from either harness
+# At runtime, ModelMessage is Any so this is effectively Any | ClaudeSDKMessage
 UnifiedMessage = ModelMessage | ClaudeSDKMessage
-
-
-@runtime_checkable
-class MessageStore(Protocol):
-    async def load(self, session_id: uuid.UUID) -> list[ChatMessage]: ...
-
-    async def store(
-        self,
-        session_id: uuid.UUID,
-        messages: Sequence[UnifiedMessage],
-        *,
-        kind: MessageKind = MessageKind.CHAT_MESSAGE,
-    ) -> None: ...
 
 
 @runtime_checkable
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
-    message_store: MessageStore | None = None
 
 
 type OutputType = (
@@ -114,14 +158,44 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
-    retries: int = config.TRACECAT__AGENT_MAX_RETRIES
+    retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
 
 
-# --- Deferred Tool Types (Harness-Agnostic) ---
+# --- Tool Types (Harness-Agnostic) ---
 # These types decouple Tracecat from pydantic-ai's internal types,
 # enabling plug-and-play support for different agent harnesses (pydantic-ai, Claude SDK, etc.)
+
+
+@dataclass(kw_only=True, slots=True)
+class Tool:
+    """Harness-agnostic tool definition.
+
+    Uses canonical action names (with dots) throughout. Harness-specific adapters
+    are responsible for converting to their required format (e.g., pydantic-ai
+    requires underscores for Python function names).
+
+    Canonical names are used for:
+    - JWT token authorization (mcp/executor.py checks canonical names)
+    - Proxy server tool creation (expects canonical names, converts internally)
+    - UX display and configuration
+    """
+
+    name: str
+    """Canonical action name with dots (e.g., 'core.cases.list_cases')."""
+
+    description: str
+    """Human-readable description of what the tool does."""
+
+    parameters_json_schema: dict[str, Any]
+    """JSON schema for tool parameters."""
+
+    requires_approval: bool = False
+    """Whether this tool requires human approval before execution."""
+
+
+# --- Deferred Tool Types (Harness-Agnostic) ---
 
 
 @dataclass(kw_only=True)

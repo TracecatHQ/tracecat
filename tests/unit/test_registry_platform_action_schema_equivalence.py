@@ -29,7 +29,7 @@ def test_execute_child_workflow_validation_equivalence(registry_repo):
     This ensures that inputs that pass model validation would also be accepted by the
     registry action, and vice versa.
     """
-    from tracecat.dsl.common import ExecuteChildWorkflowArgs
+    from tracecat.dsl.common import ExecuteSubflowArgs
 
     # Get the registry action
     action = registry_repo.get("core.workflow.execute")
@@ -49,7 +49,7 @@ def test_execute_child_workflow_validation_equivalence(registry_repo):
     }
 
     # Both should validate successfully
-    model_validated = ExecuteChildWorkflowArgs.model_validate(valid_args)
+    model_validated = ExecuteSubflowArgs.model_validate(valid_args)
     assert model_validated.workflow_alias == "test_workflow"
 
     action_validated = action.validate_args(valid_args)
@@ -62,7 +62,7 @@ def test_execute_child_workflow_validation_equivalence(registry_repo):
 
     # Both should fail validation
     with pytest.raises(ValidationError):
-        ExecuteChildWorkflowArgs.model_validate(invalid_args)
+        ExecuteSubflowArgs.model_validate(invalid_args)
 
     with pytest.raises(RegistryValidationError):
         action.validate_args(invalid_args)

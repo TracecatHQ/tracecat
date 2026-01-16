@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.machinery
+import os
 import sys
 from types import ModuleType
 from typing import Annotated, Any, ForwardRef, Literal, TypedDict, get_args, get_origin
@@ -167,6 +168,49 @@ def test_generate_model_extracts_base_type_from_annotated() -> None:
     instance: Any = input_model(name="test", count=42)
     assert instance.name == "test"
     assert instance.count == 42
+
+
+def test_generate_model_preserves_registry_client_component_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure `x-tracecat-component` survives `registry-client` mode.
+
+    In sandboxed execution mode, registry modules use lightweight dataclasses from
+    `tracecat_registry.fields` instead of `tracecat.registry.fields`. These are not
+    instances of `tracecat.registry.fields.Component` but should still propagate to
+    JSON schema so the UI can render specialized editors (e.g., code editor).
+    """
+    import tracecat_registry.config as registry_config
+    import tracecat_registry.fields as registry_fields
+
+    original_flags = os.environ.get("TRACECAT__FEATURE_FLAGS")
+    try:
+        monkeypatch.setenv("TRACECAT__FEATURE_FLAGS", "registry-client")
+        importlib.reload(registry_config)
+        importlib.reload(registry_fields)
+
+        Code = registry_fields.Code
+
+        def sample_func(  # noqa: ANN001 - test helper
+            script: Annotated[str, Code(lang="python")],
+        ) -> str:
+            return script
+
+        # Inject Code into the function's globals so pydantic can resolve it
+        sample_func.__globals__["Code"] = Code
+        input_model, _, _ = generate_model_from_function(sample_func, _make_kwargs())
+        schema = input_model.model_json_schema()
+
+        script_schema = schema["properties"]["script"]
+        components = script_schema.get("x-tracecat-component", [])
+        assert components and components[0]["component_id"] == "code"
+    finally:
+        if original_flags is None:
+            monkeypatch.delenv("TRACECAT__FEATURE_FLAGS", raising=False)
+        else:
+            monkeypatch.setenv("TRACECAT__FEATURE_FLAGS", original_flags)
+        importlib.reload(registry_config)
+        importlib.reload(registry_fields)
 
 
 def test_generate_model_handles_annotated_literal() -> None:

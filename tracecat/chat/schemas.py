@@ -10,9 +10,11 @@ from pydantic import UUID4, BaseModel, Discriminator, Field
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
-from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
-from tracecat.chat.enums import ChatEntity
+from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
     from tracecat.db import models
@@ -84,7 +86,7 @@ class ChatCreate(BaseModel):
         min_length=1,
         max_length=200,
     )
-    entity_type: ChatEntity = Field(
+    entity_type: AgentSessionEntity = Field(
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
@@ -93,14 +95,13 @@ class ChatCreate(BaseModel):
         description="Tools available to the agent for this chat",
         max_length=50,
     )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None,
-        description="Optional agent preset to use for the chat session",
-    )
 
 
 class ChatReadMinimal(BaseModel):
-    """Model for chat metadata without messages."""
+    """Model for chat metadata without messages.
+
+    Note: Legacy Chat records are read-only (is_readonly=True).
+    """
 
     id: UUID4 = Field(..., description="Unique chat identifier")
     title: str = Field(..., description="Human-readable title for the chat")
@@ -112,13 +113,17 @@ class ChatReadMinimal(BaseModel):
     tools: list[str] = Field(..., description="Tools available to the agent")
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
-        description="Agent preset associated with the chat, if any",
+        description="Agent preset used for this chat, if any",
     )
     created_at: datetime = Field(..., description="When the chat was created")
     updated_at: datetime = Field(..., description="When the chat was last updated")
     last_stream_id: str | None = Field(
         default=None,
         description="Last processed Redis stream ID for this chat",
+    )
+    is_readonly: bool = Field(
+        default=True,
+        description="Whether this chat is read-only (legacy chats cannot be modified)",
     )
 
 
@@ -153,16 +158,49 @@ class ChatUpdate(BaseModel):
     )
 
 
+class ApprovalRead(BaseModel):
+    """Response schema for approval data in chat timeline."""
+
+    id: uuid.UUID
+    tool_call_id: str
+    tool_name: str
+    tool_call_args: dict[str, Any] | None = None
+    status: ApprovalStatus
+    reason: str | None = None
+    decision: bool | dict[str, Any] | None = None
+    approved_by: uuid.UUID | None = None
+    approved_at: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ChatMessage(BaseModel):
-    """Model for a chat message with typed message payload."""
+    """Model for a chat message with typed message payload.
+
+    This model supports both regular messages and approval bubbles:
+    - kind=CHAT_MESSAGE: Contains message field with user/assistant content
+    - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+    """
 
     id: str = Field(..., description="Unique message identifier")
-    message: UnifiedMessage = Field(..., description="The deserialized message")
+    kind: MessageKind = Field(
+        default=MessageKind.CHAT_MESSAGE,
+        description="Message kind for rendering",
+    )
+    message: UnifiedMessage | None = Field(
+        default=None,
+        description="The deserialized message (for kind=CHAT_MESSAGE)",
+    )
+    approval: ApprovalRead | None = Field(
+        default=None,
+        description="Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
+    )
 
     @classmethod
     def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
         """Deserialize a database message into a typed ChatMessage."""
-        if db_msg.harness == HarnessType.CLAUDE.value:
+        if db_msg.harness == HarnessType.CLAUDE_CODE.value:
             message = ClaudeSDKMessageTA.validate_python(db_msg.data)
         else:
             message = ModelMessageTA.validate_python(db_msg.data)

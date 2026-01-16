@@ -1,23 +1,25 @@
 """Tests for the object storage module.
 
-Uses InMemoryObjectStorage as the test double - no mocks needed.
+Uses InlineObjectStorage as the test double - no mocks needed.
 """
 
 import pytest
 from pydantic import TypeAdapter
 
+from tracecat.storage.backends import InlineObjectStorage
 from tracecat.storage.object import (
     ExternalObject,
     InlineObject,
-    InMemoryObjectStorage,
     ObjectRef,
     StoredObject,
-    compute_sha256,
-    deserialize_object,
     get_object_storage,
     reset_object_storage,
-    serialize_object,
     set_object_storage,
+)
+from tracecat.storage.utils import (
+    compute_sha256,
+    deserialize_object,
+    serialize_object,
 )
 
 
@@ -153,13 +155,13 @@ class TestStoredObject:
         assert restored.ref.bucket == "b"
 
 
-class TestInMemoryObjectStorage:
-    """Tests for InMemoryObjectStorage."""
+class TestInlineObjectStorage:
+    """Tests for InlineObjectStorage."""
 
     @pytest.mark.anyio
     async def test_store_always_inline(self):
-        """InMemoryObjectStorage always returns inline data."""
-        storage = InMemoryObjectStorage()
+        """InlineObjectStorage always returns inline data."""
+        storage = InlineObjectStorage()
         data = {"large": "x" * 1_000_000}  # 1MB data
 
         stored = await storage.store("key", data)
@@ -169,8 +171,8 @@ class TestInMemoryObjectStorage:
 
     @pytest.mark.anyio
     async def test_retrieve_inline_data(self):
-        """InMemoryObjectStorage.retrieve returns inline data."""
-        storage = InMemoryObjectStorage()
+        """InlineObjectStorage.retrieve returns inline data."""
+        storage = InlineObjectStorage()
         stored = await storage.store("key", {"test": "data"})
 
         result = await storage.retrieve(stored)
@@ -178,8 +180,8 @@ class TestInMemoryObjectStorage:
 
     @pytest.mark.anyio
     async def test_retrieve_raises_not_implemented_for_externalized(self):
-        """InMemoryObjectStorage.retrieve raises NotImplementedError for externalized refs."""
-        storage = InMemoryObjectStorage()
+        """InlineObjectStorage.retrieve raises NotImplementedError for externalized refs."""
+        storage = InlineObjectStorage()
         ref = ObjectRef(
             bucket="bucket",
             key="key",
@@ -237,7 +239,7 @@ class TestDependencyInjection:
         """Test setting and getting object storage."""
         reset_object_storage()
 
-        custom_storage = InMemoryObjectStorage()
+        custom_storage = InlineObjectStorage()
         set_object_storage(custom_storage)
 
         assert get_object_storage() is custom_storage
@@ -247,7 +249,7 @@ class TestDependencyInjection:
 
     def test_reset_clears_storage(self):
         """Test reset clears the storage instance."""
-        custom_storage = InMemoryObjectStorage()
+        custom_storage = InlineObjectStorage()
         set_object_storage(custom_storage)
         reset_object_storage()
 
@@ -259,7 +261,7 @@ class TestDependencyInjection:
         reset_object_storage()
 
     def test_default_storage_is_in_memory(self, monkeypatch):
-        """Test default storage is InMemoryObjectStorage when disabled."""
+        """Test default storage is InlineObjectStorage when disabled."""
         from tracecat.storage import object as object_module
 
         reset_object_storage()
@@ -270,7 +272,7 @@ class TestDependencyInjection:
         )
 
         storage = get_object_storage()
-        assert isinstance(storage, InMemoryObjectStorage)
+        assert isinstance(storage, InlineObjectStorage)
 
         # Cleanup
         reset_object_storage()

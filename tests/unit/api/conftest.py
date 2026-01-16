@@ -12,6 +12,7 @@ from tracecat.agent.router import (
     OrganizationUserRole,
 )
 from tracecat.api.app import app
+from tracecat.auth.credentials import SuperuserRole
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
@@ -62,6 +63,7 @@ def client() -> Generator[TestClient, None, None]:
         WorkspaceUser,
         WorkspaceUserInPath,
         WorkspaceAdminUserInPath,
+        SuperuserRole,
         OrganizationUserRole,
         OrganizationAdminUserRole,
         OrgUser,

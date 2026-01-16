@@ -39,6 +39,14 @@ MODEL_CONFIGS = {
             "required": ["openai"],
         },
     ),
+    "gpt-5.2": ModelConfig(
+        name="gpt-5.2",
+        provider="openai",
+        org_secret_name="agent-openai-credentials",
+        secrets={
+            "required": ["openai"],
+        },
+    ),
     "claude-sonnet-4-5-20250929": ModelConfig(
         name="claude-sonnet-4-5-20250929",
         provider="anthropic",
@@ -49,14 +57,6 @@ MODEL_CONFIGS = {
     ),
     "claude-haiku-4-5-20251001": ModelConfig(
         name="claude-haiku-4-5-20251001",
-        provider="anthropic",
-        org_secret_name="agent-anthropic-credentials",
-        secrets={
-            "required": ["anthropic"],
-        },
-    ),
-    "claude-opus-4-5-20251101": ModelConfig(
-        name="claude-opus-4-5-20251101",
         provider="anthropic",
         org_secret_name="agent-anthropic-credentials",
         secrets={

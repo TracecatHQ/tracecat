@@ -22,6 +22,7 @@ from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -158,7 +159,9 @@ async def _incoming_webhook(
                 wf_id=workflow_id,
                 payload=p,
                 trigger_type=TriggerType.WEBHOOK,
-                registry_lock=defn.registry_lock,
+                registry_lock=RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None,
             )
         # Currently just return the last response's wf_exec_id
         response = WorkflowExecutionCreateResponse(
@@ -175,7 +178,9 @@ async def _incoming_webhook(
             wf_id=workflow_id,
             payload=payload,
             trigger_type=TriggerType.WEBHOOK,
-            registry_lock=defn.registry_lock,
+            registry_lock=RegistryLock.model_validate(defn.registry_lock)
+            if defn.registry_lock
+            else None,
         )
 
     # Response handling
@@ -227,7 +232,9 @@ async def incoming_webhook_wait(
         wf_id=workflow_id,
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
-        registry_lock=defn.registry_lock,
+        registry_lock=RegistryLock.model_validate(defn.registry_lock)
+        if defn.registry_lock
+        else None,
     )
 
     return response["result"]
@@ -253,7 +260,9 @@ async def incoming_webhook_draft(
         wf_id=workflow_id,
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
-        registry_lock=draft_ctx.registry_lock,
+        registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
+        if draft_ctx.registry_lock
+        else None,
     )
     return response
 

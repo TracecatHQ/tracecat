@@ -1,53 +1,79 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel
-from pydantic_ai import Agent, ModelSettings, RunContext, UsageLimits
-from pydantic_ai.durable_exec.temporal import TemporalRunContext
-from pydantic_ai.messages import (
-    AgentStreamEvent,
-    ModelMessage,
-    ModelRequest,
-)
-from pydantic_ai.tools import (
-    DeferredToolRequests,
-    DeferredToolResults,
-)
-from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError, CancelledError
+from pydantic import BaseModel, Field
+from temporalio import workflow
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from tracecat.agent.parsers import parse_output_type, try_parse_json
+    from pydantic_ai.messages import ToolCallPart
+    from pydantic_ai.tools import ToolApproved, ToolDenied
+
+    from tracecat.agent.common.stream_types import HarnessType
+    from tracecat.agent.executor.activity import (
+        AgentExecutorInput,
+        ApprovedToolCall,
+        DeniedToolCall,
+        ExecuteApprovedToolsInput,
+        execute_approved_tools_activity,
+        run_agent_activity,
+    )
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
     )
-    from tracecat.agent.schemas import AgentOutput, ModelInfo, RunAgentArgs, ToolFilters
-    from tracecat.agent.stream.common import PersistableStreamingAgentDepsSpec
+    from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
+    from tracecat.agent.session.activities import (
+        CreateSessionInput,
+        LoadSessionInput,
+        create_session_activity,
+        load_session_activity,
+    )
+    from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.agent.tokens import (
+        InternalToolContext,
+        mint_llm_token,
+        mint_mcp_token,
+    )
     from tracecat.agent.types import AgentConfig
     from tracecat.auth.types import Role
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.logger import logger
+    from tracecat.registry.lock.types import RegistryLock
     from tracecat_ee.agent.activities import (
         AgentActivities,
         BuildToolDefsArgs,
-        EventStreamHandlerArgs,
     )
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
-    from tracecat_ee.agent.durable import DurableModel
-    from tracecat_ee.agent.toolset import RemoteToolset
 
 
 class AgentWorkflowArgs(BaseModel):
+    """Arguments for starting an agent workflow."""
+
     role: Role
     agent_args: RunAgentArgs
+    # Session metadata
+    title: str = Field(default="New Chat", description="Session title")
+    entity_type: AgentSessionEntity = Field(
+        ..., description="Type of entity this session is associated with"
+    )
+    entity_id: uuid.UUID = Field(..., description="ID of the associated entity")
+    tools: list[str] | None = Field(
+        default=None, description="Tools available to the agent"
+    )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None, description="Agent preset used for this session"
+    )
+    harness_type: HarnessType | None = Field(
+        default=None,
+        description="Agent harness type. Reserved for future multi-harness support.",
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -64,21 +90,20 @@ class DurableAgentWorkflow:
         AgentContext.set(session_id=args.agent_args.session_id)
 
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
-        # Probably want to keep a dict of this instead of overwritting it
-        self._deferred_tool_results: DeferredToolResults = DeferredToolResults()
         self._turn: int = 0
         if args.role.workspace_id is None:
             raise ApplicationError("Role must have a workspace ID", non_retryable=True)
         self.workspace_id = args.role.workspace_id
         self.session_id = args.agent_args.session_id
-        self.run_ctx_type = TemporalRunContext[PersistableStreamingAgentDepsSpec]
+        self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
-        self.usage_limits = UsageLimits(
-            request_limit=self.max_requests,
-            tool_calls_limit=self.max_tool_calls,
-        )
+        # Session state for Claude SDK resume
+        self._sdk_session_id: str | None = None
+        self._sdk_session_data: str | None = None
+        # Registry lock for action resolution (set after build_tool_definitions)
+        self._registry_lock: RegistryLock | None = None
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
@@ -109,18 +134,20 @@ class DurableAgentWorkflow:
 
             cfg = preset_config
         else:
-            cfg = args.agent_args.config
-            if cfg is None:
+            if args.agent_args.config is None:
                 raise ApplicationError(
                     "Config must be provided if preset_slug is not set",
                     non_retryable=True,
                 )
+            cfg = args.agent_args.config
         return cfg
 
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
-        logger.info("DurableAgentWorkflow run", args=args)
+        logger.info(
+            "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
+        )
         logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
         if workflow.unsafe.is_replaying():
             logger.info("Workflow is replaying")
@@ -135,106 +162,9 @@ class DurableAgentWorkflow:
                 "`tool_approvals` requires the 'agent-approvals' feature flag to be enabled.",
                 non_retryable=True,
             )
-        ext_toolset = await self._build_toolset(cfg)
-        logger.debug("TOOLSET", toolset=ext_toolset)
 
-        messages: list[ModelMessage] = [
-            ModelRequest.user_text_prompt(args.agent_args.user_prompt)
-        ]
-
-        # Build model settings from agent config
-        model_settings: ModelSettings | None = (
-            ModelSettings(**cfg.model_settings) if cfg.model_settings else None
-        )
-
-        model = DurableModel(
-            role=args.role,
-            info=ModelInfo(
-                name=cfg.model_name,
-                provider=cfg.model_provider,
-                base_url=cfg.base_url,
-            ),
-            activity_config=workflow.ActivityConfig(
-                start_to_close_timeout=timedelta(seconds=300),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            ),
-            deps_type=PersistableStreamingAgentDepsSpec,
-        )
-        logger.debug("DURABLE MODEL", model_info=model._info)
-
-        # Determine base output type from config
-        base_output_type = parse_output_type(cfg.output_type)
-
-        # Always allow DeferredToolRequests so approvals can flow through
-        output_type_for_agent: list[type[Any]] = [
-            base_output_type,
-            DeferredToolRequests,
-        ]
-
-        # Use configured instructions when available
-        instructions = cfg.instructions or "You are a helpful assistant."
-
-        agent = Agent(
-            model,
-            name="durable-agent",
-            output_type=output_type_for_agent,
-            instructions=instructions,
-            model_settings=model_settings,
-            retries=cfg.retries,
-            deps_type=PersistableStreamingAgentDepsSpec,
-            event_stream_handler=self._event_stream_handler,
-            toolsets=[ext_toolset],
-        )
-
-        deps = PersistableStreamingAgentDepsSpec(
-            session_id=self.session_id,
-            workspace_id=self.workspace_id,
-            persistent=False,
-            namespace="agent",
-        )
-
-        # TODO: Implement max turns
-        while True:
-            logger.info("Running agent", turn=self._turn)
-            result = await agent.run(
-                message_history=messages,
-                deferred_tool_results=self.approvals.get(),
-                deps=deps,
-                usage_limits=self.usage_limits,
-            )
-            logger.debug("AGENT RUN RESULT", result=result)
-
-            # perf: Can probably early exit here if the result is not a DeferredToolRequests
-            messages = result.all_messages()
-
-            match result.output:
-                case DeferredToolRequests(approvals=approvals):
-                    logger.info(
-                        "Waiting for tool results",
-                        turn=self._turn,
-                        approvals=approvals,
-                    )
-                    # If there are approvals, we need to wait for the tool results
-                    if approvals:
-                        await self.approvals.prepare(approvals)
-                        # Wait for the approval results
-                        await self.approvals.wait()
-                        logger.info(
-                            "Tool results", deferred_tool_results=self.approvals.get()
-                        )
-                        await self.approvals.handle_decisions()
-                    # The next run() of the workflow will handle the tool calls
-                    # depending on the results of the approvals
-                case _:
-                    info = workflow.info()
-                    return AgentOutput(
-                        output=try_parse_json(result.output),
-                        message_history=result.all_messages(),
-                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                        usage=result.usage(),
-                        session_id=self.session_id,
-                    )
-            self._turn += 1
+        # Run with NSJail harness (only supported harness currently)
+        return await self._run_with_nsjail(args, cfg)
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -257,55 +187,311 @@ class DurableAgentWorkflow:
         )
         self.approvals.validate_responses(submission.approvals)
 
-    async def _build_toolset(
-        self, config: AgentConfig
-    ) -> RemoteToolset[PersistableStreamingAgentDepsSpec]:
-        build_tool_defs_result = await workflow.execute_activity_method(
+    async def _run_with_nsjail(
+        self, args: AgentWorkflowArgs, cfg: AgentConfig
+    ) -> AgentOutput:
+        """Run the agent using NSJail-sandboxed Claude SDK execution.
+
+        This path:
+        1. Resolves tool definitions from registry
+        2. Loads session history from DB (for resume)
+        3. Mints JWT/LiteLLM tokens
+        4. Calls run_agent_executor_activity which spawns NSJail
+        5. Persists session history after execution
+        6. Handles approval requests
+        """
+        logger.info("Running agent with NSJail harness", session_id=self.session_id)
+
+        # Create or get the AgentSession - idempotent, safe to call on resume
+        create_result = await workflow.execute_activity(
+            create_session_activity,
+            CreateSessionInput(
+                role=self.role,
+                session_id=self.session_id,
+                title=args.title,
+                created_by=self.role.user_id,
+                entity_type=args.entity_type,
+                entity_id=args.entity_id,
+                tools=args.tools,
+                agent_preset_id=args.agent_preset_id,
+                harness_type=HarnessType(self.harness_type),
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        if not create_result.success:
+            raise ApplicationError(
+                f"Failed to create agent session: {create_result.error}",
+                non_retryable=True,
+            )
+
+        # Build internal tool context for builder assistant sessions
+        internal_tool_context: InternalToolContext | None = None
+        if args.entity_type == AgentSessionEntity.AGENT_PRESET_BUILDER:
+            internal_tool_context = InternalToolContext(
+                preset_id=args.entity_id,
+                entity_type="agent_preset_builder",
+            )
+
+        # Resolve tool definitions and registry lock from registry
+        # Also discovers user MCP tools if configured
+        build_result = await workflow.execute_activity_method(
             AgentActivities.build_tool_definitions,
             arg=BuildToolDefsArgs(
                 tool_filters=ToolFilters(
-                    namespaces=config.namespaces,
-                    actions=config.actions,
+                    namespaces=cfg.namespaces,
+                    actions=cfg.actions,
                 ),
-                tool_approvals=config.tool_approvals,
+                tool_approvals=cfg.tool_approvals,
+                mcp_servers=cfg.mcp_servers,
+                internal_tool_context=internal_tool_context,
             ),
             start_to_close_timeout=timedelta(seconds=120),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-        return RemoteToolset(build_tool_defs_result.tool_definitions, role=self.role)
+        allowed_actions = build_result.tool_definitions
+        self._registry_lock = build_result.registry_lock
+        user_mcp_claims = build_result.user_mcp_claims
+        allowed_internal_tools = build_result.allowed_internal_tools
 
-    async def _event_stream_handler(
-        self,
-        ctx: RunContext[PersistableStreamingAgentDepsSpec],
-        events: AsyncIterable[AgentStreamEvent],
-    ) -> None:
-        logger.info(
-            "WF Event stream handler",
-            in_activity=activity.in_activity(),
-            events_type=type(events),
+        logger.debug(
+            "Resolved tool definitions",
+            action_count=len(allowed_actions),
+            actions=list(allowed_actions.keys()),
+            registry_lock_origins=list(self._registry_lock.origins.keys()),
         )
-        serialized_run_context = self.run_ctx_type.serialize_run_context(ctx)
-        async for event in events:
-            try:
-                await workflow.execute_activity_method(
-                    AgentActivities.event_stream_handler,
-                    args=(
-                        EventStreamHandlerArgs(
-                            event=event,
-                            serialized_run_context=serialized_run_context,
+
+        # Load existing session state for resume
+        load_result = await workflow.execute_activity(
+            load_session_activity,
+            LoadSessionInput(role=self.role, session_id=self.session_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+
+        if load_result.found and load_result.sdk_session_data:
+            self._sdk_session_id = load_result.sdk_session_id
+            self._sdk_session_data = load_result.sdk_session_data
+            logger.info(
+                "Resuming from existing session", sdk_session_id=self._sdk_session_id
+            )
+
+        # Mint tokens for MCP server and LiteLLM gateway auth
+        # These tokens are opaque to the jailed runtime - it cannot decode them
+        mcp_auth_token = mint_mcp_token(
+            workspace_id=self.workspace_id,
+            user_id=self.role.user_id,
+            allowed_actions=list(allowed_actions.keys()),
+            session_id=self.session_id,
+            user_mcp_servers=user_mcp_claims,
+            allowed_internal_tools=allowed_internal_tools,
+            internal_tool_context=internal_tool_context,
+        )
+        litellm_auth_token = mint_llm_token(
+            workspace_id=self.workspace_id,
+            session_id=self.session_id,
+            model=cfg.model_name,
+            model_settings=cfg.model_settings,
+            output_type=cfg.output_type,
+            use_workspace_credentials=args.agent_args.use_workspace_credentials,
+        )
+
+        # Prepare executor input
+        executor_input = AgentExecutorInput(
+            session_id=self.session_id,
+            workspace_id=self.workspace_id,
+            user_prompt=args.agent_args.user_prompt,
+            config=cfg,
+            role=self.role,
+            mcp_auth_token=mcp_auth_token,
+            litellm_auth_token=litellm_auth_token,
+            allowed_actions=allowed_actions,
+            sdk_session_id=self._sdk_session_id,
+            sdk_session_data=self._sdk_session_data,
+        )
+
+        info = workflow.info()
+
+        # Run the NSJail executor activity
+        while True:
+            logger.info("Executing NSJail agent", turn=self._turn)
+
+            result = await workflow.execute_activity(
+                run_agent_activity,
+                executor_input,
+                start_to_close_timeout=timedelta(seconds=600),
+                heartbeat_timeout=timedelta(seconds=60),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
+            if not result.success:
+                raise ApplicationError(
+                    f"Agent execution failed: {result.error}",
+                    non_retryable=True,
+                )
+
+            if result.approval_requested:
+                logger.info("Agent waiting for approval", session_id=self.session_id)
+                # Convert ToolCallContent to ToolCallPart for ApprovalManager
+                if result.approval_items:
+                    tool_call_parts = [
+                        ToolCallPart(
+                            tool_call_id=item.id,
+                            tool_name=item.name,
+                            args=item.input,
+                        )
+                        for item in result.approval_items
+                    ]
+                    # Persist approval requests to DB (atomic with chat messages)
+                    await self.approvals.prepare(tool_call_parts)
+                # Wait for approval signal
+                await self.approvals.wait()
+                # Persist approval decisions to DB (atomic with chat messages)
+                await self.approvals.handle_decisions()
+
+                # Execute approved tools and collect results
+                approved_tools, denied_tools = self._build_tool_lists_from_approvals(
+                    result.approval_items or []
+                )
+
+                tool_results = None
+                if approved_tools or denied_tools:
+                    if self._registry_lock is None:
+                        raise ApplicationError(
+                            "Registry lock not initialized",
+                            non_retryable=True,
+                        )
+                    tool_exec_result = await workflow.execute_activity(
+                        execute_approved_tools_activity,
+                        ExecuteApprovedToolsInput(
+                            session_id=self.session_id,
+                            workspace_id=self.workspace_id,
+                            role=self.role,
+                            approved_tools=approved_tools,
+                            denied_tools=denied_tools,
+                            allowed_actions=list(allowed_actions.keys()),
+                            registry_lock=self._registry_lock,
                         ),
-                        ctx.deps,
-                    ),
-                    start_to_close_timeout=timedelta(seconds=60),
+                        start_to_close_timeout=timedelta(seconds=300),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    tool_results = tool_exec_result.results
+                    logger.info(
+                        "Tool execution completed",
+                        result_count=len(tool_results),
+                        session_id=self.session_id,
+                    )
+
+                # Reload session data from DB to get lines persisted during previous turn
+                reload_result = await workflow.execute_activity(
+                    load_session_activity,
+                    LoadSessionInput(role=self.role, session_id=self.session_id),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
-            except CancelledError:
-                # Re-raise cancellation to allow workflow to terminate properly
-                raise
-            except Exception as e:
-                # Streaming is non-critical - log the error but continue processing
-                # This ensures agent execution completes even if streaming fails
-                logger.warning(
-                    "Failed to stream event, continuing agent execution",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    event_type=type(event).__name__,
+                if reload_result.found and reload_result.sdk_session_data:
+                    self._sdk_session_id = reload_result.sdk_session_id
+                    self._sdk_session_data = reload_result.sdk_session_data
+                    logger.info(
+                        "Reloaded session data for continuation",
+                        sdk_session_id=self._sdk_session_id,
+                    )
+
+                # Update executor input for resume (history now has proper tool_result)
+                executor_input = AgentExecutorInput(
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    user_prompt=args.agent_args.user_prompt,
+                    config=cfg,
+                    role=self.role,
+                    mcp_auth_token=mcp_auth_token,
+                    litellm_auth_token=litellm_auth_token,
+                    allowed_actions=allowed_actions,
+                    sdk_session_id=self._sdk_session_id,
+                    sdk_session_data=self._sdk_session_data,
+                    is_approval_continuation=True,
                 )
+                self._turn += 1
+                continue
+
+            # Agent completed successfully
+            return AgentOutput(
+                output=None,  # NSJail path doesn't return structured output yet
+                message_history=result.messages,  # Messages fetched from DB by activity
+                duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+                usage=RunUsage(),  # TODO: Collect usage from sandbox runtime
+                session_id=self.session_id,
+            )
+
+    def _build_tool_lists_from_approvals(
+        self,
+        approval_items: list,
+    ) -> tuple[list[ApprovedToolCall], list[DeniedToolCall]]:
+        """Build approved and denied tool lists from approval decisions.
+
+        Uses the ApprovalManager's stored decisions to categorize each tool call.
+        """
+        approved: list[ApprovedToolCall] = []
+        denied: list[DeniedToolCall] = []
+
+        for item in approval_items:
+            tool_call_id = item.id
+            tool_name = item.name
+            original_args = item.input or {}
+
+            # Get the decision from ApprovalManager
+            decision = self.approvals.get_decision(tool_call_id)
+
+            if decision is None:
+                # No decision found - treat as denied
+                denied.append(
+                    DeniedToolCall(
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        reason="No approval decision received",
+                    )
+                )
+            elif decision is True:
+                # Simple approval - use original args
+                approved.append(
+                    ApprovedToolCall(
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        args=original_args,
+                    )
+                )
+            elif isinstance(decision, ToolApproved):
+                # Approval with potential override args
+                final_args = {**original_args, **(decision.override_args or {})}
+                approved.append(
+                    ApprovedToolCall(
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        args=final_args,
+                    )
+                )
+            elif isinstance(decision, ToolDenied):
+                denied.append(
+                    DeniedToolCall(
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        reason=decision.message or "Tool denied by user",
+                    )
+                )
+            elif decision is False:
+                denied.append(
+                    DeniedToolCall(
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        reason="Tool denied by user",
+                    )
+                )
+
+        logger.info(
+            "Built tool lists from approvals",
+            approved_count=len(approved),
+            denied_count=len(denied),
+        )
+
+        return approved, denied

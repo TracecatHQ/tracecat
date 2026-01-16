@@ -1,5 +1,6 @@
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
 
@@ -93,6 +94,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
         wf_exec_id=generate_exec_id(wf_id),
         wf_run_id=uuid.uuid4(),
         environment="default",
+        logical_time=datetime.now(UTC),
     )
     task = ActionStatement(ref="a", action=action_name, args={})
     input = RunActionInput(
@@ -178,6 +180,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
         wf_exec_id=generate_exec_id(wf_id),
         wf_run_id=uuid.uuid4(),
         environment="default",
+        logical_time=datetime.now(UTC),
     )
     input = RunActionInput(
         task=ActionStatement(ref="parent", action=step_action, args={}),

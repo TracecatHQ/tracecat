@@ -1,0 +1,437 @@
+#!/usr/bin/env bash
+#
+# Tracecat multi-cluster management script
+#
+# Usage:
+#   ./cluster [cluster_num] [-p profile] <command> [args...]
+#
+# Profiles:
+#   dev     docker-compose.dev.yml (default)
+#   local   docker-compose.local.yml
+#   prod    docker-compose.yml
+#
+# Examples:
+#   ./cluster up -d                # Start next available cluster (auto-selects number)
+#   ./cluster down                 # Stop cluster (auto-selects if only one running)
+#   ./cluster restart api          # Restart the api service
+#   ./cluster 2 up -d              # Start cluster 2 explicitly
+#   ./cluster 2 -p local up -d     # Start cluster 2 with local profile
+#   ./cluster ps                   # Show containers (auto-selects cluster)
+#   ./cluster logs api             # Show logs (auto-selects cluster)
+#   ./cluster attach api           # Attach shell to api service
+#   ./cluster list                 # List all running clusters
+#   ./cluster 1 ports              # Show port mappings for cluster 1
+#
+# Port allocation (offset = (cluster_num - 1) * 100):
+#   Cluster numbers are GLOBAL across all worktrees to avoid port conflicts.
+#   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001
+#   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101
+#   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201
+#   ...
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/.env"
+
+# Default profile
+PROFILE="dev"
+
+# Get worktree identifier for namespacing clusters
+# Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
+get_worktree_id() {
+    local git_dir git_common_dir
+
+    git_dir=$(git -C "${REPO_ROOT}" rev-parse --git-dir 2>/dev/null) || { echo "main"; return; }
+    git_common_dir=$(git -C "${REPO_ROOT}" rev-parse --git-common-dir 2>/dev/null) || { echo "main"; return; }
+
+    # Resolve to absolute paths for comparison
+    git_dir=$(cd "${REPO_ROOT}" && cd "${git_dir}" && pwd)
+    git_common_dir=$(cd "${REPO_ROOT}" && cd "${git_common_dir}" && pwd)
+
+    if [[ "$git_dir" == "$git_common_dir" ]]; then
+        # Main worktree
+        echo "main"
+    else
+        # In a worktree - use branch name, sanitized
+        local branch
+        branch=$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null) || branch="unknown"
+        # Sanitize: replace slashes and special chars with dashes, lowercase
+        echo "$branch" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+    fi
+}
+
+WORKTREE_ID=$(get_worktree_id)
+
+# Get list of running cluster numbers for this worktree (used for auto-selection)
+get_running_clusters() {
+    local prefix="tracecat-${WORKTREE_ID}-"
+
+    docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
+        if [[ "$project" == ${prefix}* ]]; then
+            local num="${project#$prefix}"
+            if [[ "$num" =~ ^[0-9]+$ ]]; then
+                echo "$num"
+            fi
+        fi
+    done | sort -n
+}
+
+# Get ALL running cluster numbers across all worktrees (used for port allocation)
+get_all_cluster_nums() {
+    local projects
+    projects=$(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null)
+
+    for project in $projects; do
+        # Match any tracecat cluster: tracecat-{worktree}-{num}
+        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
+            echo "${BASH_REMATCH[2]}"
+        fi
+    done | sort -n | uniq
+}
+
+# Find next available cluster number (globally, to avoid port conflicts)
+get_next_cluster_num() {
+    local running
+    running=$(get_all_cluster_nums)
+
+    if [[ -z "$running" ]]; then
+        echo "1"
+        return
+    fi
+
+    # Find first gap or next number
+    local expected=1
+    while read -r num; do
+        if [[ "$num" -gt "$expected" ]]; then
+            echo "$expected"
+            return
+        fi
+        expected=$((num + 1))
+    done <<< "$running"
+
+    echo "$expected"
+}
+
+# Auto-select cluster: returns the only running cluster, or errors if multiple/none
+auto_select_cluster() {
+    local command=$1
+    local running
+    running=$(get_running_clusters)
+
+    # Count non-empty lines
+    local count=0
+    if [[ -n "$running" ]]; then
+        count=$(echo "$running" | wc -l | tr -d ' ')
+    fi
+
+    if [[ "$count" -eq 0 ]]; then
+        if [[ "$command" == "up" ]]; then
+            echo "1"
+        else
+            echo "Error: No clusters running for worktree '${WORKTREE_ID}'" >&2
+            echo "Run 'just cluster up -d' to start one" >&2
+            exit 1
+        fi
+    elif [[ "$count" -eq 1 ]]; then
+        echo "$running"
+    else
+        echo "Error: Multiple clusters running for worktree '${WORKTREE_ID}':" >&2
+        echo "$running" | while read -r num; do
+            calculate_ports "$num"
+            echo "  ${num}: http://localhost:${PUBLIC_APP_PORT}" >&2
+        done
+        echo "Please specify a cluster number" >&2
+        exit 1
+    fi
+}
+
+# Base ports (cluster 1 defaults)
+BASE_PUBLIC_APP_PORT=80
+BASE_UI_PORT=3000
+BASE_PG_PORT=5432
+BASE_REDIS_PORT=6379
+BASE_TEMPORAL_PORT=7233
+BASE_API_PORT=8000
+BASE_TEMPORAL_UI_PORT=8081
+BASE_MINIO_PORT=9000
+BASE_MINIO_CONSOLE_PORT=9001
+
+# Map profile to compose file
+get_compose_file() {
+    local profile=$1
+    case "$profile" in
+        dev)
+            echo "${REPO_ROOT}/docker-compose.dev.yml"
+            ;;
+        local)
+            echo "${REPO_ROOT}/docker-compose.local.yml"
+            ;;
+        prod)
+            echo "${REPO_ROOT}/docker-compose.yml"
+            ;;
+        *)
+            echo "Error: Unknown profile '$profile'. Valid profiles: dev, local, prod" >&2
+            exit 1
+            ;;
+    esac
+}
+
+usage() {
+    cat <<EOF
+Usage: ./cluster [cluster_num] [-p profile] <command> [args...]
+       ./cluster list
+
+Cluster number is optional:
+  - For 'up': auto-selects next available number
+  - For other commands: auto-selects if only one cluster running
+
+Profiles:
+  dev       docker-compose.dev.yml (default)
+  local     docker-compose.local.yml
+  prod      docker-compose.yml
+
+Commands:
+  up [args]     Start the cluster (e.g., up -d)
+  down          Stop the cluster
+  restart [svc] Restart the cluster or specific service
+  ps            Show running containers
+  logs [svc]    Show logs (optionally for specific service)
+  attach <svc>  Attach to a running service container (e.g., attach api)
+  ports         Show port mappings for the cluster
+  list          List all running Tracecat clusters
+
+Examples:
+  ./cluster up -d                Start next available cluster
+  ./cluster down                 Stop cluster (auto-select if one running)
+  ./cluster restart api          Restart the api service
+  ./cluster 2 up -d              Start cluster 2 explicitly
+  ./cluster 2 -p local up -d     Start cluster 2 with local profile
+  ./cluster attach api           Attach shell to api service
+  ./cluster list                 List all clusters
+
+Current worktree: ${WORKTREE_ID}
+EOF
+    exit 0
+}
+
+# Calculate ports for a given cluster number
+calculate_ports() {
+    local cluster_num=$1
+    local offset=$(( (cluster_num - 1) * 100 ))
+
+    PUBLIC_APP_PORT=$(( BASE_PUBLIC_APP_PORT + offset ))
+    UI_PORT=$(( BASE_UI_PORT + offset ))
+    PG_PORT=$(( BASE_PG_PORT + offset ))
+    REDIS_PORT_HOST=$(( BASE_REDIS_PORT + offset ))
+    TEMPORAL_PORT=$(( BASE_TEMPORAL_PORT + offset ))
+    API_PORT=$(( BASE_API_PORT + offset ))
+    TEMPORAL_UI_PORT=$(( BASE_TEMPORAL_UI_PORT + offset ))
+    MINIO_PORT=$(( BASE_MINIO_PORT + offset ))
+    MINIO_CONSOLE_PORT=$(( BASE_MINIO_CONSOLE_PORT + offset ))
+}
+
+# Build environment variables for docker compose
+build_env() {
+    local cluster_num=$1
+    calculate_ports "$cluster_num"
+
+    # URLs that depend on ports
+    local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
+    local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
+
+    # Export all variables (include worktree ID for isolation)
+    export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
+    export PUBLIC_APP_PORT
+    export PUBLIC_APP_URL
+    export PUBLIC_API_URL
+    export UI_PORT
+    export PG_PORT
+    export REDIS_PORT_HOST
+    export TEMPORAL_PORT
+    export API_PORT
+    export TEMPORAL_UI_PORT
+    export MINIO_PORT
+    export MINIO_CONSOLE_PORT
+
+    # URL variables that reference the public port
+    export TRACECAT__PUBLIC_APP_URL="${PUBLIC_APP_URL}"
+    export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
+    export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
+    export NEXT_PUBLIC_API_URL="http://localhost:${PUBLIC_APP_PORT}/api"
+
+    # Caddy configuration
+    export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
+}
+
+# Show port mappings for a cluster
+show_ports() {
+    local cluster_num=$1
+    calculate_ports "$cluster_num"
+
+    cat <<EOF
+Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
+  UI (Caddy):      http://localhost:${PUBLIC_APP_PORT}
+  API:             http://localhost:${PUBLIC_APP_PORT}/api (internal: ${API_PORT})
+  PostgreSQL:      localhost:${PG_PORT}
+  Redis:           localhost:${REDIS_PORT_HOST}
+  Temporal:        localhost:${TEMPORAL_PORT}
+  Temporal UI:     http://localhost:${TEMPORAL_UI_PORT}
+  MinIO:           localhost:${MINIO_PORT}
+  MinIO Console:   http://localhost:${MINIO_CONSOLE_PORT}
+EOF
+}
+
+# List all running Tracecat clusters
+list_clusters() {
+    echo "Running Tracecat clusters (worktree: ${WORKTREE_ID}):"
+    echo ""
+
+    local found=false
+    local current_worktree_prefix="tracecat-${WORKTREE_ID}-"
+
+    for project in $(docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null || docker compose ls -q 2>/dev/null); do
+        # Match any tracecat cluster: tracecat-{worktree}-{num}
+        if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
+            found=true
+            local worktree="${BASH_REMATCH[1]}"
+            local cluster_num="${BASH_REMATCH[2]}"
+            calculate_ports "$cluster_num"
+            local status
+            status=$(docker compose -p "$project" ps --format json 2>/dev/null | jq -r 'if type == "array" then .[0].State else .State end' 2>/dev/null || echo "unknown")
+            local marker=""
+            [[ "$project" == "${current_worktree_prefix}${cluster_num}" ]] && marker=" (this worktree)"
+            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${marker}"
+        fi
+    done
+
+    if [[ "$found" == "false" ]]; then
+        echo "  No clusters running"
+    fi
+}
+
+# Main
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+# Handle 'list' command specially
+if [[ "$1" == "list" ]]; then
+    list_clusters
+    exit 0
+fi
+
+# Check if first arg is a cluster number or a command/flag
+CLUSTER_NUM=""
+AUTO_SELECT=true
+
+if [[ "$1" =~ ^[0-9]+$ ]]; then
+    # First arg is a number
+    CLUSTER_NUM="$1"
+    AUTO_SELECT=false
+    if [[ "$CLUSTER_NUM" -lt 1 ]] || [[ "$CLUSTER_NUM" -gt 99 ]]; then
+        echo "Error: Cluster number must be between 1 and 99"
+        exit 1
+    fi
+    shift
+fi
+
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+# Parse optional -p/--profile flag
+if [[ "$1" == "-p" ]] || [[ "$1" == "--profile" ]]; then
+    if [[ $# -lt 2 ]]; then
+        echo "Error: -p/--profile requires a profile name"
+        exit 1
+    fi
+    PROFILE="$2"
+    shift 2
+fi
+
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+COMMAND="$1"
+shift
+
+# Auto-select cluster number if not specified
+if [[ "$AUTO_SELECT" == "true" ]]; then
+    if [[ "$COMMAND" == "up" ]]; then
+        CLUSTER_NUM=$(get_next_cluster_num)
+        echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
+    else
+        CLUSTER_NUM=$(auto_select_cluster "$COMMAND")
+    fi
+fi
+
+# Get compose file for profile
+COMPOSE_FILE=$(get_compose_file "$PROFILE")
+
+# Handle 'ports' command
+if [[ "$COMMAND" == "ports" ]]; then
+    show_ports "$CLUSTER_NUM"
+    exit 0
+fi
+
+# Handle 'attach' command
+if [[ "$COMMAND" == "attach" ]]; then
+    if [[ $# -lt 1 ]]; then
+        echo "Error: attach requires a service name (e.g., attach api)"
+        exit 1
+    fi
+    SERVICE="$1"
+    shift
+    build_env "$CLUSTER_NUM"
+
+    # Try bash first, fall back to sh
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
+        || exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
+fi
+
+# Handle 'restart' command
+if [[ "$COMMAND" == "restart" ]]; then
+    build_env "$CLUSTER_NUM"
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
+fi
+
+# Build environment and run docker compose
+build_env "$CLUSTER_NUM"
+
+# Auto-create .env from .env.example if not present
+ENV_SCRIPT="${REPO_ROOT}/env.sh"
+if [[ ! -f "$ENV_FILE" ]] && [[ -f "$ENV_SCRIPT" ]]; then
+    echo "No .env file found. Running env.sh to create one with dev defaults..."
+    # Pass dev defaults: production=n, url=localhost, ssl=n, email=test@tracecat.com
+    (cd "$REPO_ROOT" && bash "$ENV_SCRIPT" <<< $'n\n\nn\ntest@tracecat.com')
+
+    # Auto-populate all feature flags for dev environment
+    FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
+    if [[ -n "$FEATURE_FLAGS" ]]; then
+        echo "TRACECAT__FEATURE_FLAGS=${FEATURE_FLAGS}" >> "$ENV_FILE"
+        echo "Enabled all feature flags: $FEATURE_FLAGS"
+    fi
+fi
+
+# Source the .env file for other variables (but our exports take precedence)
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+    # Re-apply our overrides (source may have overwritten them)
+    build_env "$CLUSTER_NUM"
+fi
+
+# Sync dependencies before starting cluster
+if [[ "$COMMAND" == "up" ]]; then
+    echo "Syncing dependencies..."
+    (cd "$REPO_ROOT" && uv sync --quiet)
+    (cd "$REPO_ROOT" && pnpm -C frontend install --silent)
+fi
+
+# Run docker compose with the configured environment
+exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"

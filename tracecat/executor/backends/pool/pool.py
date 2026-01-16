@@ -253,8 +253,9 @@ class WorkerPool:
             pids=[w.pid for w in self._workers],
         )
 
-        # Start metrics emission background task
-        self._metrics_task = asyncio.create_task(self._emit_metrics_loop())
+        # Start metrics emission background task if enabled
+        if config.TRACECAT__EXECUTOR_POOL_METRICS_ENABLED:
+            self._metrics_task = asyncio.create_task(self._emit_metrics_loop())
 
     async def _spawn_worker(self, worker_id: int) -> WorkerInfo:
         """Spawn a new worker (nsjail sandboxed or direct subprocess)."""

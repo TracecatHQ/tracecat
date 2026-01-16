@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracecat"
-description = "Open source Tines / Splunk SOAR alternative for security and IT engineers."
+description = "AI automation platform for enterprise."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "AGPL-3.0"
@@ -29,47 +29,50 @@ dependencies = [
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
     "authlib==1.6.6",
+    "azure-core==1.38.0",
     "claude-agent-sdk==0.1.18",
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
     "croniter==6.0.0",
     "cryptography==44.0.1",
-    "dateparser>=1.2.1,<1.3.0",
+    "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
     "fastapi[standard]==0.120.3",
     "fastmcp==2.14.1",
     "fickling==0.1.7",
-    "filelock==3.20.1",
+    "filelock==3.20.3",
+    "fastapi-sso==0.16.0",
     "google-auth==2.37.0",
     "greenlet==3.0.3",
     "hatchling==1.27.0",
     "httpx==0.28.1",
-    "jsonpath_ng>=1.7.0,<1.8.0",
+    "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.80.15",
+    "litellm[proxy]==1.80.16",
     "loguru==0.7.3",
     "marshmallow==3.26.2",
     "minio==7.2.18",
     "orjson==3.10.3",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
-    "pip>=25.3,<26.0",
-    "polyfile>=0.5.5,<0.6.0",
+    "pip==25.3",
+    "polyfile==0.5.5",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
-    "pydantic-extra-types>=2.10.2,<3.0.0",
-    "pydantic>=2.11.7,<3.0.0",
+    "pydantic-extra-types==2.11.0",
+    "pydantic==2.12.5",
     "pygithub==2.8.1",
     "pynacl==1.6.2",
+    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "redis[hiredis]==7.1.0",
     "sentry-sdk==2.24.1",
-    "sqlalchemy>=2.0.0,<3.0.0",
-    "starlette>=0.49.1,<0.50.0",
+    "sqlalchemy==2.0.45",
+    "starlette==0.49.3",
     "temporalio==1.19.0",
     "tenacity==8.3.0",
     "tomli==2.2.1",
@@ -78,7 +81,7 @@ dependencies = [
     "urllib3==2.6.3",
     "uv==0.9.15",
     "uvicorn==0.35.0",
-    "virtualenv==20.27.0",
+    "virtualenv==20.36.1",
 ]
 dynamic = ["version"]
 
@@ -117,7 +120,7 @@ dev = [
     "mypy==1.15.0",
     "pre-commit==4.1.0",
     "psycopg==3.1.19",
-    "pytest-benchmark>=4.0.0",
+    "pytest-benchmark==5.2.3",
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest-xdist==3.8.0",
@@ -125,8 +128,8 @@ dev = [
     "python-dotenv==1.1.1",
     "respx==0.22.0",
     "ruff==0.13.0",
-    "types-aioboto3[sts,s3]>=15.0.0",
-    "types-boto3[sts,s3]>=1.39.0,<2.0.0",
+    "types-aioboto3[sts,s3]==15.5.0",
+    "types-boto3[sts,s3]==1.42.25",
 ]
 
 [tool.hatch.version]

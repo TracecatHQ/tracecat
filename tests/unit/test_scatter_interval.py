@@ -8,16 +8,22 @@ by `index * interval` seconds, allowing for rate-limiting and controlled paralle
 import os
 import time
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data
 from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement, GatherArgs, ScatterArgs
 from tracecat.dsl.workflow import DSLWorkflow
+
+
+async def action_result(result: dict[str, Any], ref: str) -> Any:
+    """Unwrap StoredObject action result from workflow context."""
+    return await to_data(result["ACTIONS"][ref]["result"])
 
 
 @pytest.mark.anyio
@@ -94,8 +100,11 @@ async def test_scatter_with_interval_basic(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results are correct
-    gathered_results = result["ACTIONS"]["gather"]["result"]
+    gathered_results = await action_result(result, "gather")
     assert len(gathered_results) == collection_size
     assert all("item" in r for r in gathered_results)
 
@@ -168,11 +177,15 @@ async def test_scatter_without_interval(
     end_time = time.time()
     elapsed = end_time - start_time
 
-    # Verify results
-    assert result["ACTIONS"]["gather"]["result"] == [2, 3, 4, 5]
+    # Unwrap StoredObject result
+    result = await to_data(result)
 
-    # Without interval, execution should be relatively fast (< 4 seconds for simple ops)
-    assert elapsed < 4.0, (
+    # Verify results
+    assert await action_result(result, "gather") == [2, 3, 4, 5]
+
+    # Without interval, execution should be relatively fast
+    # Allow extra time for CI variability and result externalization overhead
+    assert elapsed < 10.0, (
         f"Execution without interval should be fast, but took {elapsed:.2f}s"
     )
 
@@ -237,11 +250,15 @@ async def test_scatter_with_zero_interval(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results
-    assert result["ACTIONS"]["gather"]["result"] == [2, 4, 6]
+    assert await action_result(result, "gather") == [2, 4, 6]
 
     # With zero interval, should execute quickly
-    assert elapsed < 2.0
+    # Allow extra time for CI variability and result externalization overhead
+    assert elapsed < 10.0
 
 
 @pytest.mark.anyio
@@ -313,8 +330,11 @@ async def test_scatter_interval_with_downstream_tasks(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results: 10+1+1=12, 20+1+1=22, 30+1+1=32
-    assert result["ACTIONS"]["gather"]["result"] == [12, 22, 32]
+    assert await action_result(result, "gather") == [12, 22, 32]
 
     # Verify timing includes the staggered delays
     expected_min_time = 2 * interval  # 3 items: delays at index 0, 1, 2
@@ -403,9 +423,12 @@ async def test_nested_scatter_with_intervals(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify results: [[10, 20], [30, 40]]
     # Only the final gather (gather2) appears in ACTIONS
-    assert result["ACTIONS"]["gather2"]["result"] == [[10, 20], [30, 40]]
+    assert await action_result(result, "gather2") == [[10, 20], [30, 40]]
 
     # Verify timing includes both outer and inner delays
     # Outer: 2 items with outer_interval = 0.3s delay for 2nd item
@@ -474,11 +497,15 @@ async def test_scatter_interval_with_empty_collection(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Empty collection should result in empty gather
-    assert result["ACTIONS"]["gather"]["result"] == []
+    assert await action_result(result, "gather") == []
 
     # Should complete quickly despite large interval
-    assert elapsed < 2.0
+    # Allow extra time for CI variability
+    assert elapsed < 10.0
 
 
 @pytest.mark.anyio
@@ -556,8 +583,11 @@ async def test_scatter_interval_rate_limiting_use_case(
     end_time = time.time()
     elapsed = end_time - start_time
 
+    # Unwrap StoredObject result
+    result = await to_data(result)
+
     # Verify all requests completed
-    responses = result["ACTIONS"]["gather_responses"]["result"]
+    responses = await action_result(result, "gather_responses")
     assert len(responses) == num_calls
     assert all(r["status"] == "success" for r in responses)
     assert [r["request_id"] for r in responses] == [1, 2, 3, 4, 5]

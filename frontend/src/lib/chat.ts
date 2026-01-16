@@ -1,68 +1,17 @@
 import type { QueryClient } from "@tanstack/react-query"
 import * as ai from "ai"
-import type {
-  BuiltinToolCallEvent,
-  BuiltinToolResultEvent,
-  ChatEntity,
-  FinalResultEvent,
-  FunctionToolCallEvent,
-  FunctionToolResultEvent,
-  ModelRequest,
-  ModelResponse,
-  PartDeltaEvent,
-  PartStartEvent,
-  UIMessage,
-} from "@/client"
+import type { AgentSessionEntity, UIMessage } from "@/client"
 import type { ApprovalCard } from "@/hooks/use-chat"
-export type ModelMessage = ModelRequest | ModelResponse
 
-export function isModelMessage(value: unknown): value is ModelMessage {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "kind" in value &&
-    (value.kind === "request" || value.kind === "response") &&
-    "parts" in value &&
-    Array.isArray(value.parts)
-  )
-}
-
-export function isChatEntity(value: unknown): value is ChatEntity {
+export function isAgentSessionEntity(
+  value: unknown
+): value is AgentSessionEntity {
   return (
     value === "case" ||
     value === "agent_preset" ||
     value === "agent_preset_builder" ||
-    value === "copilot"
-  )
-}
-
-const streamEventKinds = [
-  "part_delta",
-  "part_start",
-  "final_result",
-  "function_tool_call",
-  "function_tool_result",
-  "builtin_tool_call",
-  "builtin_tool_result",
-] as const
-
-export function isStreamEvent(
-  data: unknown
-): data is
-  | PartStartEvent
-  | PartDeltaEvent
-  | FinalResultEvent
-  | FunctionToolCallEvent
-  | FunctionToolResultEvent
-  | BuiltinToolCallEvent
-  | BuiltinToolResultEvent {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    "event_kind" in data &&
-    streamEventKinds.includes(
-      data.event_kind as (typeof streamEventKinds)[number]
-    )
+    value === "copilot" ||
+    value === "workflow"
   )
 }
 
@@ -147,9 +96,9 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
   }
 }
 
-const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
-  case: ["core__cases__update_case", "core__cases__create_comment"],
-  agent_preset_builder: ["update_agent_preset"],
+const UPDATE_ON_ACTIONS: Partial<Record<AgentSessionEntity, Array<string>>> = {
+  case: ["core.cases.update_case", "core.cases.create_comment"],
+  agent_preset_builder: ["internal.builder.update_preset"],
 }
 
 // mapping from chatentity to
@@ -158,7 +107,7 @@ const UPDATE_ON_ACTIONS: Partial<Record<ChatEntity, Array<string>>> = {
  * Each entity type defines how to invalidate related queries when updates occur.
  */
 export const ENTITY_TO_INVALIDATION: Record<
-  ChatEntity,
+  AgentSessionEntity,
   {
     predicate: (toolName: string) => boolean
     handler: (
@@ -209,6 +158,12 @@ export const ENTITY_TO_INVALIDATION: Record<
     predicate: () => false,
     handler: (_queryClient, _workspaceId, _entityId) => {
       // No invalidation logic for copilot
+    },
+  },
+  workflow: {
+    predicate: () => false,
+    handler: (_queryClient, _workspaceId, _entityId) => {
+      // No invalidation logic for workflow entity
     },
   },
 }

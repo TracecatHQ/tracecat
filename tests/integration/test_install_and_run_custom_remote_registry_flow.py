@@ -22,7 +22,7 @@ from pydantic import SecretStr, ValidationError
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 
-from tests.shared import generate_test_exec_id
+from tests.shared import generate_test_exec_id, to_data
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
@@ -262,7 +262,9 @@ async def test_remote_custom_registry_repo() -> None:
             execution_timeout=timedelta(seconds=60),  # Prevent indefinite hangs
         )
         # The workflow returns the action result via the returns expression
-        assert result == 301, f"Result should be 301, got {result}"
-        logger.info("Action execution successful", result=result)
+        # Unwrap StoredObject to compare actual data (handles both inline and external)
+        actual_result = await to_data(result)
+        assert actual_result == 301, f"Result should be 301, got {actual_result}"
+        logger.info("Action execution successful", result=actual_result)
     except WorkflowFailureError as e:
         pytest.fail(f"Workflow execution failed: {e}")

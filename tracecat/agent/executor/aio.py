@@ -15,16 +15,15 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.tools import DeferredToolRequests
 
+from tracecat.agent.common.stream_types import ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.stream.events import StreamError
-from tracecat.agent.stream.types import ToolCallContent, UnifiedStreamEvent
 from tracecat.agent.stream.writers import event_stream_handler
 from tracecat.agent.types import StreamingAgentDeps
 from tracecat.auth.types import Role
 from tracecat.chat.constants import APPROVAL_REQUEST_HEADER
-from tracecat.chat.enums import MessageKind
 from tracecat.config import TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
 from tracecat.logger import logger
 
@@ -94,15 +93,8 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
             model_provider=args.config.model_provider,
         )
 
-        if self.deps.message_store:
-            loaded_history = await self.deps.message_store.load(args.session_id)
-            message_history: list[ModelMessage] | None = []
-            for chat_message in loaded_history:
-                # Only include pydantic-ai messages in the history
-                if isinstance(chat_message.message, (ModelRequest | ModelResponse)):
-                    message_history.append(chat_message.message)
-        else:
-            message_history = None
+        # Message history loading removed - pydantic-ai persistence path deprecated
+        message_history: list[ModelMessage] | None = None
 
         # 2. Prepare writer
         # Immediately stream the user's prompt to the client unless continuation
@@ -189,15 +181,5 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
         finally:
             # Ensure we always close the stream so the client stops waiting.
             await self.deps.stream_writer.stream.done()
-
-        if store := self.deps.message_store:
-            if new_messages:
-                await store.store(args.session_id, new_messages)
-            if approval_message:
-                await store.store(
-                    args.session_id,
-                    [approval_message],
-                    kind=MessageKind.APPROVAL_REQUEST,
-                )
 
         return result

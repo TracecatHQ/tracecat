@@ -209,10 +209,16 @@ class Repository:
     3. Serve function execution requests from a registry manager
     """
 
-    def __init__(self, origin: str = DEFAULT_REGISTRY_ORIGIN, role: Role | None = None):
+    def __init__(
+        self,
+        origin: str = DEFAULT_REGISTRY_ORIGIN,
+        role: Role | None = None,
+        package_name_override: str | None = None,
+    ):
         self._store: dict[str, BoundRegistryAction[ArgsClsT]] = {}
         self._is_initialized: bool = False
         self._origin = origin
+        self._package_name_override = package_name_override
         self.role = role or ctx_role.get()
 
     def __contains__(self, name: str) -> bool:
@@ -506,7 +512,9 @@ class Repository:
                     "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
                 ) from e
             package_name = (
-                await get_setting("git_repo_package_name", role=self.role) or repo_name
+                self._package_name_override
+                or await get_setting("git_repo_package_name", role=self.role)
+                or repo_name
             )
             logger.debug(
                 "Parsed Git repository URL",
@@ -909,6 +917,13 @@ def generate_model_from_function(
                         field_info_kwargs["description"] = doc
                     # Only set the component if no default UI is provided
                     case Component():
+                        manually_set_components.append(meta)
+                    # `tracecat_registry` (and sandboxed `registry-client` mode) provides
+                    # lightweight dataclass component definitions that are not instances
+                    # of `tracecat.registry.fields.Component`. These still need to
+                    # propagate to JSONSchema via `x-tracecat-component` so the frontend
+                    # can render specialized editors (code, textarea, etc).
+                    case _ if isinstance(getattr(meta, "component_id", None), str):
                         manually_set_components.append(meta)
 
         final_components = manually_set_components or components

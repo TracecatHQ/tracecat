@@ -6,6 +6,7 @@ To test locally, run in a Docker container with nsjail installed.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -13,7 +14,12 @@ from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionStatement,
+    ExecutionContext,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -30,6 +36,7 @@ from tracecat.identifiers.workflow import generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 
 
@@ -45,6 +52,7 @@ async def execute_action(
     action_name: str,
     args: dict[str, Any],
     claims: MCPTokenClaims,
+    registry_lock: RegistryLock,
     timeout_seconds: int = 300,
 ) -> Any:
     """Execute an action using ActionRunner.
@@ -53,6 +61,7 @@ async def execute_action(
         action_name: The action to execute (e.g., "tools.slack.post_message")
         args: Arguments to pass to the action
         claims: Token claims containing role and allowed_actions
+        registry_lock: Registry lock with origin→version mappings for action resolution
         timeout_seconds: Maximum execution time
 
     Returns:
@@ -90,11 +99,11 @@ async def execute_action(
     resolved_context = await _resolve_context(action_name, args, claims)
 
     # Build minimal RunActionInput
-    run_input = _build_run_input(action_name, args)
+    run_input = _build_run_input(action_name, args, registry_lock)
 
     # Execute via ActionRunner with nsjail sandbox
     backend = EphemeralBackend()
-    result = await backend.execute(
+    execution = await backend.execute(
         input=run_input,
         role=role,
         resolved_context=resolved_context,
@@ -102,9 +111,9 @@ async def execute_action(
     )
 
     # Handle result
-    if isinstance(result, ExecutorResultFailure):
-        raise ActionExecutionError(result.error.message)
-    return result
+    if isinstance(execution, ExecutorResultFailure):
+        raise ActionExecutionError(execution.error.message)
+    return execution.result
 
 
 async def _resolve_context(
@@ -192,8 +201,15 @@ async def _resolve_context(
 def _build_run_input(
     action_name: str,
     args: dict[str, Any],
+    registry_lock: RegistryLock,
 ) -> RunActionInput:
-    """Build a minimal RunActionInput for ActionRunner."""
+    """Build a minimal RunActionInput for ActionRunner.
+
+    Args:
+        action_name: The action to execute
+        args: Arguments for the action
+        registry_lock: Registry lock with origin→version mappings for action resolution
+    """
     # Create minimal action statement
     task = ActionStatement(
         ref=f"mcp_{action_name.replace('.', '_')}",
@@ -208,10 +224,12 @@ def _build_run_input(
         wf_run_id=uuid4(),
         wf_exec_id=generate_exec_id(wf_id),
         environment="default",
+        logical_time=datetime.now(UTC),
     )
 
     return RunActionInput(
         task=task,
         run_context=run_context,
-        exec_context={},
+        exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        registry_lock=registry_lock,
     )

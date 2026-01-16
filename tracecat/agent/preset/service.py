@@ -365,6 +365,7 @@ class AgentPresetService(BaseWorkspaceService):
             # Build MCP server config
             mcp_servers.append(
                 {
+                    "name": mcp_integration.name,
                     "url": mcp_integration.server_uri,
                     "headers": headers,
                 }

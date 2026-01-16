@@ -50,6 +50,7 @@ async def load_and_serialize_actions(
     repository_id: UUID4,
     commit_sha: str | None = None,
     validate: bool = False,
+    git_repo_package_name: str | None = None,
 ) -> SyncResultSuccess:
     """Load a repository and serialize its actions to a typed result.
 
@@ -58,6 +59,7 @@ async def load_and_serialize_actions(
         repository_id: The UUID of the repository in the database.
         commit_sha: Optional commit SHA to checkout (for remote repos).
         validate: Whether to validate template actions.
+        git_repo_package_name: Optional override for the git repository package name.
 
     Returns:
         SyncResultSuccess containing actions, commit_sha, and validation_errors.
@@ -69,7 +71,11 @@ async def load_and_serialize_actions(
 
     # Load the repository (this triggers uv install / reload)
     logger.info("Loading repository", origin=origin, commit_sha=commit_sha)
-    repo = Repository(origin=origin, role=role)
+    repo = Repository(
+        origin=origin,
+        role=role,
+        package_name_override=git_repo_package_name,
+    )
     resolved_commit_sha = await repo.load_from_origin(commit_sha=commit_sha)
     logger.info(
         "Repository loaded",
@@ -165,6 +171,11 @@ async def main() -> int:
         help="Optional commit SHA to checkout (for remote repos).",
     )
     parser.add_argument(
+        "--git-repo-package-name",
+        default=None,
+        help="Optional Python package name for git repositories.",
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="Whether to validate template actions.",
@@ -197,6 +208,7 @@ async def main() -> int:
             origin=args.origin,
             repository_id=repository_id,
             commit_sha=args.commit_sha,
+            git_repo_package_name=args.git_repo_package_name,
             validate=should_validate,
         )
 

@@ -1,11 +1,17 @@
-"""MCP utility functions for tool name normalization and definition fetching."""
+"""MCP utility functions for tool name normalization and definition fetching.
+
+This module provides pure utility functions for MCP tool name conversion
+that can be imported without pulling in heavy dependencies (DB, logging).
+
+The fetch_tool_definitions() function requires DB access and uses lazy imports.
+"""
 
 from __future__ import annotations
 
-from tracecat.agent.mcp.types import MCPToolDefinition
-from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
-from tracecat.registry.actions.service import RegistryActionsService
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tracecat.agent.mcp.types import MCPToolDefinition
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -29,9 +35,13 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     MCP tool naming convention: mcp__{server_name}__{tool_name}
 
-    Handles Tracecat proxy tools:
+    Handles Tracecat registry tools:
     - mcp__tracecat-registry__tools__slack__post_message -> tools.slack.post_message
     - mcp.tracecat-registry.core.cases.create_case -> core.cases.create_case
+
+    Handles user MCP servers routed through the proxy:
+    - mcp__tracecat-registry__mcp__Linear__list_issues -> mcp.Linear.list_issues
+    - mcp.tracecat-registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
 
     Other MCP tool names are returned as-is.
 
@@ -41,16 +51,44 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     Returns:
         Human-readable action/tool name
     """
-    # Handle dot-separated format (persisted messages)
+    # Handle user MCP tools routed through proxy (dot-separated, persisted)
+    # Pattern: mcp.tracecat-registry.mcp.{server}.{tool}
+    if mcp_tool_name.startswith("mcp.tracecat-registry.mcp."):
+        # Extract mcp.{server}.{tool} part
+        return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
+
+    # Handle user MCP tools routed through proxy (underscore-separated, runtime)
+    # Pattern: mcp__tracecat-registry__mcp__{server}__{tool}
+    if mcp_tool_name.startswith("mcp__tracecat-registry__mcp__"):
+        # Extract mcp__{server}__{tool} part and convert to mcp.{server}.{tool}
+        tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
+        return mcp_tool_name_to_action_name(tool_part)
+
+    # Handle dot-separated format (persisted messages) for registry tools
     if mcp_tool_name.startswith("mcp.tracecat-registry."):
         return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
 
-    # Handle underscore-separated format (runtime MCP tool names)
+    # Handle underscore-separated format (runtime MCP tool names) for registry tools
     if mcp_tool_name.startswith("mcp__tracecat-registry__"):
         tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
         return mcp_tool_name_to_action_name(tool_part)
 
-    # Other MCP tool names returned as-is
+    # Generic MCP prefix stripping for any other servers
+    # Handle pattern: mcp.{server-name}.{tool_name}
+    if mcp_tool_name.startswith("mcp."):
+        parts = mcp_tool_name.split(".", 2)
+        if len(parts) >= 3:
+            # Return everything after mcp.{server-name}.
+            return parts[2]
+
+    # Handle pattern: mcp__{server-name}__{tool_name}
+    if mcp_tool_name.startswith("mcp__"):
+        parts = mcp_tool_name.split("__", 2)
+        if len(parts) >= 3:
+            # Return everything after mcp__{server-name}__ with underscores -> dots
+            return mcp_tool_name_to_action_name(parts[2])
+
+    # Other tool names returned as-is
     return mcp_tool_name
 
 
@@ -62,12 +100,21 @@ async def fetch_tool_definitions(
     Called by the job creator (who has DB access) before launching proxy.
     Returns dict mapping action names to their full definitions.
 
+    Note: This function uses lazy imports to avoid pulling in DB dependencies
+    when only the pure utility functions are needed.
+
     Args:
         action_names: List of action names to fetch definitions for.
 
     Returns:
         Dict mapping action names to MCPToolDefinition objects.
     """
+    # Lazy imports - only orchestrator calls this function
+    from tracecat.agent.mcp.types import MCPToolDefinition
+    from tracecat.logger import logger
+    from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
+    from tracecat.registry.actions.service import RegistryActionsService
+
     definitions: dict[str, MCPToolDefinition] = {}
 
     async with RegistryActionsService.with_session() as svc:

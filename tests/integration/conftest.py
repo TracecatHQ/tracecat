@@ -13,12 +13,14 @@ from __future__ import annotations
 import importlib
 import shutil
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 
 # =============================================================================
@@ -170,6 +172,28 @@ def role_workspace_b() -> Role:
     )
 
 
+@pytest.fixture
+def role_workspace_agent_a() -> Role:
+    """Role for workspace A (test tenant 1) for agent workflows."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        user_id=uuid.uuid4(),
+    )
+
+
+@pytest.fixture
+def role_workspace_agent_b() -> Role:
+    """Role for workspace B (test tenant 2) for agent workflows."""
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
+        user_id=uuid.uuid4(),
+    )
+
+
 # =============================================================================
 # Mock Module Fixtures
 # =============================================================================
@@ -283,12 +307,16 @@ def run_action_input_factory():
                 args=args or {"value": {"test": True}},
                 ref="test_action",
             ),
-            exec_context={},
+            exec_context=ExecutionContext(
+                ACTIONS={},
+                TRIGGER=None,
+            ),
             run_context=RunContext(
                 wf_id=wf_id,
                 wf_exec_id=f"{wf_id.short()}/exec_test",
                 wf_run_id=uuid.uuid4(),
                 environment="test",
+                logical_time=datetime.now(UTC),
             ),
             registry_lock=registry_lock,
         )

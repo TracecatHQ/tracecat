@@ -36,7 +36,9 @@ class PlatformAction(StrEnum):
 
 class FailStrategy(StrEnum):
     ISOLATED = "isolated"
+    """If any fails, only the failed one will fail."""
     ALL = "all"
+    """If any fails, all will fail."""
 
 
 class LoopStrategy(StrEnum):

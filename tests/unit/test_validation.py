@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
@@ -137,6 +137,7 @@ def mock_run_context():
         wf_exec_id=wf_exec_id,
         wf_run_id=run_id,
         environment="default",
+        logical_time=datetime.now(UTC),
     )
 
 

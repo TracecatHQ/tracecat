@@ -61,6 +61,7 @@ else:
 MINIO_PORT = 9000
 AWS_ACCESS_KEY_ID = "minio"
 AWS_SECRET_ACCESS_KEY = "password"
+MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 
 # ---------------------------------------------------------------------------
 # Redis test configuration
@@ -599,6 +600,14 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(
         config, "TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint
     )
+    # Configure MinIO for result externalization (StoredObject -> S3)
+    monkeysession.setattr(config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
+    monkeysession.setattr(
+        config, "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
+    )
+    monkeysession.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
+    # Externalize all results for testing (threshold=0)
+    monkeysession.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 0)
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
         logger.info("Enabling compression for workflow context")
@@ -615,6 +624,14 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     monkeysession.setenv("TRACECAT__DB_URI", db_uri)
     monkeysession.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint)
+    monkeysession.setenv("TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
+    monkeysession.setenv(
+        "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
+    )
+    monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true")
+    monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", "0")
+    monkeysession.setenv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
+    monkeysession.setenv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     # Point API URL to appropriate host
     api_url = f"http://{api_host}:8000"
@@ -867,6 +884,49 @@ def minio_server():
         f"MinIO not available on port {MINIO_PORT}. "
         "Start it with: docker-compose -f docker-compose.dev.yml up -d minio"
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket(minio_server, env_sandbox):
+    """Create the workflow bucket for result externalization and reset object storage.
+
+    This fixture:
+    1. Creates the bucket used by S3ObjectStorage for StoredObject externalization
+    2. Reloads the blob module to pick up the test config
+    3. Resets the object storage singleton so it uses S3ObjectStorage
+
+    Session-scoped and autouse to ensure all tests use S3-backed object storage.
+    Depends on env_sandbox to ensure config is set before we create the bucket.
+    """
+    from tracecat.storage import blob
+    from tracecat.storage import object as object_module
+
+    # Reload blob module to pick up MinIO config
+    importlib.reload(blob)
+
+    # Create workflow bucket if it doesn't exist
+    client = Minio(
+        f"localhost:{MINIO_PORT}",
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False,
+    )
+    try:
+        if not client.bucket_exists(MINIO_WORKFLOW_BUCKET):
+            client.make_bucket(MINIO_WORKFLOW_BUCKET)
+            logger.info(f"Created workflow bucket: {MINIO_WORKFLOW_BUCKET}")
+    except S3Error as e:
+        if e.code != "BucketAlreadyOwnedByYou":
+            raise
+
+    # Reset object storage singleton so it picks up the test config (S3ObjectStorage)
+    object_module.reset_object_storage()
+    logger.info("Reset object storage for S3-backed externalization")
+
+    yield
+
+    # Cleanup: reset object storage after tests
+    object_module.reset_object_storage()
 
 
 @pytest.fixture
@@ -1132,3 +1192,31 @@ def mock_slack_secrets():
 
         mock_get.side_effect = side_effect
         yield mock_get
+
+
+# ---------------------------------------------------------------------------
+# Agent fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def mock_agent_session(session: AsyncSession, svc_role: Role):
+    """Create a mock AgentSession directly in the database.
+
+    This is a lightweight fixture for tests that need a valid session_id
+    to satisfy foreign key constraints (e.g., approval tests).
+    """
+    from tracecat.db.models import AgentSession
+
+    session_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=session_id,
+        title="Mock Test Session",
+        workspace_id=svc_role.workspace_id,
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.commit()
+    await session.refresh(agent_session)
+    return agent_session

@@ -11,12 +11,14 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.agent.router import router as ee_agent_router
+from tracecat_ee.admin.router import router as admin_router
+from tracecat_ee.agent.approvals.router import router as approvals_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
+from tracecat.agent.session.router import router as agent_session_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -57,7 +59,6 @@ from tracecat.cases.tag_definitions.router import (
 )
 from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
-from tracecat.chat.router import router as chat_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
@@ -228,10 +229,7 @@ def create_app(**kwargs) -> FastAPI:
         allow_origins = ["*"]
     app = FastAPI(
         title="Tracecat API",
-        description=(
-            "Tracecat is the open source Tines / Splunk SOAR alternative."
-            " You can operate Tracecat in headless mode by using the API to create, manage, and run workflows."
-        ),
+        description=("Tracecat is the open source automation platform for enterprise."),
         summary="Tracecat API",
         version="1",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
@@ -280,7 +278,9 @@ def create_app(**kwargs) -> FastAPI:
         agent_preset_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
     )
-    app.include_router(ee_agent_router)
+    app.include_router(agent_session_router)
+    app.include_router(approvals_router)
+    app.include_router(admin_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
@@ -296,7 +296,6 @@ def create_app(**kwargs) -> FastAPI:
         case_durations_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
     )
-    app.include_router(chat_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
@@ -410,9 +409,13 @@ def create_app(**kwargs) -> FastAPI:
 app = create_app()
 
 
+class HealthResponse(BaseModel):
+    status: str
+
+
 @app.get("/", include_in_schema=False)
-def root() -> dict[str, str]:
-    return {"message": "Hello world. I am the API."}
+def root() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 class AppInfo(BaseModel):
@@ -446,12 +449,12 @@ async def info(session: AsyncDBSession) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> dict[str, str]:
-    return {"message": "Hello world. I am the API. This is the health endpoint."}
+def check_health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 @app.get("/ready", tags=["public"])
-def check_ready() -> dict[str, str]:
+def check_ready() -> HealthResponse:
     """Readiness check - returns 200 only after startup is complete.
 
     Use this endpoint for Docker healthchecks to ensure the API has finished
@@ -462,4 +465,4 @@ def check_ready() -> dict[str, str]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="API is not ready yet",
         )
-    return {"status": "ready"}
+    return HealthResponse(status="ready")

@@ -9,6 +9,9 @@ Message persistence is handled by ChatMessage with raw JSON - no conversion need
 
 from __future__ import annotations
 
+from typing import Any
+
+from pydantic_ai._function_schema import FunctionSchema
 from pydantic_ai.messages import (
     AgentStreamEvent,
     FunctionToolCallEvent,
@@ -30,19 +33,23 @@ from pydantic_ai.tools import (
 from pydantic_ai.tools import (
     DeferredToolResults as PADeferredToolResults,
 )
+from pydantic_ai.tools import Tool as PATool
 from pydantic_ai.tools import ToolApproved as PAToolApproved
 from pydantic_ai.tools import ToolDenied as PAToolDenied
+from pydantic_core import SchemaValidator, core_schema
 
-from tracecat.agent.adapter.base import BaseHarnessAdapter
-from tracecat.agent.stream.types import (
+from tracecat.agent.common.adapter_base import BaseHarnessAdapter
+from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.tools import call_tracecat_action
 from tracecat.agent.types import (
     DeferredToolRequests,
     DeferredToolResults,
+    Tool,
     ToolApproved,
     ToolDenied,
 )
@@ -227,3 +234,56 @@ def to_pydantic_ai_deferred_results(
         approvals=pa_approvals,
         calls=results.calls,
     )
+
+
+# --- Tool Conversion Functions ---
+
+
+def to_pydantic_ai_tool(tool: Tool) -> PATool[Any]:
+    """Convert a Tracecat Tool to a pydantic-ai Tool.
+
+    Creates a callable wrapper function that executes the action via subprocess,
+    with the function name using MCP format (underscores) as required by pydantic-ai.
+
+    Args:
+        tool: Tracecat's harness-agnostic Tool with canonical name
+
+    Returns:
+        A pydantic-ai Tool instance ready for use with Agent
+    """
+    # Capture the canonical action name for the closure
+    action_name = tool.name
+
+    # Create wrapper function that calls the action
+    async def tool_func(**kwargs: Any) -> Any:
+        return await call_tracecat_action(action_name, kwargs)
+
+    # Set function name to MCP format (pydantic-ai requires valid Python identifier)
+    tool_func.__name__ = action_name.replace(".", "__")
+    tool_func.__doc__ = tool.description
+
+    # Pass schema so LLM knows what parameters to provide (MCP server validates)
+    return PATool(
+        tool_func,
+        requires_approval=tool.requires_approval,
+        function_schema=FunctionSchema(
+            function=tool_func,
+            description=tool.description,
+            validator=SchemaValidator(core_schema.any_schema()),
+            json_schema=tool.parameters_json_schema,
+            takes_ctx=False,
+            is_async=True,
+        ),
+    )
+
+
+def to_pydantic_ai_tools(tools: list[Tool]) -> list[PATool]:
+    """Convert a list of Tracecat Tools to pydantic-ai Tools.
+
+    Args:
+        tools: List of Tracecat's harness-agnostic Tools
+
+    Returns:
+        List of pydantic-ai Tool instances
+    """
+    return [to_pydantic_ai_tool(tool) for tool in tools]

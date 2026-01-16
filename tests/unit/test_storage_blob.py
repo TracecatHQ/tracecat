@@ -1,5 +1,8 @@
 """Tests for the storage module."""
 
+import hashlib
+from contextlib import asynccontextmanager
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
@@ -10,10 +13,12 @@ from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
     delete_file,
     download_file,
+    download_file_to_path,
     ensure_bucket_exists,
     generate_presigned_download_url,
     generate_presigned_upload_url,
     get_storage_client,
+    open_download_stream,
     upload_file,
 )
 
@@ -134,8 +139,11 @@ class TestS3Operations:
         mock_get_client.return_value.__aenter__.return_value = mock_client
 
         expected_content = b"test content"
-        mock_response = {"Body": AsyncMock()}
-        mock_response["Body"].read.return_value = expected_content
+        mock_stream = AsyncMock()
+        mock_stream.read.return_value = expected_content
+        mock_body = AsyncMock()
+        mock_body.__aenter__.return_value = mock_stream
+        mock_response = {"Body": mock_body}
         mock_client.get_object.return_value = mock_response
 
         result = await download_file("test/file.txt", "test-bucket")
@@ -489,6 +497,122 @@ class TestEdgeCases:
 
         with pytest.raises(ClientError):
             await ensure_bucket_exists("bucket")
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_open_download_stream_yields_stream_and_length(self, mock_get_client):
+        """open_download_stream yields a usable body and ContentLength when present."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_stream = AsyncMock()
+        mock_body = AsyncMock()
+        mock_body.__aenter__.return_value = mock_stream
+        mock_response = {"Body": mock_body, "ContentLength": 123}
+        mock_client.get_object.return_value = mock_response
+
+        async with open_download_stream(key="k", bucket="b") as (stream, length):
+            assert stream is mock_stream
+            assert length == 123
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_writes_bytes(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """download_file_to_path streams to a file without loading all bytes into memory."""
+
+        class DummyStream:
+            def __init__(self, chunks: list[bytes]):
+                self._chunks = chunks
+
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                for chunk in self._chunks:
+                    yield chunk
+
+        chunks = [b"hello ", b"world"]
+        dummy_stream = DummyStream(chunks)
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield dummy_stream, sum(len(c) for c in chunks)
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        bytes_written = await download_file_to_path(
+            key="k",
+            bucket="b",
+            output_path=out,
+        )
+
+        assert bytes_written == 11
+        assert out.read_bytes() == b"hello world"
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_max_bytes_refuses(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """download_file_to_path refuses based on ContentLength max_bytes guardrail."""
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"should-not-write"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), 10
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        with pytest.raises(ValueError, match="exceeds max_bytes"):
+            await download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+                max_bytes=5,
+            )
+
+        assert not out.exists()
+        assert not (tmp_path / "out.bin.part").exists()
+
+    @pytest.mark.anyio
+    async def test_download_file_to_path_sha256_mismatch_cleans_partial(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """download_file_to_path removes partial file on SHA-256 mismatch."""
+
+        class DummyStream:
+            async def iter_chunks(self, *, chunk_size: int):  # noqa: ARG002
+                yield b"hello"
+
+        @asynccontextmanager
+        async def _fake_open_download_stream(*, key: str, bucket: str):  # noqa: ARG001
+            yield DummyStream(), 5
+
+        monkeypatch.setattr(
+            "tracecat.storage.blob.open_download_stream",
+            _fake_open_download_stream,
+        )
+
+        out = tmp_path / "out.bin"
+        expected_sha256 = hashlib.sha256(b"hello").hexdigest()
+        with pytest.raises(ValueError, match="Integrity check failed"):
+            await download_file_to_path(
+                key="k",
+                bucket="b",
+                output_path=out,
+                expected_sha256=expected_sha256 + "bad",
+            )
+
+        assert not out.exists()
+        assert not (tmp_path / "out.bin.part").exists()
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")

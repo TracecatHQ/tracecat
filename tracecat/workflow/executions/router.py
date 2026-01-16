@@ -8,10 +8,10 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
-from tracecat.agent.runtime import AgentOutput
+from tracecat.agent.schemas import AgentOutput
+from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
-from tracecat.chat.schemas import ChatMessage
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import (
@@ -25,6 +25,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
@@ -37,6 +38,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionTerminate,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 
@@ -165,16 +167,21 @@ async def get_workflow_execution_compact(
                 # Successful validation asserts this is an AgentOutput
                 output = AgentOutput.model_validate(event.action_result)
                 if output.message_history:
-                    messages = [
-                        ChatMessage(
-                            id=f"{output.session_id}-msg-{i}",
-                            message=msg,
-                        )
-                        for i, msg in enumerate(output.message_history)
-                    ]
+                    # Re-deserialize the message field for each ChatMessage.
+                    # When data round-trips through Temporal, ChatMessage.message
+                    # becomes a raw dict instead of a typed ClaudeSDKMessage.
+                    # We need to re-validate it so convert_chat_messages_to_ui
+                    # can use isinstance() checks on the message types.
+                    for chat_msg in output.message_history:
+                        if chat_msg.message is not None and isinstance(
+                            chat_msg.message, dict
+                        ):
+                            chat_msg.message = ClaudeSDKMessageTA.validate_python(
+                                chat_msg.message
+                            )
                     event.session.events = (
                         tracecat.agent.adapter.vercel.convert_chat_messages_to_ui(
-                            messages
+                            output.message_history
                         )
                     )
             except Exception as e:
@@ -235,7 +242,12 @@ async def create_workflow_execution(
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
-            registry_lock=defn.registry_lock,
+            # For regular workflow executions, use the registry lock from the workflow definition
+            registry_lock=(
+                RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None
+            ),
         )
         return response
     except TracecatValidationError as e:
@@ -260,7 +272,6 @@ async def create_draft_workflow_execution(
     Draft executions run the current draft workflow graph (not the committed definition).
     Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     service = await WorkflowExecutionsService.connect(role=role)
     wf_id = WorkflowUUID.new(params.workflow_id)
@@ -299,7 +310,7 @@ async def create_draft_workflow_execution(
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
-            registry_lock=workflow.registry_lock,
+            # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
         return response
     except TracecatValidationError as e:

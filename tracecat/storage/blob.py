@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aioboto3
+import aiofiles
 from botocore.exceptions import ClientError
 
 from tracecat import config
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
+    from aiobotocore.response import StreamingBody
     from types_aiobotocore_s3.client import S3Client
+
+
+DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 
 
 @asynccontextmanager
@@ -250,17 +257,52 @@ async def download_file(key: str, bucket: str) -> bytes:
         FileNotFoundError: If the file doesn't exist
     """
 
+    async with open_download_stream(key=key, bucket=bucket) as (stream, _):
+        content = await stream.read()
+
+    logger.debug(
+        "File downloaded successfully",
+        key=key,
+        bucket=bucket,
+        size=len(content),
+    )
+    return content
+
+
+@asynccontextmanager
+async def open_download_stream(
+    key: str,
+    bucket: str,
+) -> AsyncIterator[tuple[StreamingBody, int | None]]:
+    """Open a streaming download for an S3/MinIO object.
+
+    This is safer for very large objects because it allows callers to
+    consume the response body incrementally (e.g., write to disk or stream
+    to an HTTP response) instead of reading the entire object into memory.
+
+    Usage:
+        async with open_download_stream(key, bucket) as (stream, content_length):
+            async for chunk in stream.iter_chunks(chunk_size=...):
+                ...
+
+    Args:
+        key: The S3 object key.
+        bucket: Bucket name (required).
+
+    Yields:
+        Tuple of (StreamingBody, content_length).
+
+    Raises:
+        ClientError: If the download fails.
+        FileNotFoundError: If the file doesn't exist.
+    """
     try:
         async with get_storage_client() as s3_client:
             response = await s3_client.get_object(Bucket=bucket, Key=key)
-            content = await response["Body"].read()
-            logger.debug(
-                "File downloaded successfully",
-                key=key,
-                bucket=bucket,
-                size=len(content),
-            )
-            return content
+            body: StreamingBody = response["Body"]
+            content_length: int | None = response.get("ContentLength")
+            async with body as stream:
+                yield stream, content_length
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "NoSuchKey":
             logger.warning(
@@ -270,12 +312,101 @@ async def download_file(key: str, bucket: str) -> bytes:
             )
             raise FileNotFoundError from e
         logger.error(
-            "Failed to download file",
+            "Failed to open download stream",
             key=key,
             bucket=bucket,
             error=str(e),
         )
         raise
+
+
+async def download_file_to_path(
+    *,
+    key: str,
+    bucket: str,
+    output_path: Path,
+    chunk_size: int = DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES,
+    max_bytes: int | None = None,
+    expected_sha256: str | None = None,
+) -> int:
+    """Stream an S3/MinIO object to a local file.
+
+    This avoids loading the full object into memory and is recommended for large
+    blobs (e.g., tarballs).
+
+    Args:
+        key: The S3 object key.
+        bucket: Bucket name (required).
+        output_path: Local path to write to.
+        chunk_size: Chunk size for streaming reads (default: 8MB).
+        max_bytes: Optional guardrail; raise if the object exceeds this size.
+        expected_sha256: Optional integrity check; raise if computed SHA-256 differs.
+
+    Returns:
+        Total bytes written.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = output_path.with_name(f"{output_path.name}.part")
+
+    hasher = hashlib.sha256() if expected_sha256 is not None else None
+    bytes_written = 0
+
+    try:
+        async with open_download_stream(key=key, bucket=bucket) as (
+            stream,
+            content_length,
+        ):
+            if (
+                max_bytes is not None
+                and content_length is not None
+                and content_length > max_bytes
+            ):
+                raise ValueError(
+                    f"Refusing to download {bucket}/{key} to disk: "
+                    f"ContentLength={content_length} exceeds max_bytes={max_bytes}"
+                )
+
+            async with aiofiles.open(temp_path, "wb") as f:
+                async for chunk in stream.iter_chunks(chunk_size=chunk_size):
+                    if not chunk:
+                        continue
+                    bytes_written += len(chunk)
+                    if max_bytes is not None and bytes_written > max_bytes:
+                        raise ValueError(
+                            f"Refusing to download {bucket}/{key} to disk: "
+                            f"bytes_written={bytes_written} exceeds max_bytes={max_bytes}"
+                        )
+                    if hasher is not None:
+                        hasher.update(chunk)
+                    await f.write(chunk)
+
+        if hasher is not None:
+            actual_sha256 = hasher.hexdigest()
+            if actual_sha256 != expected_sha256:
+                raise ValueError(
+                    f"Integrity check failed for {bucket}/{key}: "
+                    f"expected {expected_sha256}, got {actual_sha256}"
+                )
+
+        os.replace(temp_path, output_path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning(
+                "Failed to cleanup partial download",
+                temp_path=str(temp_path),
+            )
+        raise
+
+    logger.debug(
+        "File streamed to disk successfully",
+        key=key,
+        bucket=bucket,
+        output_path=str(output_path),
+        size=bytes_written,
+    )
+    return bytes_written
 
 
 async def delete_file(key: str, bucket: str) -> None:
@@ -325,3 +456,61 @@ async def file_exists(key: str, bucket: str) -> bool:
         if e.response.get("Error", {}).get("Code") == "404":
             return False
         raise
+
+
+async def select_object_content(
+    key: str,
+    bucket: str,
+    expression: str,
+) -> bytes:
+    """Execute S3 Select SQL query on a JSON object.
+
+    Uses S3 Select to query JSON documents without downloading the entire object.
+    Useful for extracting specific fields or array elements.
+
+    Args:
+        key: The S3 object key
+        bucket: Bucket name
+        expression: SQL expression (e.g., "SELECT s.items[0] FROM s3object s")
+
+    Returns:
+        Query result as JSON bytes
+
+    Raises:
+        ClientError: If the query fails
+    """
+    async with get_storage_client() as s3_client:
+        try:
+            response = await s3_client.select_object_content(
+                Bucket=bucket,
+                Key=key,
+                ExpressionType="SQL",
+                Expression=expression,
+                InputSerialization={"JSON": {"Type": "DOCUMENT"}},
+                OutputSerialization={"JSON": {}},
+            )
+
+            # Collect streaming response payload
+            result_bytes = b""
+            async for event in response["Payload"]:
+                if records := event.get("Records"):
+                    if payload := records.get("Payload"):
+                        result_bytes += payload
+
+            logger.debug(
+                "S3 Select query executed",
+                key=key,
+                bucket=bucket,
+                expression=expression,
+                result_size=len(result_bytes),
+            )
+            return result_bytes
+        except ClientError as e:
+            logger.error(
+                "S3 Select query failed",
+                key=key,
+                bucket=bucket,
+                expression=expression,
+                error=str(e),
+            )
+            raise

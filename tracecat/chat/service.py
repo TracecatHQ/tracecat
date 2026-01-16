@@ -1,53 +1,35 @@
-import contextlib
+"""Legacy Chat service for backward compatibility.
+
+This service provides read-only access to legacy Chat/ChatMessage tables.
+New sessions should use AgentSessionService via /agent/sessions endpoints.
+"""
+
+from __future__ import annotations
+
 import uuid
-from collections.abc import AsyncIterator, Sequence
-from dataclasses import replace
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
-    UserPromptPart,
 )
-from pydantic_ai.tools import DeferredToolResults
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-import tracecat.agent.adapter.vercel
-from tracecat.agent.builder.tools import build_agent_preset_builder_tools
-from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
-from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.schemas import RunAgentArgs
-from tracecat.agent.service import AgentManagementService
-from tracecat.agent.stream.types import HarnessType
+from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.types import (
-    AgentConfig,
     ClaudeSDKMessageTA,
     ModelMessageTA,
     UnifiedMessage,
 )
-from tracecat.audit.logger import audit_log
-from tracecat.cases.prompts import CaseCopilotPrompts
-from tracecat.cases.service import CasesService
-from tracecat.chat.enums import ChatEntity, MessageKind
-from tracecat.chat.schemas import (
-    BasicChatRequest,
-    ChatMessage,
-    ChatRequest,
-    ChatResponse,
-    ChatUpdate,
-    ContinueRunRequest,
-    VercelChatRequest,
-)
-from tracecat.chat.tools import get_default_tools
-from tracecat.db.models import Case, Chat
+from tracecat.chat.enums import MessageKind
+from tracecat.chat.schemas import ChatMessage
+from tracecat.db.models import Chat
 from tracecat.db.models import ChatMessage as DBChatMessage
-from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 
 def _serialize_message(message: UnifiedMessage) -> tuple[str, dict[str, Any]]:
@@ -65,331 +47,32 @@ def _serialize_message(message: UnifiedMessage) -> tuple[str, dict[str, Any]]:
         )
     else:
         # Claude SDK message types
-        return HarnessType.CLAUDE.value, ClaudeSDKMessageTA.dump_python(
+        return HarnessType.CLAUDE_CODE.value, ClaudeSDKMessageTA.dump_python(
             message, mode="json"
         )
 
 
 class ChatService(BaseWorkspaceService):
+    """Legacy Chat service for backward compatibility.
+
+    Provides read-only access to legacy Chat/ChatMessage tables.
+    For new functionality, use AgentSessionService.
+    """
+
     service_name = "chat"
 
-    @audit_log(resource_type="chat", action="create")
-    async def create_chat(
-        self,
-        *,
-        title: str,
-        entity_type: str,
-        entity_id: uuid.UUID,
-        tools: list[str] | None = None,
-        agent_preset_id: uuid.UUID | None = None,
-    ) -> Chat:
-        """Create a new chat associated with an entity."""
-        if self.role.user_id is None:
-            raise ValueError("User ID is required")
-
-        if agent_preset_id:
-            preset_service = AgentPresetService(self.session, self.role)
-            if not await preset_service.get_preset(agent_preset_id):
-                raise TracecatNotFoundError(
-                    f"Agent preset with ID '{agent_preset_id}' not found"
-                )
-
-        chat = Chat(
-            title=title,
-            user_id=self.role.user_id,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            workspace_id=self.workspace_id,
-            tools=tools or get_default_tools(entity_type),
-            agent_preset_id=agent_preset_id,
-        )
-
-        self.session.add(chat)
-        await self.session.commit()
-        await self.session.refresh(chat)
-
-        logger.info(
-            "Created chat",
-            chat_id=str(chat.id),
-            title=title,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            workspace_id=self.workspace_id,
-        )
-
-        return chat
-
-    async def _get_case(self, case_id: uuid.UUID) -> Case:
-        """Get a case by ID."""
-        cases_service = CasesService(self.session, self.role)
-        case = await cases_service.get_case(case_id)
-        if not case:
-            raise TracecatNotFoundError(f"Case with ID {case_id} not found")
-        return case
-
-    async def _chat_entity_to_prompt(self, entity_type: str, chat: Chat) -> str:
-        """Get the prompt for a given entity type."""
-
-        if entity_type == ChatEntity.CASE:
-            case = await self._get_case(chat.entity_id)
-            return CaseCopilotPrompts(case=case).instructions
-        if entity_type == ChatEntity.AGENT_PRESET_BUILDER:
-            agent_preset_service = AgentPresetService(self.session, self.role)
-            if not (preset := await agent_preset_service.get_preset(chat.entity_id)):
-                raise TracecatNotFoundError(
-                    f"Agent preset with ID '{chat.entity_id}' not found"
-                )
-            prompt = AgentPresetBuilderPrompt(preset=preset)
-            return prompt.instructions
-        if entity_type == ChatEntity.COPILOT:
-            return WorkspaceCopilotPrompts().instructions
-        else:
-            raise ValueError(
-                f"Unsupported chat entity type: {entity_type}. Expected one of: {list(ChatEntity)}"
-            )
-
-    @contextlib.asynccontextmanager
-    async def _build_agent_config(self, chat: Chat) -> AsyncIterator[AgentConfig]:
-        """Build agent configuration for a chat based on its entity type.
-
-        This helper method extracts the shared logic for building agent configs
-        across different chat entity types (case, agent_preset, agent_preset_builder).
-
-        Args:
-            chat: The chat entity to build config for.
-
-        Returns:
-            AgentConfig: The configured agent config.
-
-        Raises:
-            ValueError: If the chat entity type is unsupported.
-            TracecatNotFoundError: If required resources are not found.
-        """
-        agent_svc = AgentManagementService(self.session, self.role)
-        chat_entity = ChatEntity(chat.entity_type)
-
-        if chat_entity is ChatEntity.CASE:
-            entity_instructions = await self._chat_entity_to_prompt(
-                chat.entity_type, chat
-            )
-            if chat.agent_preset_id:
-                async with agent_svc.with_preset_config(
-                    preset_id=chat.agent_preset_id
-                ) as preset_config:
-                    combined_instructions = (
-                        f"{preset_config.instructions}\n\n{entity_instructions}"
-                        if preset_config.instructions
-                        else entity_instructions
-                    )
-                    config = replace(preset_config, instructions=combined_instructions)
-                    if not config.actions and chat.tools:
-                        config.actions = chat.tools
-                    yield config
-            else:
-                async with agent_svc.with_model_config() as model_config:
-                    yield AgentConfig(
-                        instructions=entity_instructions,
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
-                        actions=chat.tools,
-                    )
-        elif chat_entity is ChatEntity.AGENT_PRESET:
-            # Live chat uses workspace-level credentials
-            async with agent_svc.with_preset_config(
-                preset_id=chat.entity_id, use_workspace_credentials=True
-            ) as preset_config:
-                config = replace(preset_config)
-                if not config.actions and chat.tools:
-                    config.actions = chat.tools
-                yield config
-        elif chat_entity is ChatEntity.AGENT_PRESET_BUILDER:
-            instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
-            tools = await build_agent_preset_builder_tools(chat.entity_id)
-            try:
-                async with agent_svc.with_model_config() as model_config:
-                    yield AgentConfig(
-                        instructions=instructions,
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
-                        actions=None,
-                        custom_tools=tools,
-                    )
-            except TracecatNotFoundError as exc:
-                raise ValueError(
-                    "Agent preset builder requires a default AI model with valid provider credentials. "
-                    "Configure the default model in Organization settings before chatting."
-                ) from exc
-        elif chat_entity is ChatEntity.COPILOT:
-            entity_instructions = await self._chat_entity_to_prompt(
-                chat.entity_type, chat
-            )
-            if chat.agent_preset_id:
-                async with agent_svc.with_preset_config(
-                    preset_id=chat.agent_preset_id
-                ) as preset_config:
-                    combined_instructions = (
-                        f"{preset_config.instructions}\n\n{entity_instructions}"
-                        if preset_config.instructions
-                        else entity_instructions
-                    )
-                    config = replace(preset_config, instructions=combined_instructions)
-                    if not config.actions and chat.tools:
-                        config.actions = chat.tools
-                    yield config
-            else:
-                async with agent_svc.with_model_config() as model_config:
-                    yield AgentConfig(
-                        instructions=entity_instructions,
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
-                        actions=chat.tools,
-                    )
-        else:
-            raise ValueError(
-                f"Unsupported chat entity type: {chat.entity_type}. Expected one of: {list(ChatEntity)}"
-            )
-
-    async def run_chat_turn(
-        self,
-        chat_id: uuid.UUID,
-        request: ChatRequest | ContinueRunRequest,
-        executor: BaseAgentExecutor,
-    ) -> ChatResponse | None:
-        """Run a chat turn, handling both start and continuation cases.
-
-        This unified method handles both starting a new chat turn and continuing
-        a chat turn after collecting approval decisions. It uses pattern matching
-        to determine the request type and processes accordingly.
-
-        Args:
-            chat_id: The ID of the chat to run.
-            request: Either a ChatRequest (start) or ContinueRunRequest (continue).
-            executor: The agent executor to use for running the turn.
-
-        Returns:
-            ChatResponse if starting a new turn, None if continuing.
-
-        Raises:
-            TracecatNotFoundError: If the chat is not found.
-            ValueError: If the request type or chat entity type is unsupported.
-        """
-        # Get the chat
-        chat = await self.get_chat(chat_id)
-        if not chat:
-            raise TracecatNotFoundError(f"Chat with ID {chat_id} not found")
-
-        # Determine if this is a start or continue request
-        user_prompt: str | None = None
-        deferred_tool_results: DeferredToolResults | None = None
-        is_continuation = False
-
-        match request:
-            case ContinueRunRequest(decisions=decisions):
-                # Continuation: build DeferredToolResults and log decisions
-                is_continuation = True
-                approvals_map = {
-                    d.tool_call_id: d.to_deferred_result() for d in decisions
-                }
-                deferred_tool_results = DeferredToolResults(approvals=approvals_map)
-            case VercelChatRequest(message=ui_message):
-                # Convert Vercel UI messages to pydantic-ai messages
-                [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
-                match message:
-                    case ModelRequest(parts=[UserPromptPart(content=content)]):
-                        match content:
-                            case str(s):
-                                user_prompt = s
-                            case list(l):
-                                user_prompt = "\n".join(str(item) for item in l)
-                            case _:
-                                raise ValueError(f"Unsupported user prompt: {content}")
-                    case _:
-                        raise ValueError(f"Unsupported message: {message}")
-
-            case BasicChatRequest(message=prompt):
-                user_prompt = prompt
-
-            case _:
-                raise ValueError(f"Unsupported request type: {type(request)}")
-
-        if user_prompt is not None:
-            logger.info("Received user prompt", prompt_length=len(user_prompt))
-
-        # Build agent config using shared helper
-        async with self._build_agent_config(chat) as config:
-            # Determine credential scope based on entity type
-            # AGENT_PRESET uses workspace credentials, all others use org credentials
-            use_workspace_credentials = (
-                ChatEntity(chat.entity_type) == ChatEntity.AGENT_PRESET
-            )
-
-            # Prepare RunAgentArgs
-            args = RunAgentArgs(
-                user_prompt=user_prompt or "",
-                session_id=chat_id,
-                config=config,
-                deferred_tool_results=deferred_tool_results,
-                is_continuation=is_continuation,
-                use_workspace_credentials=use_workspace_credentials,
-            )
-            await executor.start(args)
-
-        # Return ChatResponse only for start requests
-        if not is_continuation:
-            stream_url = f"/api/chat/{chat_id}/stream"
-            return ChatResponse(stream_url=stream_url, chat_id=chat_id)
-        return None
-
-    async def start_chat_turn(
-        self,
-        chat_id: uuid.UUID,
-        request: ChatRequest,
-        executor: BaseAgentExecutor,
-    ) -> ChatResponse:
-        """Start a new chat turn with an AI agent.
-
-        This method is a convenience wrapper around `run_chat_turn` for starting
-        a new chat turn. It supports both simple text messages and Vercel UI messages.
-
-        Args:
-            chat_id: The ID of the chat to start.
-            request: The chat request (BasicChatRequest or VercelChatRequest).
-            executor: The agent executor to use.
-
-        Returns:
-            ChatResponse with stream URL and chat ID.
-        """
-        result = await self.run_chat_turn(chat_id, request, executor)
-        if result is None:
-            raise ValueError("Expected ChatResponse but got None")
-        return result
-
-    async def continue_chat_turn(
-        self,
-        chat_id: uuid.UUID,
-        request: ContinueRunRequest,
-        executor: BaseAgentExecutor,
-    ) -> None:
-        """Continue a chat turn after collecting approval decisions.
-
-        This method is a convenience wrapper around `run_chat_turn` for continuing
-        a chat turn with deferred tool results.
-
-        Args:
-            chat_id: The ID of the chat to continue.
-            request: The continuation request containing approval decisions.
-            executor: The agent executor to use.
-
-        Raises:
-            TracecatNotFoundError: If the chat is not found.
-            ValueError: If the chat entity type is unsupported.
-        """
-        await self.run_chat_turn(chat_id, request, executor)
-
-    async def get_chat(
+    async def get_legacy_chat(
         self, chat_id: uuid.UUID, *, with_messages: bool = False
     ) -> Chat | None:
-        """Get a chat by ID, ensuring it belongs to the current workspace."""
+        """Get a legacy chat by ID.
+
+        Args:
+            chat_id: The chat UUID.
+            with_messages: Whether to eagerly load messages.
+
+        Returns:
+            The Chat if found, None otherwise.
+        """
         stmt = select(Chat).where(
             Chat.id == chat_id,
             Chat.workspace_id == self.workspace_id,
@@ -399,17 +82,27 @@ class ChatService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    async def list_chats(
+    async def list_legacy_chats(
         self,
         *,
-        user_id: UserID,
+        user_id: UserID | None = None,
         entity_type: str | None = None,
         entity_id: str | None = None,
         limit: int = 50,
     ) -> Sequence[Chat]:
-        """List chats for the current workspace with optional entity filtering."""
+        """List legacy chats for the current workspace.
 
-        stmt = select(Chat).where(Chat.workspace_id == self.role.workspace_id)
+        Args:
+            user_id: Filter by user who owns the chat.
+            entity_type: Filter by entity type.
+            entity_id: Filter by entity ID.
+            limit: Maximum number of results.
+
+        Returns:
+            List of Chat models.
+        """
+        stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
+
         if user_id:
             stmt = stmt.where(Chat.user_id == user_id)
 
@@ -424,47 +117,37 @@ class ChatService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    @audit_log(resource_type="chat", action="update")
-    async def update_chat(
+    async def list_legacy_messages(
         self,
-        chat: Chat,
-        params: ChatUpdate,
-    ) -> Chat:
-        """Update chat properties."""
-        set_fields = params.model_dump(exclude_unset=True)
+        chat_id: uuid.UUID,
+        *,
+        kinds: Sequence[MessageKind] | None = None,
+    ) -> list[ChatMessage]:
+        """List messages from legacy ChatMessage table.
 
-        if "agent_preset_id" in set_fields:
-            preset_id = set_fields.pop("agent_preset_id")
-            if preset_id is not None:
-                preset_service = AgentPresetService(self.session, self.role)
-                if not await preset_service.get_preset(preset_id):
-                    raise TracecatNotFoundError(
-                        f"Agent preset with ID '{preset_id}' not found"
-                    )
-            chat.agent_preset_id = preset_id
+        Args:
+            chat_id: The chat UUID.
+            kinds: Optional list of message kinds to filter by.
 
-        # Update remaining fields if provided
-        for field, value in set_fields.items():
-            setattr(chat, field, value)
-        self.session.add(chat)
-        await self.session.commit()
-        await self.session.refresh(chat)
+        Returns:
+            List of ChatMessage objects.
+        """
+        stmt = (
+            select(DBChatMessage)
+            .where(
+                DBChatMessage.chat_id == chat_id,
+                DBChatMessage.workspace_id == self.workspace_id,
+            )
+            .order_by(DBChatMessage.created_at.asc())
+        )
 
-        return chat
+        if kinds:
+            stmt = stmt.where(DBChatMessage.kind.in_({kind.value for kind in kinds}))
 
-    @audit_log(resource_type="chat", action="delete")
-    async def delete_chat(self, chat: Chat) -> None:
-        """Delete a chat."""
-        await self.session.delete(chat)
-        await self.session.commit()
+        result = await self.session.execute(stmt)
+        db_messages = result.scalars().all()
 
-    async def update_chat_last_stream_id(self, chat: Chat, last_stream_id: str) -> Chat:
-        """Update the last stream ID for a chat."""
-        chat.last_stream_id = last_stream_id
-        self.session.add(chat)
-        await self.session.commit()
-        await self.session.refresh(chat)
-        return chat
+        return [ChatMessage.from_db(db_msg) for db_msg in db_messages]
 
     async def append_message(
         self,
@@ -472,9 +155,18 @@ class ChatService(BaseWorkspaceService):
         message: UnifiedMessage,
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> DBChatMessage:
-        """Persist a message to the database.
+        """Persist a message to the legacy ChatMessage table.
 
-        Automatically detects the message type and sets the appropriate harness.
+        Note: This is kept for backward compatibility. New sessions
+        use AgentSessionHistory instead.
+
+        Args:
+            chat_id: The chat UUID.
+            message: The message to persist.
+            kind: The message kind.
+
+        Returns:
+            The created DBChatMessage.
         """
         harness, data = _serialize_message(message)
         db_message = DBChatMessage(
@@ -490,7 +182,7 @@ class ChatService(BaseWorkspaceService):
         await self.session.refresh(db_message)
 
         logger.debug(
-            "Persisted message to database",
+            "Persisted message to legacy ChatMessage table",
             chat_id=chat_id,
             message_id=db_message.id,
             kind=kind.value,
@@ -505,14 +197,19 @@ class ChatService(BaseWorkspaceService):
         messages: Sequence[UnifiedMessage],
         kind: MessageKind = MessageKind.CHAT_MESSAGE,
     ) -> None:
-        """Persist multiple messages to the database in a single transaction.
+        """Persist multiple messages to the legacy ChatMessage table.
 
-        Automatically detects each message type and sets the appropriate harness.
+        Note: This is kept for backward compatibility. New sessions
+        use AgentSessionHistory instead.
+
+        Args:
+            chat_id: The chat UUID.
+            messages: The messages to persist.
+            kind: The message kind.
         """
         if not messages:
             return
 
-        # Create all DB message objects at once
         db_messages = []
         for message in messages:
             harness, data = _serialize_message(message)
@@ -526,38 +223,12 @@ class ChatService(BaseWorkspaceService):
                 )
             )
 
-        # Add all messages to session at once
         self.session.add_all(db_messages)
-
         await self.session.commit()
 
         logger.debug(
-            "Persisted multiple messages to database",
+            "Persisted multiple messages to legacy ChatMessage table",
             chat_id=chat_id,
             message_count=len(db_messages),
             kind=kind.value,
         )
-
-    async def list_messages(
-        self,
-        chat_id: uuid.UUID,
-        *,
-        kinds: Sequence[MessageKind] | None = None,
-    ) -> list[ChatMessage]:
-        """Retrieve chat messages, optionally filtered by message kind."""
-        stmt = (
-            select(DBChatMessage)
-            .where(
-                DBChatMessage.chat_id == chat_id,
-                DBChatMessage.workspace_id == self.workspace_id,
-            )
-            .order_by(DBChatMessage.surrogate_id)
-        )
-
-        if kinds:
-            stmt = stmt.where(DBChatMessage.kind.in_({kind.value for kind in kinds}))
-
-        result = await self.session.execute(stmt)
-        db_messages = result.scalars().all()
-
-        return [ChatMessage.from_db(db_msg) for db_msg in db_messages]

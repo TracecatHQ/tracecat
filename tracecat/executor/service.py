@@ -24,9 +24,11 @@ from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.schemas import (
     ActionStatement,
+    DSLEnvironment,
     ExecutionContext,
     RunActionInput,
     TaskResult,
+    TemplateExecutionContext,
 )
 from tracecat.exceptions import (
     ExecutionError,
@@ -229,7 +231,7 @@ async def run_single_action(
     else:
         logger.trace("Running UDF async", action=action.name)
         # Get secrets from context
-        secrets = context.get(ExprContext.SECRETS, {})
+        secrets = context.get("SECRETS", {})
         flat_secrets = secrets_manager.flatten_secrets(secrets)
         with secrets_manager.env_sandbox(flat_secrets):
             result = await _run_action_direct(action=action, args=args)
@@ -260,25 +262,27 @@ async def run_template_action(
         validated_args = action.validate_args(args=args)
 
     secrets_context = {}
-    env_context = {}
+    env_context = DSLEnvironment()
     vars_context = {}
     if context is not None:
-        secrets_context = context.get(ExprContext.SECRETS, {})
-        env_context = context.get(ExprContext.ENV, {})
-        vars_context = context.get(ExprContext.VARS, {})
+        secrets_context = context.get("SECRETS", {})
+        env_context = context.get("ENV", DSLEnvironment())
+        vars_context = context.get("VARS", {})
 
-    template_context = cast(
-        ExecutionContext,
-        {
-            ExprContext.SECRETS: secrets_context,
-            ExprContext.ENV: env_context,
-            ExprContext.VARS: vars_context,
-            ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
-            ExprContext.TEMPLATE_ACTION_STEPS: {},
-        },
+    template_context = TemplateExecutionContext(
+        SECRETS=secrets_context,
+        ENV=env_context,
+        VARS=vars_context,
+        inputs=validated_args,
+        steps={},
     )
     logger.info("Running template action", action=defn.action)
+    return await _run_template_steps(defn, template_context)
 
+
+async def _run_template_steps(
+    defn: TemplateActionDefinition, template_context: TemplateExecutionContext
+) -> Any:
     for step in defn.steps:
         evaled_args = cast(
             ArgsT,
@@ -291,22 +295,59 @@ async def run_template_action(
                 action_name=step.action, mode="execution"
             )
         logger.trace("Running action step", step_action=step_action.action)
-        result = await run_single_action(
+        result = await _run_single_template_step(
             action=step_action,
             args=evaled_args,
             context=template_context,
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResult(
-            result=result,
-            result_typename=type(result).__name__,
-        )
+        template_context["steps"][step.ref] = TaskResult.from_result(
+            result
+        ).to_materialized_dict()
 
     # Handle returns
     return eval_templated_object(
         defn.returns, operand=cast(ExprOperand, template_context)
     )
+
+
+async def _run_single_template_step(
+    *,
+    action: BoundRegistryAction,
+    args: ArgsT,
+    context: TemplateExecutionContext,
+) -> Any:
+    """Run a UDF async."""
+    if action.is_template:
+        logger.info("Running template action async", action=action.name)
+        if not action.template_action:
+            raise ValueError("Template action missing template_action")
+        defn = action.template_action.definition
+
+        # Validate args against nested template's expects and create fresh context
+        # with nested template's own inputs, but reuse parent's SECRETS/ENV/VARS
+        validated_args: dict[str, Any] = {}
+        if defn.expects:
+            validated_args = action.validate_args(args=args)
+
+        nested_context = TemplateExecutionContext(
+            SECRETS=context.get("SECRETS", {}),
+            ENV=context.get("ENV", DSLEnvironment()),
+            VARS=context.get("VARS", {}),
+            inputs=validated_args,
+            steps={},
+        )
+        result = await _run_template_steps(defn, nested_context)
+    else:
+        logger.trace("Running UDF async", action=action.name)
+        # Get secrets from context
+        secrets = context.get("SECRETS", {})
+        flat_secrets = secrets_manager.flatten_secrets(secrets)
+        with secrets_manager.env_sandbox(flat_secrets):
+            result = await _run_action_direct(action=action, args=args)
+
+    return result
 
 
 async def _prepare_step_context(
@@ -388,21 +429,18 @@ async def _execute_template_action(
     # Build template context for expression evaluation
     # Secrets context uses the pre-resolved secrets from parent
     secrets_context = resolved_context.secrets
-    env_context = input.exec_context.get(ExprContext.ENV, {})
+    env_context = input.exec_context.get("ENV", DSLEnvironment())
     vars_context = resolved_context.variables
 
     # The evaluated_args are the template's input arguments
     validated_input_args = resolved_context.evaluated_args
 
-    template_context = cast(
-        ExecutionContext,
-        {
-            ExprContext.SECRETS: secrets_context,
-            ExprContext.ENV: env_context,
-            ExprContext.VARS: vars_context,
-            ExprContext.TEMPLATE_ACTION_INPUTS: validated_input_args,
-            ExprContext.TEMPLATE_ACTION_STEPS: {},
-        },
+    template_context = TemplateExecutionContext(
+        SECRETS=secrets_context,
+        ENV=env_context,
+        VARS=vars_context,
+        inputs=validated_input_args,
+        steps={},
     )
 
     logger.info(
@@ -422,9 +460,7 @@ async def _execute_template_action(
         # Evaluate step args with template context
         evaled_args = cast(
             dict[str, Any],
-            eval_templated_object(
-                step.args, operand=cast(ExprOperand, template_context)
-            ),
+            eval_templated_object(step.args, operand=template_context),
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -460,17 +496,14 @@ async def _execute_template_action(
                 info=ExecutorActionErrorInfo.from_exc(e, action_name=step.action)
             ) from e
 
-        # Store step result for subsequent steps
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResult(
-            result=step_result,
-            result_typename=type(step_result).__name__,
-        )
+        # Store step result for subsequent steps (materialized for expression access)
+        template_context["steps"][step.ref] = TaskResult.from_result(
+            step_result
+        ).to_materialized_dict()
         logger.trace("Template step completed", step_ref=step.ref)
 
     # Evaluate returns expression with final template context
-    return eval_templated_object(
-        template_def.returns, operand=cast(ExprOperand, template_context)
-    )
+    return eval_templated_object(template_def.returns, operand=template_context)
 
 
 async def _invoke_step(
@@ -590,8 +623,8 @@ async def prepare_resolved_context(
 
     # Build execution context for SDK calls
     context = input.exec_context.copy()
-    context[ExprContext.SECRETS] = secrets
-    context[ExprContext.VARS] = workspace_variables
+    context["SECRETS"] = secrets
+    context["VARS"] = workspace_variables
 
     # Extract and set logical_time BEFORE evaluating args
     # This ensures FN.now(), FN.utcnow(), FN.today() use the deterministic time
