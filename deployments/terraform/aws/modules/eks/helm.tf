@@ -38,6 +38,13 @@ resource "helm_release" "tracecat" {
       publicApp = "https://${var.domain_name}"
       publicApi = "https://${var.domain_name}/api"
     }
+    # PostgreSQL TLS configuration with AWS RDS CA certificate
+    externalPostgres = {
+      tls = {
+        verifyCA = true
+        caCert   = data.http.rds_ca_bundle.response_body
+      }
+    }
   })]
 
   # External Secrets Operator Configuration
@@ -89,6 +96,11 @@ resource "helm_release" "tracecat" {
   set {
     name  = "serviceAccount.create"
     value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = local.tracecat_service_account_name
   }
 
   set {
@@ -296,6 +308,88 @@ resource "helm_release" "tracecat" {
     value = "true"
   }
 
+  # Mount the RDS CA certificate into Temporal server pods for TLS verification
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumes[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumes[0].configMap.name"
+      value = "tracecat-postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumeMounts[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumeMounts[0].mountPath"
+      value = "/etc/tracecat/certs/postgres"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumeMounts[0].readOnly"
+      value = "true"
+    }
+  }
+
+  # Mount the RDS CA certificate into Temporal admintools/schema job for TLS verification
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumes[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumes[0].configMap.name"
+      value = "tracecat-postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumeMounts[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumeMounts[0].mountPath"
+      value = "/etc/tracecat/certs/postgres"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumeMounts[0].readOnly"
+      value = "true"
+    }
+  }
+
   # Default datastore (temporal database)
   dynamic "set" {
     for_each = var.temporal_mode == "self-hosted" ? [1] : []
@@ -389,12 +483,21 @@ resource "helm_release" "tracecat" {
     }
   }
 
-  # Skip TLS host verification (RDS uses standard SSL, not client certs)
+  # Enable TLS host verification for RDS endpoints using the AWS RDS CA bundle.
+  # The CA certificate is mounted via externalPostgres.tls.caCert in the Helm values.
   dynamic "set" {
     for_each = var.temporal_mode == "self-hosted" ? [1] : []
     content {
       name  = "temporal.server.config.persistence.datastores.default.sql.tls.enableHostVerification"
-      value = "false"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.tls.caFile"
+      value = "/etc/tracecat/certs/postgres/ca-bundle.pem"
     }
   }
 
@@ -410,7 +513,15 @@ resource "helm_release" "tracecat" {
     for_each = var.temporal_mode == "self-hosted" ? [1] : []
     content {
       name  = "temporal.server.config.persistence.datastores.visibility.sql.tls.enableHostVerification"
-      value = "false"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.tls.caFile"
+      value = "/etc/tracecat/certs/postgres/ca-bundle.pem"
     }
   }
 
@@ -457,7 +568,7 @@ resource "helm_release" "tracecat" {
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"
