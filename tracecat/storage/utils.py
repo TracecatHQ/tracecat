@@ -48,6 +48,14 @@ class SizedMemoryCache:
 
     async def set(self, key: str, value: bytes) -> None:
         size = len(value)
+        if size > self._max_bytes:
+            logger.debug(
+                "Cache entry too large to store",
+                key=key,
+                size_bytes=size,
+                max_bytes=self._max_bytes,
+            )
+            return
         async with self._lock:
             # Remove old entry if exists
             if key in self._sizes:
@@ -188,8 +196,17 @@ async def cached_select_item(
 
     # Serialize item for byte-aware cache
     item_bytes = serialize_object(item)
-    await _blob_cache.set(cache_key, item_bytes)
-    logger.debug("Cached select item", sha256=sha256[:16], index=local_index)
+    if len(item_bytes) <= MAX_CACHEABLE_BLOB_SIZE:
+        await _blob_cache.set(cache_key, item_bytes)
+        logger.debug("Cached select item", sha256=sha256[:16], index=local_index)
+    else:
+        logger.debug(
+            "Select item too large to cache",
+            sha256=sha256[:16],
+            index=local_index,
+            size_bytes=len(item_bytes),
+            max_size=MAX_CACHEABLE_BLOB_SIZE,
+        )
     return item
 
 
