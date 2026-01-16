@@ -13,8 +13,7 @@ configure agent presets through natural language.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
@@ -76,22 +75,6 @@ class InternalToolError(Exception):
     """Raised when an internal tool execution fails."""
 
 
-@asynccontextmanager
-async def _preset_service(role: Role) -> AsyncIterator[Any]:
-    from tracecat.agent.preset.service import AgentPresetService
-
-    async with AgentPresetService.with_session(role=role) as service:
-        yield service
-
-
-@asynccontextmanager
-async def _session_service(role: Role) -> AsyncIterator[Any]:
-    from tracecat.agent.session.service import AgentSessionService
-
-    async with AgentSessionService.with_session(role=role) as service:
-        yield service
-
-
 def _get_preset_id(context: InternalToolContext | None) -> uuid.UUID:
     """Extract preset_id from internal tool context."""
     if context is None or context.preset_id is None:
@@ -118,11 +101,13 @@ async def get_preset_summary(
     args: dict[str, Any], claims: MCPTokenClaims
 ) -> dict[str, Any]:
     """Return the latest configuration for this agent preset, including tools and approval rules."""
+    from tracecat.agent.preset.service import AgentPresetService
+
     preset_id = _get_preset_id(claims.internal_tool_context)
     role = _build_role(claims)
     ctx_role.set(role)
 
-    async with _preset_service(role) as service:
+    async with AgentPresetService.with_session(role=role) as service:
         preset = await service.get_preset(preset_id)
         if not preset:
             raise InternalToolError(f"Agent preset with ID '{preset_id}' not found")
@@ -175,6 +160,8 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
     - `namespaces`: optional namespaces to scope dynamic tool discovery.
     - `tool_approvals`: map of `{tool_name: bool}` where `true` means auto-run with no approval and `false` requires manual approval.
     """
+    from tracecat.agent.preset.service import AgentPresetService
+
     preset_id = _get_preset_id(claims.internal_tool_context)
     role = _build_role(claims)
     ctx_role.set(role)
@@ -188,7 +175,7 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
     if not params.model_fields_set:
         raise InternalToolError("Provide at least one field to update.")
 
-    async with _preset_service(role) as service:
+    async with AgentPresetService.with_session(role=role) as service:
         preset = await service.get_preset(preset_id)
         if not preset:
             raise InternalToolError(f"Agent preset with ID '{preset_id}' not found")
@@ -203,6 +190,7 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
 
 async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
     """List agent sessions where this agent preset is being used by end users."""
+    from tracecat.agent.session.service import AgentSessionService
     from tracecat.agent.session.types import AgentSessionEntity
 
     preset_id = _get_preset_id(claims.internal_tool_context)
@@ -214,13 +202,13 @@ async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
         limit = 50
 
     try:
-        async with _session_service(role) as service:
+        async with AgentSessionService.with_session(role=role) as service:
             if service.role.user_id is None:
                 raise InternalToolError(
                     "Unable to list sessions: authentication required."
                 )
             sessions = await service.list_sessions(
-                user_id=service.role.user_id,
+                created_by=service.role.user_id,
                 entity_type=AgentSessionEntity.AGENT_PRESET,
                 entity_id=preset_id,
                 limit=limit,
@@ -242,6 +230,8 @@ async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
 
 async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
     """Get the full message history and metadata for a specific agent session."""
+    from tracecat.agent.session.service import AgentSessionService
+
     preset_id = _get_preset_id(claims.internal_tool_context)
     role = _build_role(claims)
     ctx_role.set(role)
@@ -256,7 +246,7 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
         raise InternalToolError(f"Invalid session_id format: {session_id_str}") from e
 
     try:
-        async with _session_service(role) as service:
+        async with AgentSessionService.with_session(role=role) as service:
             session = await service.get_session(session_id)
             if not session or str(session.entity_id) != str(preset_id):
                 raise InternalToolError(f"Session {session_id} not found.")
@@ -267,7 +257,7 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
                 id=session.id,
                 workspace_id=session.workspace_id,
                 title=session.title,
-                user_id=session.user_id,
+                created_by=session.created_by,
                 entity_type=session.entity_type,
                 entity_id=session.entity_id,
                 tools=session.tools,
