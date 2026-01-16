@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from temporalio.client import Client
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_interaction
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
@@ -161,6 +161,8 @@ async def test_workflow_interaction(
             assert result.detail == {"incoming": "test"}
 
             exec_result = await wf_handle.result()
+            # Unwrap StoredObject to compare actual data
+            exec_result = await to_data(exec_result)
             logger.info(exec_result)
             assert exec_result["result"] == input.model_dump(
                 exclude={"data"}, mode="json"

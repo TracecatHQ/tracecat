@@ -20,6 +20,7 @@ from tenacity import (
 
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import (
@@ -30,6 +31,7 @@ from tracecat.exceptions import (
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.storage.object import StoredObject, action_key, get_object_storage
 
 
 class ExecutorActivities:
@@ -52,7 +54,9 @@ class ExecutorActivities:
 
     @staticmethod
     @activity.defn
-    async def execute_action_activity(input: RunActionInput, role: Role) -> Any:
+    async def execute_action_activity(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
         """Execute an action on the ExecutorWorker.
 
         This activity runs on 'shared-action-queue' and handles:
@@ -86,6 +90,10 @@ class ExecutorActivities:
             task=task,
             attempt=act_attempt,
             retry_policy=task.retry_policy,
+            input=input,
+        )
+        materialized_input = input.model_copy(
+            update={"exec_context": await materialize_context(input.exec_context)}
         )
 
         try:
@@ -100,7 +108,21 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    return await dispatch_action(backend=backend, input=input)
+                    result = await dispatch_action(
+                        backend=backend, input=materialized_input
+                    )
+
+                    # Always wrap result in StoredObject envelope
+                    # - get_object_storage() returns S3ObjectStorage when externalization is enabled
+                    #   (externalizes if above threshold), else InlineObjectStorage (always inline)
+                    key = action_key(
+                        workspace_id=str(role.workspace_id),
+                        wf_exec_id=input.run_context.wf_exec_id,
+                        stream_id=input.stream_id,
+                        ref=task.ref,
+                    )
+                    stored = await get_object_storage().store(key, result)
+                    return stored
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__
@@ -160,3 +182,7 @@ class ExecutorActivities:
             raise ApplicationError(
                 err_msg, err_info, type=kind, non_retryable=True
             ) from e
+
+        # Unreachable: AsyncRetrying either returns in the loop or raises RetryError
+        # (caught by Exception handler above) when retries are exhausted
+        raise AssertionError("Unreachable: AsyncRetrying loop must return or raise")

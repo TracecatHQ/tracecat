@@ -14,6 +14,7 @@ Tests cover:
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import SecretStr
@@ -25,7 +26,6 @@ from tracecat.dsl.common import (
     create_default_execution_context,
 )
 from tracecat.dsl.schemas import ActionStatement, DSLConfig, RunContext
-from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
@@ -46,6 +46,7 @@ def mock_run_context():
         wf_exec_id="wf-" + "0" * 32 + ":exec-" + "0" * 32,
         wf_run_id=uuid.uuid4(),
         environment="default",
+        logical_time=datetime.now(UTC),
     )
 
 
@@ -179,7 +180,7 @@ class TestWorkflowExecutionEnvironmentOverride:
         # When action has environment override, new RunContext should be created
         if task.environment is not None:
             context = create_default_execution_context()
-            context[ExprContext.ACTIONS] = {}
+            context["ACTIONS"] = {}
             evaluated_env = eval_templated_object(task.environment, operand=context)
             modified_run_context = mock_run_context.model_copy(
                 update={"environment": evaluated_env}
@@ -218,8 +219,8 @@ class TestWorkflowExecutionEnvironmentOverride:
 
         if task.environment is not None:
             context = create_default_execution_context()
-            context[ExprContext.ACTIONS] = {}
-            context[ExprContext.ENV] = {"environment": "prod"}
+            context["ACTIONS"] = {}
+            context["ENV"] = {"environment": "prod"}
             evaluated_env = eval_templated_object(task.environment, operand=context)
 
             # Should evaluate to 'production' since ENV.environment == 'prod'
@@ -274,6 +275,7 @@ class TestSecretsWithEnvironmentOverride:
                 wf_exec_id="wf-" + "0" * 32 + ":exec-" + "0" * 32,
                 wf_run_id=uuid.uuid4(),
                 environment="workflow_env",  # Default workflow environment
+                logical_time=datetime.now(UTC),
             )
 
             # Override run context environment based on action
@@ -356,6 +358,7 @@ class TestSecretsWithEnvironmentOverride:
                 wf_exec_id="wf-" + "0" * 32 + ":exec-" + "0" * 32,
                 wf_run_id=uuid.uuid4(),
                 environment="workflow_env",
+                logical_time=datetime.now(UTC),
             )
 
             # Since no override, run context environment should remain the same

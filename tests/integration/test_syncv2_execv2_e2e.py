@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -29,7 +30,12 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionStatement,
+    ExecutionContext,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
@@ -124,35 +130,7 @@ def subprocess_db_env(monkeypatch):
     engine_module._async_engine = old_engine
 
 
-@pytest.fixture(scope="module")
-def minio_server():
-    """Use docker-compose MinIO service instead of starting a new container.
-
-    This fixture assumes MinIO is already running via docker-compose on port 9000.
-    It's module-scoped to match the session-scoped conftest fixture behavior.
-    """
-    # Verify MinIO is accessible
-    import time
-
-    max_retries = 30
-    for i in range(max_retries):
-        try:
-            client = Minio(
-                MINIO_ENDPOINT,
-                access_key=MINIO_ACCESS_KEY,
-                secret_key=MINIO_SECRET_KEY,
-                secure=False,
-            )
-            list(client.list_buckets())
-            break
-        except Exception as e:
-            if i == max_retries - 1:
-                raise RuntimeError(
-                    f"MinIO not accessible at {MINIO_ENDPOINT} after {max_retries} retries: {e}"
-                ) from e
-            time.sleep(1)
-
-    yield  # No cleanup needed - docker-compose manages the container
+# minio_server fixture is provided by conftest.py (session-scoped)
 
 
 @pytest.fixture
@@ -264,12 +242,13 @@ def run_action_input_factory():
                 args=args or {"value": {"test": True}},
                 ref="test_action",
             ),
-            exec_context={},
+            exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
             run_context=RunContext(
                 wf_id=wf_id,
                 wf_exec_id=f"{wf_id.short()}/exec_test",
                 wf_run_id=uuid.uuid4(),
                 environment="default",
+                logical_time=datetime.now(UTC),
             ),
             registry_lock=RegistryLock(origins=origins, actions=actions),
         )
@@ -836,12 +815,13 @@ class TestMultitenantWorkloads:
                     args={"value": value},
                     ref="test_action",
                 ),
-                exec_context={},
+                exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
                 run_context=RunContext(
                     wf_id=wf_id,
                     wf_exec_id=f"{wf_id.short()}/exec_test",
                     wf_run_id=uuid.uuid4(),
                     environment="default",
+                    logical_time=datetime.now(UTC),
                 ),
                 registry_lock=RegistryLock(origins=origins, actions=actions),
             )

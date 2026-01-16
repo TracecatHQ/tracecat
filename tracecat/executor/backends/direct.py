@@ -44,8 +44,8 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
     run_single_action,
 )
-from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
+from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets import secrets_manager
@@ -220,8 +220,8 @@ class DirectBackend(ExecutorBackend):
 
         # Build execution context with pre-resolved secrets and variables
         context = input.exec_context.copy()
-        context[ExprContext.SECRETS] = resolved_context.secrets
-        context[ExprContext.VARS] = resolved_context.variables
+        context["SECRETS"] = resolved_context.secrets
+        context["VARS"] = resolved_context.variables
 
         # Flatten secrets for env sandbox
         flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
@@ -245,7 +245,7 @@ class DirectBackend(ExecutorBackend):
             # Reset secrets context to prevent leakage
             registry_secrets.reset_context(secrets_token)
 
-    async def _load_action_from_impl(self, action_impl) -> Any:
+    async def _load_action_from_impl(self, action_impl) -> BoundRegistryAction:
         """Load the action implementation from action_impl metadata.
 
         Uses the module and name from action_impl to load the correct

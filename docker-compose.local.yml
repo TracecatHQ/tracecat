@@ -133,6 +133,11 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
+      # Blob Storage (MinIO) - required for result externalization
+      TRACECAT__BLOB_STORAGE_PROTOCOL: minio
+      TRACECAT__BLOB_STORAGE_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       # Redis
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
@@ -148,6 +153,8 @@ services:
       temporal:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   executor:

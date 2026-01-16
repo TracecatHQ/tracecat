@@ -1,7 +1,7 @@
 import logging
 import os
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 from tracecat.auth.enums import AuthType
 from tracecat.feature_flags.enums import FeatureFlag
@@ -274,7 +274,7 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
 
 # === Result Externalization Config === #
 TRACECAT__RESULT_EXTERNALIZATION_ENABLED = os.environ.get(
-    "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "false"
+    "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true"
 ).lower() in ("true", "1")
 """Enable externalization of large action results and triggers to S3/MinIO.
 
@@ -282,17 +282,43 @@ When enabled, payloads exceeding the threshold are stored in blob storage with
 only a small reference kept in Temporal workflow history. This prevents history
 bloat for workflows with large payloads.
 
-Default: false (all results kept inline, current behavior).
+Default: true.
 """
 
 TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = int(
-    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", str(256 * 1024))
+    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024)
 )
 """Threshold in bytes above which payloads are externalized to blob storage.
 
 Payloads smaller than this are kept inline in workflow history.
-Default: 262144 (256 KB).
+Default: 128 KB.
 """
+
+# === Collection Manifests Config === #
+TRACECAT__COLLECTION_MANIFESTS_ENABLED = os.environ.get(
+    "TRACECAT__COLLECTION_MANIFESTS_ENABLED", "false"
+).lower() in ("true", "1")
+"""Feature gate for CollectionObject emission.
+
+When enabled, large collections (above thresholds) are stored as chunked manifests
+in blob storage, with only a small handle kept in Temporal workflow history.
+When disabled (default), large collections use legacy InlineObject/ExternalObject.
+"""
+
+TRACECAT__COLLECTION_CHUNK_SIZE = int(
+    os.environ.get("TRACECAT__COLLECTION_CHUNK_SIZE", "256")
+)
+"""Number of items per chunk in collection manifests. Default: 256."""
+
+TRACECAT__COLLECTION_INLINE_MAX_ITEMS = int(
+    os.environ.get("TRACECAT__COLLECTION_INLINE_MAX_ITEMS", "100")
+)
+"""Maximum items before using CollectionObject. Below this, use InlineObject/ExternalObject."""
+
+TRACECAT__COLLECTION_INLINE_MAX_BYTES = int(
+    os.environ.get("TRACECAT__COLLECTION_INLINE_MAX_BYTES", str(256 * 1024))
+)
+"""Maximum bytes before using CollectionObject. Default: 256 KB."""
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
@@ -416,6 +442,20 @@ TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
 If not set, will be auto-detected from a known dependency's location.
 """
 
+TRACECAT__EXECUTOR_POOL_METRICS_ENABLED = os.environ.get(
+    "TRACECAT__EXECUTOR_POOL_METRICS_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable periodic metrics emission for the worker pool.
+
+When True, the pool emits metrics every 10 seconds including:
+- Pool utilization and capacity
+- Worker states (alive, dead, recycling)
+- Lock contention stats
+- Throughput metrics
+
+When False (default), metrics are not emitted to reduce log noise.
+"""
+
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT", "600")
@@ -431,8 +471,7 @@ TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-qu
 """Task queue for the AgentWorker (Temporal workflow queue).
 
 This is the dedicated queue for agent workflow execution, separate from the main
-tracecat-task-queue used by DSLWorkflow.
-"""
+tracecat-task-queue used by DSLWorkflow."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
@@ -521,9 +560,10 @@ TRACECAT__CONTEXT_COMPRESSION_ALGORITHM = os.environ.get(
 )
 """Compression algorithm to use. Supported: zstd, gzip, brotli. Defaults to zstd."""
 
-TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
-    "TRACECAT__WORKFLOW_RETURN_STRATEGY", "minimal"
-).lower()
+TRACECAT__WORKFLOW_RETURN_STRATEGY: Literal["context", "minimal"] = cast(
+    Literal["context", "minimal"],
+    os.environ.get("TRACECAT__WORKFLOW_RETURN_STRATEGY", "minimal").lower(),
+)
 """Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
 
 # === Redis config === #

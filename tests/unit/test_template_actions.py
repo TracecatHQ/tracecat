@@ -2,6 +2,7 @@ import os
 import sys
 import textwrap
 import uuid
+from datetime import UTC, datetime
 from importlib.machinery import ModuleSpec
 from types import ModuleType
 from typing import Any
@@ -16,6 +17,7 @@ from tracecat_registry import RegistrySecret
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import (
     ActionStatement,
     RunActionInput,
@@ -413,12 +415,13 @@ async def test_template_action_fetches_nested_secrets(
             action="testing.template_action",
             args={"num": 123123},
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_template_action_with_secrets"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )
@@ -652,13 +655,13 @@ async def test_template_action_runs(test_args, expected, should_raise):
             await service.run_template_action(
                 action=bound_action,
                 args=test_args,
-                context={},
+                context=create_default_execution_context(),
             )
     else:
         result = await service.run_template_action(
             action=bound_action,
             args=test_args,
-            context={},
+            context=create_default_execution_context(),
         )
         assert result == expected
 
@@ -747,13 +750,13 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
             await service.run_template_action(
                 action=bound_action,
                 args=test_args,
-                context={},
+                context=create_default_execution_context(),
             )
     else:
         result = await service.run_template_action(
             action=bound_action,
             args=test_args,
-            context={},
+            context=create_default_execution_context(),
         )
         assert result == expected
 
@@ -880,12 +883,13 @@ async def test_template_action_with_vars_expressions(
             action="testing.test_vars",
             args={},
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_template_action_vars_no_inputs"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )
@@ -904,12 +908,13 @@ async def test_template_action_with_vars_expressions(
             action="testing.test_vars",
             args={"url": "https://custom.example.com", "custom_timeout": 60},
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_template_action_vars_with_inputs"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )
@@ -928,12 +933,13 @@ async def test_template_action_with_vars_expressions(
             action="testing.test_vars",
             args={"url": "https://another.example.com"},
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_template_action_vars_partial"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )
@@ -1027,12 +1033,13 @@ async def test_template_action_with_multi_level_fallback_chain(
             action="testing.test_fallback_chain",
             args={"url": "http://input-url.com"},
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_fallback_chain_input"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )
@@ -1048,12 +1055,13 @@ async def test_template_action_with_multi_level_fallback_chain(
             action="testing.test_fallback_chain",
             args={},  # No input provided
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_fallback_chain_vars"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )
@@ -1074,12 +1082,13 @@ async def test_template_action_with_multi_level_fallback_chain(
             action="testing.test_fallback_chain",
             args={},  # No input provided
         ),
-        exec_context={},
+        exec_context=create_default_execution_context(),
         run_context=RunContext(
             wf_id=TEST_WF_ID,
             wf_exec_id=generate_test_exec_id("test_fallback_chain_default"),
             wf_run_id=uuid.uuid4(),
             environment="default",
+            logical_time=datetime.now(UTC),
         ),
         registry_lock=registry_lock,
     )

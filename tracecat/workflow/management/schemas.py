@@ -151,6 +151,7 @@ class ResolveRegistryLockActivityInputs(BaseModel):
 
 class ResolveWorkflowAliasActivityInputs(BaseModel):
     workflow_alias: str
+    """Possibly a templated expression"""
     role: Role
     use_committed: bool = True
     """Use committed WorkflowDefinition alias (True) or draft Workflow alias (False)."""

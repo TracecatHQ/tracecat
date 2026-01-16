@@ -1619,6 +1619,10 @@ export type Code = {
 
 export type lang = "yaml" | "python"
 
+export type CollectionObject = {
+  [key: string]: unknown
+}
+
 /**
  * Payload to continue a CE run after collecting approvals.
  */
@@ -1806,6 +1810,20 @@ export type DSLEntrypoint = {
 }
 
 /**
+ * DSL Environment context. Has metadata about the workflow.
+ */
+export type DSLEnvironment = {
+  workflow?: {
+    [key: string]: unknown
+  }
+  environment?: string
+  variables?: {
+    [key: string]: unknown
+  }
+  registry_version?: string
+}
+
+/**
  * DSL definition for a workflow.
  *
  * The difference between this and a normal workflow engine is that here,
@@ -1836,7 +1854,7 @@ export type DSLRunArgs = {
   role: Role
   dsl?: DSLInput | null
   wf_id: string
-  trigger_inputs?: unknown | null
+  trigger_inputs?: InlineObject | ExternalObject | CollectionObject | null
   parent_run_context?: RunContext | null
   /**
    * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
@@ -2050,6 +2068,29 @@ export type EventGroup_TypeVar_ = {
 }
 
 /**
+ * Workflow execution context with typed fields.
+ *
+ * ACTIONS and TRIGGER are always present. Other fields are optional since
+ * contexts may be built incrementally during workflow execution.
+ */
+export type ExecutionContext = {
+  ACTIONS: {
+    [key: string]: TaskResult
+  }
+  TRIGGER: InlineObject | ExternalObject | CollectionObject | null
+  ENV?: DSLEnvironment
+  SECRETS?: {
+    [key: string]: unknown
+  }
+  VARS?: {
+    [key: string]: unknown
+  }
+  var?: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * Execution type for a workflow execution.
  *
  * Distinguishes between draft (development) and published (production) executions.
@@ -2061,20 +2102,6 @@ export type ExpectedField = {
   description?: string | null
   default?: unknown | null
 }
-
-/**
- * Expression contexts.
- */
-export type ExprContext =
-  | "ACTIONS"
-  | "SECRETS"
-  | "VARS"
-  | "FN"
-  | "ENV"
-  | "TRIGGER"
-  | "var"
-  | "inputs"
-  | "steps"
 
 export type ExprType =
   | "generic"
@@ -2114,6 +2141,10 @@ export type ExpressionValidationResponse = {
   is_valid: boolean
   errors?: Array<ValidationError>
   tokens?: Array<SyntaxToken>
+}
+
+export type ExternalObject = {
+  [key: string]: unknown
 }
 
 /**
@@ -2446,6 +2477,10 @@ export type InferredColumn = {
    * Inferred SQL type for the column
    */
   field_type: SqlType
+}
+
+export type InlineObject = {
+  [key: string]: unknown
 }
 
 export type Integer = {
@@ -3628,9 +3663,7 @@ export type service_id =
  */
 export type RunActionInput = {
   task: ActionStatement
-  exec_context: {
-    [key: string]: unknown
-  }
+  exec_context: ExecutionContext
   run_context: RunContext
   interaction_context?: InteractionContext | null
   stream_id?: string
@@ -3646,6 +3679,7 @@ export type RunContext = {
   wf_exec_id: string
   wf_run_id: string
   environment: string
+  logical_time: string
 }
 
 /**
@@ -4341,6 +4375,24 @@ export type TaskPriorityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Result of executing a DSL node.
+ *
+ * With uniform envelope design, `result` is always a StoredObject:
+ * - InlineObject when data is small or externalization is disabled
+ * - ExternalObject when data is large and externalization is enabled
+ */
+export type TaskResult = {
+  result: InlineObject | ExternalObject | CollectionObject
+  result_typename: string
+  error?: unknown | null
+  error_typename?: string | null
+  interaction?: unknown | null
+  interaction_id?: string | null
+  interaction_type?: string | null
+  collection_index?: number | null
 }
 
 /**

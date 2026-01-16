@@ -41,6 +41,7 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import StoredObject, get_object_storage
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -103,7 +104,7 @@ class WorkflowExecutionsService:
 
     def handle(
         self, wf_exec_id: WorkflowExecutionID
-    ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
+    ) -> WorkflowHandle[DSLWorkflow, StoredObject]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
 
     async def _resolve_execution_timeout(
@@ -843,6 +844,14 @@ class WorkflowExecutionsService:
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 
+        # Storing the trigger inputs as a StoredObject
+        trigger_inputs_ref: StoredObject | None = None
+        if trigger_inputs is not None:
+            storage = get_object_storage()
+            trigger_inputs_ref = await storage.store(
+                f"{wf_exec_id}/trigger.json", trigger_inputs
+            )
+
         logger.info(
             f"Executing DSL workflow: {dsl.title}",
             role=self.role,
@@ -852,6 +861,7 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             execution_type=execution_type,
             registry_lock=registry_lock,
+            stored_type=trigger_inputs_ref.type if trigger_inputs_ref else "<none>",
         )
 
         pairs = [trigger_type.to_temporal_search_attr_pair()]
@@ -875,7 +885,7 @@ class WorkflowExecutionsService:
                     dsl=dsl,
                     role=self.role,
                     wf_id=wf_id,
-                    trigger_inputs=trigger_inputs,
+                    trigger_inputs=trigger_inputs_ref,
                     execution_type=execution_type,
                     time_anchor=time_anchor,
                     registry_lock=registry_lock,
