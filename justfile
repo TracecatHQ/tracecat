@@ -50,12 +50,12 @@ build:
 lint-ui:
 	pnpm -C frontend lint:fix
 lint-app:
-	ruff check
+	uv run ruff check
 
 lint-fix-ui:
 	pnpm -C frontend check
 lint-fix-app:
-	ruff check . --fix && ruff format .
+	uv run ruff check . --fix && uv run ruff format .
 
 lint: lint-ui lint-app
 lint-fix: lint-fix-ui lint-fix-app
