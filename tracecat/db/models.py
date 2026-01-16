@@ -273,6 +273,10 @@ class Workspace(OrganizationModel):
     """A workspace belonging to an organization."""
 
     __tablename__ = "workspace"
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="RESTRICT"),
+    )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
@@ -450,7 +454,7 @@ class BaseSecret(Base):
 
 class OrganizationSecret(OrganizationModel, BaseSecret):
     __tablename__ = "organization_secret"
-    __table_args__ = (UniqueConstraint("name", "environment"),)
+    __table_args__ = (UniqueConstraint("organization_id", "name", "environment"),)
 
 
 class PlatformSecret(PlatformModel, BaseSecret):
@@ -1003,7 +1007,6 @@ class BaseRegistryRepository(Base):
     origin: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        unique=True,
         doc=(
             "Tells you where the template action was created from. Can use this to "
             "track the hierarchy of templates."
@@ -1023,6 +1026,7 @@ class RegistryRepository(OrganizationModel, BaseRegistryRepository):
     """A repository of templates and actions."""
 
     __tablename__ = "registry_repository"
+    __table_args__ = (UniqueConstraint("organization_id", "origin"),)
 
     actions: Mapped[list[RegistryAction]] = relationship(
         "RegistryAction",
@@ -1041,6 +1045,7 @@ class PlatformRegistryRepository(PlatformModel, BaseRegistryRepository):
     """A platform-owned repository of templates and actions."""
 
     __tablename__ = "platform_registry_repository"
+    __table_args__ = (UniqueConstraint("origin"),)
 
     actions: Mapped[list[PlatformRegistryAction]] = relationship(
         "PlatformRegistryAction",
@@ -1115,9 +1120,7 @@ class RegistryAction(OrganizationModel, BaseRegistryAction):
     """A registry action."""
 
     __tablename__ = "registry_action"
-    __table_args__ = (
-        UniqueConstraint("namespace", "name", name="uq_registry_action_namespace_name"),
-    )
+    __table_args__ = (UniqueConstraint("organization_id", "namespace", "name"),)
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("registry_repository.id", ondelete="CASCADE"),
@@ -1310,6 +1313,7 @@ class OrganizationSetting(OrganizationModel):
     """An organization setting."""
 
     __tablename__ = "organization_settings"
+    __table_args__ = (UniqueConstraint("organization_id", "key"),)
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,
@@ -1320,7 +1324,6 @@ class OrganizationSetting(OrganizationModel):
     key: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        unique=True,
         index=True,
         doc="A unique key that identifies the setting",
     )
