@@ -61,10 +61,10 @@ from tracecat.storage import blob
 # =============================================================================
 
 # MinIO test configuration - uses docker-compose services (port 9000)
-# These match the docker-compose.local.yml configuration
+# These match the default MinIO credentials used by docker-compose.*
 MINIO_ENDPOINT = "localhost:9000"
-AWS_ACCESS_KEY_ID = "minio"
-AWS_SECRET_ACCESS_KEY = "password"
+AWS_ACCESS_KEY_ID = "minioadmin"
+AWS_SECRET_ACCESS_KEY = "minioadmin"
 TEST_BUCKET = "test-tracecat-registry"
 
 
