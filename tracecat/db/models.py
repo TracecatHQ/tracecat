@@ -1031,7 +1031,6 @@ class RegistryRepository(OrganizationModel, BaseRegistryRepository):
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("registry_version.id", ondelete="SET NULL"),
-        nullable=True,
         doc="The active registry version for this repository.",
     )
     actions: Mapped[list[RegistryAction]] = relationship(
@@ -1062,7 +1061,6 @@ class PlatformRegistryRepository(PlatformModel, BaseRegistryRepository):
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("platform_registry_version.id", ondelete="SET NULL"),
-        nullable=True,
         doc="The active platform registry version for this repository.",
     )
     actions: Mapped[list[PlatformRegistryAction]] = relationship(
