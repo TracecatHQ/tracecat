@@ -15,6 +15,7 @@ from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.models import OrganizationSetting
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
@@ -337,7 +338,6 @@ async def get_setting(
     return no_default_val
 
 
-@alru_cache(ttl=30)
 async def get_setting_cached(
     key: str,
     *,
@@ -346,6 +346,8 @@ async def get_setting_cached(
     default: Any | None = None,
 ) -> Any | None:
     """Cached version of get_setting function.
+
+    Cache is keyed by (key, organization_id) to prevent cross-tenant data leakage.
 
     Args:
         key: The setting key to retrieve
@@ -356,8 +358,26 @@ async def get_setting_cached(
     Returns:
         The setting value or None if not found
     """
-    logger.debug("Cache miss", key=key)
-    sess = session or ctx_session.get(None)
+    # Resolve organization_id BEFORE cache lookup to ensure proper tenant isolation
+    resolved_role = role or ctx_role.get()
+    organization_id = resolved_role.organization_id if resolved_role else None
+
+    return await _get_setting_cached_by_org(key, organization_id, default)
+
+
+@alru_cache(ttl=30)
+async def _get_setting_cached_by_org(
+    key: str,
+    organization_id: OrganizationID | None,
+    default: Any | None = None,
+) -> Any | None:
+    """Internal cached implementation keyed by (key, organization_id).
+
+    This ensures different organizations have isolated cache entries.
+    """
+    logger.debug("Cache miss", key=key, organization_id=organization_id)
+    role = ctx_role.get()
+    sess = ctx_session.get(None)
     return await get_setting(key, role=role, session=sess, default=default)
 
 
