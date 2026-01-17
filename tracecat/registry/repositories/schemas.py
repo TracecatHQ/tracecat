@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime
 
-from pydantic import UUID4, BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.constants import GIT_SSH_URL_REGEX
@@ -15,18 +16,20 @@ from tracecat.registry.constants import (
 
 
 class RegistryRepositoryRead(BaseModel):
-    id: UUID4
+    id: uuid.UUID
     origin: str
     last_synced_at: datetime | None
     commit_sha: str | None
+    current_version_id: uuid.UUID | None = None
     actions: list[RegistryActionRead]
 
 
 class RegistryRepositoryReadMinimal(BaseModel):
-    id: UUID4
+    id: uuid.UUID
     origin: str
     last_synced_at: datetime | None
     commit_sha: str | None
+    current_version_id: uuid.UUID | None = None
 
 
 class RegistryRepositoryCreate(BaseModel):
@@ -137,3 +140,13 @@ class RegistryRepositoryErrorDetail(BaseModel):
     origin: str
     message: str
     errors: dict[str, list[RegistryActionValidationErrorInfo]]
+
+
+class RegistryVersionPromoteResponse(BaseModel):
+    """Response model for version promotion."""
+
+    repository_id: uuid.UUID
+    origin: str
+    previous_version_id: uuid.UUID | None
+    current_version_id: uuid.UUID
+    version: str

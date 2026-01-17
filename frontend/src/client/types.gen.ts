@@ -3540,6 +3540,7 @@ export type RegistryRepositoryRead = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+  current_version_id?: string | null
   actions: Array<RegistryActionRead>
 }
 
@@ -3548,6 +3549,7 @@ export type RegistryRepositoryReadMinimal = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+  current_version_id?: string | null
 }
 
 /**
@@ -3604,6 +3606,17 @@ export type RegistrySyncResponse = {
   success: boolean
   synced_at: string
   repositories: Array<RepositorySyncResult>
+}
+
+/**
+ * Response model for version promotion.
+ */
+export type RegistryVersionPromoteResponse = {
+  repository_id: string
+  origin: string
+  previous_version_id: string | null
+  current_version_id: string
+  version: string
 }
 
 /**
@@ -6661,6 +6674,14 @@ export type RegistryRepositoriesListRepositoryCommitsData = {
 export type RegistryRepositoriesListRepositoryCommitsResponse =
   Array<GitCommitInfo>
 
+export type RegistryRepositoriesPromoteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type RegistryRepositoriesPromoteRegistryVersionResponse =
+  RegistryVersionPromoteResponse
+
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
 
@@ -9508,6 +9529,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/versions/{version_id}/promote": {
+    post: {
+      req: RegistryRepositoriesPromoteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryVersionPromoteResponse
         /**
          * Validation Error
          */

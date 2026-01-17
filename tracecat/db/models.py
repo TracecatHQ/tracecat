@@ -1028,6 +1028,11 @@ class RegistryRepository(OrganizationModel, BaseRegistryRepository):
     __tablename__ = "registry_repository"
     __table_args__ = (UniqueConstraint("organization_id", "origin"),)
 
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("registry_version.id", ondelete="SET NULL"),
+        doc="The active registry version for this repository.",
+    )
     actions: Mapped[list[RegistryAction]] = relationship(
         "RegistryAction",
         back_populates="repository",
@@ -1038,6 +1043,12 @@ class RegistryRepository(OrganizationModel, BaseRegistryRepository):
         "RegistryVersion",
         back_populates="repository",
         cascade="all, delete",
+        foreign_keys="[RegistryVersion.repository_id]",
+    )
+    current_version: Mapped[RegistryVersion | None] = relationship(
+        "RegistryVersion",
+        foreign_keys=[current_version_id],
+        uselist=False,
     )
 
 
@@ -1047,6 +1058,11 @@ class PlatformRegistryRepository(PlatformModel, BaseRegistryRepository):
     __tablename__ = "platform_registry_repository"
     __table_args__ = (UniqueConstraint("origin"),)
 
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("platform_registry_version.id", ondelete="SET NULL"),
+        doc="The active platform registry version for this repository.",
+    )
     actions: Mapped[list[PlatformRegistryAction]] = relationship(
         "PlatformRegistryAction",
         back_populates="repository",
@@ -1057,6 +1073,12 @@ class PlatformRegistryRepository(PlatformModel, BaseRegistryRepository):
         "PlatformRegistryVersion",
         back_populates="repository",
         cascade="all, delete",
+        foreign_keys="[PlatformRegistryVersion.repository_id]",
+    )
+    current_version: Mapped[PlatformRegistryVersion | None] = relationship(
+        "PlatformRegistryVersion",
+        foreign_keys=[current_version_id],
+        uselist=False,
     )
 
 
@@ -1187,7 +1209,10 @@ class RegistryVersion(OrganizationModel, BaseRegistryVersion):
         nullable=False,
     )
 
-    repository: Mapped[RegistryRepository] = relationship(back_populates="versions")
+    repository: Mapped[RegistryRepository] = relationship(
+        back_populates="versions",
+        foreign_keys=[repository_id],
+    )
     index_entries: Mapped[list[RegistryIndex]] = relationship(
         "RegistryIndex",
         back_populates="registry_version",
@@ -1211,7 +1236,8 @@ class PlatformRegistryVersion(PlatformModel, BaseRegistryVersion):
     )
 
     repository: Mapped[PlatformRegistryRepository] = relationship(
-        back_populates="versions"
+        back_populates="versions",
+        foreign_keys=[repository_id],
     )
     index_entries: Mapped[list[PlatformRegistryIndex]] = relationship(
         "PlatformRegistryIndex",

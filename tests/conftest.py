@@ -540,6 +540,11 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                 rv.manifest = manifest
                 rv.tarball_uri = "s3://test/test.tar.gz"
                 session.commit()
+
+            # Set current_version_id on the repository for lock resolution
+            repo.current_version_id = rv.id
+            session.commit()
+
             logger.info(
                 "Created registry version with manifest",
                 extra={

@@ -10591,7 +10591,7 @@ export const $RegistryRepositoryRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     origin: {
@@ -10620,6 +10620,18 @@ export const $RegistryRepositoryRead = {
         },
       ],
       title: "Commit Sha",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
     actions: {
       items: {
@@ -10638,7 +10650,7 @@ export const $RegistryRepositoryReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     origin: {
@@ -10667,6 +10679,18 @@ export const $RegistryRepositoryReadMinimal = {
         },
       ],
       title: "Commit Sha",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
   },
   type: "object",
@@ -10889,6 +10913,51 @@ export const $RegistrySyncResponse = {
   required: ["success", "synced_at", "repositories"],
   title: "RegistrySyncResponse",
   description: "Response from sync operation.",
+} as const
+
+export const $RegistryVersionPromoteResponse = {
+  properties: {
+    repository_id: {
+      type: "string",
+      format: "uuid",
+      title: "Repository Id",
+    },
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    previous_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Previous Version Id",
+    },
+    current_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Current Version Id",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+  },
+  type: "object",
+  required: [
+    "repository_id",
+    "origin",
+    "previous_version_id",
+    "current_version_id",
+    "version",
+  ],
+  title: "RegistryVersionPromoteResponse",
+  description: "Response model for version promotion.",
 } as const
 
 export const $RegistryVersionRead = {
