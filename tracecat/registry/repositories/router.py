@@ -1,7 +1,7 @@
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
@@ -76,7 +76,7 @@ async def sync_registry_repository(
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
-    repository_id: UUID4,
+    repository_id: uuid.UUID,
     sync_params: RegistryRepositorySync | None = None,
 ) -> None:
     """Load actions from a specific registry repository.
@@ -236,7 +236,7 @@ async def get_registry_repository(
         require_workspace="no",
     ),
     session: AsyncDBSession,
-    repository_id: UUID4,
+    repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:
     """Get a specific registry repository by origin."""
     service = RegistryReposService(session, role)
@@ -270,7 +270,7 @@ async def list_repository_commits(
         require_workspace="no",
     ),
     session: AsyncDBSession,
-    repository_id: UUID4,
+    repository_id: uuid.UUID,
     branch: str = "main",
     limit: int = 10,
 ) -> list[GitCommitInfo]:
@@ -403,7 +403,7 @@ async def update_registry_repository(
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
-    repository_id: UUID4,
+    repository_id: uuid.UUID,
     params: RegistryRepositoryUpdate,
 ) -> RegistryRepositoryRead:
     """Update an existing registry repository."""
@@ -440,7 +440,7 @@ async def delete_registry_repository(
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
-    repository_id: UUID4,
+    repository_id: uuid.UUID,
 ):
     """Delete a registry repository."""
     service = RegistryReposService(session, role)
@@ -474,8 +474,8 @@ async def promote_registry_version(
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
-    repository_id: UUID4,
-    version_id: UUID4,
+    repository_id: uuid.UUID,
+    version_id: uuid.UUID,
 ) -> RegistryVersionPromoteResponse:
     """Promote a specific version to be the current version of the repository.
 
