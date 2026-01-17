@@ -17,5 +17,15 @@
       "Bash(git show:*)",
       "Bash(git log:*)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "*.github.com"
+      ]
+    }
   }
 }
