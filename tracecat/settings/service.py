@@ -341,26 +341,23 @@ async def get_setting(
 async def get_setting_cached(
     key: str,
     *,
-    role: Role | None = None,
-    session: AsyncSession | None = None,
     default: Any | None = None,
 ) -> Any | None:
     """Cached version of get_setting function.
 
     Cache is keyed by (key, organization_id) to prevent cross-tenant data leakage.
+    Uses context role and session - use get_setting() for explicit role/session control.
 
     Args:
         key: The setting key to retrieve
-        role: Optional role to use for permissions check
-        session: Optional database session to use
         default: Optional default value if setting not found. Must be hashable.
 
     Returns:
         The setting value or None if not found
     """
-    # Resolve organization_id BEFORE cache lookup to ensure proper tenant isolation
-    resolved_role = role or ctx_role.get()
-    organization_id = resolved_role.organization_id if resolved_role else None
+    # Resolve organization_id from context for cache key
+    role = ctx_role.get()
+    organization_id = role.organization_id if role else None
 
     return await _get_setting_cached_by_org(key, organization_id, default)
 
