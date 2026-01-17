@@ -20,13 +20,20 @@ import type {
   AdminCreateOrganizationResponse,
   AdminDeleteOrganizationData,
   AdminDeleteOrganizationResponse,
+  AdminDemoteFromSuperuserData,
+  AdminDemoteFromSuperuserResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetRegistryStatusResponse,
+  AdminGetUserData,
+  AdminGetUserResponse,
   AdminListOrganizationsResponse,
   AdminListRegistryVersionsData,
   AdminListRegistryVersionsResponse,
+  AdminListUsersResponse,
+  AdminPromoteToSuperuserData,
+  AdminPromoteToSuperuserResponse,
   AdminSyncAllRepositoriesResponse,
   AdminSyncRepositoryData,
   AdminSyncRepositoryResponse,
@@ -3737,6 +3744,88 @@ export const adminUpdateRegistrySettings = (
     url: "/admin/settings/registry",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Users
+ * List all users.
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminListUsers = (): CancelablePromise<AdminListUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/users",
+  })
+}
+
+/**
+ * Get User
+ * Get user by ID.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetUser = (
+  data: AdminGetUserData
+): CancelablePromise<AdminGetUserResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/users/{user_id}",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Promote To Superuser
+ * Promote a user to superuser status.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminPromoteToSuperuser = (
+  data: AdminPromoteToSuperuserData
+): CancelablePromise<AdminPromoteToSuperuserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/users/{user_id}/promote",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Demote From Superuser
+ * Remove superuser status from a user.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminDemoteFromSuperuser = (
+  data: AdminDemoteFromSuperuserData
+): CancelablePromise<AdminDemoteFromSuperuserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/users/{user_id}/demote",
+    path: {
+      user_id: data.userId,
+    },
     errors: {
       422: "Validation Error",
     },

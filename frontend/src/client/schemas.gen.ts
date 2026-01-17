@@ -785,6 +785,87 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AdminUserRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    is_superuser: {
+      type: "boolean",
+      title: "Is Superuser",
+    },
+    is_verified: {
+      type: "boolean",
+      title: "Is Verified",
+    },
+    last_login_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Login At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "email",
+    "role",
+    "is_active",
+    "is_superuser",
+    "is_verified",
+    "created_at",
+  ],
+  title: "AdminUserRead",
+  description: "Admin view of a user.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
