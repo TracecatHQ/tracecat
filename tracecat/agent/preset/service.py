@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from collections.abc import Sequence
 from typing import cast
@@ -11,6 +10,7 @@ from typing import cast
 from slugify import slugify
 from sqlalchemy import func, select
 
+from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.audit.logger import audit_log
@@ -208,12 +208,11 @@ class AgentPresetService(BaseWorkspaceService):
         }
 
         # Get encryption key for decrypting custom credentials
-        try:
-            encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-        except KeyError as err:
+        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
+        if not encryption_key:
             raise TracecatValidationError(
                 "TRACECAT__DB_ENCRYPTION_KEY is not set, cannot resolve MCP integrations"
-            ) from err
+            )
 
         # Collect all matching integrations in preset order
         mcp_servers = []

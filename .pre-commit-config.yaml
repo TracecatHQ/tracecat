@@ -14,6 +14,7 @@ repos:
       - id: check-yaml
         args:
           - --unsafe
+        exclude: ^deployments/helm/.*/templates/
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracecat.fullname" . }}-api
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "tracecat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api

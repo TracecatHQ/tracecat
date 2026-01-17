@@ -1,0 +1,11 @@
+{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA .Values.externalPostgres.tls.caCert }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracecat.fullname" . }}-postgres-ca
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+data:
+  ca-bundle.pem: |
+{{ .Values.externalPostgres.tls.caCert | indent 4 }}
+{{- end }}

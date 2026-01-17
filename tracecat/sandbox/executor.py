@@ -211,6 +211,11 @@ class NsjailExecutor:
         lines.extend(
             [
                 "",
+                "# DNS/host resolution - mount container resolver config",
+                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
+                "",
                 "# /dev essentials",
                 'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',
                 'mount { src: "/dev/urandom" dst: "/dev/urandom" is_bind: true rw: false }',
@@ -621,8 +626,10 @@ class NsjailExecutor:
         lines.extend(
             [
                 "",
-                "# DNS resolution - mount host's resolv.conf for Docker DNS",
+                "# DNS/host resolution - mount container resolver config",
                 'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
                 "",
                 "# /dev essentials",
                 'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',

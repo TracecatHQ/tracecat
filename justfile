@@ -13,7 +13,7 @@ bench *args:
 		--cap-add SYS_ADMIN \
 		--security-opt seccomp=unconfined \
 		--env-file .env \
-		-e REDIS_HOST=redis \
+		-e REDIS_URL=redis://redis:6379 \
 		-e TRACECAT__BLOB_STORAGE_ENDPOINT=http://minio:9000 \
 		-e TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres \
 		-v "$(pwd)/tests:/app/tests:ro" \

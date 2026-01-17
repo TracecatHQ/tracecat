@@ -1,6 +1,5 @@
 """Tracecat HTTP clients."""
 
-import os
 from typing import Any
 
 import httpx
@@ -28,12 +27,12 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         self.role = role or ctx_role.get(
             Role(type="service", service_id="tracecat-service")
         )
-        try:
-            self.headers["x-tracecat-service-key"] = os.environ["TRACECAT__SERVICE_KEY"]
-        except KeyError as e:
+        service_key = config.TRACECAT__SERVICE_KEY
+        if not service_key:
             raise TracecatCredentialsError(
                 "TRACECAT__SERVICE_KEY environment variable not set"
-            ) from e
+            )
+        self.headers["x-tracecat-service-key"] = service_key
         self.headers.update(self.role.to_headers())
 
 

@@ -14,6 +14,7 @@ on:
       - Dockerfile
       - docker-compose.yml
       - docker-compose.dev.yml
+      - docker-compose.local.yml
       - .github/workflows/test-python.yml
   pull_request:
     branches: ["main", "staging"]
@@ -28,6 +29,7 @@ on:
       - Dockerfile
       - docker-compose.yml
       - docker-compose.dev.yml
+      - docker-compose.local.yml
       - .github/workflows/test-python.yml
   workflow_dispatch:
     inputs:

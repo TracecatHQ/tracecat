@@ -1,0 +1,320 @@
+# Core secrets (REQUIRED)
+secrets:
+  # Name of existing Kubernetes Secret containing:
+  # - dbEncryptionKey: URL-safe base64 key for DB encryption
+  # - serviceKey: Service-to-service auth key (hex)
+  # - signingSecret: Webhook signing secret (hex)
+  # - userAuthSecret: Password reset/email verification token secret (hex)
+  existingSecret: ""
+
+  # (Optional) Name of existing Kubernetes Secret for OAuth containing:
+  # - oauthClientId: Google OAuth client ID
+  # - oauthClientSecret: Google OAuth client secret
+  oauthSecret: ""
+
+# External Secrets Operator integration (optional)
+# When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
+externalSecrets:
+  enabled: false
+  refreshInterval: "1h"
+
+  # Reference to an existing ClusterSecretStore (recommended for AWS with IRSA)
+  clusterSecretStoreRef: ""
+
+  # Core Tracecat secrets (REQUIRED when enabled)
+  # Expected JSON: { "dbEncryptionKey": "...", "serviceKey": "...", "signingSecret": "...", "userAuthSecret": "..." }
+  coreSecrets:
+    enabled: true
+    secretArn: ""
+    targetSecretName: "tracecat-secrets"
+
+  # OAuth secrets (optional)
+  # Expected JSON: { "oauthClientId": "...", "oauthClientSecret": "..." }
+  oauthSecrets:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-oauth-secrets"
+
+  # PostgreSQL credentials for externalPostgres
+  # Expected JSON: { "username": "...", "password": "..." }
+  postgres:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-postgres-credentials"
+
+  # Redis URL for externalRedis
+  # Expected: raw Redis URL string (rediss://:password@host:port for TLS)
+  redis:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-redis-credentials"
+
+  # Temporal Cloud API key for externalTemporal
+  # Expected: raw API key string
+  temporal:
+    enabled: false
+    secretArn: ""
+    targetSecretName: "tracecat-temporal-credentials"
+
+# Service account for Tracecat workloads (api/worker/executor)
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Backend image configuration
+image:
+  repository: ghcr.io/tracecathq/tracecat
+  pullPolicy: IfNotPresent
+  # tag: "" # Defaults to Chart.AppVersion
+
+# Frontend image configuration
+uiImage:
+  repository: ghcr.io/tracecathq/tracecat-ui
+  pullPolicy: IfNotPresent
+  # tag: "" # Defaults to Chart.AppVersion
+
+securityContext:
+  fsGroup: 1001
+  runAsUser: 1001
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  host: tracecat.example.com
+  tls: []
+
+urls:
+  publicApp: ""
+  publicApi: ""
+  # Only used to rewrite presigned URLs (defaults to /s3 when minio is enabled).
+  publicS3: ""
+
+tracecat:
+  appEnv: production
+  logLevel: "INFO"
+  allowOrigins: ""
+  sentryDsn: ""
+  # Core feature flags (comma-separated).
+  # Required for registry v2 + sandboxed execution.
+  featureFlags: "registry-sync-v2,registry-client"
+
+  sandbox:
+    disableNsjail: false
+
+  blobStorage:
+    # Optional override for S3-compatible endpoints (leave empty for AWS S3).
+    endpoint: ""
+    buckets:
+      # Defaults to tracecat-attachments if unset.
+      attachments: ""
+      # Defaults to tracecat-registry if unset.
+      registry: ""
+
+  saml:
+    enabled: false
+    idpMetadataUrl: ""
+    allowUnsolicited: "false"
+    acceptedTimeDiff: ""
+    authnRequestsSigned: "false"
+    signedAssertions: "true"
+    signedResponses: "true"
+    verifySslEntity: "true"
+    verifySslMetadata: "true"
+    caCerts: ""
+    metadataCert: ""
+
+  auth:
+    types: "basic,saml"
+    allowedDomains: ""
+    superadminEmail: ""
+
+  temporal:
+    # Search attributes to create in Temporal (name: type)
+    # Types: Keyword, Text, Int, Double, Bool, Datetime, KeywordList
+    searchAttributes:
+      TracecatTriggerType: Keyword
+      TracecatTriggeredByUserId: Keyword
+      TracecatWorkspaceId: Keyword
+      TracecatAlias: Keyword
+      TracecatExecutionType: Keyword
+
+enterprise:
+  # Enterprise-only feature flags (comma-separated).
+  # These are appended to tracecat.featureFlags.
+  featureFlags: ""
+
+ui:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+api:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+worker:
+  replicas: 4
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
+executor:
+  replicas: 2
+  # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
+  backend: "auto"
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  queue: "shared-action-queue"
+  workerPoolSize: ""
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
+# CloudNativePG cluster subchart configuration (aliased as postgres)
+postgres:
+  enabled: true
+  fullnameOverride: tracecat-postgres
+  cluster:
+    instances: 1
+    # Bootstrap Temporal databases for local installs (runs only on initial cluster creation).
+    initdb:
+      postInitSQL:
+        - CREATE DATABASE temporal OWNER app;
+        - CREATE DATABASE temporal_visibility OWNER app;
+
+# Valkey subchart configuration (aliased as redis)
+redis:
+  enabled: true
+  fullnameOverride: tracecat-valkey
+  dataStorage:
+    enabled: true
+    size: 5Gi
+
+minio:
+  enabled: true
+  fullnameOverride: tracecat-minio
+  mode: standalone
+  primary:
+    enabled: true
+  resources:
+    requests:
+      memory: 256Mi
+  auth:
+    existingSecret: null
+
+temporal:
+  enabled: true
+  server:
+    config:
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        numHistoryShards: 1024
+        datastores:
+          default:
+            sql:
+              pluginName: postgres12
+              databaseName: temporal
+              connectAddr: tracecat-postgres-rw:5432
+              connectProtocol: tcp
+              user: app
+              password: ""
+              existingSecret: tracecat-postgres-app
+              secretKey: password
+              createDatabase: false
+              manageSchema: true
+              maxConns: 20
+              maxIdleConns: 20
+          visibility:
+            sql:
+              pluginName: postgres12
+              databaseName: temporal_visibility
+              connectAddr: tracecat-postgres-rw:5432
+              connectProtocol: tcp
+              user: app
+              password: ""
+              existingSecret: tracecat-postgres-app
+              secretKey: password
+              createDatabase: false
+              manageSchema: true
+              maxConns: 20
+              maxIdleConns: 20
+      # Namespace configuration (must be under server.config, not server)
+      namespaces:
+        create: true
+        namespace:
+          - name: default
+            retention: 720h
+
+externalPostgres:
+  enabled: false
+  host: "example-db.example.com"
+  port: 5432
+  database: tracecat
+  sslMode: "prefer"
+  auth:
+    # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
+    existingSecret: null  # Contains `username` and `password`.
+    # Username to use with secretArn (if omitted, the ARN secret must include `username`).
+    username: ""
+    # SecretString should be JSON with `password` (and optional `username`) or a raw password when username is set.
+    secretArn: null
+  tls:
+    # Enable TLS certificate verification (requires caCert to be set)
+    verifyCA: false
+    # CA certificate for verifying the database server certificate (PEM format)
+    # For AWS RDS, use the RDS CA bundle from https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+    caCert: ""
+    # Or reference an existing ConfigMap containing the CA certificate
+    existingConfigMap: ""
+    configMapKey: "ca-bundle.pem"
+
+externalRedis:
+  enabled: false
+  auth:
+    # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
+    existingSecret: null  # Contains `url` (raw string)
+    # SecretString should be the raw Redis URL.
+    secretArn: null
+
+externalS3:
+  enabled: false
+  endpoint: ""
+  region: ""
+  auth:
+    existingSecret: null  # Contains `accessKeyId` and `secretAccessKey` (optional for IRSA/IAM roles).
+
+externalTemporal:
+  enabled: false
+  clusterUrl: ""
+  clusterQueue: ""
+  clusterNamespace: ""
+  auth:
+    existingSecret: null  # Contains `apiKey` (raw string)
+    # SecretString should be the raw API key.
+    secretArn: null

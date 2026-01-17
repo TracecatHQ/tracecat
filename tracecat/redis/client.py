@@ -1,11 +1,13 @@
 """Redis client with connection pooling and retry logic for streaming."""
 
 import asyncio
-import os
+import base64
 from collections.abc import Awaitable
 from typing import Any
 
+import boto3
 import redis.asyncio as redis
+from botocore.exceptions import ClientError
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import RedisError
 from redis.typing import KeyT, StreamIdT
@@ -16,8 +18,35 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.config import REDIS_CHAT_TTL_SECONDS
+from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+
+
+def _resolve_redis_url() -> str:
+    if not REDIS_URL__ARN:
+        return REDIS_URL
+
+    logger.info("Retrieving Redis URL from AWS Secrets Manager...")
+    try:
+        session = boto3.session.Session()
+        client = session.client(service_name="secretsmanager")
+        response = client.get_secret_value(SecretId=REDIS_URL__ARN)
+    except ClientError as e:
+        logger.error(
+            "Error retrieving Redis URL from AWS secrets manager.",
+            error=e,
+        )
+        raise
+
+    secret_string = response.get("SecretString")
+    if not secret_string and response.get("SecretBinary"):
+        secret_string = base64.b64decode(response["SecretBinary"]).decode("utf-8")
+
+    if not secret_string:
+        raise RuntimeError("Redis secret is empty")
+
+    logger.info("Successfully retrieved Redis URL from AWS Secrets Manager")
+    return secret_string
 
 
 class RedisClient:
@@ -41,13 +70,9 @@ class RedisClient:
     def _init_pool(self) -> None:
         """Ensure the Redis connection pool is initialized."""
         if RedisClient._pool is None:
-            # Get Redis URL from environment
-            redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-            logger.info("Initializing Redis connection pool", url=redis_url)
-
             # Create connection pool
             RedisClient._pool = redis.from_url(
-                redis_url,
+                _resolve_redis_url(),
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
@@ -248,7 +273,7 @@ class RedisClient:
 
     async def _reset_connection(self) -> None:
         """Reset the Redis client and pool so the next attempt reinitializes them."""
-        logger.warning("Resetting Redis connection after transport error")
+        logger.error("Resetting Redis connection after transport error")
         await self.close()
         # Re-initialize the pool for subsequent calls
         self._init_pool()

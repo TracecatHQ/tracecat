@@ -63,7 +63,7 @@ echo -e "${YELLOW}Generating new service key and signing secret...${NC}"
 
 service_key=$(openssl rand -hex 32)
 signing_secret=$(openssl rand -hex 32)
-
+user_auth_secret=$(openssl rand -hex 32)
 
 echo -e "${YELLOW}Generating a Fernet encryption key for the database...${NC}"
 
@@ -77,7 +77,7 @@ cp .env.example .env
 dotenv_replace "TRACECAT__SERVICE_KEY" "$service_key" "$env_file"
 dotenv_replace "TRACECAT__SIGNING_SECRET" "$signing_secret" "$env_file"
 dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
-
+dotenv_replace "USER_AUTH_SECRET" "$user_auth_secret" "$env_file"
 
 # Prompt user for environment mode
 while true; do
