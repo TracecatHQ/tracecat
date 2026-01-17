@@ -202,6 +202,22 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+/**
+ * Admin view of a user.
+ */
+export type AdminUserRead = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+  role: UserRole
+  is_active: boolean
+  is_superuser: boolean
+  is_verified: boolean
+  last_login_at?: string | null
+  created_at: string
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -6603,6 +6619,26 @@ export type AdminUpdateRegistrySettingsData = {
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
 
+export type AdminListUsersResponse = Array<AdminUserRead>
+
+export type AdminGetUserData = {
+  userId: string
+}
+
+export type AdminGetUserResponse = AdminUserRead
+
+export type AdminPromoteToSuperuserData = {
+  userId: string
+}
+
+export type AdminPromoteToSuperuserResponse = AdminUserRead
+
+export type AdminDemoteFromSuperuserData = {
+  userId: string
+}
+
+export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -9362,6 +9398,61 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PlatformRegistrySettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AdminUserRead>
+      }
+    }
+  }
+  "/admin/users/{user_id}": {
+    get: {
+      req: AdminGetUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/promote": {
+    post: {
+      req: AdminPromoteToSuperuserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/demote": {
+    post: {
+      req: AdminDemoteFromSuperuserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminUserRead
         /**
          * Validation Error
          */

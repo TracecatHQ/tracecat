@@ -72,13 +72,17 @@ def get_role_from_user(
     workspace_role: WorkspaceRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
+    # Superusers always get ADMIN access level
+    access_level = (
+        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
+    )
     return Role(
         type="user",
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
-        access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
+        access_level=access_level,
         workspace_role=workspace_role,
     )
 
@@ -554,7 +558,7 @@ async def _require_superuser(
     if not user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Superuser access required",
+            detail="Forbidden",
         )
     role = Role(
         type="user",
