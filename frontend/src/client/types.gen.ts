@@ -341,6 +341,7 @@ export type AgentSessionCreate = {
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
+ * - APPROVAL: Inbox approval continuation (hidden from main chat list)
  */
 export type AgentSessionEntity =
   | "case"
@@ -348,6 +349,17 @@ export type AgentSessionEntity =
   | "agent_preset_builder"
   | "copilot"
   | "workflow"
+  | "approval"
+
+/**
+ * Request schema for forking an agent session.
+ */
+export type AgentSessionForkRequest = {
+  /**
+   * Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.
+   */
+  entity_type?: AgentSessionEntity | null
+}
 
 /**
  * Response schema for agent session.
@@ -363,6 +375,7 @@ export type AgentSessionRead = {
   agent_preset_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -381,6 +394,7 @@ export type AgentSessionReadVercel = {
   agent_preset_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -403,6 +417,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -6576,9 +6591,17 @@ export type AgentSessionsListSessionsData = {
    */
   entityType?: AgentSessionEntity | null
   /**
+   * Entity types to exclude from results
+   */
+  excludeEntityTypes?: Array<AgentSessionEntity> | null
+  /**
    * Maximum number of sessions to return
    */
   limit?: number
+  /**
+   * Filter by parent session ID (for finding forked sessions)
+   */
+  parentSessionId?: string | null
   workspaceId: string
 }
 
@@ -6637,6 +6660,14 @@ export type AgentSessionsStreamSessionEventsData = {
 }
 
 export type AgentSessionsStreamSessionEventsResponse = unknown
+
+export type AgentSessionsForkSessionData = {
+  requestBody?: AgentSessionForkRequest | null
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsForkSessionResponse = AgentSessionRead
 
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
@@ -9323,6 +9354,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/fork": {
+    post: {
+      req: AgentSessionsForkSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionRead
         /**
          * Validation Error
          */
