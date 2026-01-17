@@ -5158,6 +5158,12 @@ export type WorkflowDefinitionReadMinimal = {
   created_at: string
 }
 
+export type WorkflowRelationRead = {
+  id: string
+  title?: string | null
+  alias?: string | null
+}
+
 export type WorkflowDirectoryItem = {
   id: string
   title: string
@@ -5172,6 +5178,8 @@ export type WorkflowDirectoryItem = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+  parents?: Array<WorkflowRelationRead> | null
+  subflows?: Array<WorkflowRelationRead> | null
   type: "workflow"
 }
 
