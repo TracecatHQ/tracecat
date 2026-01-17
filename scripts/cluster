@@ -463,7 +463,7 @@ fi
 if [[ "$COMMAND" == "up" ]]; then
     echo "Syncing dependencies..."
     (cd "$REPO_ROOT" && uv sync --quiet)
-    (cd "$REPO_ROOT" && pnpm -C frontend install --silent)
+    (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
 # Run docker compose with the configured environment
