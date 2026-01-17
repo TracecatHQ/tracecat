@@ -131,15 +131,32 @@ async def configure_bucket_lifecycle(
     Args:
         bucket: Bucket name
         expiration_days: Number of days after which objects expire.
-            If <= 0, no lifecycle rule is configured.
+            If <= 0, any existing lifecycle rule is removed.
         rule_id: Identifier for the lifecycle rule.
     """
     if expiration_days <= 0:
-        logger.debug(
-            "Skipping lifecycle configuration (expiration disabled)",
-            bucket=bucket,
-            expiration_days=expiration_days,
-        )
+        # Remove existing lifecycle rule if present
+        async with get_storage_client() as s3_client:
+            try:
+                await s3_client.delete_bucket_lifecycle(Bucket=bucket)
+                logger.info(
+                    "Removed bucket lifecycle configuration",
+                    bucket=bucket,
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code == "NoSuchLifecycleConfiguration":
+                    logger.debug(
+                        "No lifecycle configuration to remove",
+                        bucket=bucket,
+                    )
+                else:
+                    logger.error(
+                        "Failed to remove bucket lifecycle configuration",
+                        bucket=bucket,
+                        error=str(e),
+                    )
+                    raise
         return
 
     async with get_storage_client() as s3_client:
