@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling >= 1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracecat-admin"
+description = "CLI tool for Tracecat platform operators"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0"
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Systems Administration",
+    "Environment :: Console",
+]
+dependencies = [
+    "typer[all]>=0.12.0",
+    "httpx>=0.28.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+bootstrap = [
+    "tracecat",
+]
+dev = [
+    "pytest>=8.0.0",
+    "respx>=0.22.0",
+]
+
+[project.scripts]
+tracecat = "tracecat_admin.cli:app"
+
+[project.urls]
+Homepage = "https://tracecat.com"
+Documentation = "https://docs.tracecat.com/"
+Repository = "https://github.com/TracecatHQ/tracecat"
+
+[tool.hatch.version]
+path = "tracecat_admin/__init__.py"
