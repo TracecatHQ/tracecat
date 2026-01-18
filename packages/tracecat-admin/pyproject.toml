@@ -20,10 +20,11 @@ classifiers = [
     "Environment :: Console",
 ]
 dependencies = [
-    "typer>=0.12.0",
-    "httpx>=0.28.0",
-    "rich>=13.0.0",
-    "pydantic>=2.0.0",
+    "typer==0.21.1",
+    "httpx==0.28.1",
+    "rich==13.9.4",
+    "pydantic==2.12.5",
+    "email-validator==2.2.0",
 ]
 dynamic = ["version"]
 

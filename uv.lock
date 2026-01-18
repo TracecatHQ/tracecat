@@ -4882,6 +4882,7 @@ dev = [
 name = "tracecat-admin"
 source = { editable = "packages/tracecat-admin" }
 dependencies = [
+    { name = "email-validator" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "rich" },
@@ -4899,13 +4900,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "email-validator", specifier = "==2.2.0" },
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "pydantic", specifier = "==2.12.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22.0" },
-    { name = "rich", specifier = ">=13.0.0" },
+    { name = "rich", specifier = "==13.9.4" },
     { name = "tracecat", marker = "extra == 'bootstrap'", editable = "." },
-    { name = "typer", specifier = ">=0.12.0" },
+    { name = "typer", specifier = "==0.21.1" },
 ]
 provides-extras = ["bootstrap", "dev"]
 

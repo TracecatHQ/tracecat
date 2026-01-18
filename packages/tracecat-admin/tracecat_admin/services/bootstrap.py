@@ -67,11 +67,11 @@ async def create_superuser(
             )
             user = await get_or_create_user(user_create, exist_ok=False)
 
-            # Update user role to ADMIN
+            # Update user role to ADMIN (use admin_update to bypass ctx_role check)
             async with get_user_db_context(session) as user_db:
                 async with get_user_manager_context(user_db) as user_manager:
                     user_update = UserUpdate(role=UserRole.ADMIN)
-                    user = await user_manager.update(user_update, user, safe=False)
+                    user = await user_manager.admin_update(user_update, user)
 
             return CreateSuperuserResult(
                 email=user.email,

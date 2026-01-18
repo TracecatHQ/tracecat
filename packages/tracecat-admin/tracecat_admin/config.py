@@ -15,6 +15,7 @@ CONFIG_PATH = Path.home() / ".tracecat_admin.json"
 def save_cookies(cookies: httpx.Cookies) -> None:
     """Save cookies to the config file."""
     CONFIG_PATH.write_text(json.dumps({"cookies": dict(cookies)}))
+    CONFIG_PATH.chmod(0o600)  # Restrict to owner read/write only
 
 
 def load_cookies() -> httpx.Cookies:
