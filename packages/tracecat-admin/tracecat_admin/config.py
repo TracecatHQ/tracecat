@@ -2,8 +2,33 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+import httpx
+
+CONFIG_PATH = Path.home() / ".tracecat_admin.json"
+
+
+def save_cookies(cookies: httpx.Cookies) -> None:
+    """Save cookies to the config file."""
+    CONFIG_PATH.write_text(json.dumps({"cookies": dict(cookies)}))
+
+
+def load_cookies() -> httpx.Cookies:
+    """Load cookies from the config file."""
+    try:
+        data = json.loads(CONFIG_PATH.read_text())
+        return httpx.Cookies(data.get("cookies", {}))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return httpx.Cookies()
+
+
+def clear_cookies() -> None:
+    """Clear saved cookies."""
+    CONFIG_PATH.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)

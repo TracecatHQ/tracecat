@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import EmailStr
-
-from tracecat.auth.schemas import UserCreate, UserRole
-from tracecat.auth.users import get_or_create_user, lookup_user_by_email
+from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
+from tracecat.auth.users import (
+    get_or_create_user,
+    get_user_db_context,
+    get_user_manager_context,
+    lookup_user_by_email,
+)
 from tracecat.db.engine import get_async_session_context_manager
 
 
@@ -55,15 +58,20 @@ async def create_superuser(
             if existing:
                 raise ValueError(f"User with email '{email}' already exists")
 
-            # Create the user
+            # Create the user (role defaults to BASIC)
             user_create = UserCreate(
-                email=EmailStr(email),
+                email=email,
                 password=password,
                 is_superuser=True,
                 is_verified=True,
-                role=UserRole.ADMIN,
             )
             user = await get_or_create_user(user_create, exist_ok=False)
+
+            # Update user role to ADMIN
+            async with get_user_db_context(session) as user_db:
+                async with get_user_manager_context(user_db) as user_manager:
+                    user_update = UserUpdate(role=UserRole.ADMIN)
+                    user = await user_manager.update(user_update, user, safe=False)
 
             return CreateSuperuserResult(
                 email=user.email,

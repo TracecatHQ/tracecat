@@ -92,6 +92,8 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 
 [tool.uv.sources]
+tracecat = { workspace = true }
+tracecat-admin = { workspace = true }
 tracecat-registry = { workspace = true }
 tracecat-ee = { workspace = true }
 
@@ -116,6 +118,9 @@ override-dependencies = [
 ]
 
 [dependency-groups]
+admin = [
+    "tracecat-admin",
+]
 dev = [
     "mypy==1.15.0",
     "pre-commit==4.1.0",

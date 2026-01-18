@@ -66,6 +66,11 @@ async def demote_from_superuser(
     user_id: uuid.UUID,
 ) -> AdminUserRead:
     """Remove superuser status from a user."""
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot demote user without authenticated user context",
+        )
     service = AdminUserService(session, role=role)
     try:
         return await service.demote_superuser(user_id, current_user_id=role.user_id)

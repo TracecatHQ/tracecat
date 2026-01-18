@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import cast
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Mapped
 
 from tracecat.db.models import User
 from tracecat.service import BaseService
@@ -18,13 +20,13 @@ class AdminUserService(BaseService):
 
     async def list_users(self) -> Sequence[AdminUserRead]:
         """List all users."""
-        stmt = select(User).order_by(User.created_at.desc())
+        stmt = select(User).order_by(cast(Mapped[str], User.email).asc())
         result = await self.session.execute(stmt)
         return AdminUserRead.list_adapter().validate_python(result.scalars().all())
 
     async def get_user(self, user_id: uuid.UUID) -> AdminUserRead:
         """Get user by ID."""
-        stmt = select(User).where(User.id == user_id)
+        stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
@@ -33,7 +35,7 @@ class AdminUserService(BaseService):
 
     async def promote_superuser(self, user_id: uuid.UUID) -> AdminUserRead:
         """Promote a user to superuser."""
-        stmt = select(User).where(User.id == user_id)
+        stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
@@ -55,7 +57,7 @@ class AdminUserService(BaseService):
         if user_id == current_user_id:
             raise ValueError("Cannot demote yourself")
 
-        stmt = select(User).where(User.id == user_id)
+        stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
@@ -66,7 +68,9 @@ class AdminUserService(BaseService):
 
         # Safety: cannot demote last superuser
         count_stmt = (
-            select(func.count()).select_from(User).where(User.is_superuser == True)  # noqa: E712
+            select(func.count())
+            .select_from(User)
+            .where(cast(Mapped[bool], User.is_superuser) == True)  # noqa: E712
         )
         count_result = await self.session.execute(count_stmt)
         superuser_count = count_result.scalar_one()

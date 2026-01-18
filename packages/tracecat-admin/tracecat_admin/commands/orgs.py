@@ -111,3 +111,81 @@ async def get_org(
     except AdminClientError as e:
         print_error(str(e))
         raise typer.Exit(1) from None
+
+
+@app.command("update")
+@async_command
+async def update_org(
+    org_id: Annotated[str, typer.Argument(help="Organization ID (UUID)")],
+    name: Annotated[
+        str | None, typer.Option("--name", "-n", help="New organization name")
+    ] = None,
+    slug: Annotated[
+        str | None,
+        typer.Option(
+            "--slug",
+            "-s",
+            help="New organization slug (lowercase alphanumeric with hyphens)",
+        ),
+    ] = None,
+    active: Annotated[
+        bool | None,
+        typer.Option("--active/--inactive", help="Set organization active status"),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help="Output as JSON")
+    ] = False,
+) -> None:
+    """Update an organization."""
+    if name is None and slug is None and active is None:
+        print_error(
+            "At least one of --name, --slug, or --active/--inactive is required"
+        )
+        raise typer.Exit(1)
+
+    try:
+        async with AdminClient() as client:
+            org = await client.update_organization(
+                org_id, name=name, slug=slug, is_active=active
+            )
+
+        if json_output:
+            import json
+
+            typer.echo(json.dumps(org.model_dump(mode="json"), indent=2))
+        else:
+            print_success(f"Organization '{org.name}' updated successfully")
+            print_org_detail(org)
+    except AdminClientError as e:
+        print_error(str(e))
+        raise typer.Exit(1) from None
+
+
+@app.command("delete")
+@async_command
+async def delete_org(
+    org_id: Annotated[str, typer.Argument(help="Organization ID (UUID)")],
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Skip confirmation prompt"),
+    ] = False,
+) -> None:
+    """Delete an organization."""
+    try:
+        async with AdminClient() as client:
+            # Get org details for confirmation
+            org = await client.get_organization(org_id)
+
+            if not force:
+                confirm = typer.confirm(
+                    f"Are you sure you want to delete organization '{org.name}' ({org.slug})?"
+                )
+                if not confirm:
+                    typer.echo("Aborted.")
+                    raise typer.Exit(0)
+
+            await client.delete_organization(org_id)
+            print_success(f"Organization '{org.name}' deleted successfully")
+    except AdminClientError as e:
+        print_error(str(e))
+        raise typer.Exit(1) from None

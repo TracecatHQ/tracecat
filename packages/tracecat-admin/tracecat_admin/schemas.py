@@ -20,7 +20,7 @@ class UserRead(BaseModel):
     is_superuser: bool
     is_verified: bool
     last_login_at: datetime | None = None
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 class OrgRead(BaseModel):
@@ -80,3 +80,11 @@ class RegistryVersionRead(BaseModel):
     commit_sha: str | None
     tarball_uri: str | None
     created_at: datetime
+
+
+class RegistrySettingsRead(BaseModel):
+    """Platform registry settings."""
+
+    git_repo_url: str | None = None
+    git_repo_package_name: str | None = None
+    git_allowed_domains: set[str] | None = None

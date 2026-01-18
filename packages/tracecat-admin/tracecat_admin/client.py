@@ -7,9 +7,10 @@ from typing import Any
 
 import httpx
 
-from tracecat_admin.config import Config, get_config
+from tracecat_admin.config import Config, get_config, load_cookies
 from tracecat_admin.schemas import (
     OrgRead,
+    RegistrySettingsRead,
     RegistryStatusResponse,
     RegistrySyncResponse,
     RegistryVersionRead,
@@ -40,20 +41,31 @@ class AdminClient:
         return self._config
 
     async def __aenter__(self) -> AdminClient:
-        if not self._config.service_key:
-            raise AdminClientError(
-                "TRACECAT__SERVICE_KEY environment variable is required for API operations"
+        # Prefer cookie auth over service key
+        cookies = load_cookies()
+        if cookies:
+            self._client = httpx.AsyncClient(
+                base_url=self._config.api_url,
+                cookies=cookies,
+                headers={"Content-Type": "application/json"},
+                timeout=30.0,
             )
-        self._client = httpx.AsyncClient(
-            base_url=self._config.api_url,
-            headers={
-                "x-tracecat-service-key": self._config.service_key,
-                "x-tracecat-role-service-id": "tracecat-admin-cli",
-                "x-tracecat-role-access-level": "ADMIN",
-                "Content-Type": "application/json",
-            },
-            timeout=30.0,
-        )
+        elif self._config.service_key:
+            # Fall back to service key auth
+            self._client = httpx.AsyncClient(
+                base_url=self._config.api_url,
+                headers={
+                    "x-tracecat-service-key": self._config.service_key,
+                    "x-tracecat-role-service-id": "tracecat-admin-cli",
+                    "x-tracecat-role-access-level": "ADMIN",
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
+        else:
+            raise AdminClientError(
+                "Not authenticated. Run 'tracecat auth login' or set TRACECAT__SERVICE_KEY"
+            )
         return self
 
     async def __aexit__(
@@ -132,6 +144,30 @@ class AdminClient:
         response = await self._request("GET", f"/admin/organizations/{org_id}")
         return OrgRead.model_validate(response.json())
 
+    async def update_organization(
+        self,
+        org_id: str,
+        name: str | None = None,
+        slug: str | None = None,
+        is_active: bool | None = None,
+    ) -> OrgRead:
+        """Update an organization."""
+        data: dict[str, Any] = {}
+        if name is not None:
+            data["name"] = name
+        if slug is not None:
+            data["slug"] = slug
+        if is_active is not None:
+            data["is_active"] = is_active
+        response = await self._request(
+            "PATCH", f"/admin/organizations/{org_id}", json=data
+        )
+        return OrgRead.model_validate(response.json())
+
+    async def delete_organization(self, org_id: str) -> None:
+        """Delete an organization."""
+        await self._request("DELETE", f"/admin/organizations/{org_id}")
+
     # Registry endpoints
     async def sync_registry(
         self, repository_id: str | None = None
@@ -158,3 +194,26 @@ class AdminClient:
             params["repository_id"] = repository_id
         response = await self._request("GET", "/admin/registry/versions", params=params)
         return [RegistryVersionRead.model_validate(v) for v in response.json()]
+
+    # Settings endpoints
+    async def get_registry_settings(self) -> RegistrySettingsRead:
+        """Get platform registry settings."""
+        response = await self._request("GET", "/admin/settings/registry")
+        return RegistrySettingsRead.model_validate(response.json())
+
+    async def update_registry_settings(
+        self,
+        git_repo_url: str | None = None,
+        git_repo_package_name: str | None = None,
+        git_allowed_domains: set[str] | None = None,
+    ) -> RegistrySettingsRead:
+        """Update platform registry settings."""
+        data: dict[str, Any] = {}
+        if git_repo_url is not None:
+            data["git_repo_url"] = git_repo_url
+        if git_repo_package_name is not None:
+            data["git_repo_package_name"] = git_repo_package_name
+        if git_allowed_domains is not None:
+            data["git_allowed_domains"] = list(git_allowed_domains)
+        response = await self._request("PATCH", "/admin/settings/registry", json=data)
+        return RegistrySettingsRead.model_validate(response.json())

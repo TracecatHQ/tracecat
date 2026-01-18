@@ -846,22 +846,9 @@ export const $AdminUserRead = {
       ],
       title: "Last Login At",
     },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
   },
   type: "object",
-  required: [
-    "id",
-    "email",
-    "role",
-    "is_active",
-    "is_superuser",
-    "is_verified",
-    "created_at",
-  ],
+  required: ["id", "email", "role", "is_active", "is_superuser", "is_verified"],
   title: "AdminUserRead",
   description: "Admin view of a user.",
 } as const

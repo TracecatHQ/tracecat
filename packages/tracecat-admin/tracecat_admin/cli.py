@@ -10,7 +10,7 @@ from typing import Any
 import typer
 
 from tracecat_admin import __version__
-from tracecat_admin.commands import admin, migrate, orgs, registry
+from tracecat_admin.commands import admin, auth, migrate, orgs, registry, settings
 
 app = typer.Typer(
     name="tracecat",
@@ -50,9 +50,11 @@ def main(
 
 
 # Register command groups
+app.add_typer(auth.app, name="auth", help="Authentication commands.")
 app.add_typer(admin.app, name="admin", help="User and superuser management commands.")
 app.add_typer(orgs.app, name="orgs", help="Organization management commands.")
 app.add_typer(registry.app, name="registry", help="Registry management commands.")
+app.add_typer(settings.app, name="settings", help="Platform settings commands.")
 app.add_typer(migrate.app, name="migrate", help="Database migration commands.")
 
 
