@@ -21,4 +21,3 @@ class AdminUserRead(Schema):
     is_superuser: bool
     is_verified: bool
     last_login_at: datetime | None = None
-    created_at: datetime

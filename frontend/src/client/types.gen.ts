@@ -215,7 +215,6 @@ export type AdminUserRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at?: string | null
-  created_at: string
 }
 
 export type AgentOutput = {
