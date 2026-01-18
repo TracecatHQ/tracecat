@@ -10,12 +10,14 @@ import pytest
 from botocore.exceptions import ClientError
 
 from tracecat.storage.blob import (
+    configure_bucket_lifecycle,
     delete_file,
     download_file,
     download_file_to_path,
     ensure_bucket_exists,
     generate_presigned_download_url,
     generate_presigned_upload_url,
+    get_bucket_lifecycle,
     get_storage_client,
     open_download_stream,
     upload_file,
@@ -621,3 +623,187 @@ class TestEdgeCases:
 
         with pytest.raises(ClientError):
             await ensure_bucket_exists("bucket")
+
+
+class TestBucketLifecycle:
+    """Test bucket lifecycle configuration operations."""
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_get_bucket_lifecycle_returns_config(self, mock_get_client):
+        """Test get_bucket_lifecycle returns config when it exists."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        expected_config = {
+            "Rules": [
+                {
+                    "ID": "test-rule",
+                    "Status": "Enabled",
+                    "Filter": {"Prefix": ""},
+                    "Expiration": {"Days": 30},
+                }
+            ]
+        }
+        mock_client.get_bucket_lifecycle_configuration.return_value = expected_config
+
+        result = await get_bucket_lifecycle("test-bucket")
+
+        assert result == expected_config
+        mock_client.get_bucket_lifecycle_configuration.assert_called_once_with(
+            Bucket="test-bucket"
+        )
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_get_bucket_lifecycle_returns_none_when_not_configured(
+        self, mock_get_client
+    ):
+        """Test get_bucket_lifecycle returns None when no lifecycle exists."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_client.get_bucket_lifecycle_configuration.side_effect = ClientError(
+            error_response={"Error": {"Code": "NoSuchLifecycleConfiguration"}},
+            operation_name="get_bucket_lifecycle_configuration",
+        )
+
+        result = await get_bucket_lifecycle("test-bucket")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_get_bucket_lifecycle_propagates_other_errors(self, mock_get_client):
+        """Test get_bucket_lifecycle propagates non-lifecycle errors."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_client.get_bucket_lifecycle_configuration.side_effect = ClientError(
+            error_response={"Error": {"Code": "AccessDenied"}},
+            operation_name="get_bucket_lifecycle_configuration",
+        )
+
+        with pytest.raises(ClientError):
+            await get_bucket_lifecycle("test-bucket")
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_sets_expiration(self, mock_get_client):
+        """Test configure_bucket_lifecycle sets lifecycle rules correctly."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        await configure_bucket_lifecycle(
+            bucket="test-bucket",
+            expiration_days=30,
+            rule_id="test-expiration",
+        )
+
+        mock_client.put_bucket_lifecycle_configuration.assert_called_once()
+        call_kwargs = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs
+        assert call_kwargs["Bucket"] == "test-bucket"
+        lifecycle_config = call_kwargs["LifecycleConfiguration"]
+        assert len(lifecycle_config["Rules"]) == 1
+        rule = lifecycle_config["Rules"][0]
+        assert rule["ID"] == "test-expiration"
+        assert rule["Status"] == "Enabled"
+        assert rule["Expiration"]["Days"] == 30
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_uses_default_rule_id(
+        self, mock_get_client
+    ):
+        """Test configure_bucket_lifecycle uses default rule ID."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=7)
+
+        call_kwargs = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs
+        rule = call_kwargs["LifecycleConfiguration"]["Rules"][0]
+        assert rule["ID"] == "workflow-artifact-expiration"
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_removes_rule_when_zero_days(
+        self, mock_get_client
+    ):
+        """Test configure_bucket_lifecycle removes existing rule when expiration_days is 0."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=0)
+
+        mock_client.delete_bucket_lifecycle.assert_called_once_with(
+            Bucket="test-bucket"
+        )
+        mock_client.put_bucket_lifecycle_configuration.assert_not_called()
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_removes_rule_when_negative_days(
+        self, mock_get_client
+    ):
+        """Test configure_bucket_lifecycle removes existing rule when expiration_days is negative."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=-1)
+
+        mock_client.delete_bucket_lifecycle.assert_called_once_with(
+            Bucket="test-bucket"
+        )
+        mock_client.put_bucket_lifecycle_configuration.assert_not_called()
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_handles_no_existing_rule(
+        self, mock_get_client
+    ):
+        """Test configure_bucket_lifecycle handles case when no lifecycle rule exists to remove."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_client.delete_bucket_lifecycle.side_effect = ClientError(
+            error_response={"Error": {"Code": "NoSuchLifecycleConfiguration"}},
+            operation_name="delete_bucket_lifecycle",
+        )
+
+        # Should not raise - gracefully handles missing lifecycle
+        await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=0)
+
+        mock_client.delete_bucket_lifecycle.assert_called_once()
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_delete_error_propagates(
+        self, mock_get_client
+    ):
+        """Test configure_bucket_lifecycle propagates errors during deletion."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_client.delete_bucket_lifecycle.side_effect = ClientError(
+            error_response={"Error": {"Code": "AccessDenied"}},
+            operation_name="delete_bucket_lifecycle",
+        )
+
+        with pytest.raises(ClientError):
+            await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=0)
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_configure_bucket_lifecycle_error_propagates(self, mock_get_client):
+        """Test configure_bucket_lifecycle propagates errors."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_client.put_bucket_lifecycle_configuration.side_effect = ClientError(
+            error_response={"Error": {"Code": "AccessDenied"}},
+            operation_name="put_bucket_lifecycle_configuration",
+        )
+
+        with pytest.raises(ClientError):
+            await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=30)
