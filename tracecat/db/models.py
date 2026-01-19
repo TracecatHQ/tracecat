@@ -2033,9 +2033,22 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Last processed Redis stream ID - used to resume streaming from correct position",
     )
+    # Parent session for forked sessions (approval continuations)
+    parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+        doc="Parent session ID for forked sessions (e.g., approval continuations)",
+    )
 
     # Relationships
     creator: Mapped[User | None] = relationship("User")
+    parent_session: Mapped[AgentSession | None] = relationship(
+        "AgentSession",
+        remote_side=[id],
+        foreign_keys=[parent_session_id],
+    )
     history: Mapped[list[AgentSessionHistory]] = relationship(
         "AgentSessionHistory",
         back_populates="session",
