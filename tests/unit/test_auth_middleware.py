@@ -6,8 +6,9 @@ from statistics import mean
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL, _role_dependency
@@ -15,7 +16,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
-from tracecat.db.models import Membership, User
+from tracecat.db.models import Membership, Organization, User, Workspace
 from tracecat.middleware import AuthorizationCacheMiddleware
 
 
@@ -530,6 +531,10 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
         {UserRole.ADMIN: AccessLevel.ADMIN},
     )
+    mocker.patch(
+        "tracecat.auth.credentials.MembershipService.list_user_memberships_with_org",
+        new=AsyncMock(return_value=[]),
+    )
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
@@ -553,3 +558,141 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     assert role.organization_id == config.TRACECAT__DEFAULT_ORG_ID
     assert role.workspace_id is None
     assert role.user_id == mock_user.id
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_role_dependency_infers_org_from_single_membership(
+    session: AsyncSession,
+):
+    org_id = uuid.uuid4()
+    org = Organization(
+        id=org_id,
+        name="Test Org",
+        slug=f"test-org-{org_id.hex[:8]}",
+        is_active=True,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4()}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+        role=UserRole.BASIC,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Test Workspace",
+        organization_id=org.id,
+    )
+    session.add_all([org, user, workspace])
+    await session.commit()
+
+    membership = Membership(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role=WorkspaceRole.EDITOR,
+    )
+    session.add(membership)
+    await session.commit()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    role = await _role_dependency(
+        request=request,
+        session=session,
+        workspace_id=None,
+        user=user,
+        api_key=None,
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=None,
+        require_workspace_roles=None,
+    )
+
+    assert role.organization_id == org.id
+    assert role.workspace_id is None
+    assert role.user_id == user.id
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_role_dependency_requires_workspace_for_multi_org(
+    session: AsyncSession,
+):
+    org_a_id = uuid.uuid4()
+    org_b_id = uuid.uuid4()
+    org_a = Organization(
+        id=org_a_id,
+        name="Org A",
+        slug=f"org-a-{org_a_id.hex[:8]}",
+        is_active=True,
+    )
+    org_b = Organization(
+        id=org_b_id,
+        name="Org B",
+        slug=f"org-b-{org_b_id.hex[:8]}",
+        is_active=True,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4()}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+        role=UserRole.BASIC,
+    )
+    workspace_a = Workspace(
+        id=uuid.uuid4(),
+        name="Workspace A",
+        organization_id=org_a.id,
+    )
+    workspace_b = Workspace(
+        id=uuid.uuid4(),
+        name="Workspace B",
+        organization_id=org_b.id,
+    )
+    session.add_all([org_a, org_b, user, workspace_a, workspace_b])
+    await session.commit()
+
+    memberships = [
+        Membership(
+            user_id=user.id,
+            workspace_id=workspace_a.id,
+            role=WorkspaceRole.EDITOR,
+        ),
+        Membership(
+            user_id=user.id,
+            workspace_id=workspace_b.id,
+            role=WorkspaceRole.EDITOR,
+        ),
+    ]
+    session.add_all(memberships)
+    await session.commit()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    with pytest.raises(HTTPException) as excinfo:
+        await _role_dependency(
+            request=request,
+            session=session,
+            workspace_id=None,
+            user=user,
+            api_key=None,
+            allow_user=True,
+            allow_service=False,
+            require_workspace="no",
+            min_access_level=None,
+            require_workspace_roles=None,
+        )
+
+    assert excinfo.value.status_code == status.HTTP_400_BAD_REQUEST

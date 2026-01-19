@@ -20,13 +20,20 @@ import type {
   AdminCreateOrganizationResponse,
   AdminDeleteOrganizationData,
   AdminDeleteOrganizationResponse,
+  AdminDemoteFromSuperuserData,
+  AdminDemoteFromSuperuserResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetRegistryStatusResponse,
+  AdminGetUserData,
+  AdminGetUserResponse,
   AdminListOrganizationsResponse,
   AdminListRegistryVersionsData,
   AdminListRegistryVersionsResponse,
+  AdminListUsersResponse,
+  AdminPromoteToSuperuserData,
+  AdminPromoteToSuperuserResponse,
   AdminSyncAllRepositoriesResponse,
   AdminSyncRepositoryData,
   AdminSyncRepositoryResponse,
@@ -289,6 +296,8 @@ import type {
   RegistryRepositoriesListRegistryRepositoriesResponse,
   RegistryRepositoriesListRepositoryCommitsData,
   RegistryRepositoriesListRepositoryCommitsResponse,
+  RegistryRepositoriesPromoteRegistryVersionData,
+  RegistryRepositoriesPromoteRegistryVersionResponse,
   RegistryRepositoriesReloadRegistryRepositoriesResponse,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoriesSyncRegistryRepositoryResponse,
@@ -3742,6 +3751,88 @@ export const adminUpdateRegistrySettings = (
 }
 
 /**
+ * List Users
+ * List all users.
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminListUsers = (): CancelablePromise<AdminListUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/users",
+  })
+}
+
+/**
+ * Get User
+ * Get user by ID.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetUser = (
+  data: AdminGetUserData
+): CancelablePromise<AdminGetUserResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/users/{user_id}",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Promote To Superuser
+ * Promote a user to superuser status.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminPromoteToSuperuser = (
+  data: AdminPromoteToSuperuserData
+): CancelablePromise<AdminPromoteToSuperuserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/users/{user_id}/promote",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Demote From Superuser
+ * Remove superuser status from a user.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminDemoteFromSuperuser = (
+  data: AdminDemoteFromSuperuserData
+): CancelablePromise<AdminDemoteFromSuperuserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/users/{user_id}/demote",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Functions
  * @param data The data for the request.
  * @param data.workspaceId
@@ -4010,6 +4101,45 @@ export const registryRepositoriesListRepositoryCommits = (
     query: {
       branch: data.branch,
       limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Promote Registry Version
+ * Promote a specific version to be the current version of the repository.
+ *
+ * This endpoint allows administrators to manually promote or rollback to a
+ * specific registry version, overriding the auto-promotion that happens during sync.
+ *
+ * Args:
+ * repository_id: The ID of the repository
+ * version_id: The ID of the version to promote
+ *
+ * Returns:
+ * RegistryVersionPromoteResponse with previous and current version info
+ *
+ * Raises:
+ * 404: If repository or version not found
+ * 400: If version doesn't belong to repository or has no tarball
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns RegistryVersionPromoteResponse Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesPromoteRegistryVersion = (
+  data: RegistryRepositoriesPromoteRegistryVersionData
+): CancelablePromise<RegistryRepositoriesPromoteRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/registry/repos/{repository_id}/versions/{version_id}/promote",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
     },
     errors: {
       422: "Validation Error",

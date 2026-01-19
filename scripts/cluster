@@ -199,6 +199,7 @@ Commands:
   ps            Show running containers
   logs [svc]    Show logs (optionally for specific service)
   attach <svc>  Attach to a running service container (e.g., attach api)
+  db            Open lazysql to the cluster's PostgreSQL database
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
 
@@ -209,6 +210,7 @@ Examples:
   ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
   ./cluster attach api           Attach shell to api service
+  ./cluster db                   Open lazysql to the database
   ./cluster list                 List all clusters
 
 Current worktree: ${WORKTREE_ID}
@@ -358,6 +360,31 @@ fi
 COMMAND="$1"
 shift
 
+# Handle 'db' command - open TablePlus to postgres (no cluster selection needed)
+if [[ "$COMMAND" == "db" ]]; then
+    if [[ ! -d "/Applications/TablePlus.app" ]]; then
+        echo "Error: TablePlus is not installed" >&2
+        echo "Install from: https://tableplus.com or brew install --cask tableplus" >&2
+        exit 1
+    fi
+
+    # Source .env for credentials if it exists
+    if [[ -f "$ENV_FILE" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$ENV_FILE"
+        set +a
+    fi
+
+    # Use env vars with sensible defaults
+    pg_port="${PG_PORT:-5432}"
+    pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
+    pg_pass="${TRACECAT__POSTGRES_PASSWORD:-postgres}"
+
+    open -a TablePlus "postgresql://${pg_user}:${pg_pass}@localhost:${pg_port}/postgres?sslmode=disable"
+    exit 0
+fi
+
 # Auto-select cluster number if not specified
 if [[ "$AUTO_SELECT" == "true" ]]; then
     if [[ "$COMMAND" == "up" ]]; then
@@ -375,6 +402,12 @@ COMPOSE_FILE=$(get_compose_file "$PROFILE")
 if [[ "$COMMAND" == "ports" ]]; then
     show_ports "$CLUSTER_NUM"
     exit 0
+fi
+
+# Handle 'db' command - open lazysql to postgres
+if [[ "$COMMAND" == "db" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    exec lazysql "postgres://postgres:postgres@localhost:${PG_PORT}/postgres"
 fi
 
 # Handle 'attach' command
@@ -430,7 +463,7 @@ fi
 if [[ "$COMMAND" == "up" ]]; then
     echo "Syncing dependencies..."
     (cd "$REPO_ROOT" && uv sync --quiet)
-    (cd "$REPO_ROOT" && pnpm -C frontend install --silent)
+    (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
 # Run docker compose with the configured environment

@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 class RepositoryProtocol(Protocol):
     id: Mapped[uuid.UUID]
     origin: Mapped[str]
+    current_version_id: Mapped[uuid.UUID | None]
 
 
 class VersionProtocol(Protocol):
@@ -231,6 +232,10 @@ class BaseRegistrySyncService[
             tarball_uri=artifacts.tarball_uri,
         )
 
+        # Auto-promote: set new version as current
+        db_repo.current_version_id = version.id
+        self.session.add(db_repo)
+
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 
         if commit:
@@ -274,7 +279,7 @@ class BaseRegistrySyncService[
         )
 
     def _get_storage_namespace(self) -> str:
-        return self._storage_namespace() or str(config.TRACECAT__DEFAULT_ORG_ID)
+        return self._storage_namespace() or str(self.organization_id)
 
     async def _build_and_upload_artifacts(
         self,
@@ -513,6 +518,10 @@ class BaseRegistrySyncService[
             version=target_version,
             tarball_uri=tarball_uri,
         )
+
+        # Auto-promote: set new version as current
+        db_repo.current_version_id = version.id
+        self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 

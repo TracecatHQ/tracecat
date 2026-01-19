@@ -785,6 +785,74 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AdminUserRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    is_superuser: {
+      type: "boolean",
+      title: "Is Superuser",
+    },
+    is_verified: {
+      type: "boolean",
+      title: "Is Verified",
+    },
+    last_login_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Login At",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "role", "is_active", "is_superuser", "is_verified"],
+  title: "AdminUserRead",
+  description: "Admin view of a user.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -10591,7 +10659,7 @@ export const $RegistryRepositoryRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     origin: {
@@ -10620,6 +10688,18 @@ export const $RegistryRepositoryRead = {
         },
       ],
       title: "Commit Sha",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
     actions: {
       items: {
@@ -10638,7 +10718,7 @@ export const $RegistryRepositoryReadMinimal = {
   properties: {
     id: {
       type: "string",
-      format: "uuid4",
+      format: "uuid",
       title: "Id",
     },
     origin: {
@@ -10667,6 +10747,18 @@ export const $RegistryRepositoryReadMinimal = {
         },
       ],
       title: "Commit Sha",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
   },
   type: "object",
@@ -10889,6 +10981,51 @@ export const $RegistrySyncResponse = {
   required: ["success", "synced_at", "repositories"],
   title: "RegistrySyncResponse",
   description: "Response from sync operation.",
+} as const
+
+export const $RegistryVersionPromoteResponse = {
+  properties: {
+    repository_id: {
+      type: "string",
+      format: "uuid",
+      title: "Repository Id",
+    },
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    previous_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Previous Version Id",
+    },
+    current_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Current Version Id",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+  },
+  type: "object",
+  required: [
+    "repository_id",
+    "origin",
+    "previous_version_id",
+    "current_version_id",
+    "version",
+  ],
+  title: "RegistryVersionPromoteResponse",
+  description: "Response model for version promotion.",
 } as const
 
 export const $RegistryVersionRead = {
@@ -17537,10 +17674,16 @@ export const $WorkspaceCreate = {
       ],
     },
     organization_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Organization Id",
-      default: "00000000-0000-0000-0000-000000000000",
     },
   },
   type: "object",

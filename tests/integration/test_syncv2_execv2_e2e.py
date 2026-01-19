@@ -757,7 +757,9 @@ class TestFailureScenarios:
         # Try to resolve non-existent version
         registry_lock = {"tracecat_registry": "nonexistent-version-12345"}
 
-        artifacts = await get_registry_artifacts_for_lock(registry_lock)
+        artifacts = await get_registry_artifacts_for_lock(
+            registry_lock, organization_id=test_role.organization_id
+        )
 
         # Should return empty list (version not found)
         assert len(artifacts) == 0

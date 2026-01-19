@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
@@ -281,7 +280,7 @@ class SecretsService(BaseService):
         """List all organization secrets."""
 
         stmt = select(OrganizationSecret).where(
-            OrganizationSecret.organization_id == config.TRACECAT__DEFAULT_ORG_ID
+            OrganizationSecret.organization_id == self.organization_id
         )
         if types:
             stmt = stmt.where(OrganizationSecret.type.in_(types))
@@ -292,7 +291,7 @@ class SecretsService(BaseService):
         """Get an organization secret by ID."""
 
         statement = select(OrganizationSecret).where(
-            OrganizationSecret.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            OrganizationSecret.organization_id == self.organization_id,
             OrganizationSecret.id == secret_id,
         )
         result = await self.session.execute(statement)
@@ -306,7 +305,7 @@ class SecretsService(BaseService):
         """Retrieve an organization-wide secret by its name."""
         environment = environment or DEFAULT_SECRETS_ENVIRONMENT
         statement = select(OrganizationSecret).where(
-            OrganizationSecret.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+            OrganizationSecret.organization_id == self.organization_id,
             OrganizationSecret.name == secret_name,
             OrganizationSecret.environment == environment,
         )
@@ -334,7 +333,7 @@ class SecretsService(BaseService):
         elif params.type == SecretType.CA_CERT:
             validate_ca_cert_values(params.keys)
         secret = OrganizationSecret(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=self.organization_id,
             name=params.name,
             type=params.type,
             description=params.description,

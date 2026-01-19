@@ -646,10 +646,10 @@ class TestMCPIntegrationWorkspaceIsolation:
         )
         mcp1 = await service1.create_mcp_integration(params=params1)
 
-        # Create workspace 2
+        # Create workspace 2 (using the same organization as workspace 1)
         workspace2 = Workspace(
             name="test-workspace-2",
-            organization_id=svc_role.user_id,
+            organization_id=svc_workspace.organization_id,
         )
         session.add(workspace2)
         await session.flush()
@@ -698,10 +698,10 @@ class TestMCPIntegrationWorkspaceIsolation:
             expires_in=3600,
         )
 
-        # Create workspace 2
+        # Create workspace 2 (using the same organization as workspace 1)
         workspace2 = Workspace(
             name="test-workspace-2",
-            organization_id=svc_role.user_id,
+            organization_id=svc_workspace.organization_id,
         )
         session.add(workspace2)
         await session.flush()

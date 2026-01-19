@@ -202,6 +202,21 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+/**
+ * Admin view of a user.
+ */
+export type AdminUserRead = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+  role: UserRole
+  is_active: boolean
+  is_superuser: boolean
+  is_verified: boolean
+  last_login_at?: string | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -3540,6 +3555,7 @@ export type RegistryRepositoryRead = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+  current_version_id?: string | null
   actions: Array<RegistryActionRead>
 }
 
@@ -3548,6 +3564,7 @@ export type RegistryRepositoryReadMinimal = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+  current_version_id?: string | null
 }
 
 /**
@@ -3604,6 +3621,17 @@ export type RegistrySyncResponse = {
   success: boolean
   synced_at: string
   repositories: Array<RepositorySyncResult>
+}
+
+/**
+ * Response model for version promotion.
+ */
+export type RegistryVersionPromoteResponse = {
+  repository_id: string
+  origin: string
+  previous_version_id: string | null
+  current_version_id: string
+  version: string
 }
 
 /**
@@ -5567,7 +5595,7 @@ export type WorkflowUpdate = {
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
-  organization_id?: string
+  organization_id?: string | null
 }
 
 export type WorkspaceMember = {
@@ -6590,6 +6618,26 @@ export type AdminUpdateRegistrySettingsData = {
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
 
+export type AdminListUsersResponse = Array<AdminUserRead>
+
+export type AdminGetUserData = {
+  userId: string
+}
+
+export type AdminGetUserResponse = AdminUserRead
+
+export type AdminPromoteToSuperuserData = {
+  userId: string
+}
+
+export type AdminPromoteToSuperuserResponse = AdminUserRead
+
+export type AdminDemoteFromSuperuserData = {
+  userId: string
+}
+
+export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -6660,6 +6708,14 @@ export type RegistryRepositoriesListRepositoryCommitsData = {
 
 export type RegistryRepositoriesListRepositoryCommitsResponse =
   Array<GitCommitInfo>
+
+export type RegistryRepositoriesPromoteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type RegistryRepositoriesPromoteRegistryVersionResponse =
+  RegistryVersionPromoteResponse
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -9348,6 +9404,61 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/users": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AdminUserRead>
+      }
+    }
+  }
+  "/admin/users/{user_id}": {
+    get: {
+      req: AdminGetUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/promote": {
+    post: {
+      req: AdminPromoteToSuperuserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/demote": {
+    post: {
+      req: AdminDemoteFromSuperuserData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/editor/functions": {
     get: {
       req: EditorListFunctionsData
@@ -9508,6 +9619,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/versions/{version_id}/promote": {
+    post: {
+      req: RegistryRepositoriesPromoteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryVersionPromoteResponse
         /**
          * Validation Error
          */

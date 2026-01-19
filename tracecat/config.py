@@ -46,6 +46,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
 TRACECAT__DEFAULT_ORG_ID = uuid.UUID(int=0)
+"""Deprecated: This config is being remove in favor of platform-scoped models."""
 
 # === DB Config === #
 TRACECAT__DB_URI = os.environ.get(
@@ -265,6 +266,16 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", "tracecat-workflow"
 )
 """Bucket for externalized workflow data (action results, triggers, etc.)."""
+
+TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = int(
+    os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS", 30)
+)
+"""Retention period in days for workflow artifacts in blob storage.
+
+Objects older than this will be automatically deleted via S3 lifecycle rules.
+Set to 0 to disable automatic expiration.
+Default: 30 days (matches Temporal Cloud workflow history retention).
+"""
 
 # === Result Externalization Config === #
 TRACECAT__RESULT_EXTERNALIZATION_ENABLED = os.environ.get(

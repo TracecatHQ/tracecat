@@ -10,7 +10,6 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat import config
 from tracecat.db.models import (
     PlatformRegistryIndex,
     PlatformRegistryVersion,
@@ -35,7 +34,11 @@ class RegistryVersionsService(BaseService):
         repository_id: UUID | None = None,
     ) -> Sequence[RegistryVersion]:
         """List all registry versions, optionally filtered by repository."""
-        statement = select(RegistryVersion).order_by(RegistryVersion.created_at.desc())
+        statement = (
+            select(RegistryVersion)
+            .where(RegistryVersion.organization_id == self.organization_id)
+            .order_by(RegistryVersion.created_at.desc())
+        )
         if repository_id:
             statement = statement.where(RegistryVersion.repository_id == repository_id)
         result = await self.session.execute(statement)
@@ -47,6 +50,7 @@ class RegistryVersionsService(BaseService):
             select(RegistryVersion)
             .options(selectinload(RegistryVersion.index_entries))
             .where(RegistryVersion.id == version_id)
+            .where(RegistryVersion.organization_id == self.organization_id)
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
@@ -61,6 +65,7 @@ class RegistryVersionsService(BaseService):
             select(RegistryVersion)
             .options(selectinload(RegistryVersion.index_entries))
             .where(
+                RegistryVersion.organization_id == self.organization_id,
                 RegistryVersion.repository_id == repository_id,
                 RegistryVersion.version == version,
             )
@@ -79,7 +84,7 @@ class RegistryVersionsService(BaseService):
         This creates an immutable snapshot of the registry at a point in time.
         """
         version = RegistryVersion(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=self.organization_id,
             repository_id=params.repository_id,
             version=params.version,
             commit_sha=params.commit_sha,
@@ -127,7 +132,7 @@ class RegistryVersionsService(BaseService):
 
         for _action_name, action_def in manifest.actions.items():
             index_entry = RegistryIndex(
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=version.organization_id,
                 registry_version_id=version.id,
                 namespace=action_def.namespace,
                 name=action_def.name,
@@ -165,7 +170,8 @@ class RegistryVersionsService(BaseService):
     ) -> Sequence[RegistryIndex]:
         """Get all index entries for a version."""
         statement = select(RegistryIndex).where(
-            RegistryIndex.registry_version_id == version_id
+            RegistryIndex.organization_id == self.organization_id,
+            RegistryIndex.registry_version_id == version_id,
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -178,7 +184,7 @@ class RegistryVersionsService(BaseService):
     ) -> RegistryIndex:
         """Create a single registry index entry."""
         index_entry = RegistryIndex(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=self.organization_id,
             registry_version_id=params.registry_version_id,
             namespace=params.namespace,
             name=params.name,

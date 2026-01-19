@@ -71,13 +71,17 @@ def get_role_from_user(
     workspace_role: WorkspaceRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
+    # Superusers always get ADMIN access level
+    access_level = (
+        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
+    )
     return Role(
         type="user",
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
-        access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
+        access_level=access_level,
         workspace_role=workspace_role,
     )
 
@@ -276,10 +280,21 @@ async def _role_dependency(
             workspace_role = membership_with_org.membership.role
             organization_id = membership_with_org.org_id
         else:
-            # Privileged user doesn't need workspace role verification
+            # No workspace specified; infer org from memberships when possible.
             workspace_role = None
-            # For privileged users, get organization_id from default or user's first workspace
             organization_id = config.TRACECAT__DEFAULT_ORG_ID
+            svc = MembershipService(session)
+            memberships_with_org = await svc.list_user_memberships_with_org(
+                user_id=user.id
+            )
+            org_ids = {m.org_id for m in memberships_with_org}
+            if len(org_ids) == 1:
+                organization_id = next(iter(org_ids))
+            elif len(org_ids) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Multiple organizations found. Provide workspace_id to select an organization.",
+                )
 
         role = get_role_from_user(
             user,
@@ -541,7 +556,7 @@ async def _require_superuser(
     if not user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Superuser access required",
+            detail="Forbidden",
         )
     role = Role(
         type="user",

@@ -9,13 +9,13 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.models import OrganizationSetting
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
@@ -113,7 +113,9 @@ class SettingsService(BaseService):
         Returns:
             Sequence[OrganizationSetting]: List of matching organization settings
         """
-        statement = select(OrganizationSetting)
+        statement = select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == self.organization_id
+        )
 
         if keys is not None:
             statement = statement.where(OrganizationSetting.key.in_(keys))
@@ -143,7 +145,10 @@ class SettingsService(BaseService):
             self.logger.debug("Blocked attempted access to private setting", key=key)
             return None
 
-        statement = select(OrganizationSetting).where(OrganizationSetting.key == key)
+        statement = select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == self.organization_id,
+            OrganizationSetting.key == key,
+        )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
@@ -160,7 +165,7 @@ class SettingsService(BaseService):
         else:
             value = value_bytes
         setting = OrganizationSetting(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=self.organization_id,
             key=params.key,
             value_type=params.value_type,
             value=value,
@@ -333,27 +338,43 @@ async def get_setting(
     return no_default_val
 
 
-@alru_cache(ttl=30)
 async def get_setting_cached(
     key: str,
     *,
-    role: Role | None = None,
-    session: AsyncSession | None = None,
     default: Any | None = None,
 ) -> Any | None:
     """Cached version of get_setting function.
 
+    Cache is keyed by (key, organization_id) to prevent cross-tenant data leakage.
+    Uses context role and session - use get_setting() for explicit role/session control.
+
     Args:
         key: The setting key to retrieve
-        role: Optional role to use for permissions check
-        session: Optional database session to use
         default: Optional default value if setting not found. Must be hashable.
 
     Returns:
         The setting value or None if not found
     """
-    logger.debug("Cache miss", key=key)
-    sess = session or ctx_session.get(None)
+    # Resolve organization_id from context for cache key
+    role = ctx_role.get()
+    organization_id = role.organization_id if role else None
+
+    return await _get_setting_cached_by_org(key, organization_id, default)
+
+
+@alru_cache(ttl=30)
+async def _get_setting_cached_by_org(
+    key: str,
+    organization_id: OrganizationID | None,
+    default: Any | None = None,
+) -> Any | None:
+    """Internal cached implementation keyed by (key, organization_id).
+
+    This ensures different organizations have isolated cache entries.
+    """
+    logger.debug("Cache miss", key=key, organization_id=organization_id)
+    role = ctx_role.get()
+    sess = ctx_session.get(None)
     return await get_setting(key, role=role, session=sess, default=default)
 
 

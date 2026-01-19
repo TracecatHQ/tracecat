@@ -89,7 +89,7 @@ from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
-from tracecat.storage.blob import ensure_bucket_exists
+from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exists
 from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
@@ -130,6 +130,14 @@ async def lifespan(app: FastAPI):
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
+
+    # Workflow bucket with lifecycle expiration
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
+    if config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS > 0:
+        await configure_bucket_lifecycle(
+            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
+            expiration_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+        )
 
     # App
     role = bootstrap_role()

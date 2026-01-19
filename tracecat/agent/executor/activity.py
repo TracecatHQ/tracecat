@@ -583,7 +583,9 @@ async def execute_approved_tools_activity(
     )
 
     # Prefetch registry manifests into agent worker's cache for O(1) action resolution
-    await registry_resolver.prefetch_lock(input.registry_lock)
+    await registry_resolver.prefetch_lock(
+        input.registry_lock, input.role.organization_id
+    )
 
     # Initialize stream for emitting tool results to frontend
     stream = await AgentStream.new(

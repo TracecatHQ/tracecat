@@ -19,6 +19,10 @@ from tracecat.logger import logger
 if TYPE_CHECKING:
     from aiobotocore.response import StreamingBody
     from types_aiobotocore_s3.client import S3Client
+    from types_aiobotocore_s3.type_defs import (
+        BucketLifecycleConfigurationTypeDef,
+        GetBucketLifecycleConfigurationOutputTypeDef,
+    )
 
 
 DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
@@ -81,6 +85,104 @@ async def ensure_bucket_exists(bucket: str) -> None:
                     error=str(e),
                 )
                 raise
+
+
+async def get_bucket_lifecycle(
+    bucket: str,
+) -> GetBucketLifecycleConfigurationOutputTypeDef | None:
+    """Get the current lifecycle configuration for a bucket.
+
+    Args:
+        bucket: Bucket name
+
+    Returns:
+        Lifecycle configuration response, or None if not configured.
+    """
+    async with get_storage_client() as s3_client:
+        try:
+            response = await s3_client.get_bucket_lifecycle_configuration(Bucket=bucket)
+            logger.debug("Retrieved bucket lifecycle configuration", bucket=bucket)
+            return response
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code == "NoSuchLifecycleConfiguration":
+                logger.debug("No lifecycle configuration exists", bucket=bucket)
+                return None
+            logger.error(
+                "Failed to get bucket lifecycle configuration",
+                bucket=bucket,
+                error=str(e),
+            )
+            raise
+
+
+async def configure_bucket_lifecycle(
+    bucket: str,
+    expiration_days: int,
+    rule_id: str = "workflow-artifact-expiration",
+) -> None:
+    """Configure lifecycle rules for a bucket to expire objects after N days.
+
+    Args:
+        bucket: Bucket name
+        expiration_days: Number of days after which objects expire.
+            If <= 0, any existing lifecycle rule is removed.
+        rule_id: Identifier for the lifecycle rule.
+    """
+    if expiration_days <= 0:
+        # Remove existing lifecycle rule if present
+        async with get_storage_client() as s3_client:
+            try:
+                await s3_client.delete_bucket_lifecycle(Bucket=bucket)
+                logger.info(
+                    "Removed bucket lifecycle configuration",
+                    bucket=bucket,
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code == "NoSuchLifecycleConfiguration":
+                    logger.debug(
+                        "No lifecycle configuration to remove",
+                        bucket=bucket,
+                    )
+                else:
+                    logger.error(
+                        "Failed to remove bucket lifecycle configuration",
+                        bucket=bucket,
+                        error=str(e),
+                    )
+                    raise
+        return
+
+    async with get_storage_client() as s3_client:
+        try:
+            lifecycle_config: BucketLifecycleConfigurationTypeDef = {
+                "Rules": [
+                    {
+                        "ID": rule_id,
+                        "Status": "Enabled",
+                        "Filter": {"Prefix": ""},
+                        "Expiration": {"Days": expiration_days},
+                    }
+                ]
+            }
+            await s3_client.put_bucket_lifecycle_configuration(
+                Bucket=bucket,
+                LifecycleConfiguration=lifecycle_config,
+            )
+            logger.info(
+                "Configured bucket lifecycle",
+                bucket=bucket,
+                rule_id=rule_id,
+                expiration_days=expiration_days,
+            )
+        except ClientError as e:
+            logger.error(
+                "Failed to configure bucket lifecycle",
+                bucket=bucket,
+                error=str(e),
+            )
+            raise
 
 
 async def generate_presigned_download_url(

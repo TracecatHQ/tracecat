@@ -216,7 +216,27 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
         sync_db_uri = sync_db_uri.replace("+asyncpg", "+psycopg")
         sync_engine = create_engine(sync_db_uri)
 
+        # Ensure schema exists for service sessions that target the default DB.
+        Base.metadata.create_all(sync_engine)
+
         with Session(sync_engine) as session:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
+                    VALUES (
+                        '00000000-0000-0000-0000-000000000000',
+                        'Default Organization',
+                        'default',
+                        true,
+                        now(),
+                        now()
+                    )
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                )
+            )
+            session.commit()
             # Create a registry repository for core actions
             origin = "tracecat_registry"
             repo = session.scalar(
@@ -515,6 +535,11 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                 rv.manifest = manifest
                 rv.tarball_uri = "s3://test/test.tar.gz"
                 session.commit()
+
+            # Set current_version_id on the repository for lock resolution
+            repo.current_version_id = rv.id
+            session.commit()
+
             logger.info(
                 "Created registry version with manifest",
                 extra={

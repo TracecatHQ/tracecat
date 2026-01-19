@@ -87,6 +87,21 @@ class MembershipService(BaseService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    async def list_user_memberships_with_org(
+        self, user_id: UserID
+    ) -> Sequence[MembershipWithOrg]:
+        """List all workspace memberships for a user with organization IDs."""
+        statement = (
+            select(Membership, Workspace.organization_id)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
+            .where(Membership.user_id == user_id)
+        )
+        result = await self.session.execute(statement)
+        return [
+            MembershipWithOrg(membership=membership, org_id=org_id)
+            for membership, org_id in result.all()
+        ]
+
     @require_workspace_role(WorkspaceRole.ADMIN)
     async def create_membership(
         self,
