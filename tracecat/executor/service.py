@@ -60,14 +60,6 @@ from tracecat.secrets.common import apply_masks_object
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
-try:
-    from tracecat_registry import secrets as registry_secrets
-    from tracecat_registry.context import RegistryContext, set_context
-except ImportError:
-    RegistryContext = None  # type: ignore[misc, assignment]
-    set_context = None  # type: ignore[assignment]
-    registry_secrets = None  # type: ignore[assignment]
-
 """All these methods are used in the registry executor, not on the worker"""
 
 
@@ -223,27 +215,6 @@ async def _run_action_direct(*, action: BoundRegistryAction, args: ArgsT) -> Any
         raise e
 
 
-async def run_single_action(
-    *,
-    action: BoundRegistryAction,
-    args: ArgsT,
-    context: ExecutionContext,
-) -> Any:
-    """Run a UDF async."""
-    if action.is_template:
-        logger.info("Running template action async", action=action.name)
-        result = await run_template_action(action=action, args=args, context=context)
-    else:
-        logger.trace("Running UDF async", action=action.name)
-        # Get secrets from context
-        secrets = context.get("SECRETS", {})
-        flat_secrets = secrets_manager.flatten_secrets(secrets)
-        with secrets_manager.env_sandbox(flat_secrets):
-            result = await _run_action_direct(action=action, args=args)
-
-    return result
-
-
 async def run_template_action(
     *,
     action: BoundRegistryAction,
@@ -254,7 +225,7 @@ async def run_template_action(
     if not action.template_action:
         raise ValueError(
             "Attempted to run a non-template UDF as a template. "
-            "Please use `run_single_action` instead."
+            "UDFs should be executed directly via the executor backend."
         )
     defn = action.template_action.definition
 
