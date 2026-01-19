@@ -13,6 +13,18 @@ logger = logging.getLogger(__name__)
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
     "TRACECAT__APP_ENV", "development"
 )  # type: ignore
+
+TRACECAT__DEPLOYMENT_MODE: Literal["CE", "EE"] = os.environ.get(
+    "TRACECAT__DEPLOYMENT_MODE", "CE"
+)  # type: ignore
+"""Deployment mode controlling operational behaviors.
+
+- CE (default): Auto-syncs registry on startup, creates default workspace,
+  single organization only.
+- EE: Skips auto-sync (use `tracecat-admin registry sync`), no default
+  workspace creation, multi-org support.
+"""
+
 TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://localhost:8000")
 TRACECAT__API_ROOT_PATH = os.environ.get("TRACECAT__API_ROOT_PATH", "/api")
 TRACECAT__PUBLIC_API_URL = os.environ.get(

@@ -5,9 +5,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from tracecat import config
 from tracecat.db.models import Organization
 from tracecat.service import BaseService
 from tracecat_ee.admin.organizations.schemas import OrgCreate, OrgRead, OrgUpdate
@@ -18,6 +19,12 @@ class AdminOrgService(BaseService):
 
     service_name = "admin_org"
 
+    async def _count_orgs(self) -> int:
+        """Count existing organizations."""
+        stmt = select(func.count()).select_from(Organization)
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
     async def list_organizations(self) -> Sequence[OrgRead]:
         """List all organizations."""
         stmt = select(Organization).order_by(Organization.created_at.desc())
@@ -25,7 +32,20 @@ class AdminOrgService(BaseService):
         return OrgRead.list_adapter().validate_python(result.scalars().all())
 
     async def create_organization(self, params: OrgCreate) -> OrgRead:
-        """Create a new organization."""
+        """Create a new organization.
+
+        In CE mode, only a single organization is allowed.
+        In EE mode, multiple organizations are supported.
+        """
+        # Enforce single-org limit in CE mode
+        if config.TRACECAT__DEPLOYMENT_MODE == "CE":
+            existing_count = await self._count_orgs()
+            if existing_count >= 1:
+                raise ValueError(
+                    "CE supports single organization only. "
+                    "Set TRACECAT__DEPLOYMENT_MODE=EE for multi-org."
+                )
+
         org = Organization(
             id=uuid.uuid4(),
             name=params.name,
