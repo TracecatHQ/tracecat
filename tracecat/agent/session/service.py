@@ -369,10 +369,13 @@ class AgentSessionService(BaseWorkspaceService):
         if agent_session is None:
             return None
 
-        # For forked sessions, load parent's history instead
-        is_fork = agent_session.parent_session_id is not None
-        if is_fork:
-            parent_session = await self.get_session(agent_session.parent_session_id)  # type: ignore
+        # For forked sessions, only fork on the first turn (when child has no sdk_session_id yet)
+        # On subsequent turns, child has its own sdk_session_id and should resume normally
+        if (
+            agent_session.parent_session_id is not None
+            and agent_session.sdk_session_id is None
+        ):
+            parent_session = await self.get_session(agent_session.parent_session_id)
             if parent_session is None:
                 logger.warning(
                     "Forked session references non-existent parent",
@@ -392,7 +395,6 @@ class AgentSessionService(BaseWorkspaceService):
             logger.debug(
                 "No sdk_session_id on session (new session or legacy)",
                 session_id=source_session_id,
-                is_fork=is_fork,
             )
             return None
 
@@ -412,7 +414,6 @@ class AgentSessionService(BaseWorkspaceService):
                 "sdk_session_id set but no history entries",
                 session_id=source_session_id,
                 sdk_session_id=sdk_session_id,
-                is_fork=is_fork,
             )
             return None
 
@@ -427,7 +428,6 @@ class AgentSessionService(BaseWorkspaceService):
         return SessionHistoryData(
             sdk_session_id=sdk_session_id,
             sdk_session_data=sdk_session_data,
-            is_fork=is_fork,
         )
 
     async def get_session_history(
@@ -779,9 +779,7 @@ class AgentSessionService(BaseWorkspaceService):
             AgentSessionEntity.APPROVAL,
         ):
             # Check if this is a forked session (has parent_session_id)
-            is_forked = agent_session.parent_session_id is not None
-
-            if is_forked:
+            if agent_session.parent_session_id is not None:
                 # Forked sessions use the parent's preset but with no tools.
                 # Prepend context - agent should not mention this is a forked session.
                 fork_context = (
@@ -790,9 +788,7 @@ class AgentSessionService(BaseWorkspaceService):
                     "suggest they start a new workflow if they need to take action.\n\n"
                 )
                 # Get parent session to check for preset
-                parent_session = await self.get_session(
-                    agent_session.parent_session_id  # type: ignore[arg-type]
-                )
+                parent_session = await self.get_session(agent_session.parent_session_id)
                 if parent_session and parent_session.agent_preset_id:
                     # Use parent's preset with forked context prepended
                     async with agent_svc.with_preset_config(
