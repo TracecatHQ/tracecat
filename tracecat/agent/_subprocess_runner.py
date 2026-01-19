@@ -24,7 +24,6 @@ from tracecat.executor.service import (
     get_workspace_variables,
     run_template_action,
 )
-from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
@@ -66,8 +65,8 @@ async def run_action(
 
     # Call action with secrets in environment
     context = create_default_execution_context()
-    context[ExprContext.SECRETS] = secrets
-    context[ExprContext.VARS] = ws_vars
+    context["SECRETS"] = secrets
+    context["VARS"] = ws_vars
 
     flattened_secrets = secrets_manager.flatten_secrets(secrets)
 
