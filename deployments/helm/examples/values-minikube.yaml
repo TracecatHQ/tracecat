@@ -1,0 +1,71 @@
+## Minikube Local Development
+## Prerequisites: minikube with ingress addon, CloudNativePG operator, secrets created
+## Add to /etc/hosts: $(minikube ip) tracecat.local
+
+secrets:
+  existingSecret: tracecat-secrets
+
+tracecat:
+  auth:
+    superadminEmail: admin@example.com
+
+ingress:
+  enabled: true
+  className: nginx
+  host: tracecat.local
+  annotations:
+    # Strip /s3 prefix for MinIO presigned URLs
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^/s3/(.*)$ /$1 break;
+
+# Use internal subcharts (default)
+temporal:
+  enabled: true
+postgres:
+  enabled: true
+redis:
+  enabled: true
+minio:
+  enabled: true
+
+# Reduced resource requests for local development
+api:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+worker:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+executor:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+ui:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

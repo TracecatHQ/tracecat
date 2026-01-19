@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracecat.fullname" . }}-worker
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+        tracecat.com/access-postgres: "true"
+        tracecat.com/access-redis: "true"
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- if .Values.temporal.enabled }}
+      initContainers:
+        - name: wait-for-temporal-setup
+          image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for Temporal setup to complete..."
+              MAX_RETRIES=60
+              RETRY_COUNT=0
+
+              until temporal operator namespace describe "$TEMPORAL_NAMESPACE" 2>/dev/null; do
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                  echo "Temporal namespace not ready after $MAX_RETRIES retries"
+                  exit 1
+                fi
+                echo "Attempt $RETRY_COUNT/$MAX_RETRIES - Namespace not ready, waiting..."
+                sleep 5
+              done
+
+              echo "Temporal namespace exists, checking search attributes..."
+              RETRY_COUNT=0
+              while true; do
+                EXISTING_ATTRS=$(temporal operator search-attribute list 2>/dev/null || echo "")
+                MISSING_ATTRS=0
+                {{- range $name, $type := .Values.tracecat.temporal.searchAttributes }}
+                if ! echo "$EXISTING_ATTRS" | grep -q "{{ $name }}"; then
+                  MISSING_ATTRS=1
+                fi
+                {{- end }}
+                if [ $MISSING_ATTRS -eq 0 ]; then
+                  break
+                fi
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                  echo "Search attributes not ready after retries"
+                  exit 1
+                fi
+                echo "Search attributes not ready, waiting..."
+                sleep 5
+              done
+
+              echo "Temporal setup complete, starting worker..."
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: {{ include "tracecat.temporalClusterUrl" . | quote }}
+            - name: TEMPORAL_NAMESPACE
+              value: {{ include "tracecat.temporalNamespace" . | quote }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "tracecat.dsl.worker"]
+          env:
+            {{- include "tracecat.env.worker" . | nindent 12 }}
+            {{- include "tracecat.env.secrets" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}

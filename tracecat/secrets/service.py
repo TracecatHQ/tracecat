@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
 
 from pydantic import SecretStr
@@ -8,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
@@ -42,10 +42,9 @@ class SecretsService(BaseService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        try:
-            self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-        except KeyError as e:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
+        self._encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
+        if not self._encryption_key:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
 
     def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
         """Decrypt and return the keys for a secret."""

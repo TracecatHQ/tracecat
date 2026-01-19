@@ -9,6 +9,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
@@ -51,10 +52,10 @@ class SettingsService(BaseService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        try:
-            self._encryption_key = SecretStr(os.environ["TRACECAT__DB_ENCRYPTION_KEY"])
-        except KeyError as e:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
+        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
+        if not encryption_key:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+        self._encryption_key = SecretStr(encryption_key)
 
     def _serialize_value_bytes(self, value: Any) -> bytes:
         return orjson.dumps(

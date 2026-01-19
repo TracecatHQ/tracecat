@@ -1,0 +1,81 @@
+## OrbStack Local Development (macOS)
+##
+## Prerequisites:
+##   1. OrbStack with Kubernetes enabled
+##   2. NGINX Ingress Controller installed
+##   3. CloudNativePG operator installed
+##   4. tracecat-secrets Secret created in tracecat namespace
+##
+## See deployments/helm/README.md for full installation instructions.
+##
+## Access UI at: http://tracecat.k8s.orb.local
+
+secrets:
+  existingSecret: tracecat-secrets
+
+tracecat:
+  sandbox:
+    disableNsjail: true  # Disable nsjail for local development
+  auth:
+    superadminEmail: admin@example.com
+
+ingress:
+  enabled: true
+  className: nginx
+  host: tracecat.k8s.orb.local
+  annotations:
+    # Strip /s3 prefix for MinIO presigned URLs
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^/s3/(.*)$ /$1 break;
+
+# Use internal subcharts (default)
+temporal:
+  enabled: true
+postgres:
+  enabled: true
+redis:
+  enabled: true
+minio:
+  enabled: true
+
+# Reduced resource requests for local development
+api:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+worker:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+executor:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+ui:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

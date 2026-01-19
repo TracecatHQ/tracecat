@@ -10,8 +10,10 @@ on:
       - pyproject.toml
       - uv.lock
       - Dockerfile
+      - docker-compose.yml
+      - docker-compose.dev.yml
       - docker-compose.local.yml
-      - .github/workflows/test-integration-custom-registry.yml
+      - .github/workflows/run-integration-tests.yml
   pull_request:
     branches: ["main", "staging"]
     paths:
@@ -21,8 +23,10 @@ on:
       - pyproject.toml
       - uv.lock
       - Dockerfile
+      - docker-compose.yml
+      - docker-compose.dev.yml
       - docker-compose.local.yml
-      - .github/workflows/test-integration-custom-registry.yml
+      - .github/workflows/run-integration-tests.yml
   workflow_dispatch:
     inputs:
       git-ref:

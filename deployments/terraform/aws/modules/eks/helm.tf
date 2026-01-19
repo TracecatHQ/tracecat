@@ -1,0 +1,584 @@
+# Tracecat Helm Release
+resource "helm_release" "tracecat" {
+  name       = "tracecat"
+  chart      = "${path.module}/../../../../helm/tracecat"
+  namespace  = kubernetes_namespace.tracecat.metadata[0].name
+
+  wait          = true
+  wait_for_jobs = true
+  timeout       = 600
+
+  # Image tag override
+  set {
+    name  = "image.tag"
+    value = var.tracecat_image_tag
+  }
+
+  set {
+    name  = "uiImage.tag"
+    value = var.tracecat_image_tag
+  }
+
+  # Use values for complex nested structures that don't work well with set blocks
+  values = [yamlencode({
+    ingress = {
+      enabled   = true
+      className = "alb"
+      host      = var.domain_name
+      annotations = {
+        "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
+        "alb.ingress.kubernetes.io/target-type"      = "ip"
+        "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
+        "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
+        "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
+        "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+      }
+    }
+    urls = {
+      publicApp = "https://${var.domain_name}"
+      publicApi = "https://${var.domain_name}/api"
+    }
+    # PostgreSQL TLS configuration with AWS RDS CA certificate
+    externalPostgres = {
+      tls = {
+        verifyCA = true
+        caCert   = data.http.rds_ca_bundle.response_body
+      }
+    }
+  })]
+
+  # External Secrets Operator Configuration
+  # ESO syncs secrets from AWS Secrets Manager - no secrets in TF state
+  set {
+    name  = "externalSecrets.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "externalSecrets.clusterSecretStoreRef"
+    value = local.external_secrets_store_name
+  }
+
+  # Core Tracecat secrets via ESO
+  set {
+    name  = "externalSecrets.coreSecrets.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "externalSecrets.coreSecrets.secretArn"
+    value = var.tracecat_secrets_arn
+  }
+
+  # PostgreSQL credentials via ESO (RDS master user secret)
+  set {
+    name  = "externalSecrets.postgres.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "externalSecrets.postgres.secretArn"
+    value = local.rds_master_secret_arn
+  }
+
+  # Redis URL via ESO
+  set {
+    name  = "externalSecrets.redis.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "externalSecrets.redis.secretArn"
+    value = aws_secretsmanager_secret.redis_url.arn
+  }
+
+  # Service account (IRSA) for S3 access
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = local.tracecat_service_account_name
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.tracecat_s3.arn
+  }
+
+  # Superadmin
+  set {
+    name  = "tracecat.auth.superadminEmail"
+    value = var.superadmin_email
+  }
+
+  # Replica counts
+  set {
+    name  = "api.replicas"
+    value = var.api_replicas
+  }
+
+  set {
+    name  = "worker.replicas"
+    value = var.worker_replicas
+  }
+
+  set {
+    name  = "executor.replicas"
+    value = var.executor_replicas
+  }
+
+  set {
+    name  = "executor.queue"
+    value = var.executor_queue
+  }
+
+  set {
+    name  = "executor.backend"
+    value = var.executor_backend
+  }
+
+  set {
+    name  = "ui.replicas"
+    value = var.ui_replicas
+  }
+
+  # Resource configurations
+  # Worker: 2 vCPU, 4GB RAM (per Temporal best practices)
+  set {
+    name  = "worker.resources.requests.cpu"
+    value = "2000m"
+  }
+
+  set {
+    name  = "worker.resources.requests.memory"
+    value = "4Gi"
+  }
+
+  set {
+    name  = "worker.resources.limits.cpu"
+    value = "4000m"
+  }
+
+  set {
+    name  = "worker.resources.limits.memory"
+    value = "8Gi"
+  }
+
+  # Executor: 4 vCPU, 8GB RAM
+  set {
+    name  = "executor.resources.requests.cpu"
+    value = "4000m"
+  }
+
+  set {
+    name  = "executor.resources.requests.memory"
+    value = "8Gi"
+  }
+
+  set {
+    name  = "executor.resources.limits.cpu"
+    value = "8000m"
+  }
+
+  set {
+    name  = "executor.resources.limits.memory"
+    value = "16Gi"
+  }
+
+  # UI: 1 vCPU
+  set {
+    name  = "ui.resources.requests.cpu"
+    value = "1000m"
+  }
+
+  set {
+    name  = "ui.resources.requests.memory"
+    value = "1Gi"
+  }
+
+  set {
+    name  = "ui.resources.limits.cpu"
+    value = "2000m"
+  }
+
+  set {
+    name  = "ui.resources.limits.memory"
+    value = "2Gi"
+  }
+
+  # Disable internal subcharts (using AWS managed services)
+  set {
+    name  = "postgres.enabled"
+    value = "false"
+  }
+
+  set {
+    name  = "redis.enabled"
+    value = "false"
+  }
+
+  set {
+    name  = "minio.enabled"
+    value = "false"
+  }
+
+  # External PostgreSQL (RDS)
+  set {
+    name  = "externalPostgres.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "externalPostgres.host"
+    value = aws_db_instance.tracecat.address
+  }
+
+  set {
+    name  = "externalPostgres.port"
+    value = "5432"
+  }
+
+  set {
+    name  = "externalPostgres.database"
+    value = "tracecat"
+  }
+
+  set {
+    name  = "externalPostgres.sslMode"
+    value = "require"
+  }
+
+  # ESO creates the secret; reference by target name
+  set {
+    name  = "externalPostgres.auth.existingSecret"
+    value = "tracecat-postgres-credentials"
+  }
+
+  # External Redis (ElastiCache)
+  set {
+    name  = "externalRedis.enabled"
+    value = "true"
+  }
+
+  # ESO creates the secret; reference by target name
+  set {
+    name  = "externalRedis.auth.existingSecret"
+    value = "tracecat-redis-credentials"
+  }
+
+  # External S3
+  set {
+    name  = "externalS3.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "externalS3.region"
+    value = local.aws_region
+  }
+
+  # Explicit S3 endpoint to override image's default MinIO endpoint
+  set {
+    name  = "externalS3.endpoint"
+    value = "https://s3.${local.aws_region}.amazonaws.com"
+  }
+
+  set {
+    name  = "tracecat.blobStorage.buckets.attachments"
+    value = local.s3_attachments_bucket
+  }
+
+  set {
+    name  = "tracecat.blobStorage.buckets.registry"
+    value = local.s3_registry_bucket
+  }
+
+  # Temporal Configuration
+  set {
+    name  = "temporal.enabled"
+    value = var.temporal_mode == "self-hosted" ? "true" : "false"
+  }
+
+  # Self-hosted Temporal with RDS
+  set {
+    name  = "temporal.server.podLabels.tracecat\\.com/access-postgres"
+    value = "true"
+  }
+
+  # Mount the RDS CA certificate into Temporal server pods for TLS verification
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumes[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumes[0].configMap.name"
+      value = "tracecat-postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumeMounts[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumeMounts[0].mountPath"
+      value = "/etc/tracecat/certs/postgres"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.additionalVolumeMounts[0].readOnly"
+      value = "true"
+    }
+  }
+
+  # Mount the RDS CA certificate into Temporal admintools/schema job for TLS verification
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumes[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumes[0].configMap.name"
+      value = "tracecat-postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumeMounts[0].name"
+      value = "postgres-ca"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumeMounts[0].mountPath"
+      value = "/etc/tracecat/certs/postgres"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.admintools.additionalVolumeMounts[0].readOnly"
+      value = "true"
+    }
+  }
+
+  # Default datastore (temporal database)
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.pluginName"
+      value = "postgres12"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.databaseName"
+      value = "temporal"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.connectAddr"
+      value = "${aws_db_instance.tracecat.address}:5432"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.user"
+      value = var.rds_master_username
+    }
+  }
+
+  # Temporal uses the ESO-created postgres secret
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.existingSecret"
+      value = "tracecat-postgres-credentials"
+    }
+  }
+
+  # Visibility datastore (temporal_visibility database)
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.pluginName"
+      value = "postgres12"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.databaseName"
+      value = "temporal_visibility"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.connectAddr"
+      value = "${aws_db_instance.tracecat.address}:5432"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.user"
+      value = var.rds_master_username
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.existingSecret"
+      value = "tracecat-postgres-credentials"
+    }
+  }
+
+  # PostgreSQL TLS configuration for Temporal (required for RDS)
+  # Use tls.enabled instead of connectAttributes.sslmode to avoid conflict with tool's default sslmode=disable
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.tls.enabled"
+      value = "true"
+    }
+  }
+
+  # Enable TLS host verification for RDS endpoints using the AWS RDS CA bundle.
+  # The CA certificate is mounted via externalPostgres.tls.caCert in the Helm values.
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.tls.enableHostVerification"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.default.sql.tls.caFile"
+      value = "/etc/tracecat/certs/postgres/ca-bundle.pem"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.tls.enabled"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.tls.enableHostVerification"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.config.persistence.datastores.visibility.sql.tls.caFile"
+      value = "/etc/tracecat/certs/postgres/ca-bundle.pem"
+    }
+  }
+
+  # Temporal Cloud Configuration
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" ? [1] : []
+    content {
+      name  = "externalTemporal.enabled"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" ? [1] : []
+    content {
+      name  = "externalTemporal.clusterUrl"
+      value = var.temporal_cloud_url
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" ? [1] : []
+    content {
+      name  = "externalTemporal.clusterNamespace"
+      value = var.temporal_cloud_namespace
+    }
+  }
+
+  # Temporal Cloud uses ESO for API key
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    content {
+      name  = "externalSecrets.temporal.enabled"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    content {
+      name  = "externalSecrets.temporal.secretArn"
+      value = var.temporal_cloud_api_key_secret_arn
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    content {
+      name  = "externalTemporal.auth.existingSecret"
+      value = "tracecat-temporal-credentials"
+    }
+  }
+
+  depends_on = [
+    helm_release.aws_load_balancer_controller,
+    null_resource.external_secrets_cluster_store,
+    aws_secretsmanager_secret_version.redis_url,
+    null_resource.create_temporal_databases
+  ]
+}

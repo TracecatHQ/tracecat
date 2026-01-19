@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select
 
+from tracecat import config
 from tracecat.db.models import MCPIntegration, OAuthIntegration, WorkspaceOAuthProvider
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
@@ -250,10 +251,12 @@ class IntegrationService(BaseWorkspaceService):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        try:
-            self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-        except KeyError as e:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
+        self._encryption_key = (
+            os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
+            or config.TRACECAT__DB_ENCRYPTION_KEY
+        )
+        if not self._encryption_key:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
 
     async def get_integration(
         self,

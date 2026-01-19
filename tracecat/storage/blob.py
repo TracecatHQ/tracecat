@@ -30,25 +30,27 @@ DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 
 @asynccontextmanager
 async def get_storage_client() -> AsyncIterator[S3Client]:
-    """Get a configured S3 client for either AWS S3 or MinIO.
-
-    Uses environment variables for credentials:
-    - For MinIO: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
-    - For S3: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+    """Get a configured S3 client for either AWS S3.
 
     Yields:
         Configured aioboto3 S3 client
     """
     session = aioboto3.Session()
-
     # Configure client based on protocol
-    if config.TRACECAT__BLOB_STORAGE_PROTOCOL == "minio":
-        # MinIO configuration - use MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
+    if config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None:
+        # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
         async with session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
-            aws_access_key_id=os.environ.get("MINIO_ROOT_USER"),
-            aws_secret_access_key=os.environ.get("MINIO_ROOT_PASSWORD"),
+            # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
+            aws_access_key_id=os.environ.get(
+                "AWS_ACCESS_KEY_ID",
+                os.environ.get("MINIO_ROOT_USER", "minioadmin"),
+            ),
+            aws_secret_access_key=os.environ.get(
+                "AWS_SECRET_ACCESS_KEY",
+                os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin"),
+            ),
         ) as client:
             yield client
     else:
@@ -73,7 +75,6 @@ async def ensure_bucket_exists(bucket: str) -> None:
             if error_code == "404":
                 # Bucket doesn't exist, create it
                 try:
-                    # For MinIO and most regions, simple create_bucket works
                     await s3_client.create_bucket(Bucket=bucket)
                     logger.info("Created bucket", bucket=bucket)
                 except ClientError as create_error:
@@ -234,7 +235,10 @@ async def generate_presigned_download_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
-            if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None:
+            if (
+                config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
+                and config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None
+            ):
                 url = url.replace(
                     config.TRACECAT__BLOB_STORAGE_ENDPOINT,
                     config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
@@ -307,7 +311,7 @@ async def upload_file(
     bucket: str,
     content_type: str | None = None,
 ) -> None:
-    """Upload a file to S3/MinIO.
+    """Upload a file to S3.
 
     Args:
         content: The file content as bytes
@@ -347,7 +351,7 @@ async def upload_file(
 
 
 async def download_file(key: str, bucket: str) -> bytes:
-    """Download a file from S3/MinIO.
+    """Download a file from S3.
 
     Args:
         key: The S3 object key
@@ -514,7 +518,7 @@ async def download_file_to_path(
 
 
 async def delete_file(key: str, bucket: str) -> None:
-    """Delete a file from S3/MinIO.
+    """Delete a file from S3.
 
     Args:
         key: The S3 object key
@@ -543,7 +547,7 @@ async def delete_file(key: str, bucket: str) -> None:
 
 
 async def file_exists(key: str, bucket: str) -> bool:
-    """Check if a file exists in S3/MinIO.
+    """Check if a file exists in S3.
 
     Args:
         key: The S3 object key

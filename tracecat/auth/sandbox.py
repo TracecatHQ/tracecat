@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import BaseSecret
@@ -44,10 +44,9 @@ class AuthSandbox:
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
-        try:
-            self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-        except KeyError as e:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
+        self._encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
+        if not self._encryption_key:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
 
     def __enter__(self) -> Self:
         if self._secret_paths:

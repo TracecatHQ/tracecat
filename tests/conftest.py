@@ -15,6 +15,7 @@ os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
 
 import aioboto3
 import pytest
+import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
 from dotenv import load_dotenv
 from minio import Minio
@@ -56,25 +57,36 @@ else:
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
 # MinIO test configuration - uses docker-compose service on port 9000
-# Credentials match .env.example (MINIO_ROOT_USER/MINIO_ROOT_PASSWORD)
 MINIO_PORT = 9000
-MINIO_ACCESS_KEY = "minio"
-MINIO_SECRET_KEY = "password"
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
+
+
+def _minio_credentials() -> tuple[str, str]:
+    load_dotenv()
+    access_key = (
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("MINIO_ROOT_USER")
+        or "minioadmin"
+    )
+    secret_key = (
+        os.environ.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "minioadmin"
+    )
+    return access_key, secret_key
 
 # ---------------------------------------------------------------------------
 # Redis test configuration
 # ---------------------------------------------------------------------------
 
-# Redis runs on standard port via docker-compose
-# REDIS_HOST is configurable for running tests inside containers (e.g., executor)
-REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
-REDIS_PORT = 6379
-
 # Worker-specific Redis database number for pytest-xdist isolation
 # Each xdist worker uses a different database (0-15) to avoid conflicts
 # when multiple workers run tests in parallel
 REDIS_DB = WORKER_OFFSET % 16
+
+# Redis URL from environment (matches docker-compose pattern)
+# Default to localhost for local development
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 
 # ---------------------------------------------------------------------------
@@ -93,27 +105,24 @@ def redis_server():
     Each pytest-xdist worker uses a different Redis database number
     to ensure test isolation during parallel execution.
     """
-    import redis as redis_sync
-
-    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+    # Append worker-specific database number for isolation
+    worker_redis_url = f"{REDIS_URL}/{REDIS_DB}"
+    client = redis.Redis.from_url(worker_redis_url)
     for _ in range(30):
         try:
             if client.ping():
                 logger.info(
-                    f"Redis available at {REDIS_HOST}:{REDIS_PORT}, db={REDIS_DB} "
-                    f"(worker={WORKER_ID})"
+                    f"Redis available at {worker_redis_url} (worker={WORKER_ID})"
                 )
-                # Include database number in REDIS_URL for worker isolation
-                os.environ["REDIS_URL"] = (
-                    f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
-                )
+                # Set REDIS_URL with worker-specific database for isolation
+                os.environ["REDIS_URL"] = worker_redis_url
                 yield
                 return
         except Exception:
             time.sleep(1)
 
     pytest.fail(
-        f"Redis not available at {REDIS_HOST}:{REDIS_PORT}. "
+        f"Redis not available at {REDIS_URL}. "
         "Start it with: docker-compose -f docker-compose.dev.yml up -d redis"
     )
 
@@ -124,9 +133,7 @@ def clean_redis_db(redis_server):
 
     Uses worker-specific database to avoid affecting other xdist workers.
     """
-    import redis as redis_sync
-
-    client = redis_sync.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+    client = redis.Redis.from_url(os.environ["REDIS_URL"])
     client.flushdb()
     yield
     client.flushdb()
@@ -613,7 +620,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
 
     # Detect if running inside Docker container by checking for /.dockerenv file
-    # This is more reliable than checking env vars like REDIS_HOST, which may be
+    # This is more reliable than checking env vars like REDIS_URL, which may be
     # loaded from .env by load_dotenv() even when running on the host
     in_docker = os.path.exists("/.dockerenv")
     db_host = "postgres_db" if in_docker else "localhost"
@@ -631,7 +638,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         config, "TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint
     )
     # Configure MinIO for result externalization (StoredObject -> S3)
-    monkeysession.setattr(config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
     monkeysession.setattr(
         config, "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
@@ -654,14 +660,11 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     monkeysession.setenv("TRACECAT__DB_URI", db_uri)
     monkeysession.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", blob_storage_endpoint)
-    monkeysession.setenv("TRACECAT__BLOB_STORAGE_PROTOCOL", "minio")
     monkeysession.setenv(
         "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true")
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", "0")
-    monkeysession.setenv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
-    monkeysession.setenv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     # Point API URL to appropriate host
     api_url = f"http://{api_host}:8000"
@@ -897,10 +900,11 @@ def minio_server():
     endpoint = f"localhost:{MINIO_PORT}"
     for _ in range(30):
         try:
+            access_key, secret_key = _minio_credentials()
             client = Minio(
                 endpoint,
-                access_key=MINIO_ACCESS_KEY,
-                secret_key=MINIO_SECRET_KEY,
+                access_key=access_key,
+                secret_key=secret_key,
                 secure=False,
             )
             list(client.list_buckets())
@@ -935,10 +939,11 @@ def workflow_bucket(minio_server, env_sandbox):
     importlib.reload(blob)
 
     # Create workflow bucket if it doesn't exist
+    access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        access_key=access_key,
+        secret_key=secret_key,
         secure=False,
     )
     try:
@@ -962,10 +967,11 @@ def workflow_bucket(minio_server, env_sandbox):
 @pytest.fixture
 async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
     """Create MinIO client for testing."""
+    access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        access_key=access_key,
+        secret_key=secret_key,
         secure=False,
     )
     yield client
@@ -1000,9 +1006,9 @@ async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
 @pytest.fixture
 def mock_s3_secrets():
     """Mock S3 secrets to use MinIO credentials."""
-
-    secrets_manager.set("AWS_ACCESS_KEY_ID", MINIO_ACCESS_KEY)
-    secrets_manager.set("AWS_SECRET_ACCESS_KEY", MINIO_SECRET_KEY)
+    access_key, secret_key = _minio_credentials()
+    secrets_manager.set("AWS_ACCESS_KEY_ID", access_key)
+    secrets_manager.set("AWS_SECRET_ACCESS_KEY", secret_key)
     secrets_manager.set("AWS_REGION", "us-east-1")
 
 
@@ -1012,9 +1018,10 @@ async def aioboto3_minio_client(monkeypatch):
 
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():
+        access_key, secret_key = _minio_credentials()
         return aioboto3.Session(
-            aws_access_key_id=MINIO_ACCESS_KEY,
-            aws_secret_access_key=MINIO_SECRET_KEY,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
             region_name="us-east-1",
         )
 

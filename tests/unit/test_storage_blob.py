@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import pytest
 from botocore.exceptions import ClientError
 
+from tracecat.storage import blob as blob_module
 from tracecat.storage.blob import (
     configure_bucket_lifecycle,
     delete_file,
@@ -61,23 +62,16 @@ class TestS3Operations:
 
     @pytest.mark.anyio
     async def test_get_storage_client_minio_uses_endpoint_and_env(self, monkeypatch):
-        """get_storage_client for MinIO uses endpoint and MINIO_* env creds."""
-        from tracecat.storage import blob as blob_module
+        """get_storage_client for MinIO uses endpoint and AWS env vars"""
 
-        monkeypatch.setattr(
-            blob_module.config,
-            "TRACECAT__BLOB_STORAGE_PROTOCOL",
-            "minio",
-            raising=False,
-        )
         monkeypatch.setattr(
             blob_module.config,
             "TRACECAT__BLOB_STORAGE_ENDPOINT",
             "http://localhost:9002",
             raising=False,
         )
-        monkeypatch.setenv("MINIO_ROOT_USER", "minio")
-        monkeypatch.setenv("MINIO_ROOT_PASSWORD", "password")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minioadmin")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
@@ -89,17 +83,18 @@ class TestS3Operations:
             mock_session.client.assert_called_once_with(
                 "s3",
                 endpoint_url="http://localhost:9002",
-                aws_access_key_id="minio",
-                aws_secret_access_key="password",
+                aws_access_key_id="minioadmin",
+                aws_secret_access_key="minioadmin",
             )
 
     @pytest.mark.anyio
     async def test_get_storage_client_s3_defaults(self, monkeypatch):
         """get_storage_client for S3 uses default session client without endpoint."""
-        from tracecat.storage import blob as blob_module
-
         monkeypatch.setattr(
-            blob_module.config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "s3", raising=False
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
         )
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
@@ -349,7 +344,6 @@ class TestS3Operations:
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
             "http://localhost/s3"
         )
-        mock_config.TRACECAT__BLOB_STORAGE_PROTOCOL = "minio"
         mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
 
         # Setup mock client
@@ -401,6 +395,29 @@ class TestS3Operations:
         assert result == original_url
         parsed = urlparse(result)
         assert parsed.hostname == "s3.amazonaws.com"
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
+    async def test_presigned_url_no_replacement_without_blob_endpoint(
+        self, mock_config, mock_get_client
+    ):
+        """Skip presigned URL rewriting when blob endpoint is unset."""
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = None
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = "http://public/s3"
+
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        original_url = "https://s3.amazonaws.com/bucket/test.txt?AWSAccessKeyId=key&Signature=abc123&Expires=1234567890"
+        mock_client.generate_presigned_url.return_value = original_url
+
+        result = await generate_presigned_download_url(
+            "attachments/test.txt", "tracecat", 30
+        )
+
+        assert result == original_url
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")

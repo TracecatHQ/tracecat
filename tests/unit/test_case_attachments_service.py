@@ -1,7 +1,8 @@
 import os
 import uuid
 from io import BytesIO
-
+import tests.conftest as conf
+from dotenv import dotenv_values
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,36 +29,33 @@ pytestmark = pytest.mark.usefixtures("db")
 def sync_minio_credentials(monkeysession: pytest.MonkeyPatch):
     """Ensure MinIO server and S3 client use same creds from .env.
 
-    Reads MINIO_ROOT_USER and MINIO_ROOT_PASSWORD via python-dotenv, then:
+    Reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY via python-dotenv, then:
     - sets env vars for the storage client, and
     - patches tests.conftest MinIO constants so the Docker container uses them.
     """
     try:
-        from dotenv import dotenv_values
-
         env = dotenv_values()
     except Exception:
         env = {}
 
     access_key = (
-        env.get("MINIO_ROOT_USER") or os.environ.get("MINIO_ROOT_USER") or "minioadmin"
+        env.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_ACCESS_KEY_ID") or "minioadmin"
     )
     secret_key = (
-        env.get("MINIO_ROOT_PASSWORD")
-        or os.environ.get("MINIO_ROOT_PASSWORD")
+        env.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("AWS_SECRET_ACCESS_KEY")
         or "minioadmin"
     )
 
     # Env for storage client
-    monkeysession.setenv("MINIO_ROOT_USER", access_key)
-    monkeysession.setenv("MINIO_ROOT_PASSWORD", secret_key)
+    monkeysession.setenv("AWS_ACCESS_KEY_ID", access_key)
+    monkeysession.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
 
     # Patch tests.conftest constants used to start MinIO
     try:
-        import tests.conftest as conf
 
-        monkeysession.setattr(conf, "MINIO_ACCESS_KEY", access_key, raising=False)
-        monkeysession.setattr(conf, "MINIO_SECRET_KEY", secret_key, raising=False)
+        monkeysession.setattr(conf, "AWS_ACCESS_KEY_ID", access_key, raising=False)
+        monkeysession.setattr(conf, "AWS_SECRET_ACCESS_KEY", secret_key, raising=False)
     except Exception:
         pass
 
@@ -115,9 +113,6 @@ async def configure_minio_for_attachments(
 ):
     # Point storage at the test MinIO instance and bucket
     monkeypatch.setattr(
-        config, "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio", raising=False
-    )
-    monkeypatch.setattr(
         config,
         "TRACECAT__BLOB_STORAGE_ENDPOINT",
         "http://localhost:9000",
@@ -129,10 +124,10 @@ async def configure_minio_for_attachments(
 
     # Set MinIO credentials for the client
     monkeypatch.setenv(
-        "MINIO_ROOT_USER", os.environ.get("MINIO_ROOT_USER", "minioadmin")
+        "AWS_ACCESS_KEY_ID", os.environ.get("AWS_ACCESS_KEY_ID", "minioadmin")
     )
     monkeypatch.setenv(
-        "MINIO_ROOT_PASSWORD", os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin")
+        "AWS_SECRET_ACCESS_KEY", os.environ.get("AWS_SECRET_ACCESS_KEY", "minioadmin")
     )
 
     # Ensure bucket exists from our client perspective
