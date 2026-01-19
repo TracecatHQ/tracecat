@@ -16,7 +16,6 @@ from tracecat.exceptions import (
 )
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
@@ -222,25 +221,24 @@ async def get_registry_repository(
     repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:
     """Get a specific registry repository by origin."""
-    service = RegistryReposService(session, role)
+    repos_service = RegistryReposService(session, role)
+    actions_service = RegistryActionsService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        repository = await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Error getting registry repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
+    actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=repository.id,
         origin=repository.origin,
         last_synced_at=repository.last_synced_at,
         commit_sha=repository.commit_sha,
         current_version_id=repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in repository.actions
-        ],
+        actions=actions,
     )
 
 
@@ -363,16 +361,14 @@ async def create_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    # New repository has no synced actions yet
     return RegistryRepositoryRead(
         id=created_repository.id,
         origin=created_repository.origin,
         last_synced_at=created_repository.last_synced_at,
         commit_sha=created_repository.commit_sha,
         current_version_id=created_repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in created_repository.actions
-        ],
+        actions=[],
     )
 
 
@@ -390,26 +386,25 @@ async def update_registry_repository(
     params: RegistryRepositoryUpdate,
 ) -> RegistryRepositoryRead:
     """Update an existing registry repository."""
-    service = RegistryReposService(session, role)
+    repos_service = RegistryReposService(session, role)
+    actions_service = RegistryActionsService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        repository = await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Registry repository not found", repository_id=repository_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
-    updated_repository = await service.update_repository(repository, params)
+    updated_repository = await repos_service.update_repository(repository, params)
+    actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=updated_repository.id,
         origin=updated_repository.origin,
         last_synced_at=updated_repository.last_synced_at,
         commit_sha=updated_repository.commit_sha,
         current_version_id=updated_repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in updated_repository.actions
-        ],
+        actions=actions,
     )
 
 

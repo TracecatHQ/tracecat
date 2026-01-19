@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict
@@ -148,7 +149,49 @@ class RegistryActionsService(BaseService):
             )
 
         result = await self.session.execute(statement)
-        return [(row[0], row[1]) for row in result.all()]
+        return list(result.tuples().all())
+
+    async def list_actions_from_index_by_repository(
+        self,
+        repository_id: uuid.UUID,
+    ) -> list[RegistryActionRead]:
+        """List full action details from registry index for a specific repository.
+
+        Returns list of RegistryActionRead objects with implementation from manifest.
+        """
+        statement = (
+            select(RegistryIndex, RegistryVersion, RegistryRepository)
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.id == repository_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
+        )
+
+        result = await self.session.execute(statement)
+        actions: list[RegistryActionRead] = []
+        for index_entry, version, repository in result.tuples().all():
+            manifest = RegistryVersionManifest.model_validate(version.manifest)
+            action_name = f"{index_entry.namespace}.{index_entry.name}"
+            manifest_action = manifest.actions.get(action_name)
+            if manifest_action:
+                actions.append(
+                    RegistryActionRead.from_index_and_manifest(
+                        index_entry,
+                        manifest_action,
+                        repository.origin,
+                        repository.id,
+                    )
+                )
+        return actions
 
     async def get_action_from_index(
         self,
@@ -186,11 +229,11 @@ class RegistryActionsService(BaseService):
         )
 
         result = await self.session.execute(statement)
-        row = result.first()
-        if not row:
+        first_row = result.tuples().first()
+        if not first_row:
             return None
 
-        index_entry, version, repository = row
+        index_entry, version, repository = first_row
         manifest = RegistryVersionManifest.model_validate(version.manifest)
 
         return (index_entry, manifest, repository.origin, repository)
