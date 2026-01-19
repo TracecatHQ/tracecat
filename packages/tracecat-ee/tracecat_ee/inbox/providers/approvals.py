@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import AgentSession, Approval, Workflow
 from tracecat.inbox.schemas import InboxItemRead, WorkflowSummary
 from tracecat.inbox.types import InboxItemStatus, InboxItemType
@@ -15,8 +17,6 @@ from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
     from tracecat.auth.types import Role
 
 
@@ -26,7 +26,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
     Filters to workflow-initiated sessions only and enriches with workflow metadata.
     """
 
-    def __init__(self, session: AsyncSession, role: Role):
+    def __init__(self, session: AsyncDBSession, role: Role):
         super().__init__(session)
         self.role = role
         self.workspace_id = role.workspace_id
@@ -100,11 +100,12 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         else:
             order_clause = AgentSession.created_at.desc()
 
-        # Apply cursor filtering - use the same column as order_by
+        # Apply cursor filtering with composite (sort_value, id) for stable pagination
         if cursor:
             try:
                 cursor_data = self.decode_cursor(cursor)
                 cursor_value = cursor_data.sort_value
+                cursor_id = uuid.UUID(cursor_data.id)
 
                 # Select the correct column based on sort_col
                 cursor_col = (
@@ -113,23 +114,57 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                     else AgentSession.created_at
                 )
 
+                # Use composite filter: (sort_col, id) to handle timestamp collisions
                 if sort_desc:
                     if reverse:
                         # Going backwards from cursor in desc order = get items after cursor
-                        base_stmt = base_stmt.where(cursor_col > cursor_value)
+                        base_stmt = base_stmt.where(
+                            or_(
+                                cursor_col > cursor_value,
+                                and_(
+                                    cursor_col == cursor_value,
+                                    AgentSession.id > cursor_id,
+                                ),
+                            )
+                        )
                     else:
                         # Going forward from cursor in desc order = get items before cursor
-                        base_stmt = base_stmt.where(cursor_col < cursor_value)
+                        base_stmt = base_stmt.where(
+                            or_(
+                                cursor_col < cursor_value,
+                                and_(
+                                    cursor_col == cursor_value,
+                                    AgentSession.id < cursor_id,
+                                ),
+                            )
+                        )
                 else:
                     if reverse:
-                        base_stmt = base_stmt.where(cursor_col < cursor_value)
+                        base_stmt = base_stmt.where(
+                            or_(
+                                cursor_col < cursor_value,
+                                and_(
+                                    cursor_col == cursor_value,
+                                    AgentSession.id < cursor_id,
+                                ),
+                            )
+                        )
                     else:
-                        base_stmt = base_stmt.where(cursor_col > cursor_value)
+                        base_stmt = base_stmt.where(
+                            or_(
+                                cursor_col > cursor_value,
+                                and_(
+                                    cursor_col == cursor_value,
+                                    AgentSession.id > cursor_id,
+                                ),
+                            )
+                        )
             except (ValueError, KeyError) as e:
                 logger.warning(f"Invalid cursor: {e}")
 
-        # Apply ordering and limit
-        stmt = base_stmt.order_by(order_clause).limit(limit + 1)
+        # Apply ordering with id as secondary sort for stable pagination
+        id_order = AgentSession.id.desc() if sort_desc else AgentSession.id.asc()
+        stmt = base_stmt.order_by(order_clause, id_order).limit(limit + 1)
 
         result = await self.session.execute(stmt)
         sessions = list(result.scalars().all())
@@ -155,7 +190,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                 last_item = items[-1]
                 # Get the session for this item to access the sort column value
                 last_session = next(
-                    (s for s in sessions if str(s.id) == last_item.source_id), None
+                    (s for s in sessions if s.id == last_item.source_id), None
                 )
                 if last_session:
                     # Use the correct column value based on sort_col
@@ -172,7 +207,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             if cursor:
                 first_item = items[0]
                 first_session = next(
-                    (s for s in sessions if str(s.id) == first_item.source_id), None
+                    (s for s in sessions if s.id == first_item.source_id), None
                 )
                 if first_session:
                     # Use the correct column value based on sort_col
@@ -198,7 +233,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
 
     async def _enrich_sessions(
         self,
-        sessions: list[AgentSession],
+        sessions: Sequence[AgentSession],
     ) -> list[InboxItemRead]:
         """Transform sessions to inbox items with workflow metadata."""
         if not sessions:
@@ -267,7 +302,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             if session.entity_id and session.entity_id in workflows_by_id:
                 workflow = workflows_by_id[session.entity_id]
                 workflow_summary = WorkflowSummary(
-                    id=str(workflow.id),
+                    id=workflow.id,
                     title=workflow.title or "Untitled workflow",
                     alias=workflow.alias,
                 )
@@ -290,7 +325,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
 
             items.append(
                 InboxItemRead(
-                    id=str(session.id),
+                    id=session.id,
                     type=InboxItemType.APPROVAL,
                     title=title,
                     preview=preview,
@@ -299,7 +334,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                     created_at=session.created_at,
                     updated_at=session.updated_at,
                     workflow=workflow_summary,
-                    source_id=str(session.id),  # Always use parent session ID
+                    source_id=session.id,  # Always use parent session ID
                     source_type="agent_session",
                     metadata=metadata,
                 )
