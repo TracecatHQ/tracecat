@@ -27,7 +27,11 @@ from tracecat.validation.schemas import (
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    from tracecat.db.models import RegistryIndex
     from tracecat.registry.actions.bound import BoundRegistryAction
+    from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 
 RegistryActionType = Literal["udf", "template"]
 
@@ -203,6 +207,22 @@ class RegistryActionReadMinimal(BaseModel):
         """The full action identifier."""
         return f"{self.namespace}.{self.name}"
 
+    @classmethod
+    def from_index(cls, index: RegistryIndex, origin: str) -> RegistryActionReadMinimal:
+        """Create from RegistryIndex entry."""
+        from typing import cast
+
+        return cls(
+            id=index.id,
+            name=index.name,
+            description=index.description,
+            namespace=index.namespace,
+            type=cast(RegistryActionType, index.action_type),
+            origin=origin,
+            default_title=index.default_title,
+            display_group=index.display_group,
+        )
+
 
 class RegistryActionRead(RegistryActionBase):
     """API read model for a registered action."""
@@ -220,6 +240,40 @@ class RegistryActionRead(RegistryActionBase):
     def is_template(self) -> bool:
         """Whether the action is a template."""
         return self.implementation.type == "template"
+
+    @classmethod
+    def from_index_and_manifest(
+        cls,
+        index: RegistryIndex,
+        manifest_action: RegistryVersionManifestAction,
+        origin: str,
+        repository_id: UUID,
+    ) -> RegistryActionRead:
+        """Create from RegistryIndex + manifest action."""
+        from tracecat.registry.actions.schemas import RegistryActionImplValidator
+
+        return cls(
+            id=index.id,
+            name=index.name,
+            description=index.description,
+            namespace=index.namespace,
+            type=manifest_action.action_type,
+            origin=origin,
+            secrets=manifest_action.secrets,
+            interface=manifest_action.interface,
+            implementation=RegistryActionImplValidator.validate_python(
+                manifest_action.implementation
+            ),
+            default_title=index.default_title,
+            display_group=index.display_group,
+            doc_url=index.doc_url,
+            author=index.author,
+            deprecated=index.deprecated,
+            options=RegistryActionOptions(**index.options)
+            if index.options
+            else RegistryActionOptions(),
+            repository_id=repository_id,
+        )
 
 
 class RegistryActionCreate(RegistryActionBase):

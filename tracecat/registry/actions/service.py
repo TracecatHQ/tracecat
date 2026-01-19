@@ -14,7 +14,12 @@ from tracecat_registry import (
     RegistrySecretTypeValidator,
 )
 
-from tracecat.db.models import RegistryAction, RegistryRepository
+from tracecat.db.models import (
+    RegistryAction,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
@@ -47,6 +52,7 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
@@ -100,6 +106,94 @@ class RegistryActionsService(BaseService):
 
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def list_actions_from_index(
+        self,
+        *,
+        namespace: str | None = None,
+        include_marked: bool = False,
+        include_keys: set[str] | None = None,
+    ) -> list[tuple[RegistryIndex, str]]:
+        """List actions from registry index for current versions.
+
+        Returns tuples of (index_entry, origin).
+        """
+        statement = (
+            select(RegistryIndex, RegistryRepository.origin)
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
+        )
+
+        if not include_marked:
+            statement = statement.where(
+                cast(RegistryIndex.options["include_in_schema"].astext, Boolean) == True  # noqa: E712
+            )
+        if namespace:
+            statement = statement.where(RegistryIndex.namespace.startswith(namespace))
+        if include_keys:
+            statement = statement.where(
+                func.concat(RegistryIndex.namespace, ".", RegistryIndex.name).in_(
+                    include_keys
+                )
+            )
+
+        result = await self.session.execute(statement)
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def get_action_from_index(
+        self,
+        action_name: str,
+    ) -> tuple[RegistryIndex, RegistryVersionManifest, str, RegistryRepository] | None:
+        """Get action from index with manifest from the version.
+
+        Args:
+            action_name: Full action name (e.g., "core.http_request")
+
+        Returns:
+            Tuple of (index_entry, manifest, origin, repository) or None if not found.
+        """
+        try:
+            namespace, name = action_name.rsplit(".", 1)
+        except ValueError:
+            return None
+
+        statement = (
+            select(RegistryIndex, RegistryVersion, RegistryRepository)
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                RegistryIndex.namespace == namespace,
+                RegistryIndex.name == name,
+            )
+        )
+
+        result = await self.session.execute(statement)
+        row = result.first()
+        if not row:
+            return None
+
+        index_entry, version, repository = row
+        manifest = RegistryVersionManifest.model_validate(version.manifest)
+
+        return (index_entry, manifest, repository.origin, repository)
 
     async def get_aggregated_secrets(self) -> list[SecretDefinition]:
         organization_id = self.organization_id
@@ -434,38 +528,33 @@ class RegistryActionsService(BaseService):
         *,
         target_version: str | None = None,
         target_commit_sha: str | None = None,
-        allow_delete_all: bool = False,
         ssh_env: SshEnv | None = None,
     ) -> tuple[str | None, str | None]:
         """Sync actions from a repository using the v2 versioned flow.
 
         This creates an immutable RegistryVersion snapshot with:
         - Frozen manifest stored in DB
-        - Wheel uploaded to S3 (mandatory - sync fails if wheel build fails)
+        - Tarball venv uploaded to S3 (mandatory - sync fails if build fails)
         - RegistryIndex entries for fast lookups
 
-        Also updates the mutable RegistryAction table for backward compatibility.
+        Note: RegistryAction table is no longer populated. Use RegistryIndex
+        for UI queries and fetch implementation from RegistryVersion.manifest.
 
         Args:
             db_repo: The repository to sync.
             target_version: Version string (auto-generated if not provided).
             target_commit_sha: Optional commit SHA to sync to.
-            allow_delete_all: If True, allow deleting all actions if list is empty.
             ssh_env: SSH environment for git operations (required for git+ssh repos).
 
         Returns:
             Tuple of (commit_sha, version_string)
 
         Raises:
-            WheelBuildError: If wheel building fails (no version is created)
+            TarballBuildError: If tarball building fails (no version is created)
         """
         # Use the v2 sync service
         sync_service = RegistrySyncService(self.session, self.role)
 
-        # Both operations should be in the same transaction to ensure atomicity:
-        # - sync_repository_v2 creates RegistryVersion and RegistryIndex entries
-        # - upsert_actions_from_list updates the mutable RegistryAction table
-        # If either fails, both should be rolled back
         if self.session.in_transaction():
             async with self.session.begin_nested():
                 sync_result = await sync_service.sync_repository_v2(
@@ -474,14 +563,6 @@ class RegistryActionsService(BaseService):
                     target_commit_sha=target_commit_sha,
                     ssh_env=ssh_env,
                     commit=False,
-                )
-                # Also update the mutable RegistryAction table for backward compatibility
-                # This ensures existing code that queries RegistryAction still works
-                await self.upsert_actions_from_list(
-                    sync_result.actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
                 )
         else:
             async with self.session.begin():
@@ -492,17 +573,9 @@ class RegistryActionsService(BaseService):
                     ssh_env=ssh_env,
                     commit=False,
                 )
-                # Also update the mutable RegistryAction table for backward compatibility
-                # This ensures existing code that queries RegistryAction still works
-                await self.upsert_actions_from_list(
-                    sync_result.actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
-                )
 
         self.logger.info(
-            "V2 sync completed with backward compatible RegistryAction update",
+            "V2 sync completed",
             version=sync_result.version_string,
             commit_sha=sync_result.commit_sha,
             num_actions=sync_result.num_actions,
