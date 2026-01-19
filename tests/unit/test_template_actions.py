@@ -83,7 +83,7 @@ async def create_manifest_for_actions(
     core_reshape_impl = {
         "type": "udf",
         "url": origin,  # Required field
-        "module": "tracecat_registry._internal.actions",
+        "module": "tracecat_registry.core.transform",
         "name": "reshape",
     }
     manifest_actions["core.transform.reshape"] = {
