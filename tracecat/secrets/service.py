@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret

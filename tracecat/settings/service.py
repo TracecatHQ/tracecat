@@ -9,6 +9,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_access_level
