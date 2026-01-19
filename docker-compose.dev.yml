@@ -119,8 +119,6 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
