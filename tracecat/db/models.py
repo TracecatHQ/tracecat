@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -833,7 +834,10 @@ class Webhook(WorkspaceModel):
 
     @property
     def secret(self) -> str:
-        secret = config.TRACECAT__SIGNING_SECRET
+        secret = (
+            os.environ.get("TRACECAT__SIGNING_SECRET")
+            or config.TRACECAT__SIGNING_SECRET
+        )
         if not secret:
             raise ValueError("TRACECAT__SIGNING_SECRET is not set")
         # Using legacy format to prevent webhook url changes

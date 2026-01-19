@@ -90,6 +90,12 @@ class TestS3Operations:
     @pytest.mark.anyio
     async def test_get_storage_client_s3_defaults(self, monkeypatch):
         """get_storage_client for S3 uses default session client without endpoint."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value

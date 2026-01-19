@@ -57,11 +57,23 @@ else:
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
 # MinIO test configuration - uses docker-compose service on port 9000
-# Credentials match .env.example (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)
 MINIO_PORT = 9000
-AWS_ACCESS_KEY_ID = "minioadmin"
-AWS_SECRET_ACCESS_KEY = "minioadmin"
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
+
+
+def _minio_credentials() -> tuple[str, str]:
+    load_dotenv()
+    access_key = (
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("MINIO_ROOT_USER")
+        or "minioadmin"
+    )
+    secret_key = (
+        os.environ.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "minioadmin"
+    )
+    return access_key, secret_key
 
 # ---------------------------------------------------------------------------
 # Redis test configuration
@@ -888,10 +900,11 @@ def minio_server():
     endpoint = f"localhost:{MINIO_PORT}"
     for _ in range(30):
         try:
+            access_key, secret_key = _minio_credentials()
             client = Minio(
                 endpoint,
-                access_key=AWS_ACCESS_KEY_ID,
-                secret_key=AWS_SECRET_ACCESS_KEY,
+                access_key=access_key,
+                secret_key=secret_key,
                 secure=False,
             )
             list(client.list_buckets())
@@ -926,10 +939,11 @@ def workflow_bucket(minio_server, env_sandbox):
     importlib.reload(blob)
 
     # Create workflow bucket if it doesn't exist
+    access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
-        access_key=AWS_ACCESS_KEY_ID,
-        secret_key=AWS_SECRET_ACCESS_KEY,
+        access_key=access_key,
+        secret_key=secret_key,
         secure=False,
     )
     try:
@@ -953,10 +967,11 @@ def workflow_bucket(minio_server, env_sandbox):
 @pytest.fixture
 async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
     """Create MinIO client for testing."""
+    access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
-        access_key=AWS_ACCESS_KEY_ID,
-        secret_key=AWS_SECRET_ACCESS_KEY,
+        access_key=access_key,
+        secret_key=secret_key,
         secure=False,
     )
     yield client
@@ -991,9 +1006,9 @@ async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
 @pytest.fixture
 def mock_s3_secrets():
     """Mock S3 secrets to use MinIO credentials."""
-
-    secrets_manager.set("AWS_ACCESS_KEY_ID", AWS_ACCESS_KEY_ID)
-    secrets_manager.set("AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
+    access_key, secret_key = _minio_credentials()
+    secrets_manager.set("AWS_ACCESS_KEY_ID", access_key)
+    secrets_manager.set("AWS_SECRET_ACCESS_KEY", secret_key)
     secrets_manager.set("AWS_REGION", "us-east-1")
 
 
@@ -1003,9 +1018,10 @@ async def aioboto3_minio_client(monkeypatch):
 
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():
+        access_key, secret_key = _minio_credentials()
         return aioboto3.Session(
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
             region_name="us-east-1",
         )
 

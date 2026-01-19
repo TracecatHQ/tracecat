@@ -38,13 +38,19 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
     session = aioboto3.Session()
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None:
-        # MinIO configuration - use AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
+        # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
         async with session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
             # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
-            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "minioadmin"),
-            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+            aws_access_key_id=os.environ.get(
+                "AWS_ACCESS_KEY_ID",
+                os.environ.get("MINIO_ROOT_USER", "minioadmin"),
+            ),
+            aws_secret_access_key=os.environ.get(
+                "AWS_SECRET_ACCESS_KEY",
+                os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin"),
+            ),
         ) as client:
             yield client
     else:
