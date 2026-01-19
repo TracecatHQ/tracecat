@@ -3,7 +3,7 @@
 import { ArrowLeftIcon, ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useRef, useState } from "react"
-
+import type { InboxItemRead } from "@/client"
 import { agentSessionsForkSession } from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { useChatReadiness } from "@/lib/hooks"
-import type { InboxItem } from "@/lib/inbox"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface InboxDetailHeaderProps {
@@ -68,7 +67,7 @@ interface InboxDetailProps {
   sessionId: string
   /** The original parent session ID (from the inbox item) - used for forking */
   parentSessionId: string
-  item: InboxItem
+  item: InboxItemRead
   /** Called after successfully forking, passes the forked session ID and the message to send */
   onForked?: (forkedSessionId: string, pendingMessage: string) => void
   /** Message to send immediately (passed from parent after fork) */

@@ -1,9 +1,9 @@
 import { BotIcon, CheckCircle2Icon, ClockIcon, XCircleIcon } from "lucide-react"
-import type { InboxItem, InboxItemStatus } from "@/lib/inbox"
+import type { InboxItemRead, InboxItemStatus } from "@/client"
 import { cn } from "@/lib/utils"
 
 interface InboxListItemProps {
-  item: InboxItem
+  item: InboxItemRead
   isSelected: boolean
   onClick: () => void
 }
@@ -25,7 +25,7 @@ function StatusIcon({ status }: { status: InboxItemStatus }) {
  * Get status text for the inbox item.
  * Shows "Completed", "Failed", or "X approvals remaining" based on status/metadata.
  */
-function getStatusText(item: InboxItem): string {
+function getStatusText(item: InboxItemRead): string {
   const metadata = item.metadata as
     | { pending_count?: number; total_approvals?: number }
     | undefined

@@ -1,5 +1,5 @@
+import type { InboxItemRead } from "@/client"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import type { InboxItem } from "@/lib/inbox"
 
 import { InboxListItem } from "./inbox-list-item"
 
@@ -19,7 +19,7 @@ function InboxListHeader({ itemCount }: InboxListHeaderProps) {
 }
 
 interface InboxListProps {
-  items: InboxItem[]
+  items: InboxItemRead[]
   selectedId: string | null
   onSelect: (id: string) => void
 }

@@ -1,16 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { agentSessionsListSessions } from "@/client"
+import { agentSessionsListSessions, type InboxItemRead } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import type { InboxItem } from "@/lib/inbox"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import { InboxDetail } from "./inbox-detail"
 import { InboxEmptyState } from "./inbox-empty-state"
 import { InboxList } from "./inbox-list"
 
 interface InboxLayoutProps {
-  items: InboxItem[]
+  items: InboxItemRead[]
   selectedId: string | null
   onSelect: (id: string) => void
   isLoading: boolean
