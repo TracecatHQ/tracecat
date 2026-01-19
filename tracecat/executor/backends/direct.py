@@ -33,6 +33,7 @@ from tracecat.contexts import (
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.schemas import (
+    ActionImplementation,
     ExecutorActionErrorInfo,
     ExecutorResult,
     ExecutorResultFailure,
@@ -42,12 +43,11 @@ from tracecat.executor.schemas import (
 from tracecat.executor.service import (
     RegistryArtifactsContext,
     get_registry_artifacts_for_lock,
-    run_single_action,
 )
 from tracecat.logger import logger
-from tracecat.registry.actions.bound import BoundRegistryAction
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.schemas import RegistryActionUDFImpl
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
 
 if TYPE_CHECKING:
@@ -170,6 +170,10 @@ class DirectBackend(ExecutorBackend):
         Uses resolved_context.action_impl to determine what to execute.
         This allows the backend to execute any action, not just the one
         specified in input.task.action (important for template step execution).
+
+        NOTE: This backend executes UDFs directly without DB lookup.
+        Templates are orchestrated by the service layer (_execute_template_action);
+        only UDF leaf nodes reach this backend.
         """
         action_impl = resolved_context.action_impl
 
@@ -208,20 +212,14 @@ class DirectBackend(ExecutorBackend):
         )
         set_context(registry_ctx)
 
-        # Load action implementation using module/name from resolved_context
-        # This allows executing the correct action for template steps
-        action = await self._load_action_from_impl(action_impl)
+        # Load UDF directly from module/name (no DB lookup)
+        fn = self._load_udf_callable(action_impl)
 
         log.info(
             "Run action",
             task_ref=input.task.ref,
             action_name=action_name,
         )
-
-        # Build execution context with pre-resolved secrets and variables
-        context = input.exec_context.copy()
-        context["SECRETS"] = resolved_context.secrets
-        context["VARS"] = resolved_context.variables
 
         # Flatten secrets for env sandbox
         flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
@@ -233,11 +231,11 @@ class DirectBackend(ExecutorBackend):
             # Execute with secrets in environment
             args = resolved_context.evaluated_args or {}
             with secrets_manager.env_sandbox(flattened_secrets):
-                result = await run_single_action(
-                    action=action,
-                    args=args,
-                    context=context,
-                )
+                # Execute the UDF directly
+                if asyncio.iscoroutinefunction(fn):
+                    result = await fn(**args)
+                else:
+                    result = await asyncio.to_thread(fn, **args)
 
             log.trace("Result", result=result)
             return result
@@ -245,29 +243,28 @@ class DirectBackend(ExecutorBackend):
             # Reset secrets context to prevent leakage
             registry_secrets.reset_context(secrets_token)
 
-    async def _load_action_from_impl(self, action_impl) -> BoundRegistryAction:
-        """Load the action implementation from action_impl metadata.
+    def _load_udf_callable(self, action_impl: ActionImplementation):
+        """Load the UDF callable from action_impl metadata.
 
-        Uses the module and name from action_impl to load the correct
-        action, regardless of what's in input.task.action.
+        Uses the module and name from action_impl to import and return
+        the function, without any DB lookup. The origin is used for
+        local-reload behavior when TRACECAT__LOCAL_REPOSITORY_ENABLED is set.
         """
-        async with RegistryActionsService.with_session() as service:
-            # Fast path: load by registry action name when provided.
-            if action_impl.action_name:
-                reg_action = await service.get_action(action_impl.action_name)
-                return service.get_bound(reg_action, mode="execution")
-
-            # Fallback: resolve via implementation metadata (slower JSONB scan).
-            if not action_impl.module or not action_impl.name:
-                raise ValueError(
-                    "UDF action missing module or name: "
-                    f"module={action_impl.module}, name={action_impl.name}"
-                )
-            reg_action = await service.get_action_by_impl(
-                module=action_impl.module,
-                name=action_impl.name,
+        if not action_impl.module or not action_impl.name:
+            raise ValueError(
+                "UDF action missing module or name: "
+                f"module={action_impl.module}, name={action_impl.name}"
             )
-            return service.get_bound(reg_action, mode="execution")
+
+        # Create a RegistryActionUDFImpl to use with load_udf_impl
+        # The url field is required but only used for logging; use origin
+        udf_impl = RegistryActionUDFImpl(
+            type="udf",
+            url=action_impl.origin or "unknown",
+            module=action_impl.module,
+            name=action_impl.name,
+        )
+        return load_udf_impl(udf_impl)
 
     async def _ensure_registry_tarballs(
         self, input: RunActionInput, role: Role
