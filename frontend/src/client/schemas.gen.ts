@@ -7851,6 +7851,7 @@ export const $InboxItemRead = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
       description: "Unique inbox item ID",
     },
@@ -7902,6 +7903,7 @@ export const $InboxItemRead = {
     },
     source_id: {
       type: "string",
+      format: "uuid",
       title: "Source Id",
       description: "ID of the source entity",
     },
@@ -17661,6 +17663,7 @@ export const $WorkflowSummary = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
       description: "Workflow ID",
     },

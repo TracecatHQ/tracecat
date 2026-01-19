@@ -122,12 +122,16 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
                 reverse=sort_desc,
             )
         elif order_by == "status":
-            # Status priority: pending first
+            # Status priority: pending first (asc) or completed first (desc)
+            # Secondary sort by created_at in the same direction
             all_items.sort(
                 key=lambda x: (
                     x.status != InboxItemStatus.PENDING,
-                    -x.created_at.timestamp(),
+                    x.created_at.timestamp()
+                    if sort_desc
+                    else -x.created_at.timestamp(),
                 ),
+                reverse=sort_desc,
             )
 
         # Find cursor position in merged results

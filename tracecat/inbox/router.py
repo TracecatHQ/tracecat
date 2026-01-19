@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
@@ -75,7 +75,6 @@ async def list_items_paginated(
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list inbox items: {e}")
-        from fastapi import HTTPException, status
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
