@@ -28,6 +28,7 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.exceptions import (
+    ExecutionError,
     RegistryValidationError,
     TracecatValidationError,
 )
@@ -601,7 +602,6 @@ async def test_template_action_runs(
                 "display_group": "Testing",
                 "doc_url": "https://example.com/docs",
                 "author": "Tracecat",
-                "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
                 "expects": {
                     # Required field
                     "user_id": {
@@ -686,8 +686,10 @@ async def test_template_action_runs(
     )
 
     if should_raise:
-        with pytest.raises(RegistryValidationError):
+        # Production path wraps RegistryValidationError in ExecutionError
+        with pytest.raises(ExecutionError) as exc_info:
             await run_action_test(input=input, role=test_role)
+        assert isinstance(exc_info.value.__cause__, RegistryValidationError)
     else:
         result = await run_action_test(input=input, role=test_role)
         assert result == expected
@@ -804,8 +806,10 @@ async def test_template_action_with_enums(
     )
 
     if should_raise:
-        with pytest.raises(RegistryValidationError):
+        # Production path wraps RegistryValidationError in ExecutionError
+        with pytest.raises(ExecutionError) as exc_info:
             await run_action_test(input=input, role=test_role)
+        assert isinstance(exc_info.value.__cause__, RegistryValidationError)
     else:
         result = await run_action_test(input=input, role=test_role)
         assert result == expected

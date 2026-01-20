@@ -33,6 +33,7 @@ from tracecat.dsl.schemas import (
 from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    RegistryValidationError,
     TracecatAuthorizationError,
     TracecatException,
 )
@@ -49,6 +50,7 @@ from tracecat.expressions.eval import (
     eval_templated_object,
     get_iterables_from_expression,
 )
+from tracecat.expressions.expectations import create_expectation_model
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
@@ -402,14 +404,29 @@ async def _execute_template_action(
 
     template_def = TemplateActionDefinition.model_validate(template_def_dict)
 
+    # Validate input args against the template's expects schema
+    # This applies defaults and validates types (including enums)
+    validated_input_args: dict[str, Any] = {}
+    if template_def.expects:
+        try:
+            args_model = create_expectation_model(
+                template_def.expects, model_name=f"{template_def.action}Args"
+            )
+            validated = args_model.model_validate(resolved_context.evaluated_args)
+            validated_input_args = validated.model_dump(mode="json")
+        except Exception as e:
+            raise RegistryValidationError(
+                f"Validation error for template action {template_def.action!r}: {e}",
+                key=template_def.action,
+            ) from e
+    else:
+        validated_input_args = dict(resolved_context.evaluated_args)
+
     # Build template context for expression evaluation
     # Secrets context uses the pre-resolved secrets from parent
     secrets_context = resolved_context.secrets
     env_context = input.exec_context.get("ENV", DSLEnvironment())
     vars_context = resolved_context.variables
-
-    # The evaluated_args are the template's input arguments
-    validated_input_args = resolved_context.evaluated_args
 
     template_context = TemplateExecutionContext(
         SECRETS=secrets_context,
