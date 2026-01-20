@@ -1150,3 +1150,140 @@ async def test_template_action_with_multi_level_fallback_chain(
     assert result3 == "http://default-url.com", (
         "Should use literal default when neither inputs.url nor VARS.config.url available (third in fallback chain)"
     )
+
+
+def test_aggregate_secrets_from_manifest_collects_nested_secrets():
+    """Test that aggregate_secrets_from_manifest correctly collects secrets from nested template steps.
+
+    This tests the API response path (not execution) to ensure the UI displays all required secrets.
+    """
+    from tracecat_registry import RegistrySecret
+
+    from tracecat.registry.actions.service import RegistryActionsService
+    from tracecat.registry.versions.schemas import (
+        RegistryVersionManifest,
+        RegistryVersionManifestAction,
+    )
+
+    # Create a manifest with:
+    # 1. A UDF action with its own secret
+    # 2. A template action that calls the UDF (should aggregate the UDF's secret)
+    # 3. A nested template that calls another template (should aggregate all secrets)
+
+    udf_secret = RegistrySecret(name="udf_secret", keys=["UDF_KEY"])
+    template_secret = RegistrySecret(name="template_secret", keys=["TEMPLATE_KEY"])
+    nested_template_secret = RegistrySecret(
+        name="nested_template_secret", keys=["NESTED_KEY"]
+    )
+
+    manifest = RegistryVersionManifest(
+        schema_version="1.0",
+        actions={
+            # UDF action with a secret
+            "testing.udf_with_secret": RegistryVersionManifestAction(
+                namespace="testing",
+                name="udf_with_secret",
+                action_type="udf",
+                description="UDF with secret",
+                secrets=[udf_secret],
+                interface={"expects": {}, "returns": None},
+                implementation={
+                    "type": "udf",
+                    "url": "http://test",
+                    "module": "test",
+                    "name": "test",
+                },
+            ),
+            # Template action that uses the UDF
+            "testing.template_with_udf": RegistryVersionManifestAction(
+                namespace="testing",
+                name="template_with_udf",
+                action_type="template",
+                description="Template that uses UDF",
+                secrets=[template_secret],
+                interface={"expects": {}, "returns": None},
+                implementation={
+                    "type": "template",
+                    "template_action": {
+                        "type": "action",
+                        "definition": {
+                            "name": "template_with_udf",
+                            "namespace": "testing",
+                            "title": "Template with UDF",
+                            "display_group": "Testing",
+                            "expects": {},
+                            "steps": [
+                                {
+                                    "ref": "step1",
+                                    "action": "testing.udf_with_secret",
+                                    "args": {},
+                                }
+                            ],
+                            "returns": "${{ steps.step1.result }}",
+                        },
+                    },
+                },
+            ),
+            # Nested template that uses another template
+            "testing.nested_template": RegistryVersionManifestAction(
+                namespace="testing",
+                name="nested_template",
+                action_type="template",
+                description="Nested template",
+                secrets=[nested_template_secret],
+                interface={"expects": {}, "returns": None},
+                implementation={
+                    "type": "template",
+                    "template_action": {
+                        "type": "action",
+                        "definition": {
+                            "name": "nested_template",
+                            "namespace": "testing",
+                            "title": "Nested Template",
+                            "display_group": "Testing",
+                            "expects": {},
+                            "steps": [
+                                {
+                                    "ref": "step1",
+                                    "action": "testing.template_with_udf",
+                                    "args": {},
+                                }
+                            ],
+                            "returns": "${{ steps.step1.result }}",
+                        },
+                    },
+                },
+            ),
+        },
+    )
+
+    # Test 1: UDF should only return its own secret
+    udf_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.udf_with_secret"
+    )
+    assert len(udf_secrets) == 1
+    assert udf_secrets[0].name == "udf_secret"
+
+    # Test 2: Template should return its own secret + UDF's secret
+    template_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.template_with_udf"
+    )
+    secret_names = {s.name for s in template_secrets}
+    assert secret_names == {"template_secret", "udf_secret"}
+
+    # Test 3: Nested template should return all secrets (nested + template + UDF)
+    nested_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.nested_template"
+    )
+    nested_secret_names = {s.name for s in nested_secrets}
+    assert nested_secret_names == {
+        "nested_template_secret",
+        "template_secret",
+        "udf_secret",
+    }
+
+    # Test 4: Non-existent action should return empty list
+    missing_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.nonexistent"
+    )
+    assert missing_secrets == []
