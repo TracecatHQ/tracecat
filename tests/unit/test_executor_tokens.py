@@ -17,7 +17,6 @@ from tracecat.auth.executor_tokens import (
     verify_executor_token,
 )
 from tracecat.auth.types import AccessLevel
-from tracecat.feature_flags import FeatureFlag
 
 
 def _make_request(token: str | None) -> Request:
@@ -133,7 +132,6 @@ async def test_role_dependency_executor_token_derives_access_level_from_db(
     from tracecat.auth.schemas import UserRole
 
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})
 
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
@@ -176,7 +174,6 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_unknown_user
 ):
     """Verify that access_level defaults to BASIC when user is not found in DB."""
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})
 
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
@@ -215,7 +212,6 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_null_user(
 ):
     """Verify that access_level defaults to BASIC when user_id is null (system execution)."""
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})
 
     workspace_id = uuid.uuid4()
 
@@ -258,7 +254,6 @@ async def test_role_dependency_executor_uses_jwt_workspace(
     workspace_id comes entirely from the JWT token.
     """
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.EXECUTOR_AUTH})
 
     jwt_workspace_id = uuid.uuid4()
 
