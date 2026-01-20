@@ -9414,6 +9414,51 @@ export const $PlatformRegistrySettingsUpdate = {
   description: "Update platform registry settings.",
 } as const
 
+export const $PlatformSyncStatusResponse = {
+  properties: {
+    synced: {
+      type: "boolean",
+      title: "Synced",
+      description:
+        "Whether the platform registry is synced to the expected version",
+    },
+    expected_version: {
+      type: "string",
+      title: "Expected Version",
+      description: "The expected version (from tracecat_registry.__version__)",
+    },
+    current_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version",
+      description: "The currently synced version, if any",
+    },
+    synced_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Synced At",
+      description: "When the current version was synced",
+    },
+  },
+  type: "object",
+  required: ["synced", "expected_version"],
+  title: "PlatformSyncStatusResponse",
+  description: "Response for platform registry sync status endpoint.",
+} as const
+
 export const $Position = {
   properties: {
     x: {

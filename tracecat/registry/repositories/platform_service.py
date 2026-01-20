@@ -37,7 +37,10 @@ class PlatformRegistryReposService(BaseService):
         """Get a platform registry by origin."""
         statement = (
             select(PlatformRegistryRepository)
-            .options(selectinload(PlatformRegistryRepository.actions))
+            .options(
+                selectinload(PlatformRegistryRepository.actions),
+                selectinload(PlatformRegistryRepository.current_version),
+            )
             .where(PlatformRegistryRepository.origin == origin)
         )
         result = await self.session.execute(statement)
@@ -49,7 +52,10 @@ class PlatformRegistryReposService(BaseService):
         """Get a platform registry by ID."""
         statement = (
             select(PlatformRegistryRepository)
-            .options(selectinload(PlatformRegistryRepository.actions))
+            .options(
+                selectinload(PlatformRegistryRepository.actions),
+                selectinload(PlatformRegistryRepository.current_version),
+            )
             .where(PlatformRegistryRepository.id == id)
         )
         result = await self.session.execute(statement)
@@ -62,8 +68,16 @@ class PlatformRegistryReposService(BaseService):
         repository = PlatformRegistryRepository(origin=params.origin)
         self.session.add(repository)
         await self.session.commit()
-        await self.session.refresh(repository, ["actions"])
+        await self.session.refresh(repository, ["actions", "current_version"])
         return repository
+
+    async def get_or_create_repository(self, origin: str) -> PlatformRegistryRepository:
+        """Get an existing repository or create a new one."""
+        repo = await self.get_repository(origin)
+        if repo is None:
+            repo = await self.create_repository(RegistryRepositoryCreate(origin=origin))
+            self.logger.info("Created platform registry repository", origin=origin)
+        return repo
 
     async def update_repository(
         self, repository: PlatformRegistryRepository, params: RegistryRepositoryUpdate
@@ -73,7 +87,7 @@ class PlatformRegistryReposService(BaseService):
             setattr(repository, key, value)
         self.session.add(repository)
         await self.session.commit()
-        await self.session.refresh(repository, ["actions"])
+        await self.session.refresh(repository, ["actions", "current_version"])
         return repository
 
     async def delete_repository(self, repository: PlatformRegistryRepository) -> None:
@@ -127,7 +141,7 @@ class PlatformRegistryReposService(BaseService):
         repository.current_version_id = version.id
         self.session.add(repository)
         await self.session.commit()
-        await self.session.refresh(repository, ["actions"])
+        await self.session.refresh(repository, ["actions", "current_version"])
 
         self.logger.info(
             "Promoted platform registry version",

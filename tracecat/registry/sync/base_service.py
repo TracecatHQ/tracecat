@@ -136,10 +136,27 @@ class BaseRegistrySyncService[
         ssh_env: SshEnv | None = None,
         git_repo_package_name: str | None = None,
         commit: bool = True,
+        bypass_temporal: bool = False,
     ) -> BaseSyncResult[VersionT]:
-        """Sync a repository and create a versioned snapshot."""
+        """Sync a repository and create a versioned snapshot.
+
+        Args:
+            db_repo: The database repository to sync.
+            target_version: Optional target version string to use.
+            target_commit_sha: Optional target commit SHA for git repos.
+            ssh_env: Optional SSH environment for git operations.
+            git_repo_package_name: Optional package name override for git repos.
+            commit: Whether to commit the transaction.
+            bypass_temporal: If True, always use subprocess sync instead of Temporal
+                workflow, even when sandbox mode is enabled. Use this for platform
+                registry startup sync where Temporal may not be available yet.
+        """
         origin = str(db_repo.origin)
         repo_id = db_repo.id
+
+        use_temporal = (
+            config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED and not bypass_temporal
+        )
 
         self.logger.info(
             "Starting registry sync",
@@ -147,9 +164,11 @@ class BaseRegistrySyncService[
             target_version=target_version,
             target_commit_sha=target_commit_sha,
             sandbox_enabled=config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED,
+            bypass_temporal=bypass_temporal,
+            use_temporal=use_temporal,
         )
 
-        if config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED:
+        if use_temporal:
             return await self._sync_via_temporal_workflow(
                 db_repo=db_repo,
                 target_version=target_version,

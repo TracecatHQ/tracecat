@@ -84,8 +84,9 @@ from tracecat.middleware import (
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
-from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
+from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.registry.sync.router import router as registry_sync_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
@@ -145,11 +146,16 @@ async def lifespan(app: FastAPI):
     async with get_async_session_context_manager() as session:
         # Org
         await setup_org_settings(session, role)
-        try:
-            await reload_registry(session, role)
-        except Exception as e:
-            logger.warning("Error reloading registry", error=e)
         await setup_workspace_defaults(session, role)
+
+    # Spawn platform registry sync as background task (non-blocking)
+    # Uses leader election to prevent race conditions across multiple API processes
+    registry_sync_task = asyncio.create_task(
+        sync_platform_registry_on_startup(),
+        name="platform_registry_sync",
+    )
+    logger.debug("Spawned background task for platform registry sync")
+
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
@@ -162,6 +168,27 @@ async def lifespan(app: FastAPI):
 
     # Mark app as not ready during shutdown
     _app_ready = False
+
+    # Gracefully handle the registry sync task during shutdown
+    if not registry_sync_task.done():
+        logger.info("Waiting for platform registry sync task to complete...")
+        try:
+            # Give the task a reasonable time to complete
+            await asyncio.wait_for(registry_sync_task, timeout=10.0)
+            logger.info("Platform registry sync task completed")
+        except TimeoutError:
+            logger.warning(
+                "Platform registry sync task did not complete in time, cancelling"
+            )
+            registry_sync_task.cancel()
+            try:
+                await registry_sync_task
+            except asyncio.CancelledError:
+                logger.debug("Platform registry sync task cancelled")
+        except Exception as e:
+            logger.warning(
+                "Platform registry sync task failed during shutdown", error=e
+            )
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):
@@ -294,6 +321,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
+    app.include_router(registry_sync_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
     app.include_router(tables_router)

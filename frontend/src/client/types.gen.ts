@@ -3085,6 +3085,28 @@ export type PlatformRegistrySettingsUpdate = {
   git_allowed_domains?: Array<string> | null
 }
 
+/**
+ * Response for platform registry sync status endpoint.
+ */
+export type PlatformSyncStatusResponse = {
+  /**
+   * Whether the platform registry is synced to the expected version
+   */
+  synced: boolean
+  /**
+   * The expected version (from tracecat_registry.__version__)
+   */
+  expected_version: string
+  /**
+   * The currently synced version, if any
+   */
+  current_version?: string | null
+  /**
+   * When the current version was synced
+   */
+  synced_at?: string | null
+}
+
 export type Position = {
   x?: number
   y?: number
@@ -6886,6 +6908,9 @@ export type RegistryActionsDeleteRegistryActionData = {
 
 export type RegistryActionsDeleteRegistryActionResponse = void
 
+export type RegistryPlatformGetPlatformSyncStatusResponse =
+  PlatformSyncStatusResponse
+
 export type SettingsGetGitSettingsResponse = GitSettingsRead
 
 export type SettingsUpdateGitSettingsData = {
@@ -9873,6 +9898,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/platform/sync-status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformSyncStatusResponse
       }
     }
   }

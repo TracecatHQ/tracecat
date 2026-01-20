@@ -291,6 +291,7 @@ import type {
   RegistryActionsListRegistryActionsResponse,
   RegistryActionsUpdateRegistryActionData,
   RegistryActionsUpdateRegistryActionResponse,
+  RegistryPlatformGetPlatformSyncStatusResponse,
   RegistryRepositoriesCreateRegistryRepositoryData,
   RegistryRepositoriesCreateRegistryRepositoryResponse,
   RegistryRepositoriesDeleteRegistryRepositoryData,
@@ -4324,6 +4325,26 @@ export const registryActionsDeleteRegistryAction = (
     },
   })
 }
+
+/**
+ * Get Platform Sync Status
+ * Return platform registry sync status by querying the DB.
+ *
+ * This endpoint checks whether the platform registry has been synced to the
+ * expected version (from tracecat_registry.__version__). It's useful for:
+ * - Health checks that need to verify the registry is ready
+ * - UI status indicators showing sync progress
+ * - Debugging startup issues with registry synchronization
+ * @returns PlatformSyncStatusResponse Successful Response
+ * @throws ApiError
+ */
+export const registryPlatformGetPlatformSyncStatus =
+  (): CancelablePromise<RegistryPlatformGetPlatformSyncStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/registry/platform/sync-status",
+    })
+  }
 
 /**
  * Get Git Settings
