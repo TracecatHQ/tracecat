@@ -44,7 +44,7 @@ class PoolBackend(ExecutorBackend):
     - Memory footprint scales with pool size
     """
 
-    async def execute(
+    async def _execute(
         self,
         input: RunActionInput,
         role: Role,
