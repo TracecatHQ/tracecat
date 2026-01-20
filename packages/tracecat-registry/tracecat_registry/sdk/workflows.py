@@ -108,7 +108,7 @@ class WorkflowsClient:
             data["parent_workflow_execution_id"] = parent_workflow_execution_id
 
         # Start the workflow execution
-        response = await self._client.post("/workflows/execute", json=data)
+        response = await self._client.post("/internal/workflows/execute", json=data)
 
         wf_id = response["workflow_id"]
         wf_exec_id = response["workflow_execution_id"]
@@ -148,7 +148,9 @@ class WorkflowsClient:
         """
         # URL-encode the execution ID since it contains a slash (wf_xxx/exec_yyy)
         encoded_id = quote(workflow_execution_id, safe="")
-        return await self._client.get(f"/workflows/executions/{encoded_id}/status")
+        return await self._client.get(
+            f"/internal/workflows/executions/{encoded_id}/status"
+        )
 
     async def _poll_until_complete(
         self,
