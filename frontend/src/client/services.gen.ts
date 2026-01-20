@@ -70,6 +70,8 @@ import type {
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
   AgentSessionsDeleteSessionResponse,
+  AgentSessionsForkSessionData,
+  AgentSessionsForkSessionResponse,
   AgentSessionsGetSessionData,
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
@@ -3283,6 +3285,8 @@ export const agentSessionsCreateSession = (
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
+ * @param data.excludeEntityTypes Entity types to exclude from results
+ * @param data.parentSessionId Filter by parent session ID (for finding forked sessions)
  * @param data.limit Maximum number of sessions to return
  * @returns unknown Successful Response
  * @throws ApiError
@@ -3296,6 +3300,8 @@ export const agentSessionsListSessions = (
     query: {
       entity_type: data.entityType,
       entity_id: data.entityId,
+      exclude_entity_types: data.excludeEntityTypes,
+      parent_session_id: data.parentSessionId,
       limit: data.limit,
       workspace_id: data.workspaceId,
     },
@@ -3483,6 +3489,41 @@ export const agentSessionsStreamSessionEvents = (
       format: data.format,
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Fork Session
+ * Fork an existing session to continue conversation post-decision.
+ *
+ * Creates a new session linked to the parent session, allowing users
+ * to ask the agent for context after making approval decisions.
+ *
+ * Set entity_type to 'approval' for inbox forks to hide from main chat list.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsForkSession = (
+  data: AgentSessionsForkSessionData
+): CancelablePromise<AgentSessionsForkSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sessions/{session_id}/fork",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
