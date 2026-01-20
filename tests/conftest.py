@@ -511,6 +511,38 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                 "implementation": webhook_impl,
             }
 
+            # core.transform.scatter (interface action)
+            scatter_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "scatter",
+            }
+            manifest_actions["core.transform.scatter"] = {
+                "namespace": "core.transform",
+                "name": "scatter",
+                "action_type": "udf",
+                "description": "Scatter collection into parallel streams",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": scatter_impl,
+            }
+
+            # core.transform.gather (interface action)
+            gather_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "gather",
+            }
+            manifest_actions["core.transform.gather"] = {
+                "namespace": "core.transform",
+                "name": "gather",
+                "action_type": "udf",
+                "description": "Gather results from parallel streams",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": gather_impl,
+            }
+
             manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
             # Create RegistryVersion with manifest
