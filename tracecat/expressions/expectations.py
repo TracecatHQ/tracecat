@@ -165,7 +165,7 @@ def create_expectation_model(
         if description:
             field_info_kwargs["description"] = description
 
-        if "default" in validated_field_info.model_fields_set:
+        if validated_field_info.has_default():
             # If the field has a default value, use it
             field_info_kwargs["default"] = validated_field_info.default
         else:

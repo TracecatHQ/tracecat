@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
 from tracecat.parse import safe_url
 from tracecat.registry.constants import (
@@ -22,7 +21,6 @@ from tracecat.settings.service import get_setting
 async def reload_registry(session: AsyncSession, role: Role) -> None:
     logger.info("Setting up base registry repository")
     repos_service = RegistryReposService(session, role=role)
-    use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
 
     # Setup Tracecat base repository using platform-scoped services
     # The base registry is shared across all organizations and should be
@@ -41,13 +39,7 @@ async def reload_registry(session: AsyncSession, role: Role) -> None:
             logger.error("Error creating base registry repository", error=e)
         else:
             logger.info("Created base registry repository", origin=base_origin)
-            if use_v2_sync:
-                await platform_sync_service.sync_repository_v2(base_repo)
-            else:
-                logger.warning(
-                    "V2 sync not enabled, skipping base registry sync. "
-                    "Enable REGISTRY_SYNC_V2 feature flag for platform registry sync."
-                )
+            await platform_sync_service.sync_repository_v2(base_repo)
     else:
         logger.info("Base registry repository already exists", origin=base_origin)
 

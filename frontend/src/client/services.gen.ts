@@ -4219,7 +4219,7 @@ export const registryRepositoriesPromoteRegistryVersion = (
 
 /**
  * List Registry Actions
- * List all actions in a registry.
+ * List all actions from registry index.
  * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */

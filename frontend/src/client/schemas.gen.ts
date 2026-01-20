@@ -6911,18 +6911,19 @@ export const $ExpectedField = {
       title: "Description",
     },
     default: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
       title: "Default",
+      default: "__TRACECAT_UNSET__",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type"],
   title: "ExpectedField",
+  description: `Schema for a field in a template action's expects definition.
+
+Note: The default field uses a sentinel to distinguish between
+"no default specified" (required field) and "default is explicitly None"
+(optional field).`,
 } as const
 
 export const $ExprType = {

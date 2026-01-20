@@ -14,10 +14,8 @@ from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
@@ -103,60 +101,44 @@ async def sync_registry_repository(
     last_synced_at = datetime.now(UTC)
     target_commit_sha = sync_params.target_commit_sha if sync_params else None
 
-    # Check if v2 sync is enabled via feature flag
-    use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
-
-    # For git+ssh repos, we need SSH context for wheel building
+    # For git+ssh repos, we need SSH context for tarball building
     is_git_ssh = repo.origin.startswith("git+ssh://")
 
     try:
-        if use_v2_sync:
-            if is_git_ssh:
-                # Get SSH context for git operations
-                allowed_domains_setting = await get_setting(
-                    "git_allowed_domains", role=role
-                )
-                allowed_domains = allowed_domains_setting or {"github.com"}
-                git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+        if is_git_ssh:
+            # Get SSH context for git operations
+            allowed_domains_setting = await get_setting(
+                "git_allowed_domains", role=role
+            )
+            allowed_domains = allowed_domains_setting or {"github.com"}
+            git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
 
-                async with ssh_context(
-                    role=role, git_url=git_url, session=session
-                ) as ssh_env:
-                    # V2 sync with SSH env for wheel building
-                    (
-                        commit_sha,
-                        version,
-                    ) = await actions_service.sync_actions_from_repository_v2(
-                        repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
-                    )
-            else:
-                # V2 sync without SSH (built-in registry)
+            async with ssh_context(
+                role=role, git_url=git_url, session=session
+            ) as ssh_env:
+                # V2 sync with SSH env for tarball building
                 (
                     commit_sha,
                     version,
                 ) = await actions_service.sync_actions_from_repository_v2(
-                    repo, target_commit_sha=target_commit_sha
+                    repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
                 )
-            logger.info(
-                "Synced repository (v2)",
-                origin=repo.origin,
-                commit_sha=commit_sha,
-                version=version,
-                target_commit_sha=target_commit_sha,
-                last_synced_at=last_synced_at,
-            )
         else:
-            # V1 sync: updates RegistryAction table only
-            commit_sha = await actions_service.sync_actions_from_repository(
+            # V2 sync without SSH (built-in registry)
+            (
+                commit_sha,
+                version,
+            ) = await actions_service.sync_actions_from_repository_v2(
                 repo, target_commit_sha=target_commit_sha
             )
-            logger.info(
-                "Synced repository",
-                origin=repo.origin,
-                commit_sha=commit_sha,
-                target_commit_sha=target_commit_sha,
-                last_synced_at=last_synced_at,
-            )
+        logger.info(
+            "Synced repository",
+            origin=repo.origin,
+            commit_sha=commit_sha,
+            version=version,
+            target_commit_sha=target_commit_sha,
+            last_synced_at=last_synced_at,
+        )
 
         session.expire(repo)
         # Update the registry repository table
@@ -239,25 +221,24 @@ async def get_registry_repository(
     repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:
     """Get a specific registry repository by origin."""
-    service = RegistryReposService(session, role)
+    repos_service = RegistryReposService(session, role)
+    actions_service = RegistryActionsService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        repository = await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Error getting registry repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
+    actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=repository.id,
         origin=repository.origin,
         last_synced_at=repository.last_synced_at,
         commit_sha=repository.commit_sha,
         current_version_id=repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in repository.actions
-        ],
+        actions=actions,
     )
 
 
@@ -380,16 +361,14 @@ async def create_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    # New repository has no synced actions yet
     return RegistryRepositoryRead(
         id=created_repository.id,
         origin=created_repository.origin,
         last_synced_at=created_repository.last_synced_at,
         commit_sha=created_repository.commit_sha,
         current_version_id=created_repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in created_repository.actions
-        ],
+        actions=[],
     )
 
 
@@ -407,26 +386,25 @@ async def update_registry_repository(
     params: RegistryRepositoryUpdate,
 ) -> RegistryRepositoryRead:
     """Update an existing registry repository."""
-    service = RegistryReposService(session, role)
+    repos_service = RegistryReposService(session, role)
+    actions_service = RegistryActionsService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        repository = await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Registry repository not found", repository_id=repository_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
-    updated_repository = await service.update_repository(repository, params)
+    updated_repository = await repos_service.update_repository(repository, params)
+    actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=updated_repository.id,
         origin=updated_repository.origin,
         last_synced_at=updated_repository.last_synced_at,
         commit_sha=updated_repository.commit_sha,
         current_version_id=updated_repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in updated_repository.actions
-        ],
+        actions=actions,
     )
 
 

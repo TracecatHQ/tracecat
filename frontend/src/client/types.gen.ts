@@ -2136,10 +2136,17 @@ export type ExecutionContext = {
  */
 export type ExecutionType = "draft" | "published"
 
+/**
+ * Schema for a field in a template action's expects definition.
+ *
+ * Note: The default field uses a sentinel to distinguish between
+ * "no default specified" (required field) and "default is explicitly None"
+ * (optional field).
+ */
 export type ExpectedField = {
   type: string
   description?: string | null
-  default?: unknown | null
+  default?: unknown
 }
 
 export type ExprType =

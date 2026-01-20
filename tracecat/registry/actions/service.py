@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict
@@ -14,7 +15,12 @@ from tracecat_registry import (
     RegistrySecretTypeValidator,
 )
 
-from tracecat.db.models import RegistryAction, RegistryRepository
+from tracecat.db.models import (
+    RegistryAction,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
@@ -47,6 +53,7 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
@@ -100,6 +107,136 @@ class RegistryActionsService(BaseService):
 
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def list_actions_from_index(
+        self,
+        *,
+        namespace: str | None = None,
+        include_marked: bool = False,
+        include_keys: set[str] | None = None,
+    ) -> list[tuple[RegistryIndex, str]]:
+        """List actions from registry index for current versions.
+
+        Returns tuples of (index_entry, origin).
+        """
+        statement = (
+            select(RegistryIndex, RegistryRepository.origin)
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
+        )
+
+        if not include_marked:
+            statement = statement.where(
+                cast(RegistryIndex.options["include_in_schema"].astext, Boolean) == True  # noqa: E712
+            )
+        if namespace:
+            statement = statement.where(RegistryIndex.namespace.startswith(namespace))
+        if include_keys:
+            statement = statement.where(
+                func.concat(RegistryIndex.namespace, ".", RegistryIndex.name).in_(
+                    include_keys
+                )
+            )
+
+        result = await self.session.execute(statement)
+        return list(result.tuples().all())
+
+    async def list_actions_from_index_by_repository(
+        self,
+        repository_id: uuid.UUID,
+    ) -> list[RegistryActionRead]:
+        """List full action details from registry index for a specific repository.
+
+        Returns list of RegistryActionRead objects with implementation from manifest.
+        """
+        statement = (
+            select(RegistryIndex, RegistryVersion, RegistryRepository)
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.id == repository_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
+        )
+
+        result = await self.session.execute(statement)
+        actions: list[RegistryActionRead] = []
+        for index_entry, version, repository in result.tuples().all():
+            manifest = RegistryVersionManifest.model_validate(version.manifest)
+            action_name = f"{index_entry.namespace}.{index_entry.name}"
+            manifest_action = manifest.actions.get(action_name)
+            if manifest_action:
+                actions.append(
+                    RegistryActionRead.from_index_and_manifest(
+                        index_entry,
+                        manifest_action,
+                        repository.origin,
+                        repository.id,
+                    )
+                )
+        return actions
+
+    async def get_action_from_index(
+        self,
+        action_name: str,
+    ) -> tuple[RegistryIndex, RegistryVersionManifest, str, RegistryRepository] | None:
+        """Get action from index with manifest from the version.
+
+        Args:
+            action_name: Full action name (e.g., "core.http_request")
+
+        Returns:
+            Tuple of (index_entry, manifest, origin, repository) or None if not found.
+        """
+        try:
+            namespace, name = action_name.rsplit(".", 1)
+        except ValueError:
+            return None
+
+        statement = (
+            select(RegistryIndex, RegistryVersion, RegistryRepository)
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                RegistryIndex.namespace == namespace,
+                RegistryIndex.name == name,
+            )
+        )
+
+        result = await self.session.execute(statement)
+        first_row = result.tuples().first()
+        if not first_row:
+            return None
+
+        index_entry, version, repository = first_row
+        manifest = RegistryVersionManifest.model_validate(version.manifest)
+
+        return (index_entry, manifest, repository.origin, repository)
 
     async def get_aggregated_secrets(self) -> list[SecretDefinition]:
         organization_id = self.organization_id
@@ -434,38 +571,33 @@ class RegistryActionsService(BaseService):
         *,
         target_version: str | None = None,
         target_commit_sha: str | None = None,
-        allow_delete_all: bool = False,
         ssh_env: SshEnv | None = None,
     ) -> tuple[str | None, str | None]:
         """Sync actions from a repository using the v2 versioned flow.
 
         This creates an immutable RegistryVersion snapshot with:
         - Frozen manifest stored in DB
-        - Wheel uploaded to S3 (mandatory - sync fails if wheel build fails)
+        - Tarball venv uploaded to S3 (mandatory - sync fails if build fails)
         - RegistryIndex entries for fast lookups
 
-        Also updates the mutable RegistryAction table for backward compatibility.
+        Note: RegistryAction table is no longer populated. Use RegistryIndex
+        for UI queries and fetch implementation from RegistryVersion.manifest.
 
         Args:
             db_repo: The repository to sync.
             target_version: Version string (auto-generated if not provided).
             target_commit_sha: Optional commit SHA to sync to.
-            allow_delete_all: If True, allow deleting all actions if list is empty.
             ssh_env: SSH environment for git operations (required for git+ssh repos).
 
         Returns:
             Tuple of (commit_sha, version_string)
 
         Raises:
-            WheelBuildError: If wheel building fails (no version is created)
+            TarballBuildError: If tarball building fails (no version is created)
         """
         # Use the v2 sync service
         sync_service = RegistrySyncService(self.session, self.role)
 
-        # Both operations should be in the same transaction to ensure atomicity:
-        # - sync_repository_v2 creates RegistryVersion and RegistryIndex entries
-        # - upsert_actions_from_list updates the mutable RegistryAction table
-        # If either fails, both should be rolled back
         if self.session.in_transaction():
             async with self.session.begin_nested():
                 sync_result = await sync_service.sync_repository_v2(
@@ -474,14 +606,6 @@ class RegistryActionsService(BaseService):
                     target_commit_sha=target_commit_sha,
                     ssh_env=ssh_env,
                     commit=False,
-                )
-                # Also update the mutable RegistryAction table for backward compatibility
-                # This ensures existing code that queries RegistryAction still works
-                await self.upsert_actions_from_list(
-                    sync_result.actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
                 )
         else:
             async with self.session.begin():
@@ -492,17 +616,9 @@ class RegistryActionsService(BaseService):
                     ssh_env=ssh_env,
                     commit=False,
                 )
-                # Also update the mutable RegistryAction table for backward compatibility
-                # This ensures existing code that queries RegistryAction still works
-                await self.upsert_actions_from_list(
-                    sync_result.actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
-                )
 
         self.logger.info(
-            "V2 sync completed with backward compatible RegistryAction update",
+            "V2 sync completed",
             version=sync_result.version_string,
             commit_sha=sync_result.commit_sha,
             num_actions=sync_result.num_actions,
@@ -740,6 +856,62 @@ class RegistryActionsService(BaseService):
             for step_ra in step_ras:
                 step_secrets = await self.fetch_all_action_secrets(step_ra)
                 secrets.update(step_secrets)
+        return secrets
+
+    @staticmethod
+    def aggregate_secrets_from_manifest(
+        manifest: RegistryVersionManifest,
+        action_name: str,
+        visited: set[str] | None = None,
+    ) -> list[RegistrySecretType]:
+        """Recursively aggregate secrets from an action and its template steps.
+
+        This method traverses template actions in the manifest to collect all
+        secrets required by the action and any nested template steps.
+
+        Args:
+            manifest: The registry version manifest containing all actions
+            action_name: The full action name (e.g., "core.http_request")
+            visited: Set of visited action names to prevent infinite recursion
+
+        Returns:
+            List of all secrets required by the action and its template steps
+        """
+        if visited is None:
+            visited = set()
+
+        # Prevent infinite recursion
+        if action_name in visited:
+            return []
+        visited.add(action_name)
+
+        manifest_action = manifest.actions.get(action_name)
+        if not manifest_action:
+            return []
+
+        secrets: list[RegistrySecretType] = []
+
+        # Add direct secrets from this action
+        if manifest_action.secrets:
+            secrets.extend(manifest_action.secrets)
+
+        # For template actions, recursively collect secrets from steps
+        if manifest_action.action_type == "template":
+            impl = manifest_action.implementation
+            template_action_data = impl.get("template_action")
+            if template_action_data:
+                definition = template_action_data.get("definition", {})
+                steps = definition.get("steps", [])
+                for step in steps:
+                    step_action_name = step.get("action")
+                    if step_action_name:
+                        step_secrets = (
+                            RegistryActionsService.aggregate_secrets_from_manifest(
+                                manifest, step_action_name, visited
+                            )
+                        )
+                        secrets.extend(step_secrets)
+
         return secrets
 
     def get_bound(
