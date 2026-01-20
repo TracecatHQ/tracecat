@@ -56,7 +56,7 @@ export function OrgSettingsAuthForm() {
         })) ?? [],
       auth_require_email_verification:
         authSettings?.auth_require_email_verification ?? false,
-      auth_min_password_length: authSettings?.auth_min_password_length ?? 12,
+      auth_min_password_length: authSettings?.auth_min_password_length ?? 16,
       auth_session_expire_time_seconds:
         authSettings?.auth_session_expire_time_seconds ?? 3600,
     },

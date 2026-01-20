@@ -22,10 +22,10 @@ import { useUserManager } from "@/lib/hooks"
 
 const resetPasswordSchema = z
   .object({
-    password: z.string().min(8, "Password must be at least 8 characters"),
+    password: z.string().min(16, "Password must be at least 16 characters"),
     confirmPassword: z
       .string()
-      .min(8, "Password must be at least 8 characters"),
+      .min(16, "Password must be at least 16 characters"),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
