@@ -26,6 +26,10 @@ class ExpectedField(BaseModel):
     type: str
     description: str | None = None
     default: Any = _UNSET_SENTINEL
+    enum: list[str] | None = None
+    """Optional list of allowed values for this field."""
+    optional: bool | None = None
+    """Whether this field is optional (alternative to using default)."""
 
     def has_default(self) -> bool:
         """Check if a default value was explicitly specified."""
