@@ -1,11 +1,12 @@
 import os
 import uuid
 from io import BytesIO
-import tests.conftest as conf
-from dotenv import dotenv_values
+
 import pytest
+from dotenv import dotenv_values
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import tests.conftest as conf
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
@@ -39,7 +40,9 @@ def sync_minio_credentials(monkeysession: pytest.MonkeyPatch):
         env = {}
 
     access_key = (
-        env.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_ACCESS_KEY_ID") or "minioadmin"
+        env.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("AWS_ACCESS_KEY_ID")
+        or "minioadmin"
     )
     secret_key = (
         env.get("AWS_SECRET_ACCESS_KEY")
@@ -53,7 +56,6 @@ def sync_minio_credentials(monkeysession: pytest.MonkeyPatch):
 
     # Patch tests.conftest constants used to start MinIO
     try:
-
         monkeysession.setattr(conf, "AWS_ACCESS_KEY_ID", access_key, raising=False)
         monkeysession.setattr(conf, "AWS_SECRET_ACCESS_KEY", secret_key, raising=False)
     except Exception:
