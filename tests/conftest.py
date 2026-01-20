@@ -56,8 +56,11 @@ else:
     # Extract number from "gwN" format
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
-# MinIO test configuration - uses docker-compose service on port 9000
-MINIO_PORT = 9000
+# Port configuration - reads from environment for worktree cluster support
+# Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT
+PG_PORT = int(os.environ.get("PG_PORT", "5432"))
+TEMPORAL_PORT = int(os.environ.get("TEMPORAL_PORT", "7233"))
+MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 
 
@@ -508,6 +511,38 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                 "implementation": webhook_impl,
             }
 
+            # core.transform.scatter (interface action)
+            scatter_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "scatter",
+            }
+            manifest_actions["core.transform.scatter"] = {
+                "namespace": "core.transform",
+                "name": "scatter",
+                "action_type": "udf",
+                "description": "Scatter collection into parallel streams",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": scatter_impl,
+            }
+
+            # core.transform.gather (interface action)
+            gather_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.transform",
+                "name": "gather",
+            }
+            manifest_actions["core.transform.gather"] = {
+                "namespace": "core.transform",
+                "name": "gather",
+                "action_type": "udf",
+                "description": "Gather results from parallel streams",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": gather_impl,
+            }
+
             manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
             # Create RegistryVersion with manifest
@@ -629,10 +664,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     api_host = "api" if in_docker else "localhost"
     blob_storage_host = "minio" if in_docker else "localhost"
 
-    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:5432/postgres"
+    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:{PG_PORT}/postgres"
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
-        config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233"
+        config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
     )
     blob_storage_endpoint = f"http://{blob_storage_host}:{MINIO_PORT}"
     monkeysession.setattr(
