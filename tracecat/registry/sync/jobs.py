@@ -103,20 +103,31 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
         )
         return
 
+    # No-downgrade guard: check before attempting sync
+    if repo.current_version:
+        current_ver = Version(repo.current_version.version)
+        target_ver = Version(target_version)
+        if target_ver < current_ver:
+            logger.warning(
+                "Refusing to downgrade platform registry",
+                current=str(current_ver),
+                target=str(target_ver),
+            )
+            return
+
     # Version doesn't exist - need to sync (with retries)
     sync_service = PlatformRegistrySyncService(session, role=None)
 
     for attempt in range(1, MAX_SYNC_RETRIES + 1):
         try:
-            # No-downgrade guard before sync
-            # Re-fetch repo to get latest state
+            # Re-check downgrade guard in case another process updated during retries
             await session.refresh(repo, ["current_version"])
             if repo.current_version:
                 current_ver = Version(repo.current_version.version)
                 target_ver = Version(target_version)
                 if target_ver < current_ver:
                     logger.warning(
-                        "Refusing to downgrade platform registry",
+                        "Refusing to downgrade platform registry (detected during retry)",
                         current=str(current_ver),
                         target=str(target_ver),
                     )
