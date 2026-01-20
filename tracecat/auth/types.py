@@ -64,6 +64,8 @@ class Role(BaseModel):
             headers["x-tracecat-role-user-id"] = str(self.user_id)
         if self.workspace_id is not None:
             headers["x-tracecat-role-workspace-id"] = str(self.workspace_id)
+        if self.workspace_role is not None:
+            headers["x-tracecat-role-workspace-role"] = self.workspace_role.value
         return headers
 
 

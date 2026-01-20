@@ -126,6 +126,8 @@ async def _authenticate_service(
         role_params["user_id"] = user_id
     if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None:
         role_params["workspace_id"] = ws_id
+    if (ws_role := request.headers.get("x-tracecat-role-workspace-role")) is not None:
+        role_params["workspace_role"] = WorkspaceRole(ws_role)
     return Role(**role_params)
 
 
