@@ -98,6 +98,9 @@ from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
+from tracecat.workflow.executions.internal_router import (
+    router as internal_workflows_router,
+)
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.graph.router import router as workflow_graph_router
 from tracecat.workflow.management.folders.router import (
@@ -327,6 +330,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_case_tags_router)
     app.include_router(internal_case_tag_definitions_router)
     app.include_router(internal_tables_router)
+    app.include_router(internal_workflows_router)
 
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
         app.include_router(
