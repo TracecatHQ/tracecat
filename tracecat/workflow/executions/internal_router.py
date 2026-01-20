@@ -13,7 +13,7 @@ from starlette.status import (
     HTTP_404_NOT_FOUND,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.service import RPCError
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -102,6 +102,9 @@ class InternalWorkflowStatusResponse(BaseModel):
     )
     result: Any | None = Field(
         default=None, description="Workflow result (if completed successfully)"
+    )
+    error: str | None = Field(
+        default=None, description="Error message (if workflow failed)"
     )
 
 
@@ -238,12 +241,19 @@ async def get_execution_status(
             else "UNKNOWN"
         )
 
-        # Get result if workflow is completed
+        # Get result or error based on status
         result = None
-        if execution.status == WorkflowExecutionStatus.COMPLETED:
+        error = None
+        if execution.status in (
+            WorkflowExecutionStatus.COMPLETED,
+            WorkflowExecutionStatus.FAILED,
+        ):
             try:
                 handle = exec_service.handle(wf_exec_id)
                 result = await handle.result()
+            except WorkflowFailureError as e:
+                # Extract the failure message from the workflow error
+                error = str(e.cause) if e.cause else str(e)
             except Exception as e:
                 logger.warning(
                     "Failed to get workflow result",
@@ -257,6 +267,7 @@ async def get_execution_status(
             start_time=execution.start_time,
             close_time=execution.close_time,
             result=result,
+            error=error,
         )
 
     except RPCError as e:

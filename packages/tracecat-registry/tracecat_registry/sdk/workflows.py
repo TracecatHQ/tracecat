@@ -179,11 +179,17 @@ class WorkflowsClient:
                 return status_response.get("result")
 
             if status in TERMINAL_STATUSES:
-                # Workflow ended but not successfully
+                # Workflow ended but not successfully - include error details if available
+                error_detail = status_response.get("error")
+                message = (
+                    f"Workflow execution {workflow_execution_id} failed: {error_detail}"
+                    if error_detail
+                    else f"Workflow execution {workflow_execution_id} ended with status: {status}"
+                )
                 raise WorkflowExecutionError(
                     status=status,
                     workflow_execution_id=workflow_execution_id,
-                    message=f"Workflow execution {workflow_execution_id} ended with status: {status}",
+                    message=message,
                 )
 
             # Still running, wait and poll again
