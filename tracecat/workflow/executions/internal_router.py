@@ -44,8 +44,8 @@ class InternalWorkflowExecuteRequest(BaseModel):
     workflow_alias: str | None = Field(
         default=None, description="Workflow alias (alternative to ID)"
     )
-    trigger_inputs: dict[str, Any] | None = Field(
-        default=None, description="Inputs to pass to the workflow"
+    trigger_inputs: Any | None = Field(
+        default=None, description="Inputs to pass to the workflow (arbitrary JSON)"
     )
     environment: str | None = Field(
         default=None, description="Target execution environment"

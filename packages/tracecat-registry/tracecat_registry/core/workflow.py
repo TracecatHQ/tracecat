@@ -33,8 +33,8 @@ async def execute(
         ),
     ],
     trigger_inputs: Annotated[
-        dict[str, Any] | None,
-        Doc("Inputs to pass to the subflow."),
+        Any | None,
+        Doc("Inputs to pass to the subflow (arbitrary JSON)."),
     ] = None,
     environment: Annotated[
         str | None,

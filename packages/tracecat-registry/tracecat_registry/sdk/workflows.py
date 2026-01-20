@@ -55,7 +55,7 @@ class WorkflowsClient:
         *,
         workflow_id: str | None = None,
         workflow_alias: str | None = None,
-        trigger_inputs: dict[str, Any] | None = None,
+        trigger_inputs: Any | None = None,
         environment: str | None = None,
         timeout: float | None = None,
         wait_strategy: Literal["wait", "detach"] = "detach",
