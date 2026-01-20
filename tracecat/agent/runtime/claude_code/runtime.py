@@ -369,13 +369,16 @@ class ClaudeAgentRuntime:
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
 
-        # Write session file locally if resuming
+        # Write session file locally if resuming or forking
         resume_session_id: str | None = None
+        fork_session: bool = False
         if payload.sdk_session_id and payload.sdk_session_data:
             await self._write_session_file(
                 payload.sdk_session_id, payload.sdk_session_data
             )
             resume_session_id = payload.sdk_session_id
+            # If forking, tell the SDK to create a new session from the parent's history
+            fork_session = payload.is_fork
 
         try:
             # Build MCP servers config and tool whitelist
@@ -423,6 +426,7 @@ class ClaudeAgentRuntime:
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
+                fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
                     "ANTHROPIC_BASE_URL": LITELLM_URL,
