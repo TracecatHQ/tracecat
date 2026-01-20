@@ -191,6 +191,15 @@ async def lifespan(app: FastAPI):
             logger.warning(
                 "Platform registry sync task failed during shutdown", error=e
             )
+    else:
+        # Task already completed - retrieve result to surface any exceptions
+        try:
+            registry_sync_task.result()
+            logger.debug("Platform registry sync task had already completed")
+        except Exception as e:
+            logger.warning(
+                "Platform registry sync task failed before shutdown", error=e
+            )
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):

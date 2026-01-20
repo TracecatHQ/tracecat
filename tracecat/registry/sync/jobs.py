@@ -142,5 +142,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 attempt=attempt,
                 max_retries=MAX_SYNC_RETRIES,
             )
+            # Rollback to clear any failed transaction state before retry
+            await session.rollback()
             if attempt == MAX_SYNC_RETRIES:
                 raise
