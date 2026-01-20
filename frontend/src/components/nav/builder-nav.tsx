@@ -1,8 +1,10 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangleIcon,
+  CalendarIcon,
   ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
@@ -13,6 +15,7 @@ import {
   SquarePlay,
   Trash2Icon,
   WorkflowIcon,
+  ZapIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -62,6 +65,11 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -76,6 +84,7 @@ import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateDraftWorkflowExecution,
   useOrgAppSettings,
+  useWorkflowDefinition,
   useWorkflowManager,
 } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
@@ -165,6 +174,7 @@ export function BuilderNav() {
         {/* Save button */}
         <WorkflowSaveActions
           workflow={workflow}
+          workflowId={workflow.id}
           validationErrors={validationErrors}
           onSave={handleCommit}
           onPublish={publishWorkflow}
@@ -454,11 +464,13 @@ function WorkflowManualTrigger({
 
 function WorkflowSaveActions({
   workflow,
+  workflowId,
   validationErrors,
   onSave,
   onPublish,
 }: {
   workflow: { version?: number | null }
+  workflowId: string
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
   onPublish: (params: { message?: string }) => Promise<void>
@@ -579,13 +591,129 @@ function WorkflowSaveActions({
         )}
       </div>
 
+      <WorkflowVersionBadge workflowId={workflowId} version={workflow.version} />
+    </div>
+  )
+}
+
+function WorkflowVersionBadge({
+  workflowId,
+  version,
+}: {
+  workflowId: string
+  version?: number | null
+}) {
+  const [isOpen, setIsOpen] = React.useState(false)
+
+  // Only fetch when the hover card is open and there's a version
+  const { definition, definitionLoading } = useWorkflowDefinition(workflowId, {
+    version: version ?? undefined,
+    enabled: isOpen && !!version,
+  })
+
+  // Extract action and trigger counts from the DSL content
+  const content = definition?.content as
+    | {
+        title?: string
+        description?: string
+        actions?: unknown[]
+        triggers?: unknown[]
+      }
+    | undefined
+
+  const actionCount = content?.actions?.length ?? 0
+  const triggerCount = content?.triggers?.length ?? 0
+
+  if (!version) {
+    return (
       <Badge
         variant="secondary"
         className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
       >
-        {workflow.version ? `v${workflow.version}` : "Draft"}
+        Draft
       </Badge>
-    </div>
+    )
+  }
+
+  return (
+    <HoverCard openDelay={200} closeDelay={100} onOpenChange={setIsOpen}>
+      <HoverCardTrigger asChild>
+        <Badge
+          variant="secondary"
+          className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
+        >
+          v{version}
+        </Badge>
+      </HoverCardTrigger>
+      <HoverCardContent
+        className="w-72 p-3"
+        side="bottom"
+        align="end"
+        sideOffset={8}
+      >
+        {definitionLoading ? (
+          <div className="flex items-center justify-center py-4">
+            <Spinner className="size-4" />
+          </div>
+        ) : definition ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Version {version}</span>
+              <Badge variant="outline" className="text-xs">
+                Published
+              </Badge>
+            </div>
+
+            {content?.title && (
+              <div>
+                <span className="text-xs text-muted-foreground">Title</span>
+                <p className="text-sm">{content.title}</p>
+              </div>
+            )}
+
+            {content?.description && (
+              <div>
+                <span className="text-xs text-muted-foreground">
+                  Description
+                </span>
+                <p className="line-clamp-2 text-sm text-muted-foreground">
+                  {content.description}
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <WorkflowIcon className="size-3.5" />
+                <span>
+                  {actionCount} {actionCount === 1 ? "action" : "actions"}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <ZapIcon className="size-3.5" />
+                <span>
+                  {triggerCount} {triggerCount === 1 ? "trigger" : "triggers"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <CalendarIcon className="size-3.5" />
+              <span>
+                Published{" "}
+                {formatDistanceToNow(new Date(definition.created_at), {
+                  addSuffix: true,
+                })}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="py-2 text-center text-sm text-muted-foreground">
+            Unable to load definition
+          </div>
+        )}
+      </HoverCardContent>
+    </HoverCard>
   )
 }
 

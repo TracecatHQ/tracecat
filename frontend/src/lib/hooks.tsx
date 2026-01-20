@@ -257,6 +257,7 @@ import {
   vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
+  type WorkflowDefinitionRead,
   type WorkflowExecutionCreate,
   type WorkflowExecutionRead,
   type WorkflowExecutionReadMinimal,
@@ -277,6 +278,7 @@ import {
   workflowsAddTag,
   workflowsCreateWorkflow,
   workflowsDeleteWorkflow,
+  workflowsGetWorkflowDefinition,
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
@@ -729,6 +731,42 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     addWorkflowTag,
     removeWorkflowTag,
     moveWorkflow,
+  }
+}
+
+/**
+ * Hook to fetch a workflow definition by version.
+ * If no version is provided, fetches the latest version.
+ */
+export function useWorkflowDefinition(
+  workflowId: string,
+  options?: {
+    version?: number
+    enabled?: boolean
+  }
+) {
+  const workspaceId = useWorkspaceId()
+
+  const {
+    data: definition,
+    isLoading: definitionLoading,
+    error: definitionError,
+  } = useQuery<WorkflowDefinitionRead, ApiError>({
+    queryKey: ["workflow-definition", workflowId, options?.version],
+    queryFn: async () =>
+      await workflowsGetWorkflowDefinition({
+        workspaceId,
+        workflowId,
+        version: options?.version,
+      }),
+    retry: retryHandler,
+    enabled: options?.enabled ?? true,
+  })
+
+  return {
+    definition,
+    definitionLoading,
+    definitionError,
   }
 }
 
