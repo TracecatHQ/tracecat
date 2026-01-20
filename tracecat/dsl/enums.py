@@ -8,6 +8,7 @@ class PlatformAction(StrEnum):
     AI_AGENT = "ai.agent"
     AI_PRESET_AGENT = "ai.preset_agent"
     AI_ACTION = "ai.action"
+    RUN_PYTHON = "core.script.run_python"
 
     @classmethod
     def is_streamable(cls, action: str) -> bool:
@@ -26,6 +27,7 @@ class PlatformAction(StrEnum):
                 cls.TRANSFORM_GATHER,
                 cls.AI_AGENT,
                 cls.AI_PRESET_AGENT,
+                cls.RUN_PYTHON,
             )
         )
 
