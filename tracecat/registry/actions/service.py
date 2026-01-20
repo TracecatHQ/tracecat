@@ -858,6 +858,62 @@ class RegistryActionsService(BaseService):
                 secrets.update(step_secrets)
         return secrets
 
+    @staticmethod
+    def aggregate_secrets_from_manifest(
+        manifest: RegistryVersionManifest,
+        action_name: str,
+        visited: set[str] | None = None,
+    ) -> list[RegistrySecretType]:
+        """Recursively aggregate secrets from an action and its template steps.
+
+        This method traverses template actions in the manifest to collect all
+        secrets required by the action and any nested template steps.
+
+        Args:
+            manifest: The registry version manifest containing all actions
+            action_name: The full action name (e.g., "core.http_request")
+            visited: Set of visited action names to prevent infinite recursion
+
+        Returns:
+            List of all secrets required by the action and its template steps
+        """
+        if visited is None:
+            visited = set()
+
+        # Prevent infinite recursion
+        if action_name in visited:
+            return []
+        visited.add(action_name)
+
+        manifest_action = manifest.actions.get(action_name)
+        if not manifest_action:
+            return []
+
+        secrets: list[RegistrySecretType] = []
+
+        # Add direct secrets from this action
+        if manifest_action.secrets:
+            secrets.extend(manifest_action.secrets)
+
+        # For template actions, recursively collect secrets from steps
+        if manifest_action.action_type == "template":
+            impl = manifest_action.implementation
+            template_action_data = impl.get("template_action")
+            if template_action_data:
+                definition = template_action_data.get("definition", {})
+                steps = definition.get("steps", [])
+                for step in steps:
+                    step_action_name = step.get("action")
+                    if step_action_name:
+                        step_secrets = (
+                            RegistryActionsService.aggregate_secrets_from_manifest(
+                                manifest, step_action_name, visited
+                            )
+                        )
+                        secrets.extend(step_secrets)
+
+        return secrets
+
     def get_bound(
         self,
         action: RegistryAction,

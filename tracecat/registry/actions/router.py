@@ -69,8 +69,26 @@ async def get_registry_action(
             detail=f"Action {action_name} not found in manifest",
         )
 
+    # Aggregate secrets from template steps (if any)
+    extra_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, action_name
+    )
+    # Remove direct secrets (already in manifest_action) to avoid duplicates
+    # The from_index_and_manifest method will merge them properly
+    if manifest_action.secrets:
+        direct_secret_keys = {
+            s.name if hasattr(s, "name") else s.provider_id
+            for s in manifest_action.secrets
+        }
+        extra_secrets = [
+            s
+            for s in extra_secrets
+            if (s.name if hasattr(s, "name") else s.provider_id)
+            not in direct_secret_keys
+        ]
+
     return RegistryActionRead.from_index_and_manifest(
-        index_entry, manifest_action, origin, repository.id
+        index_entry, manifest_action, origin, repository.id, extra_secrets=extra_secrets
     )
 
 

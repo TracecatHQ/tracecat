@@ -248,9 +248,31 @@ class RegistryActionRead(RegistryActionBase):
         manifest_action: RegistryVersionManifestAction,
         origin: str,
         repository_id: UUID,
+        extra_secrets: list[RegistrySecretType] | None = None,
     ) -> RegistryActionRead:
-        """Create from RegistryIndex + manifest action."""
+        """Create from RegistryIndex + manifest action.
+
+        Args:
+            index: The registry index entry
+            manifest_action: The manifest action data
+            origin: The origin URL
+            repository_id: The repository ID
+            extra_secrets: Additional secrets to merge (e.g., from template steps)
+        """
         from tracecat.registry.actions.schemas import RegistryActionImplValidator
+
+        # Merge direct secrets with extra secrets (e.g., from template steps)
+        all_secrets = list(manifest_action.secrets) if manifest_action.secrets else []
+        if extra_secrets:
+            # Use a set to dedupe by secret identity
+            seen = {
+                (s.name if hasattr(s, "name") else s.provider_id) for s in all_secrets
+            }
+            for secret in extra_secrets:
+                key = secret.name if hasattr(secret, "name") else secret.provider_id
+                if key not in seen:
+                    all_secrets.append(secret)
+                    seen.add(key)
 
         return cls(
             id=index.id,
@@ -259,7 +281,7 @@ class RegistryActionRead(RegistryActionBase):
             namespace=index.namespace,
             type=manifest_action.action_type,
             origin=origin,
-            secrets=manifest_action.secrets,
+            secrets=all_secrets if all_secrets else None,
             interface=manifest_action.interface,
             implementation=RegistryActionImplValidator.validate_python(
                 manifest_action.implementation
