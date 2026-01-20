@@ -2,20 +2,24 @@ import os
 import sys
 import textwrap
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from importlib.machinery import ModuleSpec
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from uuid import UUID
 
 import pytest
 from pydantic import BaseModel, SecretStr, TypeAdapter
+from pytest import MonkeyPatch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import (
@@ -122,7 +126,7 @@ async def create_manifest_for_actions(
     )
 
 
-async def run_action_test(input: RunActionInput, role) -> Any:
+async def run_action_test(input: RunActionInput, role: Role) -> Any:
     """Test helper: execute action using production code path."""
     from tracecat.contexts import ctx_role
 
@@ -132,7 +136,7 @@ async def run_action_test(input: RunActionInput, role) -> Any:
 
 
 @pytest.fixture
-def mock_package(tmp_path):
+def mock_package(tmp_path: Path) -> Iterator[ModuleType]:
     """Pytest fixture that creates a mock package with files and cleans up after the test."""
 
     # Create a new module
@@ -179,11 +183,11 @@ def mock_package(tmp_path):
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_template_action_fetches_nested_secrets(
-    test_role,
-    monkeypatch,
-    db_session_with_repo,
-    mock_package,
-):
+    test_role: Role,
+    monkeypatch: MonkeyPatch,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+    mock_package: ModuleType,
+) -> None:
     """Test template action with secrets.
 
     The test verifies:
@@ -578,8 +582,12 @@ def test_template_action_parses_from_dict():
     ids=["valid", "with_defaults", "missing_required"],
 )
 async def test_template_action_runs(
-    test_args, expected, should_raise, test_role, db_session_with_repo
-):
+    test_args: dict[str, Any],
+    expected: Any,
+    should_raise: bool,
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     session, db_repo_id = db_session_with_repo
 
     action = TemplateAction(
@@ -712,8 +720,12 @@ async def test_template_action_runs(
     ids=["valid_status", "default_status", "invalid_status"],
 )
 async def test_template_action_with_enums(
-    test_args, expected, should_raise, test_role, db_session_with_repo
-):
+    test_args: dict[str, Any],
+    expected: Any,
+    should_raise: bool,
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     """Test template action with enums.
     This test verifies that:
     1. The action can be constructed with an enum status
@@ -802,9 +814,9 @@ async def test_template_action_with_enums(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_template_action_with_vars_expressions(
-    test_role,
-    db_session_with_repo,
-):
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     """Test template action with VARS expressions.
 
     The test verifies:
@@ -993,9 +1005,9 @@ async def test_template_action_with_vars_expressions(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_template_action_with_multi_level_fallback_chain(
-    test_role,
-    db_session_with_repo,
-):
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     """Test template action with multi-level fallback chain using || operator.
 
     The test verifies that the fallback chain correctly evaluates in order:
