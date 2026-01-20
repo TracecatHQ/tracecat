@@ -3085,28 +3085,6 @@ export type PlatformRegistrySettingsUpdate = {
   git_allowed_domains?: Array<string> | null
 }
 
-/**
- * Response for platform registry sync status endpoint.
- */
-export type PlatformSyncStatusResponse = {
-  /**
-   * Whether the platform registry is synced to the expected version
-   */
-  synced: boolean
-  /**
-   * The expected version (from tracecat_registry.__version__)
-   */
-  expected_version: string
-  /**
-   * The currently synced version, if any
-   */
-  current_version?: string | null
-  /**
-   * When the current version was synced
-   */
-  synced_at?: string | null
-}
-
 export type Position = {
   x?: number
   y?: number
@@ -3303,6 +3281,11 @@ export type PullResult = {
   workflows_imported: number
   diagnostics: Array<PullDiagnostic>
   message: string
+}
+
+export type ReadinessResponse = {
+  status: string
+  registry: RegistryStatus
 }
 
 /**
@@ -3723,6 +3706,12 @@ export type RegistrySecretType_Input =
 export type RegistrySecretType_Output =
   | RegistrySecret
   | RegistryOAuthSecret_Output
+
+export type RegistryStatus = {
+  synced: boolean
+  expected_version: string
+  current_version: string | null
+}
 
 /**
  * Registry health status.
@@ -6908,9 +6897,6 @@ export type RegistryActionsDeleteRegistryActionData = {
 
 export type RegistryActionsDeleteRegistryActionResponse = void
 
-export type RegistryPlatformGetPlatformSyncStatusResponse =
-  PlatformSyncStatusResponse
-
 export type SettingsGetGitSettingsResponse = GitSettingsRead
 
 export type SettingsUpdateGitSettingsData = {
@@ -7854,7 +7840,7 @@ export type AuthSsoAcsResponse = unknown
 
 export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = HealthResponse
+export type PublicCheckReadyResponse = ReadinessResponse
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -9901,16 +9887,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/registry/platform/sync-status": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: PlatformSyncStatusResponse
-      }
-    }
-  }
   "/settings/git": {
     get: {
       res: {
@@ -11654,7 +11630,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: HealthResponse
+        200: ReadinessResponse
       }
     }
   }

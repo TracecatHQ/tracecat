@@ -291,7 +291,6 @@ import type {
   RegistryActionsListRegistryActionsResponse,
   RegistryActionsUpdateRegistryActionData,
   RegistryActionsUpdateRegistryActionResponse,
-  RegistryPlatformGetPlatformSyncStatusResponse,
   RegistryRepositoriesCreateRegistryRepositoryData,
   RegistryRepositoriesCreateRegistryRepositoryResponse,
   RegistryRepositoriesDeleteRegistryRepositoryData,
@@ -4327,26 +4326,6 @@ export const registryActionsDeleteRegistryAction = (
 }
 
 /**
- * Get Platform Sync Status
- * Return platform registry sync status by querying the DB.
- *
- * This endpoint checks whether the platform registry has been synced to the
- * expected version (from tracecat_registry.__version__). It's useful for:
- * - Health checks that need to verify the registry is ready
- * - UI status indicators showing sync progress
- * - Debugging startup issues with registry synchronization
- * @returns PlatformSyncStatusResponse Successful Response
- * @throws ApiError
- */
-export const registryPlatformGetPlatformSyncStatus =
-  (): CancelablePromise<RegistryPlatformGetPlatformSyncStatusResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/registry/platform/sync-status",
-    })
-  }
-
-/**
  * Get Git Settings
  * @returns GitSettingsRead Successful Response
  * @throws ApiError
@@ -7449,11 +7428,13 @@ export const publicCheckHealth =
 
 /**
  * Check Ready
- * Readiness check - returns 200 only after startup is complete.
+ * Readiness check - returns 200 only after startup and registry sync complete.
  *
  * Use this endpoint for Docker healthchecks to ensure the API has finished
- * initializing (including registry sync) before accepting traffic.
- * @returns HealthResponse Successful Response
+ * initializing and the platform registry is synced before accepting traffic.
+ *
+ * Returns a detailed response including registry sync status.
+ * @returns ReadinessResponse Successful Response
  * @throws ApiError
  */
 export const publicCheckReady =

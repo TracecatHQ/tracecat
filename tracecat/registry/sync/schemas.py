@@ -9,7 +9,6 @@ for registry sync operations, including:
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import UUID4, BaseModel, Field, TypeAdapter
@@ -111,27 +110,4 @@ class RegistrySyncResult(BaseModel):
     validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = Field(
         default_factory=dict,
         description="Map of action name to validation errors",
-    )
-
-
-# =============================================================================
-# Platform Registry Sync Status Schemas
-# =============================================================================
-
-
-class PlatformSyncStatusResponse(BaseModel):
-    """Response for platform registry sync status endpoint."""
-
-    synced: bool = Field(
-        ...,
-        description="Whether the platform registry is synced to the expected version",
-    )
-    expected_version: str = Field(
-        ..., description="The expected version (from tracecat_registry.__version__)"
-    )
-    current_version: str | None = Field(
-        default=None, description="The currently synced version, if any"
-    )
-    synced_at: datetime | None = Field(
-        default=None, description="When the current version was synced"
     )

@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
+import tracecat_registry
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,9 +85,10 @@ from tracecat.middleware import (
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
-from tracecat.registry.sync.router import router as registry_sync_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
@@ -321,7 +323,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
-    app.include_router(registry_sync_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
     app.include_router(tables_router)
@@ -451,6 +452,17 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class RegistryStatus(BaseModel):
+    synced: bool
+    expected_version: str
+    current_version: str | None
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    registry: RegistryStatus
+
+
 @app.get("/", include_in_schema=False)
 def root() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -492,15 +504,44 @@ def check_health() -> HealthResponse:
 
 
 @app.get("/ready", tags=["public"])
-def check_ready() -> HealthResponse:
-    """Readiness check - returns 200 only after startup is complete.
+async def check_ready(session: AsyncDBSession) -> ReadinessResponse:
+    """Readiness check - returns 200 only after startup and registry sync complete.
 
     Use this endpoint for Docker healthchecks to ensure the API has finished
-    initializing (including registry sync) before accepting traffic.
+    initializing and the platform registry is synced before accepting traffic.
+
+    Returns a detailed response including registry sync status.
     """
-    if not is_app_ready():
+    expected_version = tracecat_registry.__version__
+
+    # Check registry sync status
+    repos_service = PlatformRegistryReposService(session, role=None)
+    repo = await repos_service.get_repository(DEFAULT_REGISTRY_ORIGIN)
+
+    if repo is None or repo.current_version is None:
+        registry_status = RegistryStatus(
+            synced=False,
+            expected_version=expected_version,
+            current_version=None,
+        )
+    else:
+        registry_status = RegistryStatus(
+            synced=repo.current_version.version == expected_version,
+            expected_version=expected_version,
+            current_version=repo.current_version.version,
+        )
+
+    # Not ready if registry is not synced
+    if not registry_status.synced:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="API is not ready yet",
+            detail=ReadinessResponse(
+                status="not_ready",
+                registry=registry_status,
+            ).model_dump(),
         )
-    return HealthResponse(status="ready")
+
+    return ReadinessResponse(
+        status="ready",
+        registry=registry_status,
+    )
