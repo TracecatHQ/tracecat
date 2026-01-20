@@ -56,8 +56,11 @@ else:
     # Extract number from "gwN" format
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
-# MinIO test configuration - uses docker-compose service on port 9000
-MINIO_PORT = 9000
+# Port configuration - reads from environment for worktree cluster support
+# Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT
+PG_PORT = int(os.environ.get("PG_PORT", "5432"))
+TEMPORAL_PORT = int(os.environ.get("TEMPORAL_PORT", "7233"))
+MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 
 
@@ -629,10 +632,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     api_host = "api" if in_docker else "localhost"
     blob_storage_host = "minio" if in_docker else "localhost"
 
-    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:5432/postgres"
+    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:{PG_PORT}/postgres"
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
-        config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233"
+        config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
     )
     blob_storage_endpoint = f"http://{blob_storage_host}:{MINIO_PORT}"
     monkeysession.setattr(

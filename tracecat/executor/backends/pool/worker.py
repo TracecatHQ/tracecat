@@ -409,7 +409,7 @@ async def _heartbeat_loop(worker_id: int, interval: float = 30.0) -> None:
         expected_elapsed = interval
         delay = elapsed - expected_elapsed
 
-        logger.info(
+        logger.debug(
             "Pool worker heartbeat",
             worker_id=worker_id,
             active_connections=_active_connections,

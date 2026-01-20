@@ -1,49 +1,9 @@
-import re
 from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from tracecat_registry import RegistryActionError, config, registry
+from tracecat_registry import ActionIsInterfaceError, registry
 from tracecat_registry.fields import Code
-
-
-class PythonScriptError(Exception):
-    """Base exception for Python script execution errors."""
-
-
-class PythonScriptTimeoutError(PythonScriptError):
-    """Exception raised when a Python script execution times out."""
-
-
-class PythonScriptValidationError(PythonScriptError):
-    """Exception raised when a Python script fails validation."""
-
-
-class PythonScriptExecutionError(PythonScriptError):
-    """Exception raised when a Python script fails during execution."""
-
-
-def _validate_script(script: str) -> tuple[bool, str | None]:
-    """
-    Validates that the script contains at least one function, and if there are multiple functions,
-    one must be named 'main'.
-
-    Returns a tuple of (is_valid, error_message)
-    """
-    # Simple regex to find function definitions
-    function_pattern = r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
-    functions = re.findall(function_pattern, script)
-
-    if not functions:
-        return False, "Script must contain at least one function definition."
-
-    if len(functions) > 1 and "main" not in functions:
-        return (
-            False,
-            "When script contains multiple functions, one must be named 'main'.",
-        )
-
-    return True, None
 
 
 @registry.register(
@@ -96,8 +56,7 @@ async def run_python(
         ),
     ] = None,
 ) -> Any:
-    """
-    Executes a Python script in a secure nsjail sandbox.
+    """Execute a Python script in a secure nsjail sandbox.
 
     The code is executed in an isolated Linux namespace with:
     - Configurable network access (disabled by default)
@@ -124,52 +83,6 @@ async def run_python(
         The result of the function call.
 
     Raises:
-        PythonScriptValidationError: If script doesn't meet the requirements.
-        PythonScriptTimeoutError: If script execution times out.
-        PythonScriptExecutionError: If script execution fails.
+        ActionIsInterfaceError: This action is handled at the platform level.
     """
-    if config.flags.registry_client:
-        raise RegistryActionError(
-            "core.script.run_python cannot run in registry-client mode."
-        )
-
-    from tracecat.contexts import ctx_role
-    from tracecat.logger import logger
-    from tracecat.sandbox import (
-        PackageInstallError,
-        SandboxExecutionError,
-        SandboxService,
-        SandboxTimeoutError,
-        SandboxValidationError,
-    )
-
-    # Validate script
-    is_valid, error_message = _validate_script(script)
-    if not is_valid:
-        assert error_message is not None  # Should never be None when is_valid is False
-        logger.error(f"Script validation failed: {error_message}")
-        raise PythonScriptValidationError(error_message)
-
-    try:
-        service = SandboxService()
-        # Get workspace_id from execution context for multi-tenant cache isolation
-        role = ctx_role.get()
-        workspace_id = str(role.workspace_id) if role and role.workspace_id else None
-
-        return await service.run_python(
-            script=script,
-            inputs=inputs,
-            dependencies=dependencies,
-            timeout_seconds=timeout_seconds,
-            allow_network=allow_network,
-            env_vars=env_vars,
-            workspace_id=workspace_id,
-        )
-    except SandboxTimeoutError as e:
-        raise PythonScriptTimeoutError(str(e)) from e
-    except SandboxValidationError as e:
-        # Validation errors (e.g., invalid env var keys) should be reported
-        # as validation errors, not execution errors
-        raise PythonScriptValidationError(str(e)) from e
-    except (SandboxExecutionError, PackageInstallError) as e:
-        raise PythonScriptExecutionError(str(e)) from e
+    raise ActionIsInterfaceError()
