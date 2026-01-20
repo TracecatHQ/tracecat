@@ -554,6 +554,7 @@ def test_template_action_parses_from_dict():
     ]
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "test_args,expected,should_raise",
@@ -576,7 +577,11 @@ def test_template_action_parses_from_dict():
     ],
     ids=["valid", "with_defaults", "missing_required"],
 )
-async def test_template_action_runs(test_args, expected, should_raise):
+async def test_template_action_runs(
+    test_args, expected, should_raise, test_role, db_session_with_repo
+):
+    session, db_repo_id = db_session_with_repo
+
     action = TemplateAction(
         **{
             "type": "action",
@@ -595,7 +600,7 @@ async def test_template_action_runs(test_args, expected, should_raise):
                         "type": "str",
                         "description": "The user ID",
                     },
-                    # Optional field with string defaultß
+                    # Optional field with string default
                     "service_source": {
                         "type": "str",
                         "description": "The service source",
@@ -636,7 +641,7 @@ async def test_template_action_runs(test_args, expected, should_raise):
         }
     )
 
-    # Register the action
+    # Register the action in-memory
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(action)
@@ -649,23 +654,38 @@ async def test_template_action_runs(test_args, expected, should_raise):
     # Get the registered action
     bound_action = repo.get(action.definition.action)
 
-    # Run the action
+    # Create manifest for the test action (enables production code path)
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action]
+    )
+
+    # Run the action using production code path
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test_template_action",
+            action="integrations.test.wrapper",
+            args=test_args,
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_runs"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=registry_lock,
+    )
+
     if should_raise:
         with pytest.raises(RegistryValidationError):
-            await service.run_template_action(
-                action=bound_action,
-                args=test_args,
-                context=create_default_execution_context(),
-            )
+            await run_action_test(input=input, role=test_role)
     else:
-        result = await service.run_template_action(
-            action=bound_action,
-            args=test_args,
-            context=create_default_execution_context(),
-        )
+        result = await run_action_test(input=input, role=test_role)
         assert result == expected
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "test_args,expected,should_raise",
@@ -691,7 +711,9 @@ async def test_template_action_runs(test_args, expected, should_raise):
     ],
     ids=["valid_status", "default_status", "invalid_status"],
 )
-async def test_template_action_with_enums(test_args, expected, should_raise):
+async def test_template_action_with_enums(
+    test_args, expected, should_raise, test_role, db_session_with_repo
+):
     """Test template action with enums.
     This test verifies that:
     1. The action can be constructed with an enum status
@@ -699,6 +721,8 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     3. The action can be run with a default enum status
     4. Invalid enum values are properly rejected
     """
+    session, db_repo_id = db_session_with_repo
+
     data = {
         "type": "action",
         "definition": {
@@ -736,7 +760,7 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     # Parse and validate the action
     action = TemplateAction.model_validate(data)
 
-    # Register the action
+    # Register the action in-memory
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(action)
@@ -744,20 +768,34 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     # Get the registered action
     bound_action = repo.get(action.definition.action)
 
-    # Run the action
+    # Create manifest for the test action (enables production code path)
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action]
+    )
+
+    # Run the action using production code path
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test_template_action_enums",
+            action="integrations.test.alert",
+            args=test_args,
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_with_enums"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=registry_lock,
+    )
+
     if should_raise:
         with pytest.raises(RegistryValidationError):
-            await service.run_template_action(
-                action=bound_action,
-                args=test_args,
-                context=create_default_execution_context(),
-            )
+            await run_action_test(input=input, role=test_role)
     else:
-        result = await service.run_template_action(
-            action=bound_action,
-            args=test_args,
-            context=create_default_execution_context(),
-        )
+        result = await run_action_test(input=input, role=test_role)
         assert result == expected
 
 
