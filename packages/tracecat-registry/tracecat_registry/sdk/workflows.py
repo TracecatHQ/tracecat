@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
@@ -145,9 +146,9 @@ class WorkflowsClient:
             TracecatNotFoundError: If execution not found.
             TracecatAPIError: For other API errors.
         """
-        return await self._client.get(
-            f"/workflows/executions/{workflow_execution_id}/status"
-        )
+        # URL-encode the execution ID since it contains a slash (wf_xxx/exec_yyy)
+        encoded_id = quote(workflow_execution_id, safe="")
+        return await self._client.get(f"/workflows/executions/{encoded_id}/status")
 
     async def _poll_until_complete(
         self,
