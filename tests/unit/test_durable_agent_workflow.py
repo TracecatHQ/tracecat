@@ -34,6 +34,7 @@ from tracecat_ee.agent.workflows.durable import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -41,7 +42,6 @@ from tracecat.agent.executor.activity import (
     ExecuteApprovedToolsResult,
     ToolExecutionResult,
 )
-from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
