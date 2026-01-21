@@ -3016,6 +3016,66 @@ export type OrgRead = {
 }
 
 /**
+ * Organization registry repository response.
+ */
+export type OrgRegistryRepositoryRead = {
+  id: string
+  origin: string
+  last_synced_at?: string | null
+  commit_sha?: string | null
+  current_version_id?: string | null
+}
+
+/**
+ * Organization registry sync request.
+ */
+export type OrgRegistrySyncRequest = {
+  /**
+   * Force sync by deleting the existing version first
+   */
+  force?: boolean
+}
+
+/**
+ * Organization registry sync response.
+ */
+export type OrgRegistrySyncResponse = {
+  success: boolean
+  repository_id: string
+  origin: string
+  version?: string | null
+  commit_sha?: string | null
+  actions_count?: number | null
+  forced?: boolean
+  skipped?: boolean
+  message?: string | null
+}
+
+/**
+ * Response from promoting an organization registry version.
+ */
+export type OrgRegistryVersionPromoteResponse = {
+  repository_id: string
+  origin: string
+  previous_version_id: string | null
+  previous_version: string | null
+  current_version_id: string
+  current_version: string
+}
+
+/**
+ * Organization registry version response.
+ */
+export type OrgRegistryVersionRead = {
+  id: string
+  repository_id: string
+  version: string
+  commit_sha?: string | null
+  tarball_uri?: string | null
+  created_at: string
+}
+
+/**
  * Update organization request.
  */
 export type OrgUpdate = {
@@ -6731,6 +6791,37 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminListOrgRepositoriesData = {
+  orgId: string
+}
+
+export type AdminListOrgRepositoriesResponse = Array<OrgRegistryRepositoryRead>
+
+export type AdminListOrgRepositoryVersionsData = {
+  orgId: string
+  repositoryId: string
+}
+
+export type AdminListOrgRepositoryVersionsResponse =
+  Array<OrgRegistryVersionRead>
+
+export type AdminSyncOrgRepositoryData = {
+  orgId: string
+  repositoryId: string
+  requestBody?: OrgRegistrySyncRequest | null
+}
+
+export type AdminSyncOrgRepositoryResponse = OrgRegistrySyncResponse
+
+export type AdminPromoteOrgRepositoryVersionData = {
+  orgId: string
+  repositoryId: string
+  versionId: string
+}
+
+export type AdminPromoteOrgRepositoryVersionResponse =
+  OrgRegistryVersionPromoteResponse
+
 export type AdminSyncAllRepositoriesResponse = RegistrySyncResponse
 
 export type AdminSyncRepositoryData = {
@@ -9503,6 +9594,66 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/registry/repositories": {
+    get: {
+      req: AdminListOrgRepositoriesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgRegistryRepositoryRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions": {
+    get: {
+      req: AdminListOrgRepositoryVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgRegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/registry/repositories/{repository_id}/sync": {
+    post: {
+      req: AdminSyncOrgRepositoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgRegistrySyncResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions/{version_id}/promote": {
+    post: {
+      req: AdminPromoteOrgRepositoryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgRegistryVersionPromoteResponse
         /**
          * Validation Error
          */

@@ -10,9 +10,13 @@ import httpx
 from tracecat_admin.config import Config, get_config, load_cookies
 from tracecat_admin.schemas import (
     OrgRead,
+    OrgRegistryRepositoryRead,
+    OrgRegistrySyncResponse,
+    OrgRegistryVersionPromoteResponse,
     RegistrySettingsRead,
     RegistryStatusResponse,
     RegistrySyncResponse,
+    RegistryVersionPromoteResponse,
     RegistryVersionRead,
     UserRead,
 )
@@ -170,14 +174,17 @@ class AdminClient:
 
     # Registry endpoints
     async def sync_registry(
-        self, repository_id: str | None = None
+        self, repository_id: str | None = None, force: bool = False
     ) -> RegistrySyncResponse:
         """Sync registry repositories."""
         if repository_id:
             path = f"/admin/registry/sync/{repository_id}"
         else:
             path = "/admin/registry/sync"
-        response = await self._request("POST", path)
+        params: dict[str, Any] = {}
+        if force:
+            params["force"] = "true"
+        response = await self._request("POST", path, params=params if params else None)
         return RegistrySyncResponse.model_validate(response.json())
 
     async def get_registry_status(self) -> RegistryStatusResponse:
@@ -194,6 +201,15 @@ class AdminClient:
             params["repository_id"] = repository_id
         response = await self._request("GET", "/admin/registry/versions", params=params)
         return [RegistryVersionRead.model_validate(v) for v in response.json()]
+
+    async def promote_registry_version(
+        self, repository_id: str, version_id: str
+    ) -> RegistryVersionPromoteResponse:
+        """Promote a registry version to be the current version for a repository."""
+        response = await self._request(
+            "POST", f"/admin/registry/{repository_id}/versions/{version_id}/promote"
+        )
+        return RegistryVersionPromoteResponse.model_validate(response.json())
 
     # Settings endpoints
     async def get_registry_settings(self) -> RegistrySettingsRead:
@@ -217,3 +233,47 @@ class AdminClient:
             data["git_allowed_domains"] = list(git_allowed_domains)
         response = await self._request("PATCH", "/admin/settings/registry", json=data)
         return RegistrySettingsRead.model_validate(response.json())
+
+    # Org Registry endpoints
+    async def list_org_repositories(
+        self, org_id: str
+    ) -> list[OrgRegistryRepositoryRead]:
+        """List registry repositories for an organization."""
+        response = await self._request(
+            "GET", f"/admin/organizations/{org_id}/registry/repositories"
+        )
+        return [OrgRegistryRepositoryRead.model_validate(r) for r in response.json()]
+
+    async def list_org_repository_versions(
+        self, org_id: str, repository_id: str
+    ) -> list[RegistryVersionRead]:
+        """List versions for a specific repository in an organization."""
+        response = await self._request(
+            "GET",
+            f"/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions",
+        )
+        return [RegistryVersionRead.model_validate(v) for v in response.json()]
+
+    async def sync_org_repository(
+        self, org_id: str, repository_id: str, force: bool = False
+    ) -> OrgRegistrySyncResponse:
+        """Sync a registry repository for an organization."""
+        data: dict[str, Any] = {}
+        if force:
+            data["force"] = True
+        response = await self._request(
+            "POST",
+            f"/admin/organizations/{org_id}/registry/repositories/{repository_id}/sync",
+            json=data if data else None,
+        )
+        return OrgRegistrySyncResponse.model_validate(response.json())
+
+    async def promote_org_repository_version(
+        self, org_id: str, repository_id: str, version_id: str
+    ) -> OrgRegistryVersionPromoteResponse:
+        """Promote a registry version to be the current version for an org repository."""
+        response = await self._request(
+            "POST",
+            f"/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions/{version_id}/promote",
+        )
+        return OrgRegistryVersionPromoteResponse.model_validate(response.json())
