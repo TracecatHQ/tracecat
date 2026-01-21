@@ -55,12 +55,15 @@ class TestInternalWorkflowExecuteRequest:
             workflow_id=wf_id,
             workflow_alias="my-workflow",
             trigger_inputs={"key": "value"},
-            parent_workflow_execution_id="wf-parent:exec-123",
+            parent_workflow_execution_id="wf-00000000000000000000000000000456/exec-789",
         )
         assert req.workflow_id == wf_id
         assert req.workflow_alias == "my-workflow"
         assert req.trigger_inputs == {"key": "value"}
-        assert req.parent_workflow_execution_id == "wf-parent:exec-123"
+        assert (
+            req.parent_workflow_execution_id
+            == "wf-00000000000000000000000000000456/exec-789"
+        )
 
 
 class TestInternalWorkflowExecuteResponse:
@@ -71,12 +74,12 @@ class TestInternalWorkflowExecuteResponse:
         wf_id = WorkflowUUID.new("wf-00000000000000000000000000000123")
         resp = InternalWorkflowExecuteResponse(
             workflow_id=wf_id,
-            workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+            workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
             message="Workflow execution started",
         )
         assert resp.workflow_id == wf_id
         assert (
-            resp.workflow_execution_id == "wf-00000000000000000000000000000123:exec-456"
+            resp.workflow_execution_id == "wf-00000000000000000000000000000123/exec-456"
         )
         assert resp.message == "Workflow execution started"
 
@@ -85,7 +88,7 @@ class TestInternalWorkflowExecuteResponse:
         wf_id = WorkflowUUID.new("wf-00000000000000000000000000000123")
         resp = InternalWorkflowExecuteResponse(
             workflow_id=wf_id,
-            workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+            workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
             message="Workflow execution started",
         )
         data = resp.model_dump()
@@ -93,7 +96,7 @@ class TestInternalWorkflowExecuteResponse:
         assert data["workflow_id"] == wf_id
         assert (
             data["workflow_execution_id"]
-            == "wf-00000000000000000000000000000123:exec-456"
+            == "wf-00000000000000000000000000000123/exec-456"
         )
         assert data["message"] == "Workflow execution started"
 
@@ -104,7 +107,7 @@ class TestInternalWorkflowStatusResponse:
     def test_status_response_running(self):
         """Test status response for running workflow."""
         resp = InternalWorkflowStatusResponse(
-            workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+            workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
             status="RUNNING",
             start_time=datetime.now(UTC),
         )
@@ -117,7 +120,7 @@ class TestInternalWorkflowStatusResponse:
         start = datetime.now(UTC)
         close = datetime.now(UTC)
         resp = InternalWorkflowStatusResponse(
-            workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+            workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
             status="COMPLETED",
             start_time=start,
             close_time=close,
@@ -131,7 +134,7 @@ class TestInternalWorkflowStatusResponse:
     def test_status_response_failed(self):
         """Test status response for failed workflow."""
         resp = InternalWorkflowStatusResponse(
-            workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+            workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
             status="FAILED",
             start_time=datetime.now(UTC),
             close_time=datetime.now(UTC),
@@ -153,7 +156,7 @@ class TestInternalWorkflowStatusResponse:
         ]
         for status in statuses:
             resp = InternalWorkflowStatusResponse(
-                workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+                workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
                 status=status,
             )
             assert resp.status == status
@@ -162,7 +165,7 @@ class TestInternalWorkflowStatusResponse:
         """Test status response can be serialized to dict."""
         start = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         resp = InternalWorkflowStatusResponse(
-            workflow_execution_id="wf-00000000000000000000000000000123:exec-456",
+            workflow_execution_id="wf-00000000000000000000000000000123/exec-456",
             status="COMPLETED",
             start_time=start,
             result={"output": "success"},
@@ -170,7 +173,7 @@ class TestInternalWorkflowStatusResponse:
         data = resp.model_dump()
         assert (
             data["workflow_execution_id"]
-            == "wf-00000000000000000000000000000123:exec-456"
+            == "wf-00000000000000000000000000000123/exec-456"
         )
         assert data["status"] == "COMPLETED"
         assert data["result"] == {"output": "success"}

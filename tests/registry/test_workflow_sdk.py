@@ -44,8 +44,8 @@ class TestWorkflowsClientExecute:
     ):
         """Test execute with detach strategy using alias."""
         mock_tracecat_client.post.return_value = {
-            "workflow_id": "wf-123",
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_id": "wf-00000000000000000000000000000123",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "message": "Workflow execution started",
         }
 
@@ -56,8 +56,8 @@ class TestWorkflowsClientExecute:
         )
 
         assert result == {
-            "workflow_id": "wf-123",
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_id": "wf-00000000000000000000000000000123",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "status": "STARTED",
         }
         mock_tracecat_client.post.assert_called_once_with(
@@ -74,17 +74,17 @@ class TestWorkflowsClientExecute:
     ):
         """Test execute with detach strategy using workflow ID."""
         mock_tracecat_client.post.return_value = {
-            "workflow_id": "wf-123",
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_id": "wf-00000000000000000000000000000123",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "message": "Workflow execution started",
         }
 
         result = await workflows_client.execute(
-            workflow_id="wf-123",
+            workflow_id="wf-00000000000000000000000000000123",
             wait_strategy="detach",
         )
 
-        assert result["workflow_id"] == "wf-123"
+        assert result["workflow_id"] == "wf-00000000000000000000000000000123"
         assert result["status"] == "STARTED"
 
     @pytest.mark.anyio
@@ -101,12 +101,12 @@ class TestWorkflowsClientExecute:
     ):
         """Test execute with wait strategy - successful completion."""
         mock_tracecat_client.post.return_value = {
-            "workflow_id": "wf-123",
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_id": "wf-00000000000000000000000000000123",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "message": "Workflow execution started",
         }
         mock_tracecat_client.get.return_value = {
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "status": "COMPLETED",
             "result": {"output": "success"},
         }
@@ -124,12 +124,12 @@ class TestWorkflowsClientExecute:
     ):
         """Test execute with wait strategy raises on workflow failure."""
         mock_tracecat_client.post.return_value = {
-            "workflow_id": "wf-123",
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_id": "wf-00000000000000000000000000000123",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "message": "Workflow execution started",
         }
         mock_tracecat_client.get.return_value = {
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "status": "FAILED",
         }
 
@@ -140,7 +140,10 @@ class TestWorkflowsClientExecute:
             )
 
         assert exc_info.value.status == "FAILED"
-        assert exc_info.value.workflow_execution_id == "wf-123:exec-456"
+        assert (
+            exc_info.value.workflow_execution_id
+            == "wf-00000000000000000000000000000123/exec-456"
+        )
 
 
 class TestWorkflowsClientGetStatus:
@@ -152,18 +155,20 @@ class TestWorkflowsClientGetStatus:
     ):
         """Test get_status returns execution status."""
         mock_tracecat_client.get.return_value = {
-            "workflow_execution_id": "wf-123:exec-456",
+            "workflow_execution_id": "wf-00000000000000000000000000000123/exec-456",
             "status": "RUNNING",
             "start_time": "2024-01-01T00:00:00Z",
             "close_time": None,
             "result": None,
         }
 
-        result = await workflows_client.get_status("wf-123:exec-456")
+        result = await workflows_client.get_status(
+            "wf-00000000000000000000000000000123/exec-456"
+        )
 
         assert result["status"] == "RUNNING"
         mock_tracecat_client.get.assert_called_once_with(
-            "/workflows/executions/wf-123:exec-456"
+            "/workflows/executions/wf-00000000000000000000000000000123/exec-456"
         )
 
 
