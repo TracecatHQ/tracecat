@@ -143,11 +143,7 @@ async def list_versions(
 
 @app.command("select-version")
 @async_command
-async def select_version(
-    json_output: Annotated[
-        bool, typer.Option("--json", "-j", help="Output result as JSON")
-    ] = False,
-) -> None:
+async def select_version() -> None:
     """Interactively select and promote a registry version."""
     console = Console()
 
@@ -268,13 +264,8 @@ async def select_version(
             )
 
             # Step 9: Display result
-            if json_output:
-                import json
-
-                typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
-            else:
-                console.print()
-                print_version_promote_result(result)
+            console.print()
+            print_version_promote_result(result)
 
     except AdminClientError as e:
         print_error(str(e))
