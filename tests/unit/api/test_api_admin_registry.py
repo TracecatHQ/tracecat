@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import tracecat_ee.admin.registry.router as registry_router_module
 from fastapi import status
 from fastapi.testclient import TestClient
-from tracecat_ee.admin.registry import router as registry_router
 from tracecat_ee.admin.registry.schemas import (
     RegistryStatusResponse,
     RegistrySyncResponse,
@@ -38,7 +38,7 @@ async def test_sync_all_repositories_success(
         ],
     )
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.sync_all_repositories.return_value = payload
         MockService.return_value = mock_svc
@@ -70,7 +70,7 @@ async def test_get_registry_status_success(
         ],
     )
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_status.return_value = payload
         MockService.return_value = mock_svc
@@ -97,7 +97,7 @@ async def test_list_registry_versions_success(
         )
     ]
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.list_versions.return_value = payload
         MockService.return_value = mock_svc
@@ -123,7 +123,7 @@ async def test_promote_registry_version_success(
         version="1.0.0",
     )
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.promote_version.return_value = payload
         MockService.return_value = mock_svc
@@ -147,7 +147,7 @@ async def test_promote_registry_version_not_found(
     repo_id = uuid.uuid4()
     version_id = uuid.uuid4()
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.promote_version.side_effect = ValueError("Repository not found")
         MockService.return_value = mock_svc
@@ -180,7 +180,7 @@ async def test_sync_all_repositories_with_force(
         ],
     )
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.sync_all_repositories.return_value = payload
         MockService.return_value = mock_svc
@@ -213,7 +213,7 @@ async def test_sync_repository_with_force(
         ],
     )
 
-    with patch.object(registry_router, "AdminRegistryService") as MockService:
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.sync_repository.return_value = payload
         MockService.return_value = mock_svc
