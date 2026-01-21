@@ -5,19 +5,23 @@ model_list:
   # OpenAI models
   - model_name: gpt-4o-mini
     litellm_params:
-      model: openai/gpt-4o-mini
+      model: openai/responses/gpt-4o-mini
 
   - model_name: gpt-5-mini
     litellm_params:
-      model: openai/gpt-5-mini
+      model: openai/responses/gpt-5-mini
 
   - model_name: gpt-5-nano
     litellm_params:
-      model: openai/gpt-5-nano
+      model: openai/responses/gpt-5-nano
 
   - model_name: gpt-5
     litellm_params:
-      model: openai/gpt-5
+      model: openai/responses/gpt-5
+
+  - model_name: gpt-5.2
+    litellm_params:
+      model: openai/responses/gpt-5.2
 
   # Anthropic models
   - model_name: claude-sonnet-4-5-20250929
@@ -49,4 +53,3 @@ general_settings:
 litellm_settings:
   callbacks:
     - tracecat.agent.gateway.callback_handler
-  drop_params: true

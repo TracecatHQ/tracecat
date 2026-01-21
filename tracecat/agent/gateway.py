@@ -179,6 +179,17 @@ class TracecatCallbackHandler(CustomLogger):
             if response_format:
                 data["response_format"] = response_format
 
+        # Enable reasoning/thinking by default (disabled for structured outputs)
+        if output_type is None:
+            if provider == "anthropic":
+                # Anthropic uses native thinking parameter
+                if "thinking" not in data:
+                    data["thinking"] = {"type": "enabled", "budget_tokens": 1024}
+            elif provider == "openai":
+                # OpenAI models use reasoning_effort with summary for visibility
+                if "reasoning_effort" not in data:
+                    data["reasoning_effort"] = {"effort": "low", "summary": "auto"}
+
         logger.info(
             "Injected credentials for LLM call",
             workspace_id=workspace_id,
