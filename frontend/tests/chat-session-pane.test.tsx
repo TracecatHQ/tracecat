@@ -63,7 +63,7 @@ describe("ChatSessionPane", () => {
       sendMessage,
       regenerate: jest.fn(),
       messages: [],
-      status: undefined,
+      status: "ready",
       lastError: null,
       clearError: jest.fn(),
       // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
