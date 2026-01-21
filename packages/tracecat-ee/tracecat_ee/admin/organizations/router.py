@@ -149,10 +149,6 @@ async def sync_org_repository(
         return await service.sync_org_repository(org_id, repository_id, force=force)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
 
 
 @router.post(
