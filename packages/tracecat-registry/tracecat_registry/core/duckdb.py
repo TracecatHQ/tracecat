@@ -16,18 +16,14 @@ def _rows_to_json(
 
 @registry.register(
     default_title="Execute DuckDB SQL",
-    description=(
-        "Execute SQL in an in-process DuckDB engine"
-    ),
+    description=("Execute SQL in an in-process DuckDB engine"),
     display_group="DuckDB",
     namespace="core.duckdb",
 )
 def execute_sql(
     sql: Annotated[
         str,
-        Doc(
-            "SQL to execute in an in-process DuckDB connection. "
-        ),
+        Doc("SQL to execute in an in-process DuckDB connection. "),
     ],
 ) -> int | list[dict[str, Any]] | None:
     con = duckdb.connect()
