@@ -344,17 +344,17 @@ async def test_internal_execute_workflow_returns_404_for_unknown_alias(
 
 
 @pytest.mark.anyio
-async def test_internal_execute_workflow_returns_404_when_no_id_or_alias(
+async def test_internal_execute_workflow_returns_400_when_no_id_or_alias(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test that 404 is returned when neither workflow_id nor workflow_alias provided."""
+    """Test that 400 is returned when neither workflow_id nor workflow_alias provided."""
     response = client.post(
         "/internal/workflows/executions",
         json={},
     )
 
-    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "either workflow_id or workflow_alias" in response.json()["detail"].lower()
 
 
