@@ -27,9 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
 
+# Install duckdb globally for sandbox Python tool usage
+RUN uv pip install --system duckdb==1.4.3
+
 RUN useradd -m -u 1000 sandbox && \
     mkdir -p /workspace /work /cache /packages /home/sandbox && \
-    chown sandbox:sandbox /workspace /work /cache /packages /home/sandbox
+    chown sandbox:sandbox /workspace /work /cache /packages /home/sndbox
 
 ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
