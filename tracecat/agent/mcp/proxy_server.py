@@ -89,7 +89,7 @@ def _make_tool_handler(
                 )
 
             # Check if the tool call returned an error
-            if call_result.isError:
+            if call_result.is_error:
                 # Extract error message from content
                 error_text = ""
                 if call_result.content and len(call_result.content) > 0:

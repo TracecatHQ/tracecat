@@ -108,7 +108,7 @@ class InternalWorkflowStatusResponse(BaseModel):
     )
 
 
-@router.post("/execute", status_code=HTTP_201_CREATED)
+@router.post("/executions", status_code=HTTP_201_CREATED)
 async def execute_workflow(
     *,
     role: ExecutorWorkspaceRole,
@@ -205,11 +205,11 @@ async def execute_workflow(
         ) from e
 
 
-@router.get("/executions/{wf_exec_id}/status", status_code=HTTP_200_OK)
+@router.get("/executions/{execution_id:path}", status_code=HTTP_200_OK)
 async def get_execution_status(
     *,
     role: ExecutorWorkspaceRole,
-    wf_exec_id: WorkflowExecutionID,
+    execution_id: WorkflowExecutionID,
 ) -> InternalWorkflowStatusResponse:
     """Get the status of a workflow execution.
 
@@ -217,12 +217,12 @@ async def get_execution_status(
     """
     try:
         exec_service = await WorkflowExecutionsService.connect(role=role)
-        execution = await exec_service.get_execution(wf_exec_id)
+        execution = await exec_service.get_execution(execution_id)
 
         if execution is None:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
-                detail=f"Workflow execution '{wf_exec_id}' not found",
+                detail=f"Workflow execution '{execution_id}' not found",
             )
 
         # Map Temporal status to string
@@ -249,7 +249,7 @@ async def get_execution_status(
             WorkflowExecutionStatus.FAILED,
         ):
             try:
-                handle = exec_service.handle(wf_exec_id)
+                handle = exec_service.handle(execution_id)
                 result = await handle.result()
             except WorkflowFailureError as e:
                 # Extract the failure message from the workflow error
@@ -257,12 +257,12 @@ async def get_execution_status(
             except Exception as e:
                 logger.warning(
                     "Failed to get workflow result",
-                    wf_exec_id=wf_exec_id,
+                    execution_id=execution_id,
                     error=str(e),
                 )
 
         return InternalWorkflowStatusResponse(
-            workflow_execution_id=wf_exec_id,
+            workflow_execution_id=execution_id,
             status=status,
             start_time=execution.start_time,
             close_time=execution.close_time,
@@ -274,7 +274,7 @@ async def get_execution_status(
         if "not found" in str(e).lower():
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
-                detail=f"Workflow execution '{wf_exec_id}' not found",
+                detail=f"Workflow execution '{execution_id}' not found",
             ) from e
         logger.exception("RPC error getting execution status", error=str(e))
         raise HTTPException(
