@@ -1,17 +1,25 @@
 import { InboxIcon } from "lucide-react"
 
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+
 export function InboxEmptyState() {
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center">
-        <InboxIcon className="mx-auto size-12 text-muted-foreground/30" />
-        <h3 className="mt-4 text-sm font-medium text-muted-foreground">
-          No pending items
-        </h3>
-        <p className="mt-1 text-xs text-muted-foreground/60">
+    <Empty className="h-full border-none">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <InboxIcon />
+        </EmptyMedia>
+        <EmptyTitle>No pending items</EmptyTitle>
+        <EmptyDescription>
           Items will appear here when agents need approval.
-        </p>
-      </div>
-    </div>
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
