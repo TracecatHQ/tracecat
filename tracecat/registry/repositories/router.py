@@ -29,7 +29,9 @@ from tracecat.registry.repositories.schemas import (
     RegistryRepositoryReadMinimal,
     RegistryRepositorySync,
     RegistryRepositoryUpdate,
+    RegistrySyncResponse,
     RegistryVersionPromoteResponse,
+    RegistryVersionRead,
 )
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -57,7 +59,7 @@ async def reload_registry_repositories(
 
 @router.post(
     "/{repository_id}/sync",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=RegistrySyncResponse,
     responses={
         422: {
             "model": RegistryRepositoryErrorDetail,
@@ -78,12 +80,12 @@ async def sync_registry_repository(
     session: AsyncDBSession,
     repository_id: uuid.UUID,
     sync_params: RegistryRepositorySync | None = None,
-) -> None:
+) -> RegistrySyncResponse:
     """Load actions from a specific registry repository.
 
     Args:
         repository_id: The ID of the repository to sync
-        sync_params: Optional sync parameters, including target commit SHA
+        sync_params: Optional sync parameters, including target commit SHA and force flag
 
     Raises:
         422: If there is an error syncing the repository (validation error)
@@ -102,12 +104,33 @@ async def sync_registry_repository(
     actions_service = RegistryActionsService(session, role)
     last_synced_at = datetime.now(UTC)
     target_commit_sha = sync_params.target_commit_sha if sync_params else None
+    force = sync_params.force if sync_params else False
 
     # Check if v2 sync is enabled via feature flag
     use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
 
     # For git+ssh repos, we need SSH context for wheel building
     is_git_ssh = repo.origin.startswith("git+ssh://")
+
+    # If force=True, delete the current version before syncing
+    if force and repo.current_version_id is not None:
+        from tracecat.registry.versions.service import RegistryVersionsService
+
+        versions_service = RegistryVersionsService(session, role)
+        current_version = await versions_service.get_version(repo.current_version_id)
+        if current_version:
+            logger.info(
+                "Force sync: deleting current version",
+                repository_id=str(repository_id),
+                version_id=str(current_version.id),
+                version=current_version.version,
+            )
+            await versions_service.delete_version(current_version, commit=False)
+            await session.flush()
+
+    version: str | None = None
+    commit_sha: str | None = None
+    actions_count: int | None = None
 
     try:
         if use_v2_sync:
@@ -144,6 +167,7 @@ async def sync_registry_repository(
                 version=version,
                 target_commit_sha=target_commit_sha,
                 last_synced_at=last_synced_at,
+                force=force,
             )
         else:
             # V1 sync: updates RegistryAction table only
@@ -156,6 +180,7 @@ async def sync_registry_repository(
                 commit_sha=commit_sha,
                 target_commit_sha=target_commit_sha,
                 last_synced_at=last_synced_at,
+                force=force,
             )
 
         session.expire(repo)
@@ -167,6 +192,20 @@ async def sync_registry_repository(
             ),
         )
         logger.info("Updated repository", origin=repo.origin)
+
+        # Get action count for response
+        await session.refresh(repo, ["actions"])
+        actions_count = len(repo.actions)
+
+        return RegistrySyncResponse(
+            success=True,
+            repository_id=repo.id,
+            origin=repo.origin,
+            version=version,
+            commit_sha=commit_sha,
+            actions_count=actions_count,
+            forced=force,
+        )
 
     except RegistryError as e:
         logger.warning("Cannot sync repository", exc=e)
@@ -196,6 +235,36 @@ async def sync_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
         ) from e
+
+
+@router.get("/{repository_id}/versions", response_model=list[RegistryVersionRead])
+async def list_repository_versions(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+    session: AsyncDBSession,
+    repository_id: uuid.UUID,
+) -> list[RegistryVersionRead]:
+    """List all versions for a specific registry repository."""
+    from tracecat.registry.versions.service import RegistryVersionsService
+
+    repos_service = RegistryReposService(session, role)
+    try:
+        # Verify repository exists
+        await repos_service.get_repository_by_id(repository_id)
+    except NoResultFound as e:
+        logger.error("Registry repository not found", repository_id=repository_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
+        ) from e
+
+    versions_service = RegistryVersionsService(session, role)
+    versions = await versions_service.list_versions(repository_id=repository_id)
+    return [RegistryVersionRead.model_validate(v) for v in versions]
 
 
 @router.get("")
