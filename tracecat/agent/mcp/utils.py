@@ -8,10 +8,7 @@ The fetch_tool_definitions() function requires DB access and uses lazy imports.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -110,7 +107,7 @@ async def fetch_tool_definitions(
         Dict mapping action names to MCPToolDefinition objects.
     """
     # Lazy imports - only orchestrator calls this function
-    from tracecat.agent.mcp.types import MCPToolDefinition
+    from tracecat.agent.common.types import MCPToolDefinition
     from tracecat.logger import logger
     from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
     from tracecat.registry.actions.service import RegistryActionsService
