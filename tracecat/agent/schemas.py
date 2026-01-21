@@ -172,6 +172,7 @@ class AgentOutput(BaseModel):
     duration: float
     usage: RunUsage | None = None
     session_id: uuid.UUID
+    interrupted: bool = False
 
 
 class ExecuteToolCallArgs(BaseModel):

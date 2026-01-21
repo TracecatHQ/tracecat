@@ -153,13 +153,21 @@ export function ChatSessionPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
-  const { sendMessage, messages, status, regenerate, lastError, clearError } =
-    useVercelChat({
-      chatId: chat.id,
-      workspaceId,
-      messages: uiMessages,
-      modelInfo,
-    })
+
+  const {
+    sendMessage,
+    messages,
+    status,
+    regenerate,
+    lastError,
+    clearError,
+    interrupt,
+  } = useVercelChat({
+    chatId: chat.id,
+    workspaceId,
+    messages: uiMessages,
+    modelInfo,
+  })
 
   // Track whether we've sent the pending message to avoid double-sends
   const pendingMessageSentRef = useRef(false)
@@ -451,8 +459,9 @@ export function ChatSessionPane({
               </PromptInputTools>
             )}
             <PromptInputSubmit
-              disabled={isReadonly || !input || !!status}
+              disabled={isReadonly || (!input && !status)}
               status={status}
+              onInterrupt={interrupt}
               className="ml-auto text-muted-foreground/80"
             />
           </PromptInputToolbar>

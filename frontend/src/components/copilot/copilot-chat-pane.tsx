@@ -89,13 +89,21 @@ export function CopilotChatPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
-  const { sendMessage, messages, status, regenerate, lastError, clearError } =
-    useVercelChat({
-      chatId: chat.id,
-      workspaceId,
-      messages: uiMessages,
-      modelInfo,
-    })
+
+  const {
+    sendMessage,
+    messages,
+    status,
+    regenerate,
+    lastError,
+    clearError,
+    interrupt,
+  } = useVercelChat({
+    chatId: chat.id,
+    workspaceId,
+    messages: uiMessages,
+    modelInfo,
+  })
 
   const isWaitingForResponse = useMemo(() => {
     if (status === "submitted") return true
@@ -248,6 +256,7 @@ export function CopilotChatPane({
         <PromptInputSubmit
           disabled={isReadonly || (!input && !status)}
           status={status}
+          onInterrupt={interrupt}
           className="ml-auto text-muted-foreground/80"
         />
       </PromptInputToolbar>

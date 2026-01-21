@@ -891,6 +891,11 @@ export const $AgentOutput = {
       format: "uuid",
       title: "Session Id",
     },
+    interrupted: {
+      type: "boolean",
+      title: "Interrupted",
+      default: false,
+    },
   },
   type: "object",
   required: ["output", "duration", "session_id"],
@@ -1675,6 +1680,10 @@ export const $AgentSessionRead = {
       ],
       title: "Harness Type",
     },
+    status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
+    },
     last_stream_id: {
       anyOf: [
         {
@@ -1800,6 +1809,10 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Harness Type",
+    },
+    status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
     },
     last_stream_id: {
       anyOf: [
@@ -1935,6 +1948,10 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Harness Type",
     },
+    status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
+    },
     last_stream_id: {
       anyOf: [
         {
@@ -1991,6 +2008,20 @@ export const $AgentSessionReadWithMessages = {
   ],
   title: "AgentSessionReadWithMessages",
   description: "Response schema for agent session with message history.",
+} as const
+
+export const $AgentSessionStatus = {
+  type: "string",
+  enum: ["idle", "running", "interrupted", "completed", "failed"],
+  title: "AgentSessionStatus",
+  description: `Status of an agent session.
+
+Tracks the lifecycle state of an agent session:
+- IDLE: No active workflow running
+- RUNNING: Workflow currently executing
+- INTERRUPTED: User requested interrupt (transient state)
+- COMPLETED: Last run completed successfully
+- FAILED: Last run failed`,
 } as const
 
 export const $AgentSessionUpdate = {

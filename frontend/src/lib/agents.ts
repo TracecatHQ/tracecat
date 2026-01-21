@@ -28,7 +28,8 @@ export type AgentSessionReadWithMeta = SessionBase & {
   action_ref?: string | null
   action_title?: string | null
   approvals?: ApprovalRead[] | null
-  status?: WorkflowExecutionStatus | null
+  /** Temporal workflow execution status (numeric enum) */
+  workflow_status?: WorkflowExecutionStatus | null
   parent_id?: string | null
   parent_run_id?: string | null
   root_id?: string | null
@@ -158,8 +159,8 @@ export function enrichAgentSession(
   }
 
   const temporalStatus =
-    session.status != null
-      ? (TEMPORAL_STATUS_MAP[session.status] ?? null)
+    session.workflow_status != null
+      ? (TEMPORAL_STATUS_MAP[session.workflow_status] ?? null)
       : null
   const derivedStatus: AgentDerivedStatus = temporalStatus ?? "UNKNOWN"
   const metadata = STATUS_METADATA[derivedStatus]

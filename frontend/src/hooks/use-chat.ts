@@ -13,6 +13,7 @@ import {
   type AgentSessionRead,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
+  type AgentSessionsInterruptSessionResponse,
   type AgentSessionsListSessionsResponse,
   type AgentSessionUpdate,
   type ApiError,
@@ -20,6 +21,7 @@ import {
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsInterruptSession,
   agentSessionsListSessions,
   agentSessionsUpdateSession,
   type ContinueRunRequest,
@@ -273,6 +275,7 @@ export function useVercelChat({
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
+  const [isInterrupting, setIsInterrupting] = useState(false)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -334,10 +337,98 @@ export function useVercelChat({
     },
   })
 
+  // Interrupt handler for stopping a running session
+  // Uses stop() to abort the client-side stream, then calls backend to kill the process.
+  const interrupt = async () => {
+    if (!chatId || isInterrupting) return
+    setIsInterrupting(true)
+    try {
+      // 1. Abort the client-side stream immediately
+      chat.stop()
+
+      // 2. Tell backend to kill the process
+      const result = await agentSessionsInterruptSession({
+        sessionId: chatId,
+        workspaceId,
+      })
+      if (result.interrupted) {
+        toast({
+          title: "Session interrupted",
+          description: "The agent has been stopped.",
+        })
+      }
+
+      // 3. Invalidate queries to refresh session state
+      queryClient.invalidateQueries({
+        queryKey: ["chat", chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", chatId, workspaceId, "vercel"],
+      })
+    } catch (error) {
+      console.error("Failed to interrupt session:", error)
+      toast({
+        variant: "destructive",
+        title: "Failed to stop",
+        description: "Could not interrupt the session. Please try again.",
+      })
+    } finally {
+      setIsInterrupting(false)
+    }
+  }
+
   return {
     ...chat,
     lastError,
     clearError: () => setLastError(null),
+    interrupt,
+    isInterrupting,
+  }
+}
+
+// Hook for interrupting a running chat session
+export function useInterruptChat(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<
+    AgentSessionsInterruptSessionResponse,
+    ApiError,
+    { chatId: string }
+  >({
+    mutationFn: ({ chatId }) =>
+      agentSessionsInterruptSession({
+        sessionId: chatId,
+        workspaceId,
+      }),
+    onSuccess: (data, variables) => {
+      if (data.interrupted) {
+        toast({
+          title: "Session interrupted",
+          description: "The agent has been stopped.",
+        })
+      }
+      // Invalidate queries to refresh session state
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to interrupt session:", error)
+      toast({
+        variant: "destructive",
+        title: "Failed to stop",
+        description: "Could not interrupt the session. Please try again.",
+      })
+    },
+  })
+
+  return {
+    interruptChat: mutation.mutateAsync,
+    isInterrupting: mutation.isPending,
+    interruptError: mutation.error,
   }
 }
 

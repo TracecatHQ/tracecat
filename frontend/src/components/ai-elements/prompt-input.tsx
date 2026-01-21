@@ -678,6 +678,7 @@ export const PromptInputActionMenuItem = ({
 
 export type PromptInputSubmitProps = ComponentProps<typeof Button> & {
   status?: ChatStatus
+  onInterrupt?: () => void
 }
 
 export const PromptInputSubmit = ({
@@ -686,6 +687,7 @@ export const PromptInputSubmit = ({
   size = "icon",
   status,
   children,
+  onInterrupt,
   ...props
 }: PromptInputSubmitProps) => {
   let Icon = <ArrowUpIcon className="size-3.5" />
@@ -698,17 +700,22 @@ export const PromptInputSubmit = ({
     Icon = <XIcon className="size-3.5" />
   }
 
+  // When streaming, the button becomes an interrupt/stop button
+  const isStreaming = status === "streaming"
+  const handleClick = isStreaming && onInterrupt ? onInterrupt : undefined
+
   return (
     <Button
-      aria-label="Send message"
+      aria-label={isStreaming ? "Stop generation" : "Send message"}
       className={cn("size-6 rounded-md hover:text-muted-foreground", className)}
       size={size}
-      type="submit"
+      type={isStreaming ? "button" : "submit"}
       variant={variant}
+      onClick={handleClick}
       {...props}
     >
       {children ?? Icon}
-      <span className="sr-only">Send message</span>
+      <span className="sr-only">{isStreaming ? "Stop" : "Send message"}</span>
     </Button>
   )
 }

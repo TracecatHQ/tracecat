@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 
 
 class AgentSessionCreate(BaseModel):
@@ -101,6 +101,8 @@ class AgentSessionRead(BaseModel):
     agent_preset_id: uuid.UUID | None
     # Harness
     harness_type: str | None
+    # Status
+    status: AgentSessionStatus = AgentSessionStatus.IDLE
     # Stream tracking
     last_stream_id: str | None = None
     # Fork tracking

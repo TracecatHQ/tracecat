@@ -87,6 +87,8 @@ import type {
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
   AgentSessionsGetSessionVercelResponse,
+  AgentSessionsInterruptSessionData,
+  AgentSessionsInterruptSessionResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
   AgentSessionsSendMessageData,
@@ -3537,6 +3539,41 @@ export const agentSessionsForkSession = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Interrupt Session
+ * Request interruption of a running agent session.
+ *
+ * Marks the session for interrupt. The agent executor will detect this
+ * status change and terminate execution cleanly, emitting stream.done()
+ * to prevent the frontend from hanging.
+ *
+ * Returns:
+ * {"interrupted": true} if the session was running and is now interrupted,
+ * {"interrupted": false} if the session was not in a running state.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns boolean Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsInterruptSession = (
+  data: AgentSessionsInterruptSessionData
+): CancelablePromise<AgentSessionsInterruptSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sessions/{session_id}/interrupt",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

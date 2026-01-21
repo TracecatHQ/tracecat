@@ -97,6 +97,7 @@ class AgentExecutorResult(BaseModel):
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
     messages: list[ChatMessage] | None = None
+    interrupted: bool = False
 
 
 @dataclass
@@ -368,11 +369,23 @@ class SandboxedAgentExecutor:
                             "Loopback result received",
                             success=loopback_result.success,
                             error=loopback_result.error,
+                            interrupted=loopback_result.interrupted,
                         )
                         result.success = loopback_result.success
                         result.error = loopback_result.error
                         result.approval_requested = loopback_result.approval_requested
                         result.approval_items = loopback_result.approval_items or None
+                        result.interrupted = loopback_result.interrupted
+
+                        # If interrupted, kill the process immediately
+                        if loopback_result.interrupted:
+                            logger.info(
+                                "Killing runtime process due to interrupt",
+                                session_id=self.input.session_id,
+                            )
+                            if self._process and self._process.returncode is None:
+                                self._process.kill()
+
                         break
                     else:
                         # Exceeded total timeout

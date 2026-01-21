@@ -328,6 +328,9 @@ async def send_message(
         )
 
         # Create stream and return with Vercel format
+        # The stream will automatically close when:
+        # 1. Client disconnects (is_disconnected returns True)
+        # 2. StreamEnd marker is read from Redis (emitted by interrupt or normal completion)
         stream = await AgentStream.new(agent_session.id, workspace_id)
         return StreamingResponse(
             stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
@@ -387,8 +390,8 @@ async def stream_session_events(
             detail="Workspace access required",
         )
 
-        # Try to get last_stream_id from session, but don't fail if session doesn't exist yet.
-        # This handles the race condition where frontend connects before session is created.
+    # Try to get last_stream_id from session, but don't fail if session doesn't exist yet.
+    # This handles the race condition where frontend connects before session is created.
     last_stream_id: str | None = None
     async with AgentSessionService.with_session(role=role) as svc:
         agent_session = await svc.get_session(session_id)
@@ -404,6 +407,9 @@ async def stream_session_events(
         session_id=session_id,
     )
 
+    # Stream will automatically close when:
+    # 1. Client disconnects (is_disconnected returns True)
+    # 2. StreamEnd marker is read from Redis (emitted by interrupt or normal completion)
     stream = await AgentStream.new(session_id, workspace_id)
     headers = {
         "Cache-Control": "no-cache, no-transform",
@@ -440,6 +446,33 @@ async def fork_session(
         entity_type = request.entity_type if request else None
         forked = await svc.fork_session(session_id, entity_type=entity_type)
         return AgentSessionRead.model_validate(forked, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/{session_id}/interrupt")
+async def interrupt_session(
+    session_id: uuid.UUID,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> dict[str, bool]:
+    """Request interruption of a running agent session.
+
+    Marks the session for interrupt. The agent executor will detect this
+    status change and terminate execution cleanly, emitting stream.done()
+    to prevent the frontend from hanging.
+
+    Returns:
+        {"interrupted": true} if the session was running and is now interrupted,
+        {"interrupted": false} if the session was not in a running state.
+    """
+    try:
+        svc = AgentSessionService(session, role)
+        interrupted = await svc.interrupt_session(session_id)
+        return {"interrupted": interrupted}
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

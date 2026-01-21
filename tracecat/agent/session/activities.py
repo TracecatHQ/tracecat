@@ -15,7 +15,7 @@ from temporalio import activity
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
@@ -158,9 +158,43 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
         return LoadSessionResult(found=False, error=str(e))
 
 
+class UpdateSessionStatusInput(BaseModel):
+    """Input for update_session_status_activity."""
+
+    role: Role
+    session_id: uuid.UUID
+    status: AgentSessionStatus
+
+
+@activity.defn
+async def update_session_status_activity(input: UpdateSessionStatusInput) -> None:
+    """Update the status of an agent session.
+
+    Called by the workflow to update session status on completion, failure, or interrupt.
+    """
+    ctx_role.set(input.role)
+
+    try:
+        async with AgentSessionService.with_session(role=input.role) as service:
+            await service.update_session_status(input.session_id, input.status)
+            logger.info(
+                "Updated session status",
+                session_id=input.session_id,
+                status=input.status,
+            )
+    except Exception as e:
+        logger.error(
+            "Failed to update session status",
+            session_id=input.session_id,
+            status=input.status,
+            error=str(e),
+        )
+
+
 def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
         create_session_activity,
         load_session_activity,
+        update_session_status_activity,
     ]
