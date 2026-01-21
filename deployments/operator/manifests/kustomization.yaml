@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tracecat
+
+resources:
+  - rbac.yaml
+  - deployment.yaml
+
+# Include CRD from parent directory
+# Note: CRDs are typically applied separately before other resources
+# Use: kubectl apply -f ../crds/
+
+images:
+  - name: ghcr.io/tracecathq/tracecat-operator
+    newTag: latest
+
+commonLabels:
+  app.kubernetes.io/part-of: tracecat
+  app.kubernetes.io/managed-by: kustomize

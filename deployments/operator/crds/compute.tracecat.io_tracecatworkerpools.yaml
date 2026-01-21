@@ -1,0 +1,441 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tracecatworkerpools.compute.tracecat.io
+spec:
+  group: compute.tracecat.io
+  names:
+    kind: TracecatWorkerPool
+    listKind: TracecatWorkerPoolList
+    plural: tracecatworkerpools
+    singular: tracecatworkerpool
+    shortNames:
+      - twp
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Tenant-Type
+          type: string
+          jsonPath: .spec.tenant.type
+        - name: Tier
+          type: string
+          jsonPath: .metadata.labels['tracecat\.io/tier']
+        - name: DSL-Replicas
+          type: integer
+          jsonPath: .spec.workers.dsl.replicas
+        - name: Executor-Replicas
+          type: integer
+          jsonPath: .spec.workers.executor.replicas
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - tenant
+                - workers
+              properties:
+                tenant:
+                  type: object
+                  description: Tenant identification for this worker pool
+                  required:
+                    - type
+                  properties:
+                    type:
+                      type: string
+                      enum:
+                        - dedicated
+                        - shared
+                      description: Whether this pool is dedicated to a single org or shared
+                    organizationId:
+                      type: string
+                      description: Tracecat organization ID (required for dedicated pools)
+                image:
+                  type: object
+                  description: Container image configuration
+                  properties:
+                    repository:
+                      type: string
+                      default: ghcr.io/tracecathq/tracecat
+                    tag:
+                      type: string
+                    pullPolicy:
+                      type: string
+                      enum:
+                        - Always
+                        - IfNotPresent
+                        - Never
+                      default: IfNotPresent
+                temporal:
+                  type: object
+                  description: Temporal cluster configuration
+                  properties:
+                    clusterUrl:
+                      type: string
+                      description: Temporal frontend address (e.g., temporal-frontend:7233)
+                    namespace:
+                      type: string
+                      default: default
+                    auth:
+                      type: object
+                      properties:
+                        apiKeySecretRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                              default: apiKey
+                database:
+                  type: object
+                  description: Database configuration
+                  properties:
+                    host:
+                      type: string
+                    port:
+                      type: integer
+                      default: 5432
+                    database:
+                      type: string
+                      default: tracecat
+                    sslMode:
+                      type: string
+                      default: disable
+                    credentialsSecretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        usernameKey:
+                          type: string
+                          default: username
+                        passwordKey:
+                          type: string
+                          default: password
+                redis:
+                  type: object
+                  description: Redis configuration
+                  properties:
+                    url:
+                      type: string
+                      description: Redis URL (redis://host:port)
+                    urlSecretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: url
+                secrets:
+                  type: object
+                  description: Secret references for core Tracecat secrets
+                  properties:
+                    coreSecretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: Name of secret containing dbEncryptionKey, serviceKey, signingSecret
+                serviceAccount:
+                  type: object
+                  description: Service account configuration
+                  properties:
+                    name:
+                      type: string
+                      description: Name of existing ServiceAccount to use
+                workers:
+                  type: object
+                  description: Worker configurations
+                  required:
+                    - dsl
+                    - executor
+                  properties:
+                    dsl:
+                      type: object
+                      description: DSL worker configuration
+                      required:
+                        - queue
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        replicas:
+                          type: integer
+                          minimum: 0
+                          default: 1
+                        queue:
+                          type: string
+                          description: Temporal task queue name
+                        threadpoolMaxWorkers:
+                          type: integer
+                          description: Max workers for threadpool executor
+                        contextCompression:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                              default: false
+                            thresholdKb:
+                              type: integer
+                              default: 16
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                memory:
+                                  type: string
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                memory:
+                                  type: string
+                    executor:
+                      type: object
+                      description: Executor worker configuration
+                      required:
+                        - queue
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        replicas:
+                          type: integer
+                          minimum: 0
+                          default: 1
+                        queue:
+                          type: string
+                          description: Temporal action queue name
+                        backend:
+                          type: string
+                          enum:
+                            - pool
+                            - ephemeral
+                            - direct
+                            - auto
+                          default: auto
+                        maxConcurrentActivities:
+                          type: integer
+                          description: Maximum concurrent activities
+                        workerPoolSize:
+                          type: integer
+                          description: Worker pool size for pool backend
+                        sandbox:
+                          type: object
+                          properties:
+                            disableNsjail:
+                              type: boolean
+                              default: false
+                        contextCompression:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                              default: false
+                            thresholdKb:
+                              type: integer
+                              default: 16
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                memory:
+                                  type: string
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                memory:
+                                  type: string
+                    agent:
+                      type: object
+                      description: Agent worker configuration (optional)
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        replicas:
+                          type: integer
+                          minimum: 0
+                          default: 1
+                        queue:
+                          type: string
+                          description: Temporal agent queue name
+                        maxConcurrentActivities:
+                          type: integer
+                          description: Maximum concurrent activities
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                memory:
+                                  type: string
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                memory:
+                                  type: string
+                autoscaling:
+                  type: object
+                  description: KEDA autoscaling configuration
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false
+                    workers:
+                      type: object
+                      properties:
+                        dsl:
+                          type: object
+                          properties:
+                            minReplicas:
+                              type: integer
+                              minimum: 0
+                              default: 1
+                            maxReplicas:
+                              type: integer
+                              minimum: 1
+                              default: 10
+                            targetQueueSize:
+                              type: integer
+                              description: Target queue backlog size for scaling
+                              default: 10
+                        executor:
+                          type: object
+                          properties:
+                            minReplicas:
+                              type: integer
+                              minimum: 0
+                              default: 1
+                            maxReplicas:
+                              type: integer
+                              minimum: 1
+                              default: 10
+                            targetQueueSize:
+                              type: integer
+                              default: 5
+                        agent:
+                          type: object
+                          properties:
+                            minReplicas:
+                              type: integer
+                              minimum: 0
+                              default: 0
+                            maxReplicas:
+                              type: integer
+                              minimum: 1
+                              default: 5
+                            targetQueueSize:
+                              type: integer
+                              default: 3
+                env:
+                  type: object
+                  description: Additional environment variables
+                  properties:
+                    common:
+                      type: array
+                      description: Environment variables for all workers
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                          value:
+                            type: string
+                          valueFrom:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  description: Generation observed by the operator
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                workers:
+                  type: object
+                  description: Status of managed workers
+                  properties:
+                    dsl:
+                      type: object
+                      properties:
+                        deployment:
+                          type: string
+                        readyReplicas:
+                          type: integer
+                        scaledObject:
+                          type: string
+                    executor:
+                      type: object
+                      properties:
+                        deployment:
+                          type: string
+                        readyReplicas:
+                          type: integer
+                        scaledObject:
+                          type: string
+                    agent:
+                      type: object
+                      properties:
+                        deployment:
+                          type: string
+                        readyReplicas:
+                          type: integer
+                        scaledObject:
+                          type: string

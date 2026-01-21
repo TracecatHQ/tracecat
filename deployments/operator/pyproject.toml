@@ -1,0 +1,54 @@
+[project]
+name = "tracecat-operator"
+version = "0.1.0"
+description = "Kubernetes operator for Tracecat worker pools"
+requires-python = ">=3.12"
+license = { text = "AGPL-3.0" }
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
+
+dependencies = [
+    "kopf==1.37.2",
+    "kubernetes==31.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.5",
+    "pytest-asyncio==0.24.0",
+    "mypy==1.15.0",
+    "ruff==0.9.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
