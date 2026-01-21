@@ -63,6 +63,13 @@ DISALLOWED_TOOLS = [
     "Skill",
 ]
 
+# Tools that require internet access (these bypass sandbox network isolation
+# because they're executed server-side by Anthropic, not in the sandbox)
+INTERNET_TOOLS = [
+    "WebSearch",
+    "WebFetch",
+]
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -406,6 +413,11 @@ class ClaudeAgentRuntime:
                 },
             )
 
+            # Build disallowed tools list - add internet tools if internet access is disabled
+            disallowed_tools = list(DISALLOWED_TOOLS)
+            if not payload.config.enable_internet_access:
+                disallowed_tools.extend(INTERNET_TOOLS)
+
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
@@ -417,7 +429,7 @@ class ClaudeAgentRuntime:
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
                 mcp_servers=mcp_servers,
-                disallowed_tools=DISALLOWED_TOOLS,
+                disallowed_tools=disallowed_tools,
                 stderr=handle_claude_stderr,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
