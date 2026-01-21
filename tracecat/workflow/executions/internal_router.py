@@ -48,12 +48,6 @@ class InternalWorkflowExecuteRequest(BaseModel):
     trigger_inputs: Any | None = Field(
         default=None, description="Inputs to pass to the workflow (arbitrary JSON)"
     )
-    environment: str | None = Field(
-        default=None, description="Target execution environment"
-    )
-    timeout: float | None = Field(
-        default=None, description="Execution timeout in seconds"
-    )
     parent_workflow_execution_id: WorkflowExecutionID | None = Field(
         default=None,
         description="Parent workflow execution ID for correlation (stored in Temporal memo). "

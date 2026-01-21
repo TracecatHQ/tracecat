@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Literal
 
+from tracecat_registry.sdk.types import UNSET, Unset, is_set
+
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
 
@@ -54,10 +56,9 @@ class WorkflowsClient:
         *,
         workflow_id: str | None = None,
         workflow_alias: str | None = None,
-        trigger_inputs: Any | None = None,
-        environment: str | None = None,
-        timeout: float | None = None,
+        trigger_inputs: Any | Unset = UNSET,
         wait_strategy: Literal["wait", "detach"] = "detach",
+        timeout: float | None = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         parent_workflow_execution_id: str | None = None,
     ) -> dict[str, Any]:
@@ -67,11 +68,11 @@ class WorkflowsClient:
             workflow_id: Workflow UUID (short or full format).
             workflow_alias: Workflow alias (alternative to ID).
             trigger_inputs: Inputs to pass to the workflow.
-            environment: Target execution environment.
-            timeout: Maximum time to wait for completion (only used with wait_strategy="wait").
             wait_strategy: How to handle execution:
                 - "detach": Return immediately with execution info.
                 - "wait": Poll until completion and return the result.
+            timeout: Maximum time to wait for completion in seconds (only used with
+                wait_strategy="wait"). Defaults to 300s (5 minutes).
             poll_interval: Time between status polls in seconds (default: 2.0).
             parent_workflow_execution_id: Parent workflow execution ID for correlation.
                                           Stored in Temporal memo for tracing.
@@ -97,12 +98,8 @@ class WorkflowsClient:
             data["workflow_id"] = workflow_id
         if workflow_alias:
             data["workflow_alias"] = workflow_alias
-        if trigger_inputs:
+        if is_set(trigger_inputs):
             data["trigger_inputs"] = trigger_inputs
-        if environment:
-            data["environment"] = environment
-        if timeout:
-            data["timeout"] = timeout
         if parent_workflow_execution_id:
             data["parent_workflow_execution_id"] = parent_workflow_execution_id
 
