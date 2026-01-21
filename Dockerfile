@@ -32,7 +32,7 @@ RUN uv pip install --system duckdb==1.4.3
 
 RUN useradd -m -u 1000 sandbox && \
     mkdir -p /workspace /work /cache /packages /home/sandbox && \
-    chown sandbox:sandbox /workspace /work /cache /packages /home/sndbox
+    chown sandbox:sandbox /workspace /work /cache /packages /home/sandbox
 
 ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
