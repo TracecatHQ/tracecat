@@ -194,6 +194,7 @@ Profiles:
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
+                Use --seed to auto-register test@tracecat.com:password1234
   down          Stop the cluster
   restart [svc] Restart the cluster or specific service
   ps            Show running containers
@@ -205,6 +206,7 @@ Commands:
 
 Examples:
   ./cluster up -d                Start next available cluster
+  ./cluster up -d --seed         Start cluster and register test user
   ./cluster down                 Stop cluster (auto-select if one running)
   ./cluster restart api          Restart the api service
   ./cluster 2 up -d              Start cluster 2 explicitly
@@ -456,9 +458,74 @@ fi
 # Sync dependencies before starting cluster
 if [[ "$COMMAND" == "up" ]]; then
     echo "Syncing dependencies..."
-    (cd "$REPO_ROOT" && uv sync --quiet)
+    (cd "$REPO_ROOT" && uv sync --group admin --quiet)
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
+# Check for --seed flag in up command
+SEED_USER=false
+UP_ARGS=()
+if [[ "$COMMAND" == "up" ]]; then
+    for arg in "$@"; do
+        if [[ "$arg" == "--seed" ]]; then
+            SEED_USER=true
+        else
+            UP_ARGS+=("$arg")
+        fi
+    done
+    set -- "${UP_ARGS[@]}"
+fi
+
+# Function to seed test user after cluster starts
+seed_test_user() {
+    local api_url="http://localhost:${PUBLIC_APP_PORT}/api"
+    local max_attempts=30
+    local attempt=1
+
+    echo "Waiting for API to be ready..."
+    while [[ $attempt -le $max_attempts ]]; do
+        if curl -s "${api_url}/health" > /dev/null 2>&1; then
+            echo "API is ready"
+            break
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+
+    if [[ $attempt -gt $max_attempts ]]; then
+        echo "Warning: API did not become ready in time, skipping user registration"
+        return 1
+    fi
+
+    echo "Registering test user (test@tracecat.com)..."
+    local response
+    response=$(curl -s -w "\n%{http_code}" -X POST "${api_url}/auth/register" \
+        -H "Content-Type: application/json" \
+        -d '{"email": "test@tracecat.com", "password": "password1234"}')
+
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
+
+    case "$http_code" in
+        201)
+            echo "Successfully registered test user"
+            ;;
+        400|409)
+            echo "Test user already exists"
+            ;;
+        *)
+            echo "Warning: Registration returned status $http_code: $body"
+            ;;
+    esac
+}
+
 # Run docker compose with the configured environment
-exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
+    # Run in background mode for seeding, then seed
+    docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    seed_test_user
+else
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+fi
