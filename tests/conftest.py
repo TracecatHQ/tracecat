@@ -624,6 +624,10 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
     # Connect and begin the outer transaction
     async with async_engine.connect() as connection:
         await connection.begin()
+        # Avoid CI hangs: fail fast on lock waits and runaway statements.
+        # NOTE: SET LOCAL scopes these settings to the surrounding transaction.
+        await connection.execute(text("SET LOCAL lock_timeout = '30s'"))
+        await connection.execute(text("SET LOCAL statement_timeout = '5min'"))
 
         # Create session bound to this connection
         async_session = AsyncSession(

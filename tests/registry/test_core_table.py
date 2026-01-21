@@ -1130,9 +1130,21 @@ class TestCoreDownloadTable:
 
 @pytest.mark.anyio
 class TestCoreTableIntegration:
-    """Integration tests for core.table UDFs using real database."""
+    """Integration tests for core.table UDFs using real database.
+
+    These tests only run with registry_client=False because they execute DDL
+    (CREATE SCHEMA, CREATE TABLE) which requires the direct database path.
+    DDL cannot work with the savepoint-based session fixture because PostgreSQL
+    DDL acquires exclusive locks that conflict with SERIALIZABLE isolation.
+    """
 
     pytestmark = pytest.mark.usefixtures("db")
+
+    @pytest.fixture(autouse=True)
+    def skip_registry_client_on(self, registry_client_enabled: bool):
+        """Skip these tests when registry_client is enabled."""
+        if registry_client_enabled:
+            pytest.skip("Integration tests only run with registry_client=False")
 
     async def test_create_table_with_columns_integration(
         self,
