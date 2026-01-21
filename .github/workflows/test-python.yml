@@ -226,7 +226,7 @@ jobs:
           if [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -ra
           elif [ "${{ matrix.test_group }}" = "registry" ]; then
-            uv run pytest tests/${{ matrix.test_group }} -n auto -ra
+            uv run pytest tests/${{ matrix.test_group }} -n auto -ra -o faulthandler_timeout=300
           else
             uv run pytest tests/${{ matrix.test_group }} -ra
           fi
