@@ -49,8 +49,9 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# LiteLLM URL - use IP to avoid DNS resolution in sandbox
-LITELLM_URL = "http://127.0.0.1:4000"
+# LiteLLM URL - points to LLM bridge inside sandbox (which proxies to host LiteLLM)
+# Must match LLM_BRIDGE_PORT in llm_bridge.py
+LITELLM_URL = "http://127.0.0.1:4100"
 
 DISALLOWED_TOOLS = [
     "EnterPlanMode",

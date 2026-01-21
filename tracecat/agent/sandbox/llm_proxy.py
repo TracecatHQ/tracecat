@@ -290,7 +290,7 @@ class LLMSocketProxy:
                     # Check if this is a non-critical endpoint (telemetry, health checks, etc.)
                     is_non_critical = request["path"] in _NON_CRITICAL_PATHS
 
-                    # Read error body for debugging
+                    # Read error body but only log metadata to avoid sensitive data leakage
                     try:
                         error_body = await response.aread()
                         log_method = logger.warning if is_non_critical else logger.error
@@ -298,10 +298,15 @@ class LLMSocketProxy:
                             "LiteLLM error response",
                             status_code=response.status_code,
                             url=url,
+                            response_length=len(error_body),
+                            non_critical=is_non_critical,
+                        )
+                        # Log full body only at debug level
+                        logger.debug(
+                            "LiteLLM error body",
                             response_body=error_body.decode("utf-8", errors="replace")[
                                 :1000
                             ],
-                            non_critical=is_non_critical,
                         )
                     except Exception as e:
                         logger.error(

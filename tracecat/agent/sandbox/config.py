@@ -4,9 +4,9 @@ This module generates protobuf-format nsjail configurations specifically
 for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network isolated (clone_newnet: true) - no direct network access
-- LLM access via Unix socket proxy (llm.sock) to LiteLLM on host
-- Namespace isolation (PID, user, mount, IPC, UTS, network namespaces)
+- Network enabled (clone_newnet: false) - direct internet access for API calls
+- LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LiteLLM
+- Namespace isolation (PID, user, mount, IPC, UTS namespaces)
 - /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
@@ -250,7 +250,7 @@ def build_agent_nsjail_config(
         "keep_env: false",
         "",
         "# Namespace isolation",
-        "# Network isolated - LLM access via Unix socket proxy",
+        "# Network enabled (clone_newnet: false) - direct internet access for API calls",
         "clone_newnet: false",
         "clone_newuser: true",
         "clone_newns: true",
