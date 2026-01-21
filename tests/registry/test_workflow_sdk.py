@@ -61,7 +61,7 @@ class TestWorkflowsClientExecute:
             "status": "STARTED",
         }
         mock_tracecat_client.post.assert_called_once_with(
-            "/workflows/execute",
+            "/workflows/executions",
             json={
                 "workflow_alias": "my-workflow",
                 "trigger_inputs": {"key": "value"},
@@ -163,7 +163,7 @@ class TestWorkflowsClientGetStatus:
 
         assert result["status"] == "RUNNING"
         mock_tracecat_client.get.assert_called_once_with(
-            "/workflows/executions/wf-123:exec-456/status"
+            "/workflows/executions/wf-123:exec-456"
         )
 
 
