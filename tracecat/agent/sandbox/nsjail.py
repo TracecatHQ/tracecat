@@ -113,6 +113,8 @@ async def spawn_jailed_runtime(
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
+    *,
+    enable_internet_access: bool = False,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (or direct subprocess for testing).
 
@@ -190,6 +192,7 @@ async def spawn_jailed_runtime(
         config=config,
         nsjail_path=nsjail_path,
         rootfs_path=rootfs_path,
+        enable_internet_access=enable_internet_access,
     )
 
 
@@ -233,6 +236,8 @@ async def _spawn_nsjail_runtime(
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
+    *,
+    enable_internet_access: bool = False,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (production mode).
 
@@ -269,6 +274,7 @@ async def _spawn_nsjail_runtime(
             site_packages_dir=site_packages_dir,
             tracecat_pkg_dir=tracecat_pkg_dir,
             llm_socket_path=llm_socket_path,
+            enable_internet_access=enable_internet_access,
         )
 
         # Write config to job directory

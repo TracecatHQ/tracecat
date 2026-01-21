@@ -1031,6 +1031,11 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
+    enable_internet_access: {
+      type: "boolean",
+      title: "Enable Internet Access",
+      default: false,
+    },
     name: {
       type: "string",
       maxLength: 120,
@@ -1177,6 +1182,11 @@ export const $AgentPresetRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_internet_access: {
+      type: "boolean",
+      title: "Enable Internet Access",
+      default: false,
     },
     id: {
       type: "string",
@@ -1444,6 +1454,17 @@ export const $AgentPresetUpdate = {
         },
       ],
       title: "Retries",
+    },
+    enable_internet_access: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enable Internet Access",
     },
   },
   type: "object",
