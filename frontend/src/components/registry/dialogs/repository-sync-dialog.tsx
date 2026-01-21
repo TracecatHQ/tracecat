@@ -4,6 +4,7 @@ import { RefreshCcw } from "lucide-react"
 import type {
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoryReadMinimal,
+  tracecat__registry__repositories__schemas__RegistrySyncResponse,
 } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
 import {
@@ -25,7 +26,7 @@ interface SyncRepositoryDialogProps {
   setSelectedRepo: (repo: RegistryRepositoryReadMinimal | null) => void
   syncRepo: (
     params: RegistryRepositoriesSyncRegistryRepositoryData
-  ) => Promise<void>
+  ) => Promise<tracecat__registry__repositories__schemas__RegistrySyncResponse>
   syncRepoIsPending: boolean
 }
 
