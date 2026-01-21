@@ -246,6 +246,7 @@ export type AgentPresetCreate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_internet_access?: boolean
   name: string
   slug?: string | null
 }
@@ -267,6 +268,7 @@ export type AgentPresetRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_internet_access?: boolean
   id: string
   workspace_id: string
   name: string
@@ -307,6 +309,7 @@ export type AgentPresetUpdate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number | null
+  enable_internet_access?: boolean | null
 }
 
 /**

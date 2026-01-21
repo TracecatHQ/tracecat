@@ -69,6 +69,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
+            enable_internet_access=params.enable_internet_access,
             retries=params.retries,
         )
         self.session.add(preset)
@@ -440,4 +441,5 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_servers=mcp_servers,
             retries=preset.retries,
             model_settings=model_settings,
+            enable_internet_access=preset.enable_internet_access,
         )

@@ -2174,6 +2174,13 @@ class AgentPreset(WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    enable_internet_access: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        doc="Whether to enable direct internet access in the agent sandbox",
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
     chats: Mapped[list[Chat]] = relationship(
