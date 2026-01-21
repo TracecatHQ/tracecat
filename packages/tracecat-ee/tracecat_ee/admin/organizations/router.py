@@ -8,7 +8,16 @@ from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat_ee.admin.organizations.schemas import OrgCreate, OrgRead, OrgUpdate
+from tracecat_ee.admin.organizations.schemas import (
+    OrgCreate,
+    OrgRead,
+    OrgRegistryRepositoryRead,
+    OrgRegistrySyncRequest,
+    OrgRegistrySyncResponse,
+    OrgRegistryVersionPromoteResponse,
+    OrgRegistryVersionRead,
+    OrgUpdate,
+)
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
 router = APIRouter(prefix="/organizations", tags=["admin:organizations"])
@@ -81,5 +90,87 @@ async def delete_organization(
     service = AdminOrgService(session, role=role)
     try:
         await service.delete_organization(org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+# Org Registry Endpoints
+
+
+@router.get(
+    "/{org_id}/registry/repositories", response_model=list[OrgRegistryRepositoryRead]
+)
+async def list_org_repositories(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+) -> list[OrgRegistryRepositoryRead]:
+    """List registry repositories for an organization."""
+    service = AdminOrgService(session, role=role)
+    try:
+        return list(await service.list_org_repositories(org_id))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get(
+    "/{org_id}/registry/repositories/{repository_id}/versions",
+    response_model=list[OrgRegistryVersionRead],
+)
+async def list_org_repository_versions(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    repository_id: uuid.UUID,
+) -> list[OrgRegistryVersionRead]:
+    """List versions for a specific repository in an organization."""
+    service = AdminOrgService(session, role=role)
+    try:
+        return list(await service.list_org_repository_versions(org_id, repository_id))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post(
+    "/{org_id}/registry/repositories/{repository_id}/sync",
+    response_model=OrgRegistrySyncResponse,
+)
+async def sync_org_repository(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    repository_id: uuid.UUID,
+    params: OrgRegistrySyncRequest | None = None,
+) -> OrgRegistrySyncResponse:
+    """Sync a registry repository for an organization."""
+    service = AdminOrgService(session, role=role)
+    force = params.force if params else False
+    try:
+        return await service.sync_org_repository(org_id, repository_id, force=force)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.post(
+    "/{org_id}/registry/repositories/{repository_id}/versions/{version_id}/promote",
+    response_model=OrgRegistryVersionPromoteResponse,
+)
+async def promote_org_repository_version(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    repository_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> OrgRegistryVersionPromoteResponse:
+    """Promote a registry version to be the current version for an org repository."""
+    service = AdminOrgService(session, role=role)
+    try:
+        return await service.promote_org_repository_version(
+            org_id, repository_id, version_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

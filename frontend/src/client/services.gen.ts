@@ -29,12 +29,20 @@ import type {
   AdminGetUserData,
   AdminGetUserResponse,
   AdminListOrganizationsResponse,
+  AdminListOrgRepositoriesData,
+  AdminListOrgRepositoriesResponse,
+  AdminListOrgRepositoryVersionsData,
+  AdminListOrgRepositoryVersionsResponse,
   AdminListRegistryVersionsData,
   AdminListRegistryVersionsResponse,
   AdminListUsersResponse,
+  AdminPromoteOrgRepositoryVersionData,
+  AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
   AdminPromoteToSuperuserResponse,
   AdminSyncAllRepositoriesResponse,
+  AdminSyncOrgRepositoryData,
+  AdminSyncOrgRepositoryResponse,
   AdminSyncRepositoryData,
   AdminSyncRepositoryResponse,
   AdminUpdateOrganizationData,
@@ -3676,6 +3684,109 @@ export const adminDeleteOrganization = (
     url: "/admin/organizations/{org_id}",
     path: {
       org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Org Repositories
+ * List registry repositories for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns OrgRegistryRepositoryRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrgRepositories = (
+  data: AdminListOrgRepositoriesData
+): CancelablePromise<AdminListOrgRepositoriesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/registry/repositories",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Org Repository Versions
+ * List versions for a specific repository in an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.repositoryId
+ * @returns OrgRegistryVersionRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrgRepositoryVersions = (
+  data: AdminListOrgRepositoryVersionsData
+): CancelablePromise<AdminListOrgRepositoryVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions",
+    path: {
+      org_id: data.orgId,
+      repository_id: data.repositoryId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Sync Org Repository
+ * Sync a registry repository for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.repositoryId
+ * @param data.requestBody
+ * @returns OrgRegistrySyncResponse Successful Response
+ * @throws ApiError
+ */
+export const adminSyncOrgRepository = (
+  data: AdminSyncOrgRepositoryData
+): CancelablePromise<AdminSyncOrgRepositoryResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/registry/repositories/{repository_id}/sync",
+    path: {
+      org_id: data.orgId,
+      repository_id: data.repositoryId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Promote Org Repository Version
+ * Promote a registry version to be the current version for an org repository.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns OrgRegistryVersionPromoteResponse Successful Response
+ * @throws ApiError
+ */
+export const adminPromoteOrgRepositoryVersion = (
+  data: AdminPromoteOrgRepositoryVersionData
+): CancelablePromise<AdminPromoteOrgRepositoryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions/{version_id}/promote",
+    path: {
+      org_id: data.orgId,
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
     },
     errors: {
       422: "Validation Error",
