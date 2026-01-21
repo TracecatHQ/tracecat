@@ -3079,6 +3079,11 @@ export type OrgRegistryVersionRead = {
 }
 
 /**
+ * Organization-level roles.
+ */
+export type OrgRole = "member" | "admin" | "owner"
+
+/**
  * Update organization request.
  */
 export type OrgUpdate = {
@@ -3895,6 +3900,7 @@ export type Role = {
   workspace_id?: string | null
   organization_id?: string
   workspace_role?: WorkspaceRole | null
+  org_role?: OrgRole | null
   user_id?: string | null
   access_level?: AccessLevel
   service_id:

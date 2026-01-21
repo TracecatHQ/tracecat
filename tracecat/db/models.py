@@ -46,7 +46,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.schemas import UserRole
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseEventType,
@@ -175,6 +175,14 @@ class Organization(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Relationships
+    members: Mapped[list[User]] = relationship(
+        "User",
+        secondary="organization_membership",
+        back_populates="organizations",
+        lazy="select",
+    )
+
 
 class OrganizationModel(RecordModel):
     """Base class for organization-scoped resources.
@@ -245,6 +253,33 @@ class Membership(Base):
         Enum(WorkspaceRole, name="workspacerole"),
         nullable=False,
         default=WorkspaceRole.EDITOR,
+    )
+
+
+class OrganizationMembership(Base, TimestampMixin):
+    """Link table for users and organizations (many to many)."""
+
+    __tablename__ = "organization_membership"
+    __table_args__ = (
+        # Index for "get all members of org" queries
+        # (PK index covers user_id lookups, but not org_id alone)
+        Index("ix_org_membership_org_id", "organization_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role: Mapped[OrgRole] = mapped_column(
+        Enum(OrgRole, name="orgrole"),
+        nullable=False,
+        default=OrgRole.MEMBER,
     )
 
 
@@ -390,6 +425,12 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     chats: Mapped[list[Chat]] = relationship(
         "Chat",
         back_populates="user",
+        lazy="select",
+    )
+    organizations: Mapped[list[Organization]] = relationship(
+        "Organization",
+        secondary=OrganizationMembership.__table__,
+        back_populates="members",
         lazy="select",
     )
 
