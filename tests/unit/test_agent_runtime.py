@@ -20,12 +20,12 @@ from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
-    MCPToolDefinition as SharedMCPToolDefinition,
-)
-from tracecat.agent.common.types import (
+    MCPToolDefinition,
     SandboxAgentConfig,
 )
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPToolDefinition as SharedMCPToolDefinition,
+)
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.types import AgentConfig
 
