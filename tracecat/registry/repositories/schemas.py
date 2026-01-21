@@ -131,6 +131,10 @@ class RegistryRepositorySync(BaseModel):
         min_length=40,
         max_length=40,
     )
+    force: bool = Field(
+        default=False,
+        description="Force sync by deleting the existing version first, allowing re-sync.",
+    )
 
 
 class RegistryRepositoryErrorDetail(BaseModel):
@@ -150,3 +154,28 @@ class RegistryVersionPromoteResponse(BaseModel):
     previous_version_id: uuid.UUID | None
     current_version_id: uuid.UUID
     version: str
+
+
+class RegistryVersionRead(BaseModel):
+    """Response model for reading a registry version."""
+
+    id: uuid.UUID
+    repository_id: uuid.UUID
+    version: str
+    commit_sha: str | None
+    tarball_uri: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RegistrySyncResponse(BaseModel):
+    """Response model for registry sync operation."""
+
+    success: bool
+    repository_id: uuid.UUID
+    origin: str
+    version: str | None = None
+    commit_sha: str | None = None
+    actions_count: int | None = None
+    forced: bool = False

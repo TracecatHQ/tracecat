@@ -3739,6 +3739,10 @@ export type RegistryRepositorySync = {
    * The specific commit SHA to sync to. If None, syncs to HEAD.
    */
   target_commit_sha?: string | null
+  /**
+   * Force sync by deleting the existing version first, allowing re-sync.
+   */
+  force?: boolean
 }
 
 export type RegistryRepositoryUpdate = {
@@ -3779,38 +3783,6 @@ export type RegistryStatusResponse = {
 }
 
 /**
- * Response from sync operation.
- */
-export type RegistrySyncResponse = {
-  success: boolean
-  synced_at: string
-  repositories: Array<RepositorySyncResult>
-}
-
-/**
- * Response model for version promotion.
- */
-export type RegistryVersionPromoteResponse = {
-  repository_id: string
-  origin: string
-  previous_version_id: string | null
-  current_version_id: string
-  version: string
-}
-
-/**
- * Registry version details.
- */
-export type RegistryVersionRead = {
-  id: string
-  repository_id: string
-  version: string
-  commit_sha: string | null
-  tarball_uri: string | null
-  created_at: string
-}
-
-/**
  * Event for when a case is reopened.
  */
 export type ReopenedEventRead = {
@@ -3840,6 +3812,7 @@ export type RepositoryStatus = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+  current_version_id?: string | null
 }
 
 /**
@@ -5868,6 +5841,76 @@ export type Yaml = {
   component_id?: "yaml"
 }
 
+/**
+ * Response model for registry sync operation.
+ */
+export type tracecat__registry__repositories__schemas__RegistrySyncResponse = {
+  success: boolean
+  repository_id: string
+  origin: string
+  version?: string | null
+  commit_sha?: string | null
+  actions_count?: number | null
+  forced?: boolean
+}
+
+/**
+ * Response model for version promotion.
+ */
+export type tracecat__registry__repositories__schemas__RegistryVersionPromoteResponse =
+  {
+    repository_id: string
+    origin: string
+    previous_version_id: string | null
+    current_version_id: string
+    version: string
+  }
+
+/**
+ * Response model for reading a registry version.
+ */
+export type tracecat__registry__repositories__schemas__RegistryVersionRead = {
+  id: string
+  repository_id: string
+  version: string
+  commit_sha: string | null
+  tarball_uri: string | null
+  created_at: string
+}
+
+/**
+ * Response from sync operation.
+ */
+export type tracecat_ee__admin__registry__schemas__RegistrySyncResponse = {
+  success: boolean
+  synced_at: string
+  repositories: Array<RepositorySyncResult>
+}
+
+/**
+ * Response from promoting a registry version.
+ */
+export type tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse =
+  {
+    repository_id: string
+    origin: string
+    previous_version_id: string | null
+    current_version_id: string
+    version: string
+  }
+
+/**
+ * Registry version details.
+ */
+export type tracecat_ee__admin__registry__schemas__RegistryVersionRead = {
+  id: string
+  repository_id: string
+  version: string
+  commit_sha: string | null
+  tarball_uri: string | null
+  created_at: string
+}
+
 export type PublicIncomingWebhookPostData = {
   contentType?: string | null
   /**
@@ -6822,13 +6865,26 @@ export type AdminPromoteOrgRepositoryVersionData = {
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
 
-export type AdminSyncAllRepositoriesResponse = RegistrySyncResponse
+export type AdminSyncAllRepositoriesData = {
+  /**
+   * Force sync by deleting existing version
+   */
+  force?: boolean
+}
+
+export type AdminSyncAllRepositoriesResponse =
+  tracecat_ee__admin__registry__schemas__RegistrySyncResponse
 
 export type AdminSyncRepositoryData = {
+  /**
+   * Force sync by deleting existing version
+   */
+  force?: boolean
   repositoryId: string
 }
 
-export type AdminSyncRepositoryResponse = RegistrySyncResponse
+export type AdminSyncRepositoryResponse =
+  tracecat_ee__admin__registry__schemas__RegistrySyncResponse
 
 export type AdminGetRegistryStatusResponse = RegistryStatusResponse
 
@@ -6837,7 +6893,16 @@ export type AdminListRegistryVersionsData = {
   repositoryId?: string | null
 }
 
-export type AdminListRegistryVersionsResponse = Array<RegistryVersionRead>
+export type AdminListRegistryVersionsResponse =
+  Array<tracecat_ee__admin__registry__schemas__RegistryVersionRead>
+
+export type AdminPromoteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type AdminPromoteRegistryVersionResponse =
+  tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse
 
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
@@ -6922,7 +6987,15 @@ export type RegistryRepositoriesSyncRegistryRepositoryData = {
   requestBody?: RegistryRepositorySync | null
 }
 
-export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
+export type RegistryRepositoriesSyncRegistryRepositoryResponse =
+  tracecat__registry__repositories__schemas__RegistrySyncResponse
+
+export type RegistryRepositoriesListRepositoryVersionsData = {
+  repositoryId: string
+}
+
+export type RegistryRepositoriesListRepositoryVersionsResponse =
+  Array<tracecat__registry__repositories__schemas__RegistryVersionRead>
 
 export type RegistryRepositoriesListRegistryRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
@@ -6970,7 +7043,7 @@ export type RegistryRepositoriesPromoteRegistryVersionData = {
 }
 
 export type RegistryRepositoriesPromoteRegistryVersionResponse =
-  RegistryVersionPromoteResponse
+  tracecat__registry__repositories__schemas__RegistryVersionPromoteResponse
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -9663,11 +9736,16 @@ export type $OpenApiTs = {
   }
   "/admin/registry/sync": {
     post: {
+      req: AdminSyncAllRepositoriesData
       res: {
         /**
          * Successful Response
          */
-        200: RegistrySyncResponse
+        200: tracecat_ee__admin__registry__schemas__RegistrySyncResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -9678,7 +9756,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: RegistrySyncResponse
+        200: tracecat_ee__admin__registry__schemas__RegistrySyncResponse
         /**
          * Validation Error
          */
@@ -9703,7 +9781,22 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<RegistryVersionRead>
+        200: Array<tracecat_ee__admin__registry__schemas__RegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/{repository_id}/versions/{version_id}/promote": {
+    post: {
+      req: AdminPromoteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse
         /**
          * Validation Error
          */
@@ -9891,7 +9984,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: tracecat__registry__repositories__schemas__RegistrySyncResponse
         /**
          * Cannot sync repository
          */
@@ -9904,6 +9997,21 @@ export type $OpenApiTs = {
          * Registry sync validation error
          */
         422: RegistryRepositoryErrorDetail
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/versions": {
+    get: {
+      req: RegistryRepositoriesListRepositoryVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__registry__repositories__schemas__RegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -9993,7 +10101,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: RegistryVersionPromoteResponse
+        200: tracecat__registry__repositories__schemas__RegistryVersionPromoteResponse
         /**
          * Validation Error
          */
