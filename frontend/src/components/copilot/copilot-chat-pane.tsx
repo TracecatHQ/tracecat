@@ -97,6 +97,8 @@ export function CopilotChatPane({
       modelInfo,
     })
 
+  const isReady = status === "ready"
+
   const isWaitingForResponse = useMemo(() => {
     if (status === "submitted") return true
     if (status === "streaming") {
@@ -218,7 +220,7 @@ export function CopilotChatPane({
           }
           value={input}
           autoFocus={autoFocusInput && !isReadonly}
-          disabled={isReadonly}
+          disabled={isReadonly || !isReady}
         />
       </PromptInputBody>
       <PromptInputToolbar>
@@ -246,7 +248,7 @@ export function CopilotChatPane({
           </PromptInputTools>
         )}
         <PromptInputSubmit
-          disabled={isReadonly || (!input && !status)}
+          disabled={isReadonly || (!input && isReady)}
           status={status}
           className="ml-auto text-muted-foreground/80"
         />
