@@ -46,8 +46,7 @@ class TestInternalWorkflowExecuteRequest:
         assert req.workflow_id is None
         assert req.workflow_alias is None
         assert req.trigger_inputs is None
-        assert req.environment is None
-        assert req.timeout is None
+        assert req.parent_workflow_execution_id is None
 
     def test_request_with_all_fields(self):
         """Test request with all fields populated."""
@@ -56,14 +55,12 @@ class TestInternalWorkflowExecuteRequest:
             workflow_id=wf_id,
             workflow_alias="my-workflow",
             trigger_inputs={"key": "value"},
-            environment="production",
-            timeout=300.0,
+            parent_workflow_execution_id="wf-parent:exec-123",
         )
         assert req.workflow_id == wf_id
         assert req.workflow_alias == "my-workflow"
         assert req.trigger_inputs == {"key": "value"}
-        assert req.environment == "production"
-        assert req.timeout == 300.0
+        assert req.parent_workflow_execution_id == "wf-parent:exec-123"
 
 
 class TestInternalWorkflowExecuteResponse:
