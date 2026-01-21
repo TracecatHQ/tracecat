@@ -28,7 +28,7 @@ from tracecat.logger import logger
 JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 
 # Bridge listens on this address inside the sandbox
-# Must match LITELLM_URL in runtime.py
+# Use port 4100 to avoid conflict with LiteLLM proxy (typically on 4000)
 LLM_BRIDGE_HOST = "127.0.0.1"
 LLM_BRIDGE_PORT = 4100
 
