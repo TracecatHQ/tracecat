@@ -205,6 +205,10 @@ class ClaudeAgentRuntime:
         If a line fails to parse (e.g., incomplete write by SDK), we stop processing
         at that point and keep the index there. The incomplete line will be retried
         on the next call once the SDK finishes writing it.
+
+        Race condition handling: If called before _sdk_session_id is set (i.e., before
+        the first StreamEvent), this is a no-op. The loopback handler uses UUID-based
+        deduplication to handle any duplicates that might occur from out-of-order events.
         """
         if not self._sdk_session_id:
             return

@@ -35,6 +35,18 @@ LLM_SOCKET_NAME = "llm.sock"
 # Maximum request body size (10 MB) - prevents memory exhaustion DoS
 MAX_BODY_SIZE = 10 * 1024 * 1024
 
+# Non-critical endpoints that should not trigger fatal errors on failure.
+# These are internal LiteLLM endpoints for telemetry, health checks, etc.
+# Errors on these endpoints are logged but don't fail the agent.
+_NON_CRITICAL_PATHS = frozenset(
+    {
+        "/api/event_logging/batch",
+        "/health",
+        "/health/liveliness",
+        "/health/readiness",
+    }
+)
+
 # User-friendly error messages by status code
 _ERROR_MESSAGES = {
     400: "Invalid request to LLM provider",
@@ -275,12 +287,37 @@ class LLMSocketProxy:
             ) as response:
                 # Detect error responses from LiteLLM
                 if response.status_code >= 400:
-                    error_msg = _ERROR_MESSAGES.get(
-                        response.status_code,
-                        f"LLM request failed ({response.status_code})",
-                    )
-                    self._emit_error(error_msg)
-                    return  # Don't forward - activity handles the error
+                    # Check if this is a non-critical endpoint (telemetry, health checks, etc.)
+                    is_non_critical = request["path"] in _NON_CRITICAL_PATHS
+
+                    # Read error body for debugging
+                    try:
+                        error_body = await response.aread()
+                        log_method = logger.warning if is_non_critical else logger.error
+                        log_method(
+                            "LiteLLM error response",
+                            status_code=response.status_code,
+                            url=url,
+                            response_body=error_body.decode("utf-8", errors="replace")[
+                                :1000
+                            ],
+                            non_critical=is_non_critical,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to read error body",
+                            status_code=response.status_code,
+                            error=str(e),
+                        )
+
+                    # Only emit fatal error for critical endpoints
+                    if not is_non_critical:
+                        error_msg = _ERROR_MESSAGES.get(
+                            response.status_code,
+                            f"LLM request failed ({response.status_code})",
+                        )
+                        self._emit_error(error_msg)
+                    return  # Don't forward error responses
 
                 # Build response headers
                 response_line = (

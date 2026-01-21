@@ -99,6 +99,8 @@ class LoopbackHandler:
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
+        # Track which session lines have been persisted to avoid duplicates
+        self._persisted_line_uuids: set[str] = set()
 
     async def _emit_stream_done(self) -> None:
         """Emit stream.done() exactly once.
@@ -310,8 +312,10 @@ class LoopbackHandler:
                     message = envelope.log_message or "Runtime log"
                     extra = envelope.log_extra or {}
                     log_fn = getattr(logger, level, logger.info)
+                    # Use opt(raw=False) to prevent loguru from parsing {} in message
                     log_fn(
-                        f"[runtime] {message}",
+                        "[runtime] {}",
+                        message,
                         session_id=self.input.session_id,
                         **extra,
                     )
@@ -319,11 +323,15 @@ class LoopbackHandler:
     async def _persist_session_line(
         self, sdk_session_id: str, session_line: str, *, internal: bool = False
     ) -> None:
-        """Persist sanitiszed JSONL line from SDK session file.
+        """Persist sanitized JSONL line from SDK session file.
 
         Writes to AgentSessionHistory only. The session_id in self.input
         is the AgentSession.id for new chats, so all writes go to the
         correct session history table.
+
+        Deduplication: Each JSONL line has a unique 'uuid' field. We track
+        persisted UUIDs to prevent duplicates from race conditions (e.g.,
+        session lines arriving before StreamEvent sets up indexes).
 
         Args:
             sdk_session_id: The SDK's internal session ID (for JSONL reconstruction).
@@ -332,11 +340,23 @@ class LoopbackHandler:
         """
         # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
         line_data = orjson.loads(session_line)
+
+        # Deduplicate by UUID - each JSONL line has a unique uuid field
+        line_uuid = line_data.get("uuid")
+        if line_uuid and line_uuid in self._persisted_line_uuids:
+            logger.debug(
+                "Skipping duplicate session line",
+                uuid=line_uuid,
+                session_id=self.input.session_id,
+            )
+            return
+
         logger.debug(
             "Persisting session line",
             session_id=self.input.session_id,
             sdk_session_id=sdk_session_id,
             internal=internal,
+            uuid=line_uuid,
         )
 
         async with get_async_session_context_manager() as session:
@@ -368,3 +388,7 @@ class LoopbackHandler:
             )
             session.add(history_entry)
             await session.commit()
+
+        # Track as persisted after successful commit
+        if line_uuid:
+            self._persisted_line_uuids.add(line_uuid)

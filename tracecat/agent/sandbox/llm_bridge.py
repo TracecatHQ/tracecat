@@ -29,7 +29,7 @@ JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 
 # Bridge listens on this address inside the sandbox
 LLM_BRIDGE_HOST = "127.0.0.1"
-LLM_BRIDGE_PORT = 4000
+LLM_BRIDGE_PORT = 4100
 
 # Maximum request body size (10 MB) - prevents memory exhaustion
 MAX_BODY_SIZE = 10 * 1024 * 1024

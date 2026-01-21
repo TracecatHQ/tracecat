@@ -251,7 +251,7 @@ def build_agent_nsjail_config(
         "",
         "# Namespace isolation",
         "# Network isolated - LLM access via Unix socket proxy",
-        "clone_newnet: true",
+        "clone_newnet: false",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
@@ -338,6 +338,16 @@ def build_agent_nsjail_config(
             "",
             "# Agent home directory with Claude SDK session storage",
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
+        ]
+    )
+
+    lines.extend(
+        [
+            "",
+            "# DNS resolution - required for internet access",
+            'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+            'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+            'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
         ]
     )
 
