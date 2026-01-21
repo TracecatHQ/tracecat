@@ -340,7 +340,9 @@ async def validate_draft_workflow(
             )
         try:
             dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
-            return DraftWorkflowContext(dsl=dsl, registry_lock=workflow.registry_lock)
+            # Draft executions use None for registry_lock to resolve at runtime (latest registry)
+            # This avoids stale locks when actions are edited in the UI
+            return DraftWorkflowContext(dsl=dsl, registry_lock=None)
         except TracecatValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
