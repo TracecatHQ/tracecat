@@ -19,7 +19,6 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import orjson
 from sqlalchemy import select
@@ -39,15 +38,6 @@ from tracecat.agent.types import AgentConfig
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.logger import logger
-
-
-def _sanitize_value(value: Any) -> Any:
-    """Pass through values unchanged.
-
-    XSS prevention is handled at the rendering layer (React escapes by default).
-    HTML-escaping here corrupts valid JSON data needed for SDK resume.
-    """
-    return value
 
 
 @dataclass(kw_only=True, slots=True)
@@ -335,10 +325,6 @@ class LoopbackHandler:
         is the AgentSession.id for new chats, so all writes go to the
         correct session history table.
 
-        Content is sanitized (HTML-escaped) before persistence to prevent XSS
-        from untrusted content like tool results. The sdk_session_id is tracked
-        on the AgentSession model.
-
         Args:
             sdk_session_id: The SDK's internal session ID (for JSONL reconstruction).
             session_line: Raw JSONL line from the SDK session file.
@@ -346,8 +332,6 @@ class LoopbackHandler:
         """
         # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
         line_data = orjson.loads(session_line)
-        line_data = _sanitize_value(line_data)
-
         logger.debug(
             "Persisting session line",
             session_id=self.input.session_id,

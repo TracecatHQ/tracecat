@@ -52,6 +52,16 @@ from tracecat.logger import logger
 # LiteLLM URL - use IP to avoid DNS resolution in sandbox
 LITELLM_URL = "http://127.0.0.1:4000"
 
+DISALLOWED_TOOLS = [
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "AskUserQuestion",
+    "TodoRead",
+    "TodoWrite",
+    "Task",
+    "Skill",
+]
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -298,25 +308,6 @@ class ClaudeAgentRuntime:
             and self.tool_approvals.get(action_name) is True
         )
 
-        is_user_mcp_tool = tool_name.startswith("mcp__tracecat-registry__mcp__")
-
-        # Auto-approve user MCP server tools (they're always auto-approved)
-        # Also auto-approve registry tools that don't require approval
-        if is_user_mcp_tool or (
-            self.registry_tools is not None
-            and action_name in self.registry_tools
-            and not requires_approval
-        ):
-            logger.debug(
-                "Auto-approving tool", tool_name=tool_name, is_user_mcp=is_user_mcp_tool
-            )
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                }
-            }
-
         if requires_approval:
             # Requires approval - stream request and interrupt
             if not tool_use_id:
@@ -338,7 +329,7 @@ class ClaudeAgentRuntime:
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
+                "permissionDecision": "allow",
             }
         }
 
@@ -421,6 +412,7 @@ class ClaudeAgentRuntime:
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
                 mcp_servers=mcp_servers,
+                disallowed_tools=DISALLOWED_TOOLS,
                 stderr=handle_claude_stderr,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],

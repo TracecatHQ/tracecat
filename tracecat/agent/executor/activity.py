@@ -240,24 +240,6 @@ class SandboxedAgentExecutor:
                     mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
                 )
 
-                # Start tasks to read and log stdout/stderr from the agent runtime
-                async def log_stdout() -> None:
-                    if self._process and self._process.stdout:
-                        async for line in self._process.stdout:
-                            decoded = line.decode("utf-8", errors="replace").rstrip()
-                            if decoded:
-                                logger.info("Agent runtime stdout", line=decoded)
-
-                async def log_stderr() -> None:
-                    if self._process and self._process.stderr:
-                        async for line in self._process.stderr:
-                            decoded = line.decode("utf-8", errors="replace").rstrip()
-                            if decoded:
-                                logger.info("Agent runtime stderr", line=decoded)
-
-                asyncio.create_task(log_stdout())
-                asyncio.create_task(log_stderr())
-
                 # Wait for loopback to complete OR fatal error from LLM proxy
                 # We poll with short timeout to allow heartbeats to Temporal
                 logger.debug("Waiting for loopback result or fatal error")
