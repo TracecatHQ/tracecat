@@ -92,8 +92,8 @@ class TestInternalWorkflowExecuteResponse:
             message="Workflow execution started",
         )
         data = resp.model_dump()
-        # WorkflowUUID serializes to its short() format
-        assert data["workflow_id"] == wf_id.short()
+        # model_dump() keeps WorkflowUUID as object (serialization only for JSON mode)
+        assert data["workflow_id"] == wf_id
         assert (
             data["workflow_execution_id"]
             == "wf-00000000000000000000000000000123:exec-456"
