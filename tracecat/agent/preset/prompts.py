@@ -53,14 +53,7 @@ class AgentPresetBuilderPrompt:
             "If the user requests a tool with a `base_url` parameter (e.g., tools.splunk.search_events), ask the user if they have "
             "configured a global base_url variable (e.g., splunk.base_url) in their workspace variables. "
             "If available, you can reference it in the prompt instructions. "
-            "Alternatively, suggest creating a tool that lists all variables so the agent can autonomously discover and use the correct base_url.\n\n"
-            "Python Tool and DuckDB:\n"
-            "The agent has access to a Python tool for code execution, which includes DuckDB pre-installed. "
-            "When users request data analysis, data loading, or log searching tasks involving supported formats "
-            "(JSON, JSONL, Parquet, Iceberg, CSV), consider instructing the agent to use the Python tool with DuckDB. "
-            "DuckDB can efficiently query these file formats directly without loading them entirely into memory. "
-            "Example use cases: searching and filtering logs, aggregating JSON/JSONL logs, analyzing CSV exports, querying Parquet files, or transforming data between formats. "
-            "Note: You can combine user requests by using a specific query engine or tool (e.g., Elastic, Splunk, Datadog) to fetch data, then use DuckDB to further analyze, filter, or transform the results."
+            "Alternatively, suggest creating a tool that lists all variables so the agent can autonomously discover and use the correct base_url."
         )
         allowed_tools = ", ".join(self.preset.actions or []) or "(none selected)"
         namespace_limits = (
