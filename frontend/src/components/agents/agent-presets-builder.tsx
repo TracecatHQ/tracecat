@@ -178,6 +178,7 @@ const agentPresetSchema = z
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
       .min(0, "Retries must be 0 or more"),
+    enableInternetAccess: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (data.outputTypeKind === "data-type" && !data.outputTypeDataType) {
@@ -238,6 +239,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   mcpIntegrations: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
+  enableInternetAccess: false,
 }
 
 export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
@@ -1209,6 +1211,24 @@ function AgentPresetForm({
                   )}
                 />
               </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="enable-internet-access"
+                  checked={form.watch("enableInternetAccess")}
+                  onCheckedChange={(checked) =>
+                    form.setValue("enableInternetAccess", checked, {
+                      shouldDirty: true,
+                    })
+                  }
+                  disabled={isSaving}
+                />
+                <label
+                  htmlFor="enable-internet-access"
+                  className="text-sm font-medium"
+                >
+                  Enable internet access
+                </label>
+              </div>
               <FormField
                 control={form.control}
                 name="namespaces"
@@ -1745,6 +1765,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       : [],
     mcpIntegrations: preset.mcp_integrations ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
+    enableInternetAccess: preset.enable_internet_access ?? false,
   }
 }
 
@@ -1776,6 +1797,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
+    enable_internet_access: values.enableInternetAccess,
   }
 }
 

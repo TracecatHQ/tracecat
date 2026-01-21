@@ -231,6 +231,7 @@ class SandboxedAgentExecutor:
                 runtime_result = await spawn_jailed_runtime(
                     socket_dir=socket_dir,
                     llm_socket_path=llm_socket_path,
+                    enable_internet_access=self.input.config.enable_internet_access,
                 )
                 self._process = runtime_result.process
                 logger.info(
