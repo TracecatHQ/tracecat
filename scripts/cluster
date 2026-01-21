@@ -479,7 +479,7 @@ if [[ "$COMMAND" == "up" ]]; then
             UP_ARGS+=("$arg")
         fi
     done
-    set -- "${UP_ARGS[@]}"
+    set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
 fi
 
 # Function to seed test user after cluster starts
