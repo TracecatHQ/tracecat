@@ -281,6 +281,7 @@ async def test_reconcile_preserves_viewport(
 ) -> None:
     """Non-graph action fields should be preserved during reconciliation."""
     workflow, actions = workflow_with_actions
+    action2_id = actions[1].id
 
     actions[1].description = "Updated description"
     session.add(actions[1])
@@ -291,4 +292,6 @@ async def test_reconcile_preserves_viewport(
     await service._reconcile_graph_object_with_actions(workflow)
 
     await session.refresh(workflow, ["actions"])
-    assert workflow.actions[1].description == "Updated description"
+    # Find action2 by ID since workflow.actions order is not guaranteed
+    action2 = next(a for a in workflow.actions if a.id == action2_id)
+    assert action2.description == "Updated description"
