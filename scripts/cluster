@@ -485,9 +485,9 @@ if [[ "$COMMAND" == "nuke" ]]; then
                 shift
                 ;;
             volumes)
-                # List volumes for this project
+                # List volumes for this project (exact prefix match)
                 echo "Volumes for ${PROJECT_NAME}:"
-                docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | sed 's/^/  /'
+                docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep "^${PROJECT_NAME}_" | sed 's/^/  /' || echo "  (none)"
                 exit 0
                 ;;
             *)
@@ -497,15 +497,15 @@ if [[ "$COMMAND" == "nuke" ]]; then
         esac
     done
 
-    # Get all volumes for this project
+    # Get all volumes for this project (exact prefix match to avoid cluster1 matching cluster10)
     get_project_volumes() {
-        docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}"
+        docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep "^${PROJECT_NAME}_" || true
     }
 
     # Get volume for a specific service
     get_service_volume() {
         local service=$1
-        docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep -i "${service}" || true
+        docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep "^${PROJECT_NAME}_" | grep -i "${service}" || true
     }
 
     if [[ -n "$TARGET_SERVICE" ]]; then

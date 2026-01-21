@@ -110,7 +110,7 @@ def _make_tool_handler(
 
         except Exception as e:
             logger.error("Proxy request failed", error=str(e), **log_context)
-            raise e
+            raise
 
     return _handler
 

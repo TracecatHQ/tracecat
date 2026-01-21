@@ -159,7 +159,7 @@ class WorkflowsClient:
         Args:
             workflow_execution_id: The workflow execution ID.
             max_wait: Maximum time to wait in seconds.
-            poll_interval: Time between polls in seconds.
+            poll_interval: Time between polls in seconds (must be > 0).
 
         Returns:
             The workflow result if completed successfully.
@@ -167,7 +167,10 @@ class WorkflowsClient:
         Raises:
             WorkflowExecutionError: If workflow fails, is canceled, or terminated.
             WorkflowExecutionTimeout: If max_wait is exceeded.
+            ValueError: If poll_interval is not positive.
         """
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be positive")
         elapsed = 0.0
 
         while elapsed < max_wait:

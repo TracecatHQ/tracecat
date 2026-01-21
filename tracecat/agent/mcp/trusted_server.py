@@ -151,8 +151,8 @@ async def execute_user_mcp_tool(
         )
 
         return json.dumps(result, default=str)
-    except ToolError as e:
-        raise e
+    except ToolError:
+        raise
     except Exception as e:
         logger.error(
             "User MCP tool execution failed",

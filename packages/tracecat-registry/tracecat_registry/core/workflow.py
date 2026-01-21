@@ -97,7 +97,7 @@ async def execute(
             (the DSLWorkflow handles this action via child workflow machinery).
         WorkflowExecutionError: If the workflow fails, is canceled, or terminated.
         WorkflowExecutionTimeout: If timeout is reached while waiting.
-        RuntimeError: If no context is available and not in DSLWorkflow.
+        ActionIsInterfaceError: If no context is available (handled by DSLWorkflow).
     """
     # Try to get the registry context for direct invocation
     try:

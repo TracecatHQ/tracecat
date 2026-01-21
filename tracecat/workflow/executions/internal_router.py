@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
+    HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
@@ -139,7 +140,7 @@ async def execute_workflow(
             )
     else:
         raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
+            status_code=HTTP_400_BAD_REQUEST,
             detail="Either workflow_id or workflow_alias must be provided",
         )
 
@@ -157,7 +158,7 @@ async def execute_workflow(
     try:
         dsl = DSLInput(**defn.content)
     except Exception as e:
-        logger.exception("Failed to build DSL from definition", error=str(e))
+        logger.error("Failed to build DSL from definition", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to build DSL for workflow '{wf_id}': {e}",
@@ -198,7 +199,7 @@ async def execute_workflow(
             message=response["message"],
         )
     except Exception as e:
-        logger.exception("Failed to start workflow execution", error=str(e))
+        logger.error("Failed to start workflow execution", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start workflow execution: {e}",
@@ -276,7 +277,7 @@ async def get_execution_status(
                 status_code=HTTP_404_NOT_FOUND,
                 detail=f"Workflow execution '{execution_id}' not found",
             ) from e
-        logger.exception("RPC error getting execution status", error=str(e))
+        logger.error("RPC error getting execution status", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get execution status: {e}",
@@ -284,7 +285,7 @@ async def get_execution_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get execution status", error=str(e))
+        logger.error("Failed to get execution status", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get execution status: {e}",
