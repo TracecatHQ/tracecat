@@ -15,6 +15,9 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+
+pytestmark = pytest.mark.temporal
+
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
 from temporalio.client import Client

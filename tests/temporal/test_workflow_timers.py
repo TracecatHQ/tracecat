@@ -13,6 +13,9 @@ from typing import cast
 
 import dateparser
 import pytest
+
+pytestmark = pytest.mark.temporal
+
 import temporalio.api.enums.v1
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -464,9 +467,12 @@ async def test_workflow_retry_until_condition_with_wait_until(
 @pytest.mark.parametrize(
     "past_time",
     [
-        (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
-        "1 hour ago",
-        "1h",
+        pytest.param(
+            lambda: (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+            id="iso_past",
+        ),
+        pytest.param(lambda: "1 hour ago", id="1_hour_ago"),
+        pytest.param(lambda: "1h", id="1h"),
     ],
 )
 @pytest.mark.anyio
@@ -474,10 +480,12 @@ async def test_workflow_wait_until_past(
     env: WorkflowEnvironment,
     test_role: Role,
     monkeypatch: pytest.MonkeyPatch,
-    past_time: str,
+    past_time,
     test_worker_factory,
 ):
     """Test that wait_until with past date skips timer."""
+    # Resolve the past_time if it's a callable (lazy evaluation for xdist compatibility)
+    resolved_time = cast(str, past_time() if callable(past_time) else past_time)
 
     # Monkeypatch out  asyncio.sleep with a counter
     num_sleeps = 0
@@ -497,7 +505,7 @@ async def test_workflow_wait_until_past(
                 ref="delayed_action",
                 action="core.transform.reshape",
                 args={"value": "test"},
-                wait_until=past_time,
+                wait_until=resolved_time,
             )
         ],
     )

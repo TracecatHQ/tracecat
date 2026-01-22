@@ -20,6 +20,8 @@ from uuid import UUID
 
 import pytest
 import yaml
+
+pytestmark = pytest.mark.temporal
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
