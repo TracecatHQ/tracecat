@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
-from sqlalchemy import and_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import and_, cast, select
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import SessionRead, UserUpdate
@@ -79,7 +80,7 @@ class OrgService(BaseService):
                     OrganizationMembership.organization_id == self.role.organization_id,
                 ),
             )
-            .where(User.id == user_id)
+            .where(cast(User.id, UUID) == user_id)
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
@@ -184,7 +185,7 @@ class OrgService(BaseService):
         """List all sessions for users in this organization."""
         statement = (
             select(AccessToken)
-            .join(User, AccessToken.user_id == User.id)  # pyright: ignore[reportArgumentType]
+            .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
                 OrganizationMembership,
                 and_(
@@ -192,7 +193,7 @@ class OrgService(BaseService):
                     OrganizationMembership.organization_id == self.role.organization_id,
                 ),
             )
-            .options(selectinload(AccessToken.user))
+            .options(contains_eager(AccessToken.user))
         )
         result = await self.session.execute(statement)
         return [
@@ -205,12 +206,13 @@ class OrgService(BaseService):
             for s in result.scalars().all()
         ]
 
+    @audit_log(resource_type="organization_session", action="delete")
     @require_access_level(AccessLevel.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID (must belong to a user in this organization)."""
         statement = (
             select(AccessToken)
-            .join(User, AccessToken.user_id == User.id)
+            .join(User, cast(AccessToken.user_id, UUID) == User.id)
             .join(
                 OrganizationMembership,
                 and_(
