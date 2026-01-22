@@ -5584,9 +5584,12 @@ async def test_workflow_env_and_trigger_access_in_stream(
 def assert_result_is_run_context(result: dict[str, Any]) -> bool:
     assert isinstance(result, dict), "Result is not a dict"
     assert result.get("wf_id") == str(TEST_WF_ID), "wf_id is not correct"
-    assert result.get("wf_exec_id") == generate_test_exec_id(
-        "test_workflow_return_strategy"
-    ), "wf_exec_id is not correct"
+    # Check wf_exec_id has the expected format (prefix varies with parametrized test IDs)
+    wf_exec_id = result.get("wf_exec_id")
+    expected_prefix = f"{TEST_WF_ID.short()}/exec_test_workflow_return_strategy"
+    assert isinstance(wf_exec_id, str) and wf_exec_id.startswith(expected_prefix), (
+        f"wf_exec_id should start with {expected_prefix}, got {wf_exec_id}"
+    )
     assert result.get("environment") == "default", "environment is not correct"
     wf_run_id = result.get("wf_run_id")
     assert isinstance(wf_run_id, str) and bool(UUID(wf_run_id)), (
