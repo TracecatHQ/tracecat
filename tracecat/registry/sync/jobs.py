@@ -28,9 +28,7 @@ MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
 
 
-def _is_downgrade(
-    current_version: PlatformRegistryVersion | None, target: str
-) -> bool:
+def _is_downgrade(current_version: PlatformRegistryVersion | None, target: str) -> bool:
     """Check if target version would be a downgrade from current."""
     if current_version is None:
         return False
@@ -115,6 +113,10 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
 
     # No-downgrade guard: check before attempting sync
     if _is_downgrade(repo.current_version, target_version):
+        if repo.current_version is None:
+            raise RuntimeError(
+                "current_version is None but _is_downgrade returned True"
+            )
         logger.warning(
             "Refusing to downgrade platform registry",
             current=repo.current_version.version,
@@ -130,6 +132,10 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
             # Re-check downgrade guard in case another process updated during retries
             await session.refresh(repo, ["current_version"])
             if _is_downgrade(repo.current_version, target_version):
+                if repo.current_version is None:
+                    raise RuntimeError(
+                        "current_version is None but _is_downgrade returned True"
+                    )
                 logger.warning(
                     "Refusing to downgrade platform registry (detected during retry)",
                     current=repo.current_version.version,

@@ -1487,7 +1487,7 @@ class RegistryActionsService(BaseService):
         )
 
     async def fetch_all_action_secrets(
-        self, action: RegistryAction
+        self, action: RegistryAction | PlatformRegistryAction
     ) -> set[RegistrySecretType]:
         """Recursively fetch all secrets from the action and its template steps.
 

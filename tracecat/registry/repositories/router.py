@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, union_all
 from sqlalchemy.exc import IntegrityError, NoResultFound
