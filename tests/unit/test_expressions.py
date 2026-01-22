@@ -825,7 +825,8 @@ def test_expression_parser(expr, expected):
     # assert parser.walk_expr(expr, visitor) == expected
     parser = ExprParser()
     parse_tree = parser.parse(expr)
-    ev = ExprEvaluator(operand=context)
+    # ExprContext is a StrEnum so values are strings - pyright doesn't recognize this
+    ev = ExprEvaluator(operand=context)  # pyright: ignore[reportArgumentType]
     assert parse_tree is not None
     actual = ev.transform(parse_tree)
     assert actual == expected
@@ -903,7 +904,8 @@ def test_jsonpath_wildcard():
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
-    ev = ExprEvaluator(operand=context)
+    # ExprContext is a StrEnum so values are strings - pyright doesn't recognize this
+    ev = ExprEvaluator(operand=context)  # pyright: ignore[reportArgumentType]
     actual = ev.transform(parse_tree)
     assert actual == ["Alice", "Bob", "Charlie"]
 
@@ -913,7 +915,7 @@ def test_jsonpath_wildcard():
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
-    ev = ExprEvaluator(operand=context)
+    ev = ExprEvaluator(operand=context)  # pyright: ignore[reportArgumentType]
     actual = ev.transform(parse_tree)
     assert actual == "Alice"
 
@@ -923,7 +925,7 @@ def test_jsonpath_wildcard():
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
-    ev = ExprEvaluator(operand=context)
+    ev = ExprEvaluator(operand=context)  # pyright: ignore[reportArgumentType]
     actual = ev.transform(parse_tree)
     # Returns a single list of all the values
     assert actual == [[{"value": 1}]]
@@ -933,7 +935,7 @@ def test_jsonpath_wildcard():
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
-    ev = ExprEvaluator(operand=context)
+    ev = ExprEvaluator(operand=context)  # pyright: ignore[reportArgumentType]
     actual = ev.transform(parse_tree)
     assert actual == [1]
 
@@ -968,7 +970,7 @@ def test_jsonpath_filter_returns_list():
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     assert parse_tree is not None
-    ev = ExprEvaluator(operand=context)
+    ev = ExprEvaluator(operand=context)  # pyright: ignore[reportArgumentType]
     actual = ev.transform(parse_tree)
     assert actual == ["secondary-role"]
 
@@ -1028,14 +1030,15 @@ def test_parser_error():
     with pytest.raises(TracecatExpressionError):
         parser.parse(expr)
 
-    strict_evaluator = ExprEvaluator(operand=context, strict=True)
+    # ExprContext is a StrEnum so values are strings - pyright doesn't recognize this
+    strict_evaluator = ExprEvaluator(operand=context, strict=True)  # pyright: ignore[reportArgumentType]
     with pytest.raises(TracecatExpressionError):
         test = "ACTIONS.action_test.foo"
         parse_tree = parser.parse(test)
         assert parse_tree is not None
         strict_evaluator.evaluate(parse_tree)
 
-    evaluator = ExprEvaluator(operand=context, strict=False)
+    evaluator = ExprEvaluator(operand=context, strict=False)  # pyright: ignore[reportArgumentType]
     test = "ACTIONS.action_test.foo.bar.baz"
     parse_tree = parser.parse(test)
     assert parse_tree is not None

@@ -89,6 +89,8 @@ async def test_stress_workflow(dsl, test_role, test_worker_factory):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = f"test_stress_workflow-{dsl.title}"
     client = await get_temporal_client()
+    role = ctx_role.get()
+    assert role is not None
 
     tasks: list[asyncio.Task] = []
     async with test_worker_factory(client):
@@ -99,7 +101,7 @@ async def test_stress_workflow(dsl, test_role, test_worker_factory):
                 task = tg.create_task(
                     client.execute_workflow(
                         DSLWorkflow.run,
-                        DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+                        DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID),
                         id=wf_exec_id,
                         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
                         retry_policy=RetryPolicy(maximum_attempts=1),
@@ -130,6 +132,8 @@ async def test_stress_workflow_io(dsl, test_role, test_worker_factory):
     num_workflows = 100
     delay_ms = 50  # Base delay per HTTP call
     jitter_ms = 25  # Random jitter
+    role = ctx_role.get()
+    assert role is not None
 
     tasks: list[asyncio.Task] = []
 
@@ -145,7 +149,7 @@ async def test_stress_workflow_io(dsl, test_role, test_worker_factory):
                         DSLWorkflow.run,
                         DSLRunArgs(
                             dsl=dsl,
-                            role=ctx_role.get(),
+                            role=role,
                             wf_id=TEST_WF_ID,
                             trigger_inputs=InlineObject(
                                 data={
@@ -221,6 +225,8 @@ async def test_stress_workflow_correctness(
             "config": {"environment": "__TEST_ENVIRONMENT__"},
         }
     )
+    role = ctx_role.get()
+    assert role is not None
 
     async with test_worker_factory(temporal_client):
         async with GatheringTaskGroup() as tg:
@@ -229,7 +235,7 @@ async def test_stress_workflow_correctness(
                 wf_exec_id = generate_test_exec_id(test_name + f"-{i}")
                 run_args = DSLRunArgs(
                     dsl=dsl,
-                    role=ctx_role.get(),
+                    role=role,
                     wf_id=TEST_WF_ID,
                     trigger_inputs=InlineObject(data={"num": i}),
                 )

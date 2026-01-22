@@ -167,7 +167,8 @@ class TestCommitWorkflowRegistryLock:
         workflow_id = WorkflowUUID.new(workflow.id)
 
         # Verify initial lock has action_a
-        assert "test.action_a" in workflow.registry_lock.get("actions", {})
+        assert workflow.registry_lock is not None
+        assert "test.action_a" in workflow.registry_lock.get("actions", {})  # pyright: ignore[reportAttributeAccessIssue]
 
         # Commit the workflow
         defn_service = WorkflowDefinitionsService(session, role=svc_role)
@@ -217,7 +218,8 @@ class TestCommitWorkflowRegistryLock:
         # Simulate changing the action type (as would happen in UI)
         # The workflow.registry_lock still has action_a, but DSL now has action_b
         old_lock = workflow.registry_lock
-        assert "test.action_a" in old_lock.get("actions", {})
+        assert old_lock is not None
+        assert "test.action_a" in old_lock.get("actions", {})  # pyright: ignore[reportAttributeAccessIssue]
 
         # Build new DSL with action_b
         dsl_b = _create_dsl_with_action("test.action_b", "Workflow with action_b")
@@ -232,11 +234,12 @@ class TestCommitWorkflowRegistryLock:
         assert "test.action_a" not in new_lock.actions
 
         # Update workflow with new lock (as commit_workflow does)
-        workflow.registry_lock = new_lock.model_dump()
+        workflow.registry_lock = new_lock.model_dump()  # pyright: ignore[reportAttributeAccessIssue]
 
         # Verify the workflow lock is updated
-        assert "test.action_b" in workflow.registry_lock.get("actions", {})
-        assert "test.action_a" not in workflow.registry_lock.get("actions", {})
+        assert workflow.registry_lock is not None
+        assert "test.action_b" in workflow.registry_lock.get("actions", {})  # pyright: ignore[reportOptionalMemberAccess]
+        assert "test.action_a" not in workflow.registry_lock.get("actions", {})  # pyright: ignore[reportOptionalMemberAccess]
 
     @pytest.mark.anyio
     async def test_commit_does_not_reuse_stale_lock(
@@ -267,7 +270,7 @@ class TestCommitWorkflowRegistryLock:
         assert workflow.registry_lock is not None
 
         # Manually corrupt the lock to simulate stale data
-        workflow.registry_lock = {
+        workflow.registry_lock = {  # pyright: ignore[reportAttributeAccessIssue]
             "actions": {"stale.fake_action": "stale_registry"},
             "origins": {"stale_registry": "0.0.0"},
         }

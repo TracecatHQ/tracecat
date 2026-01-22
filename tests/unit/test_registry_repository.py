@@ -122,7 +122,7 @@ def test_generate_model_resolves_optional_typeddict_return_type() -> None:
     def sample_func(x: str) -> SampleTypedDict | None:
         return None
 
-    _, rtype, rtype_adapter = generate_model_from_function(sample_func, _make_kwargs())
+    _, rtype, _ = generate_model_from_function(sample_func, _make_kwargs())
 
     # Should be a union type containing SampleTypedDict and None
     origin = get_origin(rtype)
@@ -237,7 +237,7 @@ def test_generate_model_handles_list_return_type() -> None:
     def sample_func(x: str) -> list[SampleTypedDict]:
         return []
 
-    _, rtype, rtype_adapter = generate_model_from_function(sample_func, _make_kwargs())
+    _, rtype, _ = generate_model_from_function(sample_func, _make_kwargs())
 
     assert get_origin(rtype) is list
     args = get_args(rtype)
