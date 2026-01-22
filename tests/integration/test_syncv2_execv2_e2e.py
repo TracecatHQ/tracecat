@@ -79,6 +79,23 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(scope="module")
+def module_test_role(mock_org_id) -> Role:
+    """Module-scoped role for shared fixtures.
+
+    Creates a static role that can be used by module-scoped fixtures
+    without depending on function-scoped test_workspace.
+    """
+    # Use a static workspace ID for module-scoped fixtures
+    static_workspace_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    return Role(
+        type="service",
+        user_id=mock_org_id,
+        workspace_id=static_workspace_id,
+        service_id="tracecat-runner",
+    )
+
+
 @pytest.fixture
 async def committing_session(db) -> AsyncGenerator[AsyncSession, None]:
     """Create a session that makes real commits (not savepoints).
@@ -310,10 +327,10 @@ async def module_committing_session(db) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(scope="module")
 async def module_builtin_repo(
-    db, module_committing_session: AsyncSession, test_role: Role
+    db, module_committing_session: AsyncSession, module_test_role: Role
 ):
     """Module-scoped builtin repository for shared sync."""
-    svc = RegistryReposService(module_committing_session, role=test_role)
+    svc = RegistryReposService(module_committing_session, role=module_test_role)
     repo = await svc.get_repository(DEFAULT_REGISTRY_ORIGIN)
     if repo is None:
         repo = await svc.create_repository(
@@ -329,7 +346,7 @@ async def shared_synced_registry(
     minio_server,
     module_committing_session: AsyncSession,
     module_builtin_repo,
-    test_role: Role,
+    module_test_role: Role,
     module_unique_version: str,
 ):
     """Module-scoped synced registry to avoid redundant sync operations.
@@ -347,7 +364,7 @@ async def shared_synced_registry(
 
     # Sync registry once
     async with RegistrySyncService.with_session(
-        session=module_committing_session, role=test_role
+        session=module_committing_session, role=module_test_role
     ) as sync_service:
         sync_result = await sync_service.sync_repository_v2(
             module_builtin_repo, target_version=module_unique_version
@@ -355,7 +372,7 @@ async def shared_synced_registry(
 
     # Upsert actions to RegistryAction table (required for subprocess execution)
     async with RegistryActionsService.with_session(
-        session=module_committing_session, role=test_role
+        session=module_committing_session, role=module_test_role
     ) as actions_service:
         await actions_service.upsert_actions_from_list(
             sync_result.actions, module_builtin_repo, commit=True
