@@ -148,10 +148,6 @@ class VariablesService(BaseWorkspaceService):
 
     @audit_log(resource_type="workspace_variable", action="create")
     async def create_variable(self, params: VariableCreate) -> WorkspaceVariable:
-        if self.workspace_id is None:
-            raise TracecatAuthorizationError(
-                "Workspace ID is required to create a workspace variable"
-            )
         variable = WorkspaceVariable(
             workspace_id=self.workspace_id,
             name=params.name,

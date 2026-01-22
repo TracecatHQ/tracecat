@@ -30,10 +30,7 @@ from tracecat.dsl.common import (
 )
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
 from tracecat.dsl.view import RFGraph
-from tracecat.exceptions import (
-    TracecatAuthorizationError,
-    TracecatValidationError,
-)
+from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
@@ -505,10 +502,6 @@ class WorkflowsManagementService(BaseWorkspaceService):
     @audit_log(resource_type="workflow", action="create")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
-
-        if self.workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
-
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
         title = params.title or now
         description = params.description or f"New workflow created {now}"
@@ -645,8 +638,6 @@ class WorkflowsManagementService(BaseWorkspaceService):
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
         self.logger.info("Creating workflow from DSL", dsl=dsl)
-        if self.workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
 
         # Resolve registry_lock with action bindings from the DSL
         action_names = {action.action for action in dsl.actions}
@@ -704,9 +695,6 @@ class WorkflowsManagementService(BaseWorkspaceService):
         Builds upstream_edges from depends_on relationships.
         For root actions (no depends_on), creates trigger->action edge.
         """
-        if self.workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
-
         # Create all actions and build ref->action mapping
         actions: list[Action] = []
         ref_to_action: dict[str, Action] = {}

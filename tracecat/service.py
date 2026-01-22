@@ -9,7 +9,7 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.identifiers import OrganizationID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
 
@@ -64,6 +64,7 @@ class BaseWorkspaceService(BaseService):
     """Base class for services that require a workspace."""
 
     role: Role  # Override parent - always non-None for workspace services
+    workspace_id: WorkspaceID  # Always non-None after __init__
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
