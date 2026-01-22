@@ -77,7 +77,7 @@ jobs:
       #    python -c "import importlib, sys; print('import ok:', bool(importlib.import_module('internal_registry', package=None))); sys.exit(0)"
 
   # ──────────────────────────────────────────────────────────────────
-  # 2.  POOL INTEGRATION TESTS (no Docker services needed)
+  # 2.  POOL INTEGRATION TESTS (minimal Docker - just PostgreSQL)
   #     Workers run in test mode (TRACECAT__POOL_WORKER_TEST_MODE=true)
   # ──────────────────────────────────────────────────────────────────
   pool-tests:
@@ -100,12 +100,35 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Run environment setup script
         run: |
           echo "y
           localhost
           n
           test@tracecat.com" | bash env.sh
+
+      - name: Start PostgreSQL
+        env:
+          COMPOSE_BAKE: "true"
+        run: |
+          docker compose -f docker-compose.local.yml up -d postgres_db
+
+          # Wait for PostgreSQL to become healthy
+          echo "Waiting for PostgreSQL to become healthy..."
+          timeout 60 bash -c '
+            while true; do
+              health=$(docker compose -f docker-compose.local.yml ps postgres_db --format json | jq -r ".Health // empty")
+              if [ "$health" = "healthy" ]; then
+                echo "PostgreSQL is healthy"
+                break
+              fi
+              echo "Waiting for PostgreSQL... (current: $health)"
+              sleep 3
+            done
+          '
 
       - name: Run pool integration tests
         env:
@@ -114,6 +137,17 @@ jobs:
           TRACECAT__POOL_WORKER_TEST_MODE: "true"
         run: |
           uv run pytest tests/integration/test_pool_integration.py -n auto -ra -v
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          echo "=== PostgreSQL Logs ==="
+          docker compose -f docker-compose.local.yml logs postgres_db --tail=200
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose -f docker-compose.local.yml down -v
 
   # ──────────────────────────────────────────────────────────────────
   # 3.  TEMPORAL/AGENT INTEGRATION TESTS (needs Temporal + Redis)
