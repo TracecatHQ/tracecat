@@ -240,11 +240,13 @@ class WorkspaceService(BaseOrgService):
             TracecatValidationError: If there is already a pending invitation
                 for this email in this workspace.
         """
-        # Check for existing pending invitation
+        # Check for existing pending invitation that hasn't expired
+        now = datetime.now(UTC)
         existing_stmt = select(Invitation).where(
             Invitation.workspace_id == workspace_id,
             Invitation.email == params.email,
             Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > now,
         )
         existing = await self.session.execute(existing_stmt)
         if existing.scalar_one_or_none():

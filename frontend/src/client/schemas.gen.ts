@@ -19067,10 +19067,6 @@ export const $WorkspaceInvitationRead = {
       ],
       title: "Invited By",
     },
-    token: {
-      type: "string",
-      title: "Token",
-    },
     expires_at: {
       type: "string",
       format: "date-time",
@@ -19102,7 +19098,6 @@ export const $WorkspaceInvitationRead = {
     "role",
     "status",
     "invited_by",
-    "token",
     "expires_at",
     "accepted_at",
     "created_at",

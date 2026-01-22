@@ -5953,7 +5953,6 @@ export type WorkspaceInvitationRead = {
   role: WorkspaceRole
   status: InvitationStatus
   invited_by: string | null
-  token: string
   expires_at: string
   accepted_at: string | null
   created_at: string

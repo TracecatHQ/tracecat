@@ -164,7 +164,6 @@ class WorkspaceInvitationRead(Schema):
     role: WorkspaceRole
     status: InvitationStatus
     invited_by: UserID | None
-    token: str
     expires_at: datetime
     accepted_at: datetime | None
     created_at: datetime
