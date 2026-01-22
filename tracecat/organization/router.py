@@ -279,6 +279,11 @@ async def accept_invitation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a member of this organization",
+        ) from e
 
 
 @router.get("/invitations/token/{token}", response_model=OrgInvitationRead)

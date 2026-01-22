@@ -19,7 +19,11 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
 
@@ -622,6 +626,51 @@ class TestOrganizationServiceInvitations:
         assert invitation.role == OrgRole.ADMIN
 
     @pytest.mark.anyio
+    async def test_create_invitation_duplicate_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation raises error for duplicate email in same org."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        await service.create_invitation(email="duplicate@example.com")
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="An invitation already exists for duplicate@example.com",
+        ):
+            await service.create_invitation(email="duplicate@example.com")
+
+    @pytest.mark.anyio
+    async def test_create_invitation_replaces_expired_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation replaces an expired invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        # Create first invitation
+        invitation = await service.create_invitation(email="expired@example.com")
+        old_id = invitation.id
+
+        # Manually expire it
+        invitation.expires_at = datetime.now(UTC) - timedelta(days=1)
+        await session.commit()
+
+        # Create new invitation for same email - should succeed
+        new_invitation = await service.create_invitation(email="expired@example.com")
+
+        assert new_invitation.id != old_id
+        assert new_invitation.email == "expired@example.com"
+        assert new_invitation.expires_at > datetime.now(UTC)
+
+    @pytest.mark.anyio
     async def test_list_invitations_returns_org_invitations(
         self,
         session: AsyncSession,
@@ -909,43 +958,3 @@ class TestOrganizationServiceInvitations:
 
         with pytest.raises(TracecatAuthorizationError, match="has been revoked"):
             await user_service.accept_invitation(invitation.token)
-
-    @pytest.mark.anyio
-    async def test_accept_invitation_expired_raises(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        org2: Organization,
-        admin_in_org1: User,
-        user_in_org2: User,
-    ):
-        """Test accept_invitation raises error for expired invitation."""
-        # Create expired invitation directly
-        expired_invitation = OrganizationInvitation(
-            organization_id=org1.id,
-            email=user_in_org2.email,
-            role=OrgRole.MEMBER,
-            invited_by=admin_in_org1.id,
-            token=secrets.token_urlsafe(32),
-            expires_at=datetime.now(UTC) - timedelta(days=1),  # Expired yesterday
-            status=InvitationStatus.PENDING,
-        )
-        session.add(expired_invitation)
-        await session.commit()
-
-        # Try to accept
-        user_role = Role(
-            type="user",
-            user_id=user_in_org2.id,
-            organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
-            service_id="tracecat-api",
-        )
-        user_service = OrgService(session, role=user_role)
-
-        with pytest.raises(TracecatAuthorizationError, match="has expired"):
-            await user_service.accept_invitation(expired_invitation.token)
-
-        # Verify status was updated to expired
-        await session.refresh(expired_invitation)
-        assert expired_invitation.status == InvitationStatus.EXPIRED

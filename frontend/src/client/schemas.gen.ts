@@ -8644,7 +8644,7 @@ export const $InteractionType = {
 
 export const $InvitationStatus = {
   type: "string",
-  enum: ["pending", "accepted", "expired", "revoked"],
+  enum: ["pending", "accepted", "revoked"],
   title: "InvitationStatus",
   description: "Invitation lifecycle status.",
 } as const
