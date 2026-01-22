@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel
 from tracecat.auth.users import (
@@ -14,9 +15,10 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_access_level
+from tracecat.authz.enums import OrgRole
 from tracecat.db.models import AccessToken, OrganizationMembership, User
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.identifiers import SessionID, UserID
+from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.service import BaseService
 
 
@@ -82,6 +84,7 @@ class OrgService(BaseService):
         result = await self.session.execute(statement)
         return result.scalar_one()
 
+    @audit_log(resource_type="organization_member", action="delete")
     @require_access_level(AccessLevel.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
         """
@@ -103,6 +106,7 @@ class OrgService(BaseService):
         async with self._manager() as user_manager:
             await user_manager.delete(user)
 
+    @audit_log(resource_type="organization_member", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_member(self, user_id: UserID, params: UserUpdate) -> User:
         """
@@ -130,6 +134,42 @@ class OrgService(BaseService):
             )
         return updated_user
 
+    @audit_log(resource_type="organization_member", action="create")
+    async def add_member(
+        self,
+        *,
+        user_id: UserID,
+        organization_id: OrganizationID,
+        role: OrgRole = OrgRole.MEMBER,
+    ) -> OrganizationMembership:
+        """Add a user to an organization.
+
+        This method creates an OrganizationMembership record linking a user
+        to an organization. It is typically called from the invitation flow
+        when a user accepts an invitation.
+
+        Note: This method does not require access level checks as it is
+        intended to be called by internal services (e.g., invitation service).
+
+        Args:
+            user_id: The unique identifier of the user to add.
+            organization_id: The unique identifier of the organization.
+            role: The role to assign to the user in the organization.
+                Defaults to OrgRole.MEMBER.
+
+        Returns:
+            OrganizationMembership: The created membership record.
+        """
+        membership = OrganizationMembership(
+            user_id=user_id,
+            organization_id=organization_id,
+            role=role,
+        )
+        self.session.add(membership)
+        await self.session.commit()
+        await self.session.refresh(membership)
+        return membership
+
     # === Manage settings ===
 
     @require_access_level(AccessLevel.ADMIN)
@@ -144,7 +184,7 @@ class OrgService(BaseService):
         """List all sessions for users in this organization."""
         statement = (
             select(AccessToken)
-            .join(User, AccessToken.user_id == User.id)
+            .join(User, AccessToken.user_id == User.id)  # pyright: ignore[reportArgumentType]
             .join(
                 OrganizationMembership,
                 and_(

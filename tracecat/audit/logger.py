@@ -20,6 +20,7 @@ R = TypeVar("R")
 _RESOURCE_ID_ATTR_MAP: dict[str, str] = {
     "workflow": "workflow_id",
     "workflow_execution": "wf_id",
+    "organization_member": "user_id",
 }
 
 

@@ -427,3 +427,167 @@ class TestOrganizationServiceSessions:
 
         with pytest.raises(NoResultFound):
             await service.delete_session(token.id)
+
+
+class TestOrganizationServiceAddMember:
+    """Tests for OrgService.add_member()."""
+
+    @pytest.mark.anyio
+    async def test_add_member_creates_membership(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test add_member creates an OrganizationMembership record."""
+        # Create a new user not yet in the org
+        new_user = User(
+            id=uuid.uuid4(),
+            email=f"newuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(new_user)
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        membership = await service.add_member(
+            user_id=new_user.id,
+            organization_id=org1.id,
+            role=OrgRole.MEMBER,
+        )
+
+        assert membership.user_id == new_user.id
+        assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.MEMBER
+
+    @pytest.mark.anyio
+    async def test_add_member_with_admin_role(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test add_member can assign admin role."""
+        new_user = User(
+            id=uuid.uuid4(),
+            email=f"newadmin-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(new_user)
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        membership = await service.add_member(
+            user_id=new_user.id,
+            organization_id=org1.id,
+            role=OrgRole.ADMIN,
+        )
+
+        assert membership.role == OrgRole.ADMIN
+
+    @pytest.mark.anyio
+    async def test_add_member_with_owner_role(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test add_member can assign owner role."""
+        new_user = User(
+            id=uuid.uuid4(),
+            email=f"newowner-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(new_user)
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        membership = await service.add_member(
+            user_id=new_user.id,
+            organization_id=org1.id,
+            role=OrgRole.OWNER,
+        )
+
+        assert membership.role == OrgRole.OWNER
+
+    @pytest.mark.anyio
+    async def test_add_member_default_role_is_member(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test add_member defaults to MEMBER role when not specified."""
+        new_user = User(
+            id=uuid.uuid4(),
+            email=f"defaultrole-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(new_user)
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        membership = await service.add_member(
+            user_id=new_user.id,
+            organization_id=org1.id,
+        )
+
+        assert membership.role == OrgRole.MEMBER
+
+    @pytest.mark.anyio
+    async def test_add_member_user_appears_in_list_members(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test that added member appears in list_members."""
+        new_user = User(
+            id=uuid.uuid4(),
+            email=f"listcheck-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(new_user)
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        # Add member
+        await service.add_member(
+            user_id=new_user.id,
+            organization_id=org1.id,
+        )
+
+        # Verify they appear in list_members
+        members = await service.list_members()
+        member_ids = {m.id for m in members}
+        assert new_user.id in member_ids
