@@ -5,6 +5,7 @@ These tests use mocking and don't require database or other infrastructure.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -137,12 +138,13 @@ class TestWorkflowsClientExecute:
                 wait_strategy="wait",
             )
 
-        # Verify it's the right exception type
-        assert type(exc_info.value).__name__ == "WorkflowExecutionError"
-        assert exc_info.value.status == "FAILED"
+        # Verify it's the right exception type and has expected attributes
+        # Use Any to allow attribute access without importing the class (avoids class identity issues)
+        exc: Any = exc_info.value
+        assert type(exc).__name__ == "WorkflowExecutionError"
+        assert exc.status == "FAILED"
         assert (
-            exc_info.value.workflow_execution_id
-            == "wf-00000000000000000000000000000123/exec-456"
+            exc.workflow_execution_id == "wf-00000000000000000000000000000123/exec-456"
         )
 
 

@@ -138,8 +138,7 @@ async def _authenticate_service(
     )
     org_role = (
         OrgRole(org_role_str)
-        if (org_role_str := request.headers.get("x-tracecat-role-org-role"))
-        is not None
+        if (org_role_str := request.headers.get("x-tracecat-role-org-role")) is not None
         else None
     )
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
