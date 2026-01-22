@@ -18,8 +18,6 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.invitations.enums import InvitationStatus
-
-
 class TestOrganizationInvitation:
     """Tests for OrganizationInvitation model."""
 
