@@ -32,6 +32,8 @@ import pytest
 
 from tracecat.registry.repository import import_and_reload as safe_import_and_reload
 
+pytestmark = pytest.mark.regression
+
 
 def _bad_import_and_reload(module_name: str) -> ModuleType:
     """Old, unsafe import_and_reload strategy to widen the race window.
@@ -51,6 +53,10 @@ def _bad_import_and_reload(module_name: str) -> ModuleType:
     return reloaded
 
 
+@pytest.mark.skip(
+    reason="Flaky: race condition may not trigger reliably. "
+    "The fix is validated by test_import_reload_no_race_with_lock."
+)
 @pytest.mark.anyio
 async def test_import_reload_race_old_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
     """Demonstrate the race by restoring the old behavior under load.

@@ -57,11 +57,23 @@ else:
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
 # Port configuration - reads from environment for worktree cluster support
-# Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT
+# Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
 TEMPORAL_PORT = int(os.environ.get("TEMPORAL_PORT", "7233"))
 MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
+
+# Worker-specific task queues for pytest-xdist isolation
+# Each xdist worker uses different queues to avoid workflow conflicts
+TEMPORAL_TASK_QUEUE = f"tracecat-task-queue-{WORKER_ID}"
+EXECUTOR_TASK_QUEUE = f"shared-action-queue-{WORKER_ID}"
+AGENT_TASK_QUEUE = f"shared-agent-queue-{WORKER_ID}"
+
+# Detect if running inside Docker container by checking for /.dockerenv file
+# This is more reliable than checking env vars like REDIS_URL, which may be
+# loaded from .env by load_dotenv() even when running on the host
+IN_DOCKER = os.path.exists("/.dockerenv")
 
 
 def _minio_credentials() -> tuple[str, str]:
@@ -88,9 +100,10 @@ def _minio_credentials() -> tuple[str, str]:
 # when multiple workers run tests in parallel
 REDIS_DB = WORKER_OFFSET % 16
 
-# Redis URL from environment (matches docker-compose pattern)
-# Default to localhost for local development
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+# Redis URL - use Docker hostname when inside container, localhost otherwise
+# Ignore REDIS_URL from .env as it contains Docker-internal hostname
+REDIS_HOST = "redis" if IN_DOCKER else "localhost"
+REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
 
 
 # ---------------------------------------------------------------------------
@@ -659,14 +672,11 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
 
-    # Detect if running inside Docker container by checking for /.dockerenv file
-    # This is more reliable than checking env vars like REDIS_URL, which may be
-    # loaded from .env by load_dotenv() even when running on the host
-    in_docker = os.path.exists("/.dockerenv")
-    db_host = "postgres_db" if in_docker else "localhost"
-    temporal_host = "temporal" if in_docker else "localhost"
-    api_host = "api" if in_docker else "localhost"
-    blob_storage_host = "minio" if in_docker else "localhost"
+    # Use module-level IN_DOCKER detection for host selection
+    db_host = "postgres_db" if IN_DOCKER else "localhost"
+    temporal_host = "temporal" if IN_DOCKER else "localhost"
+    api_host = "api" if IN_DOCKER else "localhost"
+    blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
     db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:{PG_PORT}/postgres"
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
@@ -708,12 +718,12 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     # Point API URL to appropriate host
     api_url = f"http://{api_host}:8000"
-    executor_url = f"http://{'executor' if in_docker else 'localhost'}:8001"
+    executor_url = f"http://{'executor' if IN_DOCKER else 'localhost'}:8001"
     monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", executor_url)
     # Use DirectBackend for in-process executor (no sandbox overhead) unless overridden
-    if not in_docker:
+    if not IN_DOCKER:
         monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
         monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
@@ -721,8 +731,13 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
-    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
-    monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
+    # Use worker-specific task queues for pytest-xdist isolation
+    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", TEMPORAL_TASK_QUEUE)
+    monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", TEMPORAL_TASK_QUEUE)
+    monkeysession.setenv("TRACECAT__EXECUTOR_QUEUE", EXECUTOR_TASK_QUEUE)
+    monkeysession.setattr(config, "TRACECAT__EXECUTOR_QUEUE", EXECUTOR_TASK_QUEUE)
+    monkeysession.setenv("TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
+    monkeysession.setattr(config, "TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
 
     yield
     logger.info("Environment variables cleaned up")
@@ -795,7 +810,7 @@ async def test_workspace():
                 logger.warning(f"Error during workspace cleanup: {e}")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def temporal_client():
     try:
         loop = asyncio.get_event_loop()

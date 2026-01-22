@@ -12,12 +12,8 @@ from tracecat_registry.sdk.workflows import (
     DEFAULT_MAX_WAIT_TIME,
     DEFAULT_POLL_INTERVAL,
     TERMINAL_STATUSES,
-    WorkflowExecutionError,
     WorkflowsClient,
 )
-
-# Mark all tests to use the db fixture (required by conftest autouse)
-pytestmark = pytest.mark.usefixtures("db")
 
 
 @pytest.fixture
@@ -133,12 +129,16 @@ class TestWorkflowsClientExecute:
             "status": "FAILED",
         }
 
-        with pytest.raises(WorkflowExecutionError) as exc_info:
+        # Catch by base Exception class to avoid class identity issues with module reloads
+        # in pytest-xdist parallel execution, then verify the exception type by name
+        with pytest.raises(Exception) as exc_info:
             await workflows_client.execute(
                 workflow_alias="my-workflow",
                 wait_strategy="wait",
             )
 
+        # Verify it's the right exception type
+        assert type(exc_info.value).__name__ == "WorkflowExecutionError"
         assert exc_info.value.status == "FAILED"
         assert (
             exc_info.value.workflow_execution_id

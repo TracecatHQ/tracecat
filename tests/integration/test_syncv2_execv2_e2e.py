@@ -79,6 +79,23 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(scope="module")
+def module_test_role(mock_org_id) -> Role:
+    """Module-scoped role for shared fixtures.
+
+    Creates a static role that can be used by module-scoped fixtures
+    without depending on function-scoped test_workspace.
+    """
+    # Use a static workspace ID for module-scoped fixtures
+    static_workspace_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    return Role(
+        type="service",
+        user_id=mock_org_id,
+        workspace_id=static_workspace_id,
+        service_id="tracecat-runner",
+    )
+
+
 @pytest.fixture
 async def committing_session(db) -> AsyncGenerator[AsyncSession, None]:
     """Create a session that makes real commits (not savepoints).
@@ -274,6 +291,103 @@ def unique_version() -> str:
 
 
 # =============================================================================
+# Module-scoped fixtures for shared sync (optimization)
+# =============================================================================
+
+
+@pytest.fixture(scope="module")
+def module_unique_version() -> str:
+    """Generate a unique version string once per module.
+
+    This allows tests to share a single synced registry version,
+    avoiding redundant 15-30s sync operations per test.
+    """
+    import tracecat_registry
+
+    return f"{tracecat_registry.__version__}-module-{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture(scope="module")
+async def module_committing_session(db) -> AsyncGenerator[AsyncSession, None]:
+    """Module-scoped committing session for shared fixtures.
+
+    Creates a single session that persists across the module for
+    setting up shared test data (like synced registry).
+    """
+    async_engine = create_async_engine(
+        TEST_DB_CONFIG.test_url,
+        poolclass=NullPool,
+    )
+
+    async with AsyncSession(async_engine, expire_on_commit=False) as session:
+        yield session
+
+    await async_engine.dispose()
+
+
+@pytest.fixture(scope="module")
+async def module_builtin_repo(
+    db, module_committing_session: AsyncSession, module_test_role: Role
+):
+    """Module-scoped builtin repository for shared sync."""
+    svc = RegistryReposService(module_committing_session, role=module_test_role)
+    repo = await svc.get_repository(DEFAULT_REGISTRY_ORIGIN)
+    if repo is None:
+        repo = await svc.create_repository(
+            RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
+        )
+    await module_committing_session.commit()
+    yield repo
+
+
+@pytest.fixture(scope="module")
+async def shared_synced_registry(
+    db,
+    minio_server,
+    module_committing_session: AsyncSession,
+    module_builtin_repo,
+    module_test_role: Role,
+    module_unique_version: str,
+):
+    """Module-scoped synced registry to avoid redundant sync operations.
+
+    This fixture syncs the registry ONCE per module and shares the result
+    across all tests that need it. This saves ~15-30 seconds per test that
+    would otherwise call sync_repository_v2.
+
+    Returns a dict with:
+    - sync_result: The RegistrySyncResult from sync_repository_v2
+    - version: The version string
+    - tarball_uri: The S3 URI of the tarball
+    """
+    from tracecat.registry.sync.service import RegistrySyncService
+
+    # Sync registry once
+    async with RegistrySyncService.with_session(
+        session=module_committing_session, role=module_test_role
+    ) as sync_service:
+        sync_result = await sync_service.sync_repository_v2(
+            module_builtin_repo, target_version=module_unique_version
+        )
+
+    # Upsert actions to RegistryAction table (required for subprocess execution)
+    async with RegistryActionsService.with_session(
+        session=module_committing_session, role=module_test_role
+    ) as actions_service:
+        await actions_service.upsert_actions_from_list(
+            sync_result.actions, module_builtin_repo, commit=True
+        )
+
+    await module_committing_session.commit()
+
+    yield {
+        "sync_result": sync_result,
+        "version": sync_result.version.version,
+        "tarball_uri": sync_result.tarball_uri,
+    }
+
+
+# =============================================================================
 # Test Class: Sync -> MinIO Integration
 # =============================================================================
 
@@ -405,22 +519,12 @@ class TestExecuteWithSyncedRegistry:
     @pytest.mark.anyio
     async def test_action_runner_downloads_and_extracts_tarball(
         self,
-        session: AsyncSession,
-        test_role: Role,
-        minio_server,
-        minio_client: Minio,
-        test_bucket: str,
-        builtin_repo,
+        shared_synced_registry: dict,
         temp_cache_dir: Path,
     ):
         """Verify ActionRunner downloads tarball from MinIO and extracts it."""
-        # Sync to create tarball in MinIO
-        async with RegistrySyncService.with_session(
-            session=session, role=test_role
-        ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
-
-        tarball_uri = sync_result.tarball_uri
+        # Use shared synced registry (avoids redundant 15-30s sync)
+        tarball_uri = shared_synced_registry["tarball_uri"]
 
         # Create ActionRunner with test cache dir
         runner = ActionRunner(cache_dir=temp_cache_dir)
@@ -441,16 +545,11 @@ class TestExecuteWithSyncedRegistry:
     @pytest.mark.anyio
     async def test_execute_action_with_ephemeral_backend(
         self,
-        committing_session: AsyncSession,
         subprocess_db_env,
         test_role: Role,
-        minio_server,
-        test_bucket: str,
-        committing_builtin_repo,
+        shared_synced_registry: dict,
         run_action_input_factory,
         temp_cache_dir: Path,
-        monkeypatch,
-        unique_version: str,
     ):
         """Verify action execution through EphemeralBackend with synced registry.
 
@@ -458,27 +557,10 @@ class TestExecuteWithSyncedRegistry:
         mode instead of real nsjail, making it runnable on macOS/CI.
         We mock the ActionRunner's execute_action to use force_sandbox=False.
 
-        Uses committing_session and subprocess_db_env fixtures to ensure
-        subprocess can read committed data from the test database.
+        Uses shared_synced_registry fixture (module-scoped) to avoid redundant sync.
         """
-        # Sync registry to create tarball in MinIO (use unique version)
-        async with RegistrySyncService.with_session(
-            session=committing_session, role=test_role
-        ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(
-                committing_builtin_repo, target_version=unique_version
-            )
-
-        # Also upsert actions to RegistryAction table (required for subprocess execution)
-        async with RegistryActionsService.with_session(
-            session=committing_session, role=test_role
-        ) as actions_service:
-            await actions_service.upsert_actions_from_list(
-                sync_result.actions, committing_builtin_repo, commit=True
-            )
-
-        # Commit the data so subprocess can see it
-        await committing_session.commit()
+        # Use shared synced registry (avoids redundant 15-30s sync)
+        sync_result = shared_synced_registry["sync_result"]
 
         # Create input for core.transform.reshape action
         args = {"value": {"input": "test_value"}}
@@ -543,39 +625,18 @@ class TestExecuteWithSyncedRegistry:
     @pytest.mark.anyio
     async def test_execute_action_with_registry_lock(
         self,
-        committing_session: AsyncSession,
         subprocess_db_env,
         test_role: Role,
-        minio_server,
-        test_bucket: str,
-        committing_builtin_repo,
+        shared_synced_registry: dict,
         run_action_input_factory,
         temp_cache_dir: Path,
-        unique_version: str,
     ):
         """Verify action execution respects registry_lock for version pinning.
 
-        Uses committing_session and subprocess_db_env fixtures to ensure
-        subprocess can read committed data from the test database.
+        Uses shared_synced_registry fixture (module-scoped) to avoid redundant sync.
         """
-        # Sync registry to create version (use unique version to avoid cache collisions)
-        async with RegistrySyncService.with_session(
-            session=committing_session, role=test_role
-        ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(
-                committing_builtin_repo, target_version=unique_version
-            )
-
-        # Also upsert actions to RegistryAction table (required for subprocess execution)
-        async with RegistryActionsService.with_session(
-            session=committing_session, role=test_role
-        ) as actions_service:
-            await actions_service.upsert_actions_from_list(
-                sync_result.actions, committing_builtin_repo, commit=True
-            )
-
-        # Commit the data so subprocess can see it
-        await committing_session.commit()
+        # Use shared synced registry (avoids redundant 15-30s sync)
+        sync_result = shared_synced_registry["sync_result"]
 
         # Create mock artifacts for the locked version
         mock_artifacts = [
@@ -829,48 +890,24 @@ class TestMultitenantWorkloads:
     @pytest.mark.anyio
     async def test_concurrent_execution_different_workspaces(
         self,
-        committing_session: AsyncSession,
         subprocess_db_env,
-        test_role: Role,
-        minio_server,
-        test_bucket: str,
-        committing_builtin_repo,
+        shared_synced_registry: dict,
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
-        unique_version: str,
     ):
         """Verify concurrent execution from different workspaces is isolated.
 
         This test:
         1. Creates two different workspace roles
-        2. Syncs registry to create shared tarball in MinIO
+        2. Uses shared synced registry (module-scoped) to avoid redundant sync
         3. Executes actions concurrently from both workspaces
         4. Verifies each workspace gets correct results without cross-contamination
-
-        Uses committing_session and subprocess_db_env fixtures to ensure
-        subprocess can read committed data from the test database.
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO (use unique version)
-        async with RegistrySyncService.with_session(
-            session=committing_session, role=test_role
-        ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(
-                committing_builtin_repo, target_version=unique_version
-            )
-
-        # Also upsert actions to RegistryAction table (required for subprocess execution)
-        async with RegistryActionsService.with_session(
-            session=committing_session, role=test_role
-        ) as actions_service:
-            await actions_service.upsert_actions_from_list(
-                sync_result.actions, committing_builtin_repo, commit=True
-            )
-
-        # Commit the data so subprocess can see it
-        await committing_session.commit()
+        # Use shared synced registry (avoids redundant 15-30s sync)
+        sync_result = shared_synced_registry["sync_result"]
 
         # Create two different workspace roles
         workspace_a_id = uuid.uuid4()
@@ -975,44 +1012,23 @@ class TestMultitenantWorkloads:
     @pytest.mark.anyio
     async def test_multiple_concurrent_requests_same_workspace(
         self,
-        committing_session: AsyncSession,
         subprocess_db_env,
         test_role: Role,
-        minio_server,
-        test_bucket: str,
-        committing_builtin_repo,
+        shared_synced_registry: dict,
         create_run_input,
         temp_cache_dir: Path,
-        unique_version: str,
     ):
         """Verify multiple concurrent requests from same workspace work correctly.
 
         This tests the scenario where a single tenant has multiple workflows
         running in parallel, ensuring they all complete without interference.
 
-        Uses committing_session and subprocess_db_env fixtures to ensure
-        subprocess can read committed data from the test database.
+        Uses shared_synced_registry fixture (module-scoped) to avoid redundant sync.
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO (use unique version)
-        async with RegistrySyncService.with_session(
-            session=committing_session, role=test_role
-        ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(
-                committing_builtin_repo, target_version=unique_version
-            )
-
-        # Also upsert actions to RegistryAction table (required for subprocess execution)
-        async with RegistryActionsService.with_session(
-            session=committing_session, role=test_role
-        ) as actions_service:
-            await actions_service.upsert_actions_from_list(
-                sync_result.actions, committing_builtin_repo, commit=True
-            )
-
-        # Commit the data so subprocess can see it
-        await committing_session.commit()
+        # Use shared synced registry (avoids redundant 15-30s sync)
+        sync_result = shared_synced_registry["sync_result"]
 
         # Create multiple inputs for the same workspace
         workspace_id = test_role.workspace_id
@@ -1086,45 +1102,23 @@ class TestMultitenantWorkloads:
     @pytest.mark.anyio
     async def test_workspace_specific_registry_locks(
         self,
-        committing_session: AsyncSession,
         subprocess_db_env,
-        test_role: Role,
-        minio_server,
-        test_bucket: str,
-        committing_builtin_repo,
+        shared_synced_registry: dict,
         create_workspace_role,
         create_run_input,
         temp_cache_dir: Path,
-        unique_version: str,
     ):
         """Verify different workspaces can use different registry versions via locks.
 
         This tests that registry_lock properly pins versions per workflow,
         allowing different tenants to use different registry versions.
 
-        Uses committing_session and subprocess_db_env fixtures to ensure
-        subprocess can read committed data from the test database.
+        Uses shared_synced_registry fixture (module-scoped) to avoid redundant sync.
         """
         import asyncio
 
-        # Sync registry to create tarball in MinIO (use unique version)
-        async with RegistrySyncService.with_session(
-            session=committing_session, role=test_role
-        ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(
-                committing_builtin_repo, target_version=unique_version
-            )
-
-        # Also upsert actions to RegistryAction table (required for subprocess execution)
-        async with RegistryActionsService.with_session(
-            session=committing_session, role=test_role
-        ) as actions_service:
-            await actions_service.upsert_actions_from_list(
-                sync_result.actions, committing_builtin_repo, commit=True
-            )
-
-        # Commit the data so subprocess can see it
-        await committing_session.commit()
+        # Use shared synced registry (avoids redundant 15-30s sync)
+        sync_result = shared_synced_registry["sync_result"]
 
         # Create two different workspace roles
         workspace_a_id = uuid.uuid4()
