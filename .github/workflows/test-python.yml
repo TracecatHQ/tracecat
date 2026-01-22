@@ -72,7 +72,45 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+  build-docker:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run environment setup script
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
+      - name: Build Docker images
+        env:
+          COMPOSE_BAKE: "true"
+        run: docker compose -f docker-compose.dev.yml build temporal api postgres_db caddy minio
+
+      - name: Save Docker images
+        run: |
+          docker save \
+            $(docker compose -f docker-compose.dev.yml config --images | grep -E 'tracecat|temporal|postgres|caddy|minio' | head -10) \
+            -o docker-images.tar
+
+      - name: Upload Docker images
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: docker-images.tar
+          retention-days: 1
+          compression-level: 0  # Already compressed, skip re-compression
+
   test-all:
+    needs: build-docker
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     strategy:
@@ -100,9 +138,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Run environment setup script
         run: |
           echo "y
@@ -110,11 +145,17 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Start core Docker services
+      - name: Download Docker images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load and start Docker services
         env:
-          COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
+        run: |
+          docker load -i docker-images.tar
+          docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
 
       - name: Install dependencies
         run: uv sync --frozen
