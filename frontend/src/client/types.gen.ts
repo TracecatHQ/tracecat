@@ -2808,6 +2808,11 @@ export type InteractionStatus =
 
 export type InteractionType = "approval" | "response"
 
+/**
+ * Invitation lifecycle status.
+ */
+export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked"
+
 export type JoinStrategy = "any" | "all"
 
 /**
@@ -2992,6 +2997,36 @@ export type OAuthSettingsUpdate = {
 export type OrgCreate = {
   name: string
   slug: string
+}
+
+/**
+ * Request body for accepting an organization invitation via token.
+ */
+export type OrgInvitationAccept = {
+  token: string
+}
+
+/**
+ * Request body for creating an organization invitation.
+ */
+export type OrgInvitationCreate = {
+  email: string
+  role?: OrgRole
+}
+
+/**
+ * Response model for organization invitation.
+ */
+export type OrgInvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  role: OrgRole
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
 }
 
 export type OrgMemberRead = {
@@ -6609,6 +6644,36 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
+export type OrganizationCreateInvitationData = {
+  requestBody: OrgInvitationCreate
+}
+
+export type OrganizationCreateInvitationResponse = OrgInvitationRead
+
+export type OrganizationListInvitationsData = {
+  status?: InvitationStatus | null
+}
+
+export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+
+export type OrganizationRevokeInvitationData = {
+  invitationId: string
+}
+
+export type OrganizationRevokeInvitationResponse = void
+
+export type OrganizationAcceptInvitationData = {
+  requestBody: OrgInvitationAccept
+}
+
+export type OrganizationAcceptInvitationResponse = unknown
+
+export type OrganizationGetInvitationByTokenData = {
+  token: string
+}
+
+export type OrganizationGetInvitationByTokenResponse = OrgInvitationRead
+
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
 }
@@ -9234,6 +9299,79 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations": {
+    post: {
+      req: OrganizationCreateInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: OrgInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: OrganizationListInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgInvitationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/{invitation_id}": {
+    delete: {
+      req: OrganizationRevokeInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/accept": {
+    post: {
+      req: OrganizationAcceptInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/token/{token}": {
+    get: {
+      req: OrganizationGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgInvitationRead
         /**
          * Validation Error
          */

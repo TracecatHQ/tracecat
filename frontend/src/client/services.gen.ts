@@ -259,12 +259,22 @@ import type {
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
+  OrganizationAcceptInvitationData,
+  OrganizationAcceptInvitationResponse,
+  OrganizationCreateInvitationData,
+  OrganizationCreateInvitationResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
+  OrganizationGetInvitationByTokenData,
+  OrganizationGetInvitationByTokenResponse,
+  OrganizationListInvitationsData,
+  OrganizationListInvitationsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
+  OrganizationRevokeInvitationData,
+  OrganizationRevokeInvitationResponse,
   OrganizationSecretsCreateOrgSecretData,
   OrganizationSecretsCreateOrgSecretResponse,
   OrganizationSecretsDeleteOrgSecretByIdData,
@@ -2885,6 +2895,119 @@ export const organizationDeleteSession = (
     url: "/organization/sessions/{session_id}",
     path: {
       session_id: data.sessionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Invitation
+ * Create an invitation to join the organization.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationCreateInvitation = (
+  data: OrganizationCreateInvitationData
+): CancelablePromise<OrganizationCreateInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/invitations",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Invitations
+ * List invitations for the organization.
+ * @param data The data for the request.
+ * @param data.status
+ * @returns OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListInvitations = (
+  data: OrganizationListInvitationsData = {}
+): CancelablePromise<OrganizationListInvitationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/invitations",
+    query: {
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Invitation
+ * Revoke a pending invitation.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationRevokeInvitation = (
+  data: OrganizationRevokeInvitationData
+): CancelablePromise<OrganizationRevokeInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/invitations/{invitation_id}",
+    path: {
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Accept Invitation
+ * Accept an invitation and join the organization.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const organizationAcceptInvitation = (
+  data: OrganizationAcceptInvitationData
+): CancelablePromise<OrganizationAcceptInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/invitations/accept",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Invitation By Token
+ * Get invitation details by token (public endpoint for UI).
+ * @param data The data for the request.
+ * @param data.token
+ * @returns OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetInvitationByToken = (
+  data: OrganizationGetInvitationByTokenData
+): CancelablePromise<OrganizationGetInvitationByTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/invitations/token/{token}",
+    path: {
+      token: data.token,
     },
     errors: {
       422: "Validation Error",

@@ -1,6 +1,8 @@
 """Tests for OrgService with organization-scoped queries."""
 
+import secrets
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -13,10 +15,12 @@ from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
     Organization,
+    OrganizationInvitation,
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.service import OrgService
 
 
@@ -30,7 +34,7 @@ async def org1(session: AsyncSession) -> Organization:
         is_active=True,
     )
     session.add(org)
-    await session.flush()
+    await session.commit()
     return org
 
 
@@ -44,7 +48,7 @@ async def org2(session: AsyncSession) -> Organization:
         is_active=True,
     )
     session.add(org)
-    await session.flush()
+    await session.commit()
     return org
 
 
@@ -69,7 +73,7 @@ async def user_in_org1(session: AsyncSession, org1: Organization) -> User:
         role=OrgRole.MEMBER,
     )
     session.add(membership)
-    await session.flush()
+    await session.commit()
     return user
 
 
@@ -94,7 +98,7 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
         role=OrgRole.ADMIN,
     )
     session.add(membership)
-    await session.flush()
+    await session.commit()
     return user
 
 
@@ -119,7 +123,7 @@ async def user_in_org2(session: AsyncSession, org2: Organization) -> User:
         role=OrgRole.MEMBER,
     )
     session.add(membership)
-    await session.flush()
+    await session.commit()
     return user
 
 
@@ -148,8 +152,6 @@ class TestOrganizationServiceListMembers:
         user_in_org2: User,
     ):
         """Test list_members only returns users in the specified organization."""
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -170,8 +172,6 @@ class TestOrganizationServiceListMembers:
         org2: Organization,
     ):
         """Test list_members returns empty list for org with no additional members."""
-        await session.commit()
-
         # Query org2 which has no members
         role = create_admin_role(org2.id, admin_in_org1.id)
         service = OrgService(session, role=role)
@@ -193,8 +193,6 @@ class TestOrganizationServiceGetMember:
         admin_in_org1: User,
     ):
         """Test get_member returns user when they're in the same org."""
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -213,8 +211,6 @@ class TestOrganizationServiceGetMember:
         user_in_org2: User,
     ):
         """Test get_member raises NoResultFound for user in different org."""
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -229,8 +225,6 @@ class TestOrganizationServiceGetMember:
         admin_in_org1: User,
     ):
         """Test get_member raises NoResultFound for nonexistent user."""
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -250,7 +244,6 @@ class TestOrganizationServiceDeleteMember:
         admin_in_org1: User,
     ):
         """Test delete_member removes user when they're in the same organization."""
-        await session.commit()
         user_id = user_in_org1.id
 
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -272,8 +265,6 @@ class TestOrganizationServiceDeleteMember:
         user_in_org2: User,
     ):
         """Test delete_member raises NoResultFound for user in different organization."""
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -307,8 +298,6 @@ class TestOrganizationServiceDeleteMember:
             role=OrgRole.OWNER,
         )
         session.add(membership)
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -327,8 +316,6 @@ class TestOrganizationServiceDeleteMember:
         admin_in_org1: User,
     ):
         """Test delete_member raises NoResultFound for nonexistent user."""
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -364,8 +351,6 @@ class TestOrganizationServiceSessions:
             user_id=user_in_org2.id,
         )
         session.add_all([token1, token2, token3])
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -420,8 +405,6 @@ class TestOrganizationServiceSessions:
             user_id=user_in_org2.id,
         )
         session.add(token)
-        await session.commit()
-
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -591,3 +574,378 @@ class TestOrganizationServiceAddMember:
         members = await service.list_members()
         member_ids = {m.id for m in members}
         assert new_user.id in member_ids
+
+
+class TestOrganizationServiceInvitations:
+    """Tests for OrgService invitation methods."""
+
+    @pytest.mark.anyio
+    async def test_create_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation creates an invitation record."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="newuser@example.com",
+            role=OrgRole.MEMBER,
+        )
+
+        assert invitation.email == "newuser@example.com"
+        assert invitation.role == OrgRole.MEMBER
+        assert invitation.organization_id == org1.id
+        assert invitation.invited_by == admin_in_org1.id
+        assert invitation.status == InvitationStatus.PENDING
+        assert invitation.token is not None
+        assert len(invitation.token) > 0
+
+    @pytest.mark.anyio
+    async def test_create_invitation_with_admin_role(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation can assign admin role."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="newadmin@example.com",
+            role=OrgRole.ADMIN,
+        )
+
+        assert invitation.role == OrgRole.ADMIN
+
+    @pytest.mark.anyio
+    async def test_list_invitations_returns_org_invitations(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+    ):
+        """Test list_invitations only returns invitations for the organization."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        # Create invitations for org1
+        inv1 = await service.create_invitation(email="user1@example.com")
+        inv2 = await service.create_invitation(email="user2@example.com")
+
+        # Create invitation for org2 directly
+        org2_invitation = OrganizationInvitation(
+            organization_id=org2.id,
+            email="org2user@example.com",
+            role=OrgRole.MEMBER,
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+        )
+        session.add(org2_invitation)
+        await session.commit()
+
+        # List invitations for org1
+        invitations = await service.list_invitations()
+
+        invitation_ids = {inv.id for inv in invitations}
+        assert inv1.id in invitation_ids
+        assert inv2.id in invitation_ids
+        assert org2_invitation.id not in invitation_ids
+        assert len(invitations) == 2
+
+    @pytest.mark.anyio
+    async def test_list_invitations_filter_by_status(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test list_invitations can filter by status."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        # Create pending invitation
+        pending_inv = await service.create_invitation(email="pending@example.com")
+
+        # Create and revoke another invitation
+        revoked_inv = await service.create_invitation(email="revoked@example.com")
+        await service.revoke_invitation(revoked_inv.id)
+
+        # List only pending invitations
+        pending_invitations = await service.list_invitations(
+            status=InvitationStatus.PENDING
+        )
+        assert len(pending_invitations) == 1
+        assert pending_invitations[0].id == pending_inv.id
+
+        # List only revoked invitations
+        revoked_invitations = await service.list_invitations(
+            status=InvitationStatus.REVOKED
+        )
+        assert len(revoked_invitations) == 1
+        assert revoked_invitations[0].id == revoked_inv.id
+
+    @pytest.mark.anyio
+    async def test_get_invitation_by_token(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test get_invitation_by_token retrieves invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(email="test@example.com")
+
+        retrieved = await service.get_invitation_by_token(invitation.token)
+
+        assert retrieved.id == invitation.id
+        assert retrieved.email == invitation.email
+
+    @pytest.mark.anyio
+    async def test_get_invitation_by_token_not_found(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test get_invitation_by_token raises error for invalid token."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(TracecatNotFoundError, match="Invitation not found"):
+            await service.get_invitation_by_token("invalid-token")
+
+    @pytest.mark.anyio
+    async def test_revoke_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test revoke_invitation marks invitation as revoked."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(email="test@example.com")
+        assert invitation.status == InvitationStatus.PENDING
+
+        revoked = await service.revoke_invitation(invitation.id)
+
+        assert revoked.status == InvitationStatus.REVOKED
+
+    @pytest.mark.anyio
+    async def test_revoke_invitation_already_revoked_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test revoke_invitation raises error for already revoked invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(email="test@example.com")
+        await service.revoke_invitation(invitation.id)
+
+        with pytest.raises(
+            TracecatAuthorizationError, match="Cannot revoke invitation"
+        ):
+            await service.revoke_invitation(invitation.id)
+
+    @pytest.mark.anyio
+    async def test_revoke_invitation_from_different_org_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+    ):
+        """Test revoke_invitation raises error for invitation in different org."""
+        # Create invitation in org2 directly
+        org2_invitation = OrganizationInvitation(
+            organization_id=org2.id,
+            email="org2user@example.com",
+            role=OrgRole.MEMBER,
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+        )
+        session.add(org2_invitation)
+        await session.commit()
+
+        # Try to revoke from org1
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(NoResultFound):
+            await service.revoke_invitation(org2_invitation.id)
+
+    @pytest.mark.anyio
+    async def test_accept_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ):
+        """Test accept_invitation creates membership."""
+        # Create invitation as admin
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        invitation = await admin_service.create_invitation(
+            email=user_in_org2.email,
+            role=OrgRole.MEMBER,
+        )
+
+        # Accept as user_in_org2
+        user_role = Role(
+            type="user",
+            user_id=user_in_org2.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        user_service = OrgService(session, role=user_role)
+        membership = await user_service.accept_invitation(invitation.token)
+
+        assert membership.user_id == user_in_org2.id
+        assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.MEMBER
+
+        # Verify invitation is marked as accepted
+        await session.refresh(invitation)
+        assert invitation.status == InvitationStatus.ACCEPTED
+        assert invitation.accepted_at is not None
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_already_accepted_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ):
+        """Test accept_invitation raises error for already accepted invitation."""
+        # Create and accept invitation
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        invitation = await admin_service.create_invitation(
+            email=user_in_org2.email,
+            role=OrgRole.MEMBER,
+        )
+
+        user_role = Role(
+            type="user",
+            user_id=user_in_org2.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        user_service = OrgService(session, role=user_role)
+        await user_service.accept_invitation(invitation.token)
+
+        # Try to accept again with a different user
+        another_user = User(
+            id=uuid.uuid4(),
+            email=f"another-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(another_user)
+        await session.commit()
+
+        another_role = Role(
+            type="user",
+            user_id=another_user.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        another_service = OrgService(session, role=another_role)
+
+        with pytest.raises(TracecatAuthorizationError, match="already been accepted"):
+            await another_service.accept_invitation(invitation.token)
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_revoked_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ):
+        """Test accept_invitation raises error for revoked invitation."""
+        # Create and revoke invitation
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        invitation = await admin_service.create_invitation(
+            email=user_in_org2.email,
+            role=OrgRole.MEMBER,
+        )
+        await admin_service.revoke_invitation(invitation.id)
+
+        # Try to accept
+        user_role = Role(
+            type="user",
+            user_id=user_in_org2.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        user_service = OrgService(session, role=user_role)
+
+        with pytest.raises(TracecatAuthorizationError, match="has been revoked"):
+            await user_service.accept_invitation(invitation.token)
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_expired_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ):
+        """Test accept_invitation raises error for expired invitation."""
+        # Create expired invitation directly
+        expired_invitation = OrganizationInvitation(
+            organization_id=org1.id,
+            email=user_in_org2.email,
+            role=OrgRole.MEMBER,
+            invited_by=admin_in_org1.id,
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) - timedelta(days=1),  # Expired yesterday
+            status=InvitationStatus.PENDING,
+        )
+        session.add(expired_invitation)
+        await session.commit()
+
+        # Try to accept
+        user_role = Role(
+            type="user",
+            user_id=user_in_org2.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        user_service = OrgService(session, role=user_role)
+
+        with pytest.raises(TracecatAuthorizationError, match="has expired"):
+            await user_service.accept_invitation(expired_invitation.token)
+
+        # Verify status was updated to expired
+        await session.refresh(expired_invitation)
+        assert expired_invitation.status == InvitationStatus.EXPIRED
