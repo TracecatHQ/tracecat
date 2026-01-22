@@ -21,11 +21,11 @@ from temporalio.exceptions import (
 )
 
 with workflow.unsafe.imports_passed_through():
-    import dateparser  # noqa: F401
-    import jsonpath_ng.ext.parser  # noqa: F401
-    import jsonpath_ng.lexer  # noqa
-    import jsonpath_ng.parser  # noqa
-    import tracecat_registry  # noqa
+    import dateparser  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    import jsonpath_ng.ext.parser  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    import jsonpath_ng.lexer  # noqa  # pyright: ignore[reportUnusedImport]
+    import jsonpath_ng.parser  # noqa  # pyright: ignore[reportUnusedImport]
+    import tracecat_registry  # noqa  # pyright: ignore[reportUnusedImport]
     from pydantic import ValidationError
     from tracecat_ee.agent.types import AgentWorkflowID
     from tracecat_ee.agent.workflows.durable import (
@@ -112,6 +112,7 @@ with workflow.unsafe.imports_passed_through():
         exec_id_to_parts,
     )
     from tracecat.logger import logger
+    from tracecat.registry.lock.types import RegistryLock
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -178,7 +179,26 @@ def _build_agent_child_search_attributes(
 
 @workflow.defn
 class DSLWorkflow:
-    """Manage only the state and execution of the DSL workflow."""
+    """Manage only the state and execution of the DSL workflow.
+
+    Note: dsl, dispatch_type, registry_lock, runtime_config, wf_start_time,
+    time_anchor, context, run_context, dep_list, and scheduler are initialized
+    in run() before _run_workflow() is called. They are not set in __init__
+    because Temporal workflow init must be synchronous and cannot make activity calls.
+    """
+
+    # Instance variables initialized in run() before _run_workflow()
+    # pyright: ignore[reportUninitializedInstanceVariable]
+    dsl: DSLInput
+    dispatch_type: str
+    registry_lock: RegistryLock
+    runtime_config: DSLConfig
+    wf_start_time: datetime
+    time_anchor: datetime
+    context: ExecutionContext
+    run_context: RunContext
+    dep_list: dict[str, list[str]]
+    scheduler: DSLScheduler
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:

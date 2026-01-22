@@ -30,7 +30,6 @@ def _user_read(
         is_superuser=is_superuser,
         is_verified=True,
         last_login_at=now,
-        created_at=now,
     )
 
 

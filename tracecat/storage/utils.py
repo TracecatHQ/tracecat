@@ -14,6 +14,8 @@ from tracecat.logger import logger
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
+    from aiocache.base import BaseCache
+
     from tracecat.storage.object import InlineObject, StoredObject
 
 # Cache configuration
@@ -26,7 +28,7 @@ class SizedMemoryCache:
     """Byte-aware wrapper around aiocache SimpleMemoryCache with LRU eviction."""
 
     def __init__(self, max_bytes: int, ttl: float = 300.0):
-        self._cache = Cache(Cache.MEMORY, ttl=ttl)
+        self._cache: BaseCache = Cache(Cache.MEMORY, ttl=ttl)
         self._sizes: OrderedDict[str, int] = OrderedDict()
         self._total_bytes = 0
         self._max_bytes = max_bytes

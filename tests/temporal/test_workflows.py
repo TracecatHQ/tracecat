@@ -425,6 +425,8 @@ async def test_workflow_can_run_from_yaml(
 ):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
+    role = ctx_role.get()
+    assert role is not None
     # Run workflow
     async with (
         test_worker_factory(temporal_client),
@@ -432,7 +434,7 @@ async def test_workflow_can_run_from_yaml(
     ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID),
             id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
@@ -474,6 +476,8 @@ async def test_workflow_ordering_is_correct(
     # Connect client
     test_name = f"test_workflow_ordering_is_correct-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
+    role = ctx_role.get()
+    assert role is not None
 
     # Run a worker for the activities and workflow
     async with (
@@ -482,7 +486,7 @@ async def test_workflow_ordering_is_correct(
     ):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
+            DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID),
             id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
             retry_policy=RetryPolicy(maximum_attempts=1),
@@ -524,6 +528,8 @@ async def test_workflow_completes_and_correct(
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
+    role = ctx_role.get()
+    assert role is not None
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
@@ -532,7 +538,7 @@ async def test_workflow_completes_and_correct(
             DSLWorkflow.run,
             DSLRunArgs(
                 dsl=dsl,
-                role=ctx_role.get(),
+                role=role,
                 wf_id=TEST_WF_ID,
                 runtime_config=runtime_config,
             ),

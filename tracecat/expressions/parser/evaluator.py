@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
@@ -18,13 +18,14 @@ from tracecat.logger import logger
 LiteralT = TypeVar("LiteralT", int, float, str, bool)
 
 
-class ExprEvaluator(Transformer):
+class ExprEvaluator(Transformer[Token, Any]):
     _visitor_name: str = "ExprEvaluator"
 
     def __init__(
-        self, operand: ExprOperand | None = None, strict: bool = False
+        self, operand: ExprOperand[str] | None = None, strict: bool = False
     ) -> None:
-        self._operand = cast(ExprOperand, operand or {})
+        super().__init__()
+        self._operand: ExprOperand[str] = operand or {}
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
 
@@ -43,7 +44,7 @@ class ExprEvaluator(Transformer):
             ) from e
 
     @v_args(inline=True)
-    def root(self, node: Tree):
+    def root(self, node: Tree[Token]) -> Tree[Token]:
         logger.trace("Visiting root:", node=node)
         return node
 
@@ -207,7 +208,7 @@ class ExprEvaluator(Transformer):
         fn = functions.FUNCTION_MAPPING.get(fn_name)
         if fn is None:
             raise TracecatExpressionError(f"Unknown function {fn_name!r}")
-        final_fn = fn.map if is_mapped else fn  # pyright: ignore[reportFunctionMemberAccess]
+        final_fn = fn.map if is_mapped else fn  # pyright: ignore[reportFunctionMemberAccess] # type: ignore[possibly-missing-attribute]
         result = final_fn(*fn_args)
         self.logger.trace(f"Function {fn_name!r} returned {result!r}")
         return result

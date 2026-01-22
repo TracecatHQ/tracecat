@@ -20,6 +20,7 @@ from typing import (
     NotRequired,
     TypedDict,
     TypeGuard,
+    cast,
 )
 
 import pydantic
@@ -39,9 +40,7 @@ from pydantic_ai.messages import (
     FunctionToolResultEvent,
     ImageUrl,
     ModelRequest,
-    ModelRequestPart,
     ModelResponse,
-    ModelResponsePart,
     MultiModalContent,
     PartDeltaEvent,
     PartStartEvent,
@@ -1137,49 +1136,6 @@ class VercelStreamContext:
                     yield TextEndEventPayload(id=text_id)
 
 
-# ==============================================================================
-# 9. Convert Persisted ModelMessage to UIMessage
-# ==============================================================================
-
-
-def _convert_model_message_part_to_ui_part(
-    part: ModelResponsePart | ModelRequestPart,
-) -> UIMessagePart | None:
-    """Convert a single ModelMessage part to a UIMessage part.
-
-    Args:
-        part: A pydantic-ai message part (TextPart, ToolCallPart, etc.)
-
-    Returns:
-        Converted UIMessagePart or None if conversion not supported
-    """
-    # Use match-case for structural pattern matching with proper type narrowing
-    match part:
-        case TextPart(content=str(content)):
-            return TextUIPart(type="text", text=content, state="done")
-
-        case ThinkingPart(content=str(content)):
-            return ReasoningUIPart(type="reasoning", text=content, state="done")
-
-        case UserPromptPart(content=content):
-            match content:
-                case str(text):
-                    pass
-                case list(items):
-                    text = "\n".join(
-                        item if isinstance(item, str) else json.dumps(item)
-                        for item in items
-                    )
-                case _:
-                    text = json.dumps(content)
-            return TextUIPart(type="text", text=text, state="done")
-
-        case SystemPromptPart(content=str(content)):
-            return TextUIPart(type="text", text=content, state="done")
-
-    return None
-
-
 @dataclasses.dataclass
 class MutableToolPart:
     type: str
@@ -1357,13 +1313,17 @@ def _is_internal_interrupt_message(chat_message: ChatMessage) -> bool:
     if isinstance(content, list):
         for part in content:
             if isinstance(part, dict):
-                part_type = part.get("type")
-                if part_type == "tool_result" and part.get("is_error"):
-                    text = str(part.get("content", ""))
+                # Cast to dict[str, Any] for type checker - isinstance(part, dict)
+                # only narrows to dict[Unknown, Unknown], but we know Claude SDK
+                # content blocks are always dict[str, Any] at runtime
+                part_dict = cast(dict[str, Any], part)
+                part_type = part_dict.get("type")
+                if part_type == "tool_result" and part_dict.get("is_error"):
+                    text = str(part_dict.get("content", ""))
                     if "doesn't want to take this action" in text:
                         return True
                 if part_type == "text":
-                    text = part.get("text", "")
+                    text = part_dict.get("text", "")
                     if "[Request interrupted by user" in text:
                         return True
                     if text == "No response requested.":
@@ -1436,6 +1396,10 @@ def convert_chat_messages_to_ui(
             role = "user"
         else:
             continue
+
+        # Type narrowing: after the isinstance checks above, message_data is UnifiedMessage
+        # (the else branch continues, so None is excluded here)
+        assert message_data is not None
 
         mutable_message = MutableMessage(id=message_id, role=role, parts=[])
         approval_payload = _extract_approval_payload_from_message(message_data)
@@ -1632,7 +1596,7 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
     """Stream Redis events as Vercel AI SDK frames without persisting adapter output."""
 
     message_id = f"msg_{uuid.uuid4().hex}"
-    context = VercelStreamContext(message_id=message_id)  # type: ignore[call-arg]
+    context = VercelStreamContext(message_id=message_id)
 
     try:
         # 1. Start of the message stream

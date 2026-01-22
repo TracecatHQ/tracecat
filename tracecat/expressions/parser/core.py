@@ -21,7 +21,7 @@ class ExprParser:
             )
             if hasattr(e, "allowed"):
                 # Zero out the allowed attribute to hide allowed characters
-                e.allowed = None  # type: ignore
+                e.allowed = None  # pyright: ignore[reportAttributeAccessIssue]
             raise TracecatExpressionError(
                 f"Failed to parse expression: {e}", detail=str(e)
             ) from e

@@ -1,4 +1,4 @@
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, TypeVar, cast
 
 from pydantic import GetCoreSchemaHandler, ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
@@ -57,23 +57,28 @@ class TemplateValidator:
         Returns:
             Processed schema with template validation added to nested types
         """
-        match schema:
+        # Cast to dict[str, Any] for pattern matching since CoreSchema is a complex union
+        # of TypedDicts that pyright cannot fully analyze
+        schema_dict = cast(dict[str, Any], cast(object, schema))
+        match schema_dict:
             case {"type": "dict", "values_schema": values_schema}:
-                schema["values_schema"] = self._process_nested_schema(values_schema)
+                schema_dict["values_schema"] = self._process_nested_schema(
+                    values_schema
+                )
             case {"type": "tuple", "items_schema": items_schema}:
-                schema["items_schema"] = [
+                schema_dict["items_schema"] = [
                     self._process_nested_schema(s) for s in items_schema
                 ]
             case {
                 "type": "list" | "set" | "frozenset" | "generator",
                 "items_schema": items_schema,
             }:
-                schema["items_schema"] = self._process_nested_schema(items_schema)
+                schema_dict["items_schema"] = self._process_nested_schema(items_schema)
             case _:
                 pass
         return core_schema.no_info_wrap_validator_function(
             function=template_or_original_validator,
-            schema=schema,
+            schema=cast(core_schema.CoreSchema, cast(object, schema_dict)),
         )
 
 

@@ -10,7 +10,6 @@ from typing import (
     cast,
 )
 
-import temporalio.api.common.v1
 import temporalio.api.enums.v1
 import temporalio.api.history.v1
 from google.protobuf.json_format import MessageToDict
@@ -244,7 +243,7 @@ class EventGroup[T: EventInput](BaseModel):
         logger.debug("Child workflow initiated event", attrs=attrs.workflow_type)
         match attrs.workflow_type.name:
             case "DSLWorkflow":
-                wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
+                wf_exec_id: WorkflowExecutionID = attrs.workflow_id
                 input = await extract_first(attrs.input)
                 dsl_run_args = DSLRunArgs(**input)
                 # Create an event group
@@ -497,7 +496,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
             raise ValueError("Event is not a child workflow initiated event.")
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
-        wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
+        wf_exec_id: WorkflowExecutionID = attrs.workflow_id
         match attrs.workflow_type.name:
             case "DSLWorkflow":
                 try:

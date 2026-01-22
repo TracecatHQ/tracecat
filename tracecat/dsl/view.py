@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -230,7 +230,7 @@ class RFGraph(TSObject):
 
     def action_nodes(self) -> list[UDFNode]:
         """Return all `udf` (action) type nodes."""
-        return [node for node in self.nodes if node.type == "udf"]
+        return cast(list[UDFNode], [node for node in self.nodes if node.type == "udf"])
 
     @classmethod
     def from_actions(cls, workflow: Workflow, actions: list[Action]) -> Self:

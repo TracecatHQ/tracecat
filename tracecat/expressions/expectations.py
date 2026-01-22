@@ -105,7 +105,7 @@ class TypeTransformer(Transformer):
     @v_args(inline=True)
     def union_type(self, *types) -> type:
         logger.trace("Union type:", types=types)
-        return Union[types]  # type: ignore # noqa: UP007
+        return Union[types]  # noqa: UP007  # pyright: ignore[reportReturnType]
 
     @v_args(inline=True)
     def reference_type(self, name) -> str:

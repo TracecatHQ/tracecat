@@ -283,7 +283,7 @@ class BaseOAuthProvider(ABC):
 
         registration_payload = {
             "client_name": self.metadata.name,
-            "redirect_uris": [self.__class__.redirect_uri()],  # type: ignore
+            "redirect_uris": [self.__class__.redirect_uri()],  # pyright: ignore[reportAttributeAccessIssue]
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
         }
@@ -404,7 +404,7 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
             additional_params["code_challenge"] = code_challenge
             additional_params["code_challenge_method"] = "S256"
 
-        url, auth_state = self.client.create_authorization_url(
+        url, _ = self.client.create_authorization_url(
             self.authorization_endpoint,
             state=state,
             **additional_params,
@@ -443,7 +443,7 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                     code=code,
                     state=state,
                     **token_params,
-                ),  # type: ignore
+                ),
             )
 
             self.logger.info(
@@ -481,7 +481,7 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                     self.token_endpoint,
                     refresh_token=refresh_token,
                     **self._get_additional_token_params(),
-                ),  # type: ignore
+                ),
             )
 
             self.logger.info("Successfully refreshed OAuth token", provider=self.id)
@@ -522,7 +522,7 @@ class ClientCredentialsOAuthProvider(BaseOAuthProvider):
                     self.token_endpoint,
                     grant_type="client_credentials",
                     **self._get_additional_token_params(),
-                ),  # type: ignore
+                ),
             )
 
             self.logger.info(

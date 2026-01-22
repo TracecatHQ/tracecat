@@ -183,7 +183,7 @@ class WorkspaceService(BaseService):
         statement = select(Workspace).where(
             Workspace.organization_id == self.organization_id
         )
-        if self.role.access_level < AccessLevel.ADMIN:
+        if self.role is not None and self.role.access_level < AccessLevel.ADMIN:
             # Only list workspaces where user is a member
             statement = statement.where(
                 Workspace.id == Membership.workspace_id,

@@ -16,7 +16,7 @@ from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
 )
-from tracecat.identifiers import SecretID
+from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -39,12 +39,22 @@ class SecretsService(BaseService):
     """Secrets manager service."""
 
     service_name = "secrets"
+    _encryption_key: str
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        self._encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not self._encryption_key:
+        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
+        if not encryption_key:
             raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+        self._encryption_key = encryption_key
+
+    def _require_workspace_id(self) -> WorkspaceID:
+        """Get workspace_id, raising if role or workspace_id is None."""
+        if self.role is None or self.role.workspace_id is None:
+            raise TracecatAuthorizationError(
+                "Workspace context required for this operation"
+            )
+        return self.role.workspace_id
 
     def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
         """Decrypt and return the keys for a secret."""
@@ -137,8 +147,8 @@ class SecretsService(BaseService):
         self, *, types: set[SecretType] | None = None
     ) -> Sequence[Secret]:
         """List all workspace secrets."""
-
-        statement = select(Secret).where(Secret.workspace_id == self.role.workspace_id)
+        workspace_id = self._require_workspace_id()
+        statement = select(Secret).where(Secret.workspace_id == workspace_id)
         if types:
             statement = statement.where(Secret.type.in_(types))
         result = await self.session.execute(statement)
@@ -146,9 +156,9 @@ class SecretsService(BaseService):
 
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
-
+        workspace_id = self._require_workspace_id()
         statement = select(Secret).where(
-            Secret.workspace_id == self.role.workspace_id,
+            Secret.workspace_id == workspace_id,
             Secret.id == secret_id,
         )
         result = await self.session.execute(statement)
@@ -158,7 +168,7 @@ class SecretsService(BaseService):
             logger.error(
                 "Multiple secrets found",
                 secret_id=secret_id,
-                workspace_id=self.role.workspace_id,
+                workspace_id=workspace_id,
             )
             raise TracecatNotFoundError(
                 "Multiple secrets found when searching by ID"
@@ -167,7 +177,7 @@ class SecretsService(BaseService):
             logger.error(
                 "Secret not found",
                 secret_id=secret_id,
-                workspace_id=self.role.workspace_id,
+                workspace_id=workspace_id,
             )
             raise TracecatNotFoundError(
                 "Secret not found when searching by ID. Please check that the ID was correctly input."
@@ -190,9 +200,9 @@ class SecretsService(BaseService):
         Raises:
             TracecatNotFoundError: If no secret is found with the given name/environment or if multiple secrets are found
         """
-
+        workspace_id = self._require_workspace_id()
         statement = select(Secret).where(
-            Secret.workspace_id == self.role.workspace_id,
+            Secret.workspace_id == workspace_id,
             Secret.name == secret_name,
         )
         if environment:
@@ -214,11 +224,7 @@ class SecretsService(BaseService):
     @audit_log(resource_type="secret", action="create")
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise TracecatAuthorizationError(
-                "Workspace ID is required to create a secret in a workspace"
-            )
+        workspace_id = self._require_workspace_id()
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
         elif params.type == SecretType.MTLS:
@@ -254,11 +260,7 @@ class SecretsService(BaseService):
         if not any((params.ids, params.names, params.environment)):
             return []
 
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise TracecatAuthorizationError(
-                "Workspace ID is required to search secrets"
-            )
+        workspace_id = self._require_workspace_id()
         stmt = select(Secret).where(Secret.workspace_id == workspace_id)
         fields = params.model_dump(exclude_unset=True)
         self.logger.info("Searching secrets", set_fields=fields)

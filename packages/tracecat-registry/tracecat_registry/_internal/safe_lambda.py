@@ -126,7 +126,8 @@ class SafeLambdaValidator(ast.NodeVisitor):
         ast.Name,
         ast.Attribute,
         ast.Subscript,
-        ast.Index,
+        # ast.Index was deprecated in 3.9 and removed in 3.12; subscripts now
+        # hold the index expression directly, so ast.Subscript covers indexing.
         ast.Slice,
         # Operators
         ast.BinOp,

@@ -136,7 +136,7 @@ async def execute_user_mcp_tool(
         config_dict: MCPServerConfig = {
             "name": server_config.name,
             "url": server_config.url,
-            "transport": server_config.transport,  # type: ignore[typeddict-item]
+            "transport": server_config.transport,
             "headers": server_config.headers,
         }
 

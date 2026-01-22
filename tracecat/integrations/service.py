@@ -249,14 +249,17 @@ class IntegrationService(BaseWorkspaceService):
         )
         return True
 
+    _encryption_key: str
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._encryption_key = (
+        encryption_key = (
             os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
             or config.TRACECAT__DB_ENCRYPTION_KEY
         )
-        if not self._encryption_key:
+        if not encryption_key:
             raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+        self._encryption_key = encryption_key
 
     async def get_integration(
         self,

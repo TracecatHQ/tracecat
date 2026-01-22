@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Any, Literal
@@ -119,31 +120,48 @@ async def _authenticate_service(
     if not secrets.compare_digest(api_key, expected_key):
         logger.error("Could not validate service key")
         raise CREDENTIALS_EXCEPTION
-    role_params = {
-        "type": "service",
-        "service_id": service_role_id,
-        "access_level": AccessLevel[request.headers["x-tracecat-role-access-level"]],
-    }
-    if (user_id := request.headers.get("x-tracecat-role-user-id")) is not None:
-        role_params["user_id"] = user_id
-    if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None:
-        role_params["workspace_id"] = ws_id
-    if (ws_role := request.headers.get("x-tracecat-role-workspace-role")) is not None:
-        role_params["workspace_role"] = WorkspaceRole(ws_role)
-    if (org_role := request.headers.get("x-tracecat-role-org-role")) is not None:
-        role_params["org_role"] = OrgRole(org_role)
-    return Role(**role_params)
+    user_id = (
+        uuid.UUID(uid)
+        if (uid := request.headers.get("x-tracecat-role-user-id")) is not None
+        else None
+    )
+    workspace_id = (
+        uuid.UUID(ws_id)
+        if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None
+        else None
+    )
+    workspace_role = (
+        WorkspaceRole(ws_role)
+        if (ws_role := request.headers.get("x-tracecat-role-workspace-role"))
+        is not None
+        else None
+    )
+    org_role = (
+        OrgRole(org_role_str)
+        if (org_role_str := request.headers.get("x-tracecat-role-org-role")) is not None
+        else None
+    )
+    service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
+    return Role(
+        type="service",
+        service_id=service_id,
+        access_level=AccessLevel[request.headers["x-tracecat-role-access-level"]],
+        user_id=user_id,
+        workspace_id=workspace_id,
+        workspace_role=workspace_role,
+        org_role=org_role,
+    )
 
 
 @contextmanager
 def TemporaryRole(
     type: Literal["user", "service"] = "service",
-    user_id: str | None = None,
-    service_id: str | None = None,
+    user_id: uuid.UUID | None = None,
+    service_id: InternalServiceID = "tracecat-service",
 ):
     """An async context manager to authenticate a user or service."""
     prev_role = ctx_role.get()
-    temp_role = Role(type=type, workspace_id=user_id, service_id=service_id)  # type: ignore
+    temp_role = Role(type=type, user_id=user_id, service_id=service_id)
     ctx_role.set(temp_role)
     try:
         yield temp_role

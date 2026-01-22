@@ -5,12 +5,12 @@ from temporalio import activity
 
 from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatAuthorizationError, TracecatException
+from tracecat.exceptions import TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
     ResolveRegistryLockActivityInputs,
@@ -18,14 +18,14 @@ from tracecat.workflow.management.schemas import (
 )
 
 
-class WorkflowDefinitionsService(BaseService):
+class WorkflowDefinitionsService(BaseWorkspaceService):
     service_name = "workflow_definitions"
 
     async def get_definition_by_workflow_id(
         self, workflow_id: WorkflowID, *, version: int | None = None
     ) -> WorkflowDefinition | None:
         statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.workspace_id == self.role.workspace_id,
+            WorkflowDefinition.workspace_id == self.workspace_id,
             WorkflowDefinition.workflow_id == workflow_id,
         )
         if version:
@@ -41,7 +41,7 @@ class WorkflowDefinitionsService(BaseService):
         self, workflow_id: WorkflowID | None = None
     ) -> list[WorkflowDefinition]:
         statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.workspace_id == self.role.workspace_id,
+            WorkflowDefinition.workspace_id == self.workspace_id,
         )
         if workflow_id:
             statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
@@ -69,12 +69,10 @@ class WorkflowDefinitionsService(BaseService):
         Returns:
             The created WorkflowDefinition.
         """
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
         statement = (
             select(WorkflowDefinition)
             .where(
-                WorkflowDefinition.workspace_id == self.role.workspace_id,
+                WorkflowDefinition.workspace_id == self.workspace_id,
                 WorkflowDefinition.workflow_id == workflow_id,
             )
             .order_by(WorkflowDefinition.version.desc())
@@ -84,7 +82,7 @@ class WorkflowDefinitionsService(BaseService):
 
         version = latest_defn.version + 1 if latest_defn else 1
         defn = WorkflowDefinition(
-            workspace_id=self.role.workspace_id,
+            workspace_id=self.workspace_id,
             workflow_id=workflow_id,
             content=dsl.model_dump(exclude_unset=True),
             version=version,

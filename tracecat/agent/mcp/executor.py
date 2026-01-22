@@ -147,13 +147,15 @@ async def _resolve_context(
             action_name=action_name,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
         )
-    else:
+    elif impl.type == "udf":
         action_impl = ActionImplementation(
             type="udf",
             action_name=action_name,
             module=impl.module,
             name=impl.name,
         )
+    else:
+        raise ValueError(f"Unknown implementation type: {impl}")
 
     # Collect expressions to know what secrets/variables are needed
     collected = collect_expressions(args)

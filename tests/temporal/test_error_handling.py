@@ -23,11 +23,13 @@ async def test_execution_fails_fatal(
     test_name = f"test_fatal_execution-{dsl.title}"
     wf_exec_id = shared.generate_test_exec_id(test_name)
     client = await get_temporal_client()
+    role = ctx_role.get()
+    assert role is not None
     async with test_worker_factory(client), test_executor_worker_factory(client):
         with pytest.raises(WorkflowFailureError) as e:
             await client.execute_workflow(
                 DSLWorkflow.run,
-                DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=shared.TEST_WF_ID),
+                DSLRunArgs(dsl=dsl, role=role, wf_id=shared.TEST_WF_ID),
                 id=wf_exec_id,
                 task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],

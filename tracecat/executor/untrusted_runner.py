@@ -95,7 +95,7 @@ async def run_action_untrusted(
     # Initialize SDK context for any registry operations
     _setup_registry_sdk_context()
 
-    log = ctx_logger.get(logger.bind(ref=input.task.ref))
+    log = ctx_logger.get() or logger.bind(ref=input.task.ref)
     task = input.task
     action_name = task.action
 

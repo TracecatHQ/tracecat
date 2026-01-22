@@ -403,7 +403,7 @@ AnnotatedRegistryActionImpl = Annotated[
 ]
 RegistryActionImplValidator: TypeAdapter[RegistryActionImpl] = TypeAdapter(
     AnnotatedRegistryActionImpl
-)  # type: ignore
+)
 
 
 class RegistryActionValidationErrorInfo(BaseModel):

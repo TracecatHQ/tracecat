@@ -29,7 +29,7 @@ def id_factory(prefix: str, *, sep: str = "-") -> Callable[[], ResourceID]:
     def wrapper() -> ResourceID:
         return generate_resource_id(prefix, sep=sep)
 
-    return wrapper  # type: ignore
+    return wrapper
 
 
 class ResourcePrefix(StrEnum):

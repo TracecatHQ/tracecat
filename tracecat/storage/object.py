@@ -89,9 +89,9 @@ class _StoredObjectBase(BaseModel):
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> dict[str, Any]:
         """Always include type field for discriminated union."""
-        result: dict[str, Any] = handler(self)  # type: ignore[assignment]
+        result: dict[str, Any] = handler(self)
         # Access type from subclass (InlineObject or ExternalObject)
-        result["type"] = self.type  # type: ignore[reportAttributeAccessIssue]
+        result["type"] = self.type  # pyright: ignore[reportAttributeAccessIssue]
         return result
 
 

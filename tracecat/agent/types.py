@@ -21,7 +21,6 @@ from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
-    from pydantic_ai import ModelResponse
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.tools import Tool as _PATool
 
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
     CustomToolList = list[_PATool[Any]]
 else:
     # Runtime fallbacks for types only used in annotations
-    ModelResponse = Any
     ModelMessage = Any
     CustomToolList = list[Any]
 

@@ -353,15 +353,15 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
             )
         )
 
-    def trigger(self, node: Tree):
+    def trigger(self, node: Tree[Token]):
         self.logger.trace("Visit trigger expression", node=node)
         self.add(status="success", type=ExprType.TRIGGER)
 
-    def env(self, node: Tree):
+    def env(self, node: Tree[Token]):
         self.logger.trace("Visit env expression", node=node)
         self.add(status="success", type=ExprType.ENV)
 
-    def local_vars(self, node: Tree):
+    def local_vars(self, node: Tree[Token]):
         self.logger.trace("Visit local vars expression", node=node)
         self.add(status="success", type=ExprType.LOCAL_VARS)
 

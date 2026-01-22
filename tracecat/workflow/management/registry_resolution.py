@@ -205,7 +205,7 @@ async def resolve_action_origins_from_lock(
             impl = RegistryActionImplValidator.validate_python(
                 manifest_action.implementation
             )
-            if impl.type != "template" or impl.template_action is None:
+            if impl.type != "template":
                 errors.append(
                     RegistryActionResolutionError(
                         action=action_name,

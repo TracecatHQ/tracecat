@@ -17,6 +17,7 @@ import importlib
 import os
 import warnings
 from collections.abc import Mapping
+from types import ModuleType
 from typing import Any
 
 # Only import what we absolutely need - no tracecat imports!
@@ -36,12 +37,12 @@ try:
 except ImportError:
     import json
 
-    def json_loads(data: bytes | str) -> dict:  # type: ignore[misc]
+    def json_loads(data: bytes | str) -> dict:
         if isinstance(data, bytes):
             data = data.decode()
         return json.loads(data)
 
-    def json_dumps(obj: dict) -> bytes:  # type: ignore[misc]
+    def json_dumps(obj: dict) -> bytes:
         return json.dumps(obj).encode()
 
     JSON_OUTPUT_IS_BYTES = True
@@ -182,12 +183,13 @@ async def _run_udf_async(
     # NOTE: We use ContextVar instead of os.environ because os.environ is
     # process-global and not safe for concurrent async execution.
     secrets_token = None
+    registry_secrets: ModuleType | None = None
     try:
         from tracecat_registry._internal import secrets as registry_secrets
 
         secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
     except ImportError:
-        registry_secrets = None
+        pass  # registry_secrets stays None
         warnings.warn(
             "Could not import tracecat_registry._internal.secrets - "
             "secrets may not be available to actions",
@@ -242,12 +244,12 @@ def _run_udf(
 
     # Set secrets in registry secrets context (required when registry_client flag is set)
     secrets_token = None
+    registry_secrets: ModuleType | None = None
     try:
         from tracecat_registry._internal import secrets as registry_secrets
 
         secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
     except ImportError:
-        registry_secrets = None
         warnings.warn(
             "Could not import tracecat_registry._internal.secrets - "
             "secrets may not be available to actions",

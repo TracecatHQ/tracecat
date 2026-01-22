@@ -65,7 +65,7 @@ async def test_auth_sandbox_without_secrets(test_role, mock_user_id):
             assert sandbox.secrets == {}
             assert sandbox._role == Role(
                 type="service",
-                workspace_id=mock_user_id,
+                user_id=mock_user_id,
                 service_id="tracecat-service",
             )
 

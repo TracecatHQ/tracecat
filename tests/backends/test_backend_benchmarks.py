@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
     from tracecat.executor.backends.base import ExecutorBackend
+    from tracecat.executor.schemas import ResolvedContext
 
 # Mark all tests in this module as integration tests requiring infrastructure
 pytestmark = pytest.mark.integration
@@ -121,6 +122,7 @@ class TestSimpleActionLatency:
         self,
         direct_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Benchmark direct backend action latency.
@@ -134,6 +136,11 @@ class TestSimpleActionLatency:
             action="core.transform.reshape",
             args={"value": {"benchmark": "direct"}},
         )
+        resolved_context = resolved_context_factory(
+            role=benchmark_role,
+            action="core.transform.reshape",
+            args={"value": {"benchmark": "direct"}},
+        )
 
         # Track if we're measuring success or failure path
         success_count = 0
@@ -143,6 +150,7 @@ class TestSimpleActionLatency:
             result = await direct_backend.execute(
                 input=input_data,
                 role=benchmark_role,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             if result.type == "success":
@@ -173,6 +181,7 @@ class TestSimpleActionLatency:
         self,
         direct_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Collect detailed latency statistics for transform actions.
@@ -181,6 +190,7 @@ class TestSimpleActionLatency:
         statistics without using the benchmark fixture (for comparison).
         """
         input_data = simple_action_input_factory()
+        resolved_context = resolved_context_factory(role=benchmark_role)
         success_count = 0
 
         async def execute():
@@ -188,6 +198,7 @@ class TestSimpleActionLatency:
             result = await direct_backend.execute(
                 input=input_data,
                 role=benchmark_role,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             if result.type == "success":
@@ -261,6 +272,7 @@ class TestColdStartLatency:
     async def test_first_action_after_cold_start(
         self,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Measure first action latency including backend startup.
@@ -271,6 +283,7 @@ class TestColdStartLatency:
         from tracecat.executor.backends.direct import DirectBackend
 
         input_data = simple_action_input_factory()
+        resolved_context = resolved_context_factory(role=benchmark_role)
         times = []
         success_count = 0
 
@@ -282,6 +295,7 @@ class TestColdStartLatency:
             result = await backend.execute(
                 input=input_data,
                 role=benchmark_role,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             elapsed = time.perf_counter() - start
@@ -322,6 +336,7 @@ class TestConcurrentThroughput:
         self,
         direct_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Measure throughput with concurrent action execution.
@@ -329,6 +344,7 @@ class TestConcurrentThroughput:
         Executes multiple actions in parallel and measures total
         throughput in actions per second.
         """
+        resolved_context = resolved_context_factory(role=benchmark_role)
         concurrency_levels = [1, 5, 10, 20]
         results = {}
 
@@ -341,6 +357,7 @@ class TestConcurrentThroughput:
                 direct_backend.execute(
                     input=inp,
                     role=benchmark_role,
+                    resolved_context=resolved_context,
                     timeout=30.0,
                 )
                 for inp in inputs
@@ -371,6 +388,7 @@ class TestConcurrentThroughput:
         self,
         direct_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Measure sustained throughput over many actions.
@@ -378,12 +396,13 @@ class TestConcurrentThroughput:
         Executes a large number of actions to measure sustained
         performance and detect any degradation over time.
         """
+        resolved_context = resolved_context_factory(role=benchmark_role)
         total_actions = 100
         batch_size = 10
         batch_times = []
         total_successes = 0
 
-        for _batch_num in range(total_actions // batch_size):
+        for _ in range(total_actions // batch_size):
             inputs = [simple_action_input_factory() for _ in range(batch_size)]
 
             start = time.perf_counter()
@@ -391,6 +410,7 @@ class TestConcurrentThroughput:
                 direct_backend.execute(
                     input=inp,
                     role=benchmark_role,
+                    resolved_context=resolved_context,
                     timeout=30.0,
                 )
                 for inp in inputs
@@ -448,6 +468,7 @@ class TestMemoryUsage:
         self,
         direct_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Measure memory growth after burst workload.
@@ -455,6 +476,7 @@ class TestMemoryUsage:
         Executes a burst of actions and measures memory usage
         before and after to detect memory leaks.
         """
+        resolved_context = resolved_context_factory(role=benchmark_role)
         # Force garbage collection and get baseline
         gc.collect()
         baseline_mb = get_memory_usage_mb()
@@ -467,6 +489,7 @@ class TestMemoryUsage:
             direct_backend.execute(
                 input=inp,
                 role=benchmark_role,
+                resolved_context=resolved_context,
                 timeout=30.0,
             )
             for inp in inputs
@@ -509,12 +532,14 @@ class TestMemoryUsage:
         self,
         direct_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Test memory stability across multiple burst iterations.
 
         Runs multiple burst cycles to detect cumulative memory leaks.
         """
+        resolved_context = resolved_context_factory(role=benchmark_role)
         gc.collect()
         initial_mb = get_memory_usage_mb()
         memory_readings = [initial_mb]
@@ -522,13 +547,14 @@ class TestMemoryUsage:
         burst_size = 50
         iterations = 5
 
-        for _iteration in range(iterations):
+        for _ in range(iterations):
             inputs = [simple_action_input_factory() for _ in range(burst_size)]
 
             tasks = [
                 direct_backend.execute(
                     input=inp,
                     role=benchmark_role,
+                    resolved_context=resolved_context,
                     timeout=30.0,
                 )
                 for inp in inputs
@@ -582,11 +608,12 @@ class TestBackendComparison:
     @pytest.mark.anyio
     async def test_all_backends_latency(
         self,
-        require_registry_sync: None,
+        require_registry_sync: None,  # noqa: ARG002
         direct_backend: ExecutorBackend,
         pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Compare action execution latency across all three backends.
@@ -603,19 +630,23 @@ class TestBackendComparison:
         }
 
         input_data = simple_action_input_factory()
+        resolved_context = resolved_context_factory(role=benchmark_role)
         results: dict[str, dict[str, float]] = {}
 
         for name, backend in backends.items():
 
-            def make_executor(b: ExecutorBackend) -> Callable[[], Awaitable[Any]]:
+            def make_executor(
+                b: ExecutorBackend, ctx: ResolvedContext
+            ) -> Callable[[], Awaitable[Any]]:
                 return lambda: b.execute(
                     input=input_data,
                     role=benchmark_role,
+                    resolved_context=ctx,
                     timeout=30.0,
                 )
 
             times = await run_async_benchmark(
-                make_executor(backend),
+                make_executor(backend, resolved_context),
                 rounds=10,
                 warmup_rounds=2,
             )
@@ -652,11 +683,12 @@ class TestBackendComparison:
     @pytest.mark.anyio
     async def test_all_backends_throughput(
         self,
-        require_registry_sync: None,
+        require_registry_sync: None,  # noqa: ARG002
         direct_backend: ExecutorBackend,
         pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
         """Compare throughput across all three backends.
@@ -669,6 +701,7 @@ class TestBackendComparison:
             "ephemeral": ephemeral_backend,
         }
 
+        resolved_context = resolved_context_factory(role=benchmark_role)
         concurrency = 10
         results: dict[str, float] = {}
 
@@ -677,7 +710,12 @@ class TestBackendComparison:
 
             start = time.perf_counter()
             tasks = [
-                backend.execute(input=inp, role=benchmark_role, timeout=60.0)
+                backend.execute(
+                    input=inp,
+                    role=benchmark_role,
+                    resolved_context=resolved_context,
+                    timeout=60.0,
+                )
                 for inp in inputs
             ]
             await asyncio.gather(*tasks)

@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -187,8 +187,13 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
 
 
 # Catch-all exception handler to prevent stack traces from leaking
-def validation_exception_handler(request: Request, exc: RequestValidationError):
+def validation_exception_handler(request: Request, exc: Exception) -> Response:
     """Improves visiblity of 422 errors."""
+    if not isinstance(exc, RequestValidationError):
+        return ORJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": str(exc)},
+        )
     errors = exc.errors()
     ser_errors = to_jsonable_python(errors, fallback=str)
     logger.error(
@@ -203,7 +208,7 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
     )
 
 
-def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersException):
+def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Response:
     msg = str(exc)
     logger.warning(
         "Handling FastAPI Users exception",
@@ -268,7 +273,7 @@ def create_app(**kwargs) -> FastAPI:
         root_path=config.TRACECAT__API_ROOT_PATH,
         **kwargs,
     )
-    app.logger = logger  # type: ignore
+    app.state.logger = logger
 
     # Routers
     app.include_router(webhook_router)
@@ -390,11 +395,11 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore  # type: ignore
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
         FastAPIUsersException,
-        fastapi_users_auth_exception_handler,  # type: ignore
+        fastapi_users_auth_exception_handler,
     )
 
     # Middleware

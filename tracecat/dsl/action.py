@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable, Coroutine, Mapping
-from typing import Any
+from typing import Any, cast
 
 import dateparser
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -61,12 +61,6 @@ from tracecat.storage.object import (
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
-
-
-class EvaluateCollectionObjectActivityInput(BaseModel):
-    obj: Any
-    operand: ExecutionContext
-    key: str
 
 
 class ScatterActionInput(BaseModel):
@@ -328,7 +322,7 @@ class ValidateActionActivityInput(BaseModel):
 class DSLActivities:
     """Container for all UDFs registered in the registry."""
 
-    def __new__(cls):  # type: ignore
+    def __new__(cls):
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod
@@ -647,27 +641,6 @@ class DSLActivities:
         return await _prepare_subflow(input)
 
 
-def _evaluate_collection_object_input(
-    input: EvaluateCollectionObjectActivityInput,
-) -> CollectionObject:
-    # Materialize any StoredObjects in operand
-    materialized = run_sync(materialize_context(input.operand))
-    result = eval_templated_object(input.obj, operand=materialized)
-
-    # Treat None as empty collection (will be handled by empty check below)
-    if result is None:
-        result = []
-    elif not is_iterable(result):
-        raise ApplicationError(
-            f"Collection is not iterable: {type(result)}: {result}",
-            non_retryable=True,
-        )
-
-    # Store as chunked collection manifest
-    collection = run_sync(store_collection(input.key, list(result)))
-    return collection
-
-
 def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
     """Evaluate scatter collection expression and store as CollectionObject.
 
@@ -700,9 +673,10 @@ def _patch_object(
 ) -> None:
     """Patch a nested dict at the given path."""
     *stem, leaf = path.split(sep=sep)
+    current: dict[str, Any] = obj
     for key in stem:
-        obj = obj.setdefault(key, {})
-    obj[leaf] = value
+        current = current.setdefault(key, {})
+    current[leaf] = value
 
 
 def _partition_errors(items: list[Any]) -> tuple[list[Any], list[ActionErrorInfo]]:
@@ -780,10 +754,10 @@ def _resolve_subflow_batch(
 
     for items in batch_items:
         # Patch context with var.item (and other iterator variables)
-        patched_context = materialized.copy()
+        patched_context = cast(dict[str, Any], materialized.copy())
         for iterator_path, iterator_value in items:
             _patch_object(
-                obj=patched_context,  # type: ignore[arg-type]
+                obj=patched_context,
                 path=ExprContext.LOCAL_VARS + iterator_path,
                 value=iterator_value,
             )
@@ -858,10 +832,10 @@ def _evaluate_loop_iterations(
 
     for items in all_items:
         # Patch context with var.item (and other iterator variables)
-        patched_context = materialized.copy()
+        patched_context = cast(dict[str, Any], materialized.copy())
         for iterator_path, iterator_value in items:
             _patch_object(
-                obj=patched_context,  # type: ignore[arg-type]
+                obj=patched_context,
                 path=ExprContext.LOCAL_VARS + iterator_path,
                 value=iterator_value,
             )

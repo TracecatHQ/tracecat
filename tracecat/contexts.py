@@ -24,9 +24,9 @@ __all__ = [
     "get_env",
 ]
 
-ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)  # type: ignore
-ctx_role: ContextVar[Role] = ContextVar("role", default=None)  # type: ignore
-ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)  # type: ignore
+ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)
+ctx_role: ContextVar[Role | None] = ContextVar("role", default=None)
+ctx_logger: ContextVar[loguru.Logger | None] = ContextVar("logger", default=None)
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )

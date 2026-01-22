@@ -23,10 +23,10 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
     def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         # Precedence: role > ctx_role > default role. Role is always set.
-        # NOTE: Actually should we throw if no role?
-        self.role = role or ctx_role.get(
-            Role(type="service", service_id="tracecat-service")
-        )
+        resolved_role = role or ctx_role.get()
+        if resolved_role is None:
+            resolved_role = Role(type="service", service_id="tracecat-service")
+        self.role: Role = resolved_role
         service_key = config.TRACECAT__SERVICE_KEY
         if not service_key:
             raise TracecatCredentialsError(

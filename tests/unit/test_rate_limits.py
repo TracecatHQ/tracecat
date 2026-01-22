@@ -22,11 +22,11 @@ def app() -> FastAPI:
     )
 
     @app.get("/test")
-    async def test_endpoint():
+    async def test_endpoint():  # pyright: ignore[reportUnusedFunction] - route handler
         return {"message": "success"}
 
     @app.get("/another")
-    async def another_endpoint():
+    async def another_endpoint():  # pyright: ignore[reportUnusedFunction] - route handler
         return {"message": "another success"}
 
     return app
@@ -129,11 +129,11 @@ class TestRateLimitIntegration:
         )
 
         @app.get("/test")
-        async def test_endpoint():
+        async def test_endpoint():  # pyright: ignore[reportUnusedFunction] - route handler
             return {"message": "success"}
 
         @app.get("/another")
-        async def another_endpoint():
+        async def another_endpoint():  # pyright: ignore[reportUnusedFunction] - route handler
             return {"message": "another success"}
 
         # Create clients with different IP addresses

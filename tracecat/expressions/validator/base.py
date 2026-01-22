@@ -16,7 +16,7 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.validation.schemas import ValidationDetail
 
 
-class BaseExprValidator[ResultT](Visitor):
+class BaseExprValidator[ResultT](Visitor[Token]):
     """Base validator containing common validation logic.
 
     You should not use this class directly, but rather use one of the subclasses.
@@ -65,7 +65,7 @@ class BaseExprValidator[ResultT](Visitor):
 
     def visit_with_locator(
         self,
-        tree: Tree,
+        tree: Tree[Token],
         loc: tuple[str | int, ...] | None = None,
         exclude: set[ExprType] | None = None,
     ) -> Any:
@@ -74,7 +74,7 @@ class BaseExprValidator[ResultT](Visitor):
         return self.visit(tree)
 
     @override
-    def visit(self, tree: Tree) -> Any:
+    def visit(self, tree: Tree[Token]) -> Any:
         try:
             if VISITOR_NODE_TO_EXPR_TYPE.get(tree.data) in self._exclude:
                 logger.trace("Skipping node", node=tree.data)
@@ -92,10 +92,10 @@ class BaseExprValidator[ResultT](Visitor):
 
     """Visitors"""
 
-    def root(self, node: Tree):
+    def root(self, node: Tree[Token]):
         self.logger.trace("Visiting root:", node=node)
 
-    def trailing_typecast_expression(self, node: Tree):
+    def trailing_typecast_expression(self, node: Tree[Token]):
         _, typename = node.children
         self.logger.trace("Visit trailing cast expression", typename=typename)
         if typename not in functions.BUILTIN_TYPE_MAPPING:
@@ -115,28 +115,28 @@ class BaseExprValidator[ResultT](Visitor):
             msg=f"ACTIONS expressions are not supported in {self._expr_kind}",
         )
 
-    def trigger(self, _node: Tree):
+    def trigger(self, _node: Tree[Token]):
         self.add(
             status="error",
             type=ExprType.TRIGGER,
             msg=f"TRIGGER expressions are not supported in {self._expr_kind}",
         )
 
-    def env(self, _node: Tree):
+    def env(self, _node: Tree[Token]):
         self.add(
             status="error",
             type=ExprType.ENV,
             msg=f"ENV expressions are not supported in {self._expr_kind}",
         )
 
-    def local_vars(self, _node: Tree):
+    def local_vars(self, _node: Tree[Token]):
         self.add(
             status="error",
             type=ExprType.LOCAL_VARS,
             msg=f"var expressions are not supported in {self._expr_kind}",
         )
 
-    def iterator(self, node: Tree):
+    def iterator(self, node: Tree[Token]):
         self.logger.trace("Visit iterator expression", node=node)
         self.add(
             status="error",
@@ -301,7 +301,7 @@ class BaseExprValidator[ResultT](Visitor):
         # If we reach here, the function reference and argument count are valid
         self.add(status="success", type=ExprType.FUNCTION)
 
-    def ternary(self, node: Tree):
+    def ternary(self, node: Tree[Token]):
         cond_expr, true_expr, false_expr = node.children
         self.logger.trace(
             "Visit ternary expression",
@@ -338,14 +338,14 @@ class BaseExprValidator[ResultT](Visitor):
         else:
             self.add(status="success", type=ExprType.TYPECAST)
 
-    def literal(self, node: Tree):
+    def literal(self, node: Tree[Token]):
         self.logger.trace("Visit literal expression", value=node.children[0])
         self.add(status="success", type=ExprType.LITERAL)
 
     def jsonpath_expression(self, node: Tree[Token]):
         self.logger.trace("Visiting jsonpath expression", children=node.children)
         try:
-            combined_segments = "".join(node.children)  # type: ignore
+            combined_segments = "".join(str(child) for child in node.children)
         except (AttributeError, ValueError) as e:
             self.logger.error("Invalid jsonpath segments", error=str(e))
             self.add(

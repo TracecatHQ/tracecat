@@ -6,10 +6,13 @@ import asyncio
 import base64
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from github.GithubException import GithubException
+
+if TYPE_CHECKING:
+    from github.ContentFile import ContentFile
 from pydantic import ValidationError
 
 from tracecat.db.models import User
@@ -191,6 +194,7 @@ class WorkflowSyncService(BaseWorkspaceService):
                 content_map = {}
 
                 for item in workflows_contents:
+                    item: ContentFile = item  # type hint for GitHub API object
                     # Look for workflow directories
                     if item.type == "dir":
                         # Get definition.yml from each workflow directory

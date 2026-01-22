@@ -27,7 +27,7 @@ def test_app():
     app.add_middleware(AuthorizationCacheMiddleware)
 
     @app.get("/test-workspace")
-    async def test_endpoint(
+    async def test_endpoint(  # pyright: ignore[reportUnusedFunction] - route handler
         role: Role = RoleACL(
             allow_user=True,
             allow_service=False,

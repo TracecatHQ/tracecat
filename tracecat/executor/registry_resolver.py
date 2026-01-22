@@ -46,7 +46,7 @@ def _build_impl_index(
                 name=impl.name,
                 origin=origin,
             )
-        else:  # template
+        elif impl.type == "template":
             index[action_name] = ActionImplementation(
                 type="template",
                 action_name=action_name,
@@ -55,6 +55,8 @@ def _build_impl_index(
                 ),
                 origin=origin,
             )
+        else:
+            raise ValueError(f"Unknown implementation type: {impl}")
 
     return index
 
@@ -253,7 +255,7 @@ async def _collect_secrets_recursive(
         # UDF: collect declared secrets
         if manifest_action.secrets:
             secrets.update(manifest_action.secrets)
-    else:
+    elif impl.type == "template":
         # Template: collect from definition.secrets and recurse into steps
         if impl.template_action.definition.secrets:
             secrets.update(impl.template_action.definition.secrets)
@@ -292,4 +294,4 @@ async def _collect_secrets_recursive(
 
 async def clear_cache() -> None:
     """Clear the manifest cache. Useful for testing."""
-    await _get_manifest_entry.cache.clear()  # type: ignore[attr-defined]
+    await _get_manifest_entry.cache.clear()  # pyright: ignore[reportAttributeAccessIssue]

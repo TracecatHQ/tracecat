@@ -392,7 +392,7 @@ async def materialize_collection_values(
 class CollectionActivities:
     """Container for collection-related Temporal activities."""
 
-    def __new__(cls) -> None:  # type: ignore[misc]
+    def __new__(cls) -> None:
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod

@@ -192,7 +192,7 @@ class TestMultiTenantExecution:
         - Both executions complete successfully
         - No cross-contamination between workspaces
         """
-        path_a, path_b = staged_cache_dirs
+        _, _ = staged_cache_dirs
 
         input_a = run_action_input_factory()
         input_b = run_action_input_factory()
@@ -603,7 +603,7 @@ class TestMultiTenantThrashing:
         - All B requests succeed with B's PYTHONPATH
         - Workers correctly switch context between bursts
         """
-        path_a, path_b = staged_cache_dirs
+        _, _ = staged_cache_dirs
         burst_size = 20
 
         resolved_context_a = resolved_context_factory(role_workspace_a)
@@ -664,7 +664,7 @@ class TestMultiTenantThrashing:
         - All complete with correct isolation
         - No race conditions between concurrent tenants
         """
-        path_a, path_b = staged_cache_dirs
+        _, _ = staged_cache_dirs
         burst_size = 10
 
         resolved_context_a = resolved_context_factory(role_workspace_a)

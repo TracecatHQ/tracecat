@@ -291,4 +291,5 @@ async def get_redis_client() -> RedisClient:
         async with _lock:
             if _redis_client is None:
                 _redis_client = RedisClient()
+    assert _redis_client is not None  # Set in double-checked locking above
     return _redis_client

@@ -7,27 +7,21 @@ from sqlalchemy import select
 from tracecat.audit.logger import audit_log
 from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
 
 
-class TagsService(BaseService):
+class TagsService(BaseWorkspaceService):
     service_name = "tags"
 
     async def list_tags(self) -> Sequence[Tag]:
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise ValueError("Workspace ID is required")
-        statement = select(Tag).where(Tag.workspace_id == workspace_id)
+        statement = select(Tag).where(Tag.workspace_id == self.workspace_id)
         result = await self.session.execute(statement)
         return result.scalars().all()
 
     async def get_tag(self, tag_id: TagID) -> Tag:
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise ValueError("Workspace ID is required")
         statement = select(Tag).where(
-            Tag.workspace_id == workspace_id,
+            Tag.workspace_id == self.workspace_id,
             Tag.id == tag_id,
         )
         result = await self.session.execute(statement)
@@ -35,11 +29,8 @@ class TagsService(BaseService):
 
     async def get_tag_by_ref(self, ref: str) -> Tag:
         """Get a tag by its ref."""
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise ValueError("Workspace ID is required")
         statement = select(Tag).where(
-            Tag.workspace_id == workspace_id,
+            Tag.workspace_id == self.workspace_id,
             Tag.ref == ref,
         )
         result = await self.session.execute(statement)
@@ -47,10 +38,6 @@ class TagsService(BaseService):
 
     async def get_tag_by_ref_or_id(self, tag_identifier: str) -> Tag:
         """Get a tag by either ref or ID."""
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise ValueError("Workspace ID is required")
-
         # Try UUID first
         try:
             uuid_obj = uuid.UUID(tag_identifier)
@@ -61,21 +48,19 @@ class TagsService(BaseService):
 
     @audit_log(resource_type="tag", action="create")
     async def create_tag(self, tag: TagCreate) -> Tag:
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise ValueError("Workspace ID is required")
-
         # Generate ref
         ref = slugify(tag.name)
 
         # Check if ref already exists
         existing = await self.session.execute(
-            select(Tag).where(Tag.ref == ref, Tag.workspace_id == workspace_id)
+            select(Tag).where(Tag.ref == ref, Tag.workspace_id == self.workspace_id)
         )
         if existing.one_or_none():
             raise ValueError(f"Tag with slug '{ref}' already exists")
 
-        db_tag = Tag(name=tag.name, ref=ref, workspace_id=workspace_id, color=tag.color)
+        db_tag = Tag(
+            name=tag.name, ref=ref, workspace_id=self.workspace_id, color=tag.color
+        )
         self.session.add(db_tag)
         await self.session.commit()
         return db_tag

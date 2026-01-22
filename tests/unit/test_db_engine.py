@@ -27,7 +27,7 @@ class DummySession:
 
 
 def test_get_db_uri_logs_decode_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    response = {"SecretBinary": base64.b64encode(b"\xff\xfe")}
+    response: dict[str, object] = {"SecretBinary": base64.b64encode(b"\xff\xfe")}
     monkeypatch.setattr(config, "TRACECAT__DB_PASS__ARN", "arn:secret")
     monkeypatch.setattr(
         "tracecat.db.engine.boto3.session.Session",

@@ -349,7 +349,7 @@ class Repository:
             args_docs={
                 key: schema.description or "-" for key, schema in expectation.items()
             },
-            rtype=Any,  # type: ignore
+            rtype=Any,  # pyright: ignore[reportArgumentType]
             rtype_adapter=TypeAdapter(Any),
             default_title=defn.title,
             display_group=defn.display_group,

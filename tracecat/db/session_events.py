@@ -45,7 +45,7 @@ def add_after_commit_callback(session: AsyncSession, callback: AsyncCallback) ->
 
 
 @event.listens_for(sqlalchemy.orm.Session, "after_commit")
-def _run_after_commit(session: sqlalchemy.orm.Session) -> None:
+def _run_after_commit(session: sqlalchemy.orm.Session) -> None:  # pyright: ignore[reportUnusedFunction] - registered as SQLAlchemy event listener
     """Execute all registered after-commit callbacks for the given session.
 
     This function is automatically called by SQLAlchemy after a session commits.

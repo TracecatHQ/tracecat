@@ -27,7 +27,7 @@ class ActionEdge(TypedDict):
 if TYPE_CHECKING:
     from tracecat.dsl.schemas import StreamID
 else:  # pragma: no cover - runtime import to avoid circular dependency
-    StreamID = Any  # type: ignore[assignment]
+    StreamID = Any
 
 
 def _root_stream_factory() -> StreamID:

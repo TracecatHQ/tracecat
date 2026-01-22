@@ -146,7 +146,7 @@ class RegistryLockService(BaseService):
                 impl = RegistryActionImplValidator.validate_python(
                     manifest_action.implementation
                 )
-                if impl.type == "template" and impl.template_action is not None:
+                if impl.type == "template":
                     for step in impl.template_action.definition.steps:
                         if PlatformAction.is_interface(step.action):
                             raise RegistryError(

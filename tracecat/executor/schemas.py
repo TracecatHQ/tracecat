@@ -61,7 +61,7 @@ def _is_nsjail_available() -> bool:
     return nsjail_path.is_file() and rootfs_path.is_dir()
 
 
-def _resolve_backend_type() -> ExecutorBackendType:
+def resolve_backend_type() -> ExecutorBackendType:
     """Resolve the backend type from config, handling 'auto' mode."""
 
     try:

@@ -8,11 +8,7 @@ from typing import cast as typing_cast
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean, cast, func, or_, select
-from tracecat_registry import (
-    RegistryOAuthSecret,
-    RegistrySecretType,
-    RegistrySecretTypeValidator,
-)
+from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat.db.models import RegistryAction, RegistryRepository
 from tracecat.exceptions import (
@@ -126,9 +122,7 @@ class RegistryActionsService(BaseService):
                         error=str(exc),
                     )
                     continue
-                if isinstance(secret, RegistryOAuthSecret) or secret.name.endswith(
-                    "_oauth"
-                ):
+                if secret.type == "oauth" or secret.name.endswith("_oauth"):
                     continue
 
                 entry = aggregated.setdefault(
@@ -702,9 +696,7 @@ class RegistryActionsService(BaseService):
             options=RegistryActionOptions(**action.options),
             secrets=sorted(
                 secrets,
-                key=lambda x: x.provider_id
-                if isinstance(x, RegistryOAuthSecret)
-                else x.name,
+                key=lambda x: x.provider_id if x.type == "oauth" else x.name,
             ),
         )
 
@@ -719,7 +711,7 @@ class RegistryActionsService(BaseService):
         Returns:
             set[RegistrySecret]: A set of secret names used by the action and its template steps
         """
-        secrets = set()
+        secrets: set[RegistrySecretType] = set()
         impl = RegistryActionImplValidator.validate_python(action.implementation)
         if impl.type == "udf":
             if action.secrets:
@@ -729,8 +721,6 @@ class RegistryActionsService(BaseService):
                 )
         elif impl.type == "template":
             ta = impl.template_action
-            if ta is None:
-                raise ValueError("Template action is not defined")
             # Add secrets from the template action itself
             if template_secrets := ta.definition.secrets:
                 secrets.update(template_secrets)
