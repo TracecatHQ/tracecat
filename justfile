@@ -6,6 +6,22 @@ default:
 test:
 	pytest --cache-clear tests/registry tests/unit tests/playbooks -x
 
+# Run fast unit tests in parallel (excludes slow/integration/temporal tests)
+test-fast:
+	uv run pytest tests/unit -m "not (slow or integration or temporal)" -n auto -x
+
+# Run only workflow/temporal tests
+test-temporal:
+	uv run pytest tests/temporal -x
+
+# Run specific test file with parallel execution
+test-file file:
+	uv run pytest {{file}} -n auto -x
+
+# Run tests matching a keyword
+test-k keyword:
+	uv run pytest tests/unit -k "{{keyword}}" -n auto -x
+
 # Run backend benchmarks inside Docker (required for nsjail on macOS)
 bench *args:
 	docker run --rm \

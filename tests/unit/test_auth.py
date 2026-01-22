@@ -4,9 +4,9 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.clients import AuthenticatedAPIClient, AuthenticatedServiceClient
-from tracecat.config import TRACECAT__API_URL
 from tracecat.contexts import ctx_role
 
 pytest.mark.disable_fixture("test_user")
@@ -134,7 +134,7 @@ async def test_authenticated_api_client_init_role_from_context(mock_user_id):
             == os.environ["TRACECAT__SERVICE_KEY"]
         )
         assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
-        assert client.base_url == TRACECAT__API_URL
+        assert client.base_url == config.TRACECAT__API_URL
 
 
 @pytest.mark.anyio
@@ -149,7 +149,7 @@ async def test_authenticated_api_client_init_no_role():
             == os.environ["TRACECAT__SERVICE_KEY"]
         )
         assert "x-tracecat-role-user-id" not in client.headers
-        assert client.base_url == TRACECAT__API_URL
+        assert client.base_url == config.TRACECAT__API_URL
 
 
 @pytest.mark.anyio
@@ -171,7 +171,7 @@ async def test_authenticated_api_client_init_with_role(mock_user_id, mock_org_id
         )
         assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
         assert uuid.UUID(client.headers["x-tracecat-role-workspace-id"]) == mock_org_id
-        assert client.base_url == TRACECAT__API_URL
+        assert client.base_url == config.TRACECAT__API_URL
 
     role = Role(type="service", service_id="tracecat-runner", workspace_id=mock_org_id)
     async with AuthenticatedAPIClient(role=role) as client:
@@ -183,4 +183,4 @@ async def test_authenticated_api_client_init_with_role(mock_user_id, mock_org_id
         )
         assert "x-tracecat-role-user-id" not in client.headers
         assert uuid.UUID(client.headers["x-tracecat-role-workspace-id"]) == mock_org_id
-        assert client.base_url == TRACECAT__API_URL
+        assert client.base_url == config.TRACECAT__API_URL
