@@ -113,6 +113,29 @@ class TimestampMixin:
     )
 
 
+class InvitationMixin:
+    """Mixin for invitation columns shared between workspace and organization invitations."""
+
+    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
+    status: Mapped[InvitationStatus] = mapped_column(
+        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
+    )
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        doc="User who created the invitation",
+    )
+    token: Mapped[str] = mapped_column(
+        String(64), unique=True, doc="Unique token for magic link acceptance"
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), doc="When the invitation expires"
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
+    )
+
+
 class RecordModel(TimestampMixin, Base):
     """Base class for all record models - provides surrogate key and timestamps."""
 
@@ -2782,7 +2805,7 @@ class Tag(WorkspaceModel):
     )
 
 
-class OrganizationInvitation(TimestampMixin, Base):
+class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     """Invitation to join an organization."""
 
     __tablename__ = "organization_invitation"
@@ -2792,28 +2815,10 @@ class OrganizationInvitation(TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
     role: Mapped[OrgRole] = mapped_column(
         Enum(OrgRole, name="orgrole"),
         default=OrgRole.MEMBER,
         doc="Role to grant upon acceptance",
-    )
-    status: Mapped[InvitationStatus] = mapped_column(
-        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
-    )
-    invited_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        doc="User who created the invitation",
-    )
-    token: Mapped[str] = mapped_column(
-        String(64), unique=True, doc="Unique token for magic link acceptance"
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), doc="When the invitation expires"
-    )
-    accepted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
     )
 
     # Relationships
@@ -2821,7 +2826,7 @@ class OrganizationInvitation(TimestampMixin, Base):
     inviter: Mapped[User | None] = relationship("User")
 
 
-class Invitation(TimestampMixin, Base):
+class Invitation(InvitationMixin, TimestampMixin, Base):
     """Invitation to join a workspace."""
 
     __tablename__ = "invitation"
@@ -2831,28 +2836,10 @@ class Invitation(TimestampMixin, Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
-    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
     role: Mapped[WorkspaceRole] = mapped_column(
         Enum(WorkspaceRole, name="workspacerole"),
         default=WorkspaceRole.EDITOR,
         doc="Role to grant upon acceptance",
-    )
-    status: Mapped[InvitationStatus] = mapped_column(
-        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
-    )
-    invited_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        doc="User who created the invitation",
-    )
-    token: Mapped[str] = mapped_column(
-        String(64), unique=True, doc="Unique token for magic link acceptance"
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), doc="When the invitation expires"
-    )
-    accepted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
     )
 
     # Relationships
