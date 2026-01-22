@@ -180,7 +180,8 @@ export function ChatSessionPane({
     onPendingMessageSent,
   ])
 
-  const isReady = status === "ready"
+  // Allow input when ready OR in error state (so user can retry after transient failures)
+  const canSubmit = status === "ready" || status === "error"
 
   const isWaitingForResponse = useMemo(() => {
     if (status === "submitted") return true
@@ -424,7 +425,7 @@ export function ChatSessionPane({
               }
               value={input}
               autoFocus={autoFocusInput && !isReadonly}
-              disabled={isReadonly || !isReady}
+              disabled={isReadonly || !canSubmit}
             />
           </PromptInputBody>
           <PromptInputToolbar>
@@ -453,7 +454,7 @@ export function ChatSessionPane({
               </PromptInputTools>
             )}
             <PromptInputSubmit
-              disabled={isReadonly || (!input && isReady)}
+              disabled={isReadonly || !canSubmit || !input}
               status={status}
               className="ml-auto text-muted-foreground/80"
             />
