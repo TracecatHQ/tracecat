@@ -120,7 +120,6 @@ class SafeLambdaValidator(ast.NodeVisitor):
         ast.Name,
         ast.Attribute,
         ast.Subscript,
-        ast.Index,
         ast.Slice,
         # Operators
         ast.BinOp,

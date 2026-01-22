@@ -1,6 +1,6 @@
 # Shim for EE decorators with no-op fallback
 try:
-    from tracecat_ee.interactions.decorators import (  # type: ignore[import-not-found]
+    from tracecat_ee.interactions.decorators import (
         maybe_interactive as maybe_interactive,
     )
 except ImportError:

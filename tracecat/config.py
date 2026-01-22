@@ -10,9 +10,10 @@ from tracecat.feature_flags.enums import FeatureFlag
 logger = logging.getLogger(__name__)
 
 # === Internal Services === #
-TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
-    "TRACECAT__APP_ENV", "development"
-)  # type: ignore
+TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
+    Literal["development", "staging", "production"],
+    os.environ.get("TRACECAT__APP_ENV", "development"),
+)
 TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://localhost:8000")
 TRACECAT__API_ROOT_PATH = os.environ.get("TRACECAT__API_ROOT_PATH", "/api")
 TRACECAT__PUBLIC_API_URL = os.environ.get(

@@ -37,7 +37,7 @@ from tracecat.storage.object import StoredObject, action_key, get_object_storage
 class ExecutorActivities:
     """Container for executor activities."""
 
-    def __new__(cls) -> None:  # type: ignore[misc]
+    def __new__(cls) -> None:
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod

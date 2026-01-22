@@ -98,8 +98,8 @@ interrupt_event = asyncio.Event()
 # ============================================================================
 
 _litellm_process: asyncio.subprocess.Process | None = None
-_litellm_stderr_task: asyncio.Task | None = None
-_mcp_server_task: asyncio.Task | None = None
+_litellm_stderr_task: asyncio.Task[None] | None = None
+_mcp_server_task: asyncio.Task[None] | None = None
 
 
 async def _stream_litellm_stderr(process: asyncio.subprocess.Process) -> None:
@@ -250,9 +250,9 @@ async def stop_mcp_server() -> None:
 # ============================================================================
 
 
-def get_activities() -> list[Callable]:
+def get_activities() -> list[Callable[..., object]]:
     """Load all activities needed for agent workflow execution."""
-    activities: list[Callable] = []
+    activities: list[Callable[..., object]] = []
 
     # Agent activities (EE)
     agent_activities = AgentActivities()

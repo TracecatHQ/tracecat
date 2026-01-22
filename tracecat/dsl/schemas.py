@@ -225,7 +225,7 @@ class TaskResult(BaseModel):
         For ExternalObject, raises an error (must be materialized first).
         For collection items (collection_index set), returns the indexed item.
         """
-        if self.result.type == "inline":
+        if isinstance(self.result, InlineObject):
             data = self.result.data
             if self.collection_index is not None and isinstance(data, list):
                 return data[self.collection_index]

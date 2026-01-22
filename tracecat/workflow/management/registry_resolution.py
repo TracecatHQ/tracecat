@@ -12,7 +12,10 @@ from tracecat.db.models import RegistryIndex, RegistryRepository, RegistryVersio
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.identifiers import OrganizationID
-from tracecat.registry.actions.schemas import RegistryActionImplValidator
+from tracecat.registry.actions.schemas import (
+    RegistryActionImplValidator,
+    RegistryActionTemplateImpl,
+)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
@@ -205,7 +208,7 @@ async def resolve_action_origins_from_lock(
             impl = RegistryActionImplValidator.validate_python(
                 manifest_action.implementation
             )
-            if impl.type != "template" or impl.template_action is None:
+            if not isinstance(impl, RegistryActionTemplateImpl):
                 errors.append(
                     RegistryActionResolutionError(
                         action=action_name,

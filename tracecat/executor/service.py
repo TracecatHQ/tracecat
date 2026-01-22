@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
@@ -80,7 +80,8 @@ class RegistryArtifactsContext:
 
 
 # Cache for individual artifacts (origin, version) -> RegistryArtifactsContext
-_artifact_cache = Cache(Cache.MEMORY, ttl=60)
+# Cast to Any since aiocache doesn't have proper type stubs
+_artifact_cache: Any = Cache(Cache.MEMORY, ttl=60)
 
 
 def _artifact_cache_key(
@@ -263,7 +264,7 @@ async def _run_template_steps(
         evaled_args = cast(
             ArgsT,
             eval_templated_object(
-                step.args, operand=cast(ExprOperand, template_context)
+                step.args, operand=cast(ExprOperand[str], template_context)
             ),
         )
         async with RegistryActionsService.with_session() as service:
@@ -284,7 +285,7 @@ async def _run_template_steps(
 
     # Handle returns
     return eval_templated_object(
-        defn.returns, operand=cast(ExprOperand, template_context)
+        defn.returns, operand=cast(ExprOperand[str], template_context)
     )
 
 
@@ -751,6 +752,8 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
         LoopExecutionError: If there are errors in for_each loop execution
     """
     role = ctx_role.get()
+    if role is None:
+        raise ValueError("Role is required to dispatch actions")
     ctx = DispatchActionContext(role=role)
     task = input.task
     logger.info("Preparing runtime environment", ctx=ctx)
@@ -776,7 +779,7 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
                 # Patch each loop variable
                 for iterator_path, iterator_value in items:
                     patch_object(
-                        obj=new_context,  # type: ignore
+                        obj=cast(MutableMapping[str, Any], new_context),
                         path=ExprContext.LOCAL_VARS + iterator_path,
                         value=iterator_value,
                     )
@@ -813,7 +816,9 @@ def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) ->
     return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
-def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
+def patch_object(
+    obj: MutableMapping[str, Any], *, path: str, value: Any, sep: str = "."
+) -> None:
     *stem, leaf = path.split(sep=sep)
     for key in stem:
         obj = obj.setdefault(key, {})
@@ -845,7 +850,7 @@ def iter_for_each(
         logger.trace("Loop iteration", iteration=i)
         for iterator_path, iterator_value in items:
             patch_object(
-                obj=patched_context,  # type: ignore
+                obj=cast(MutableMapping[str, Any], patched_context),
                 path=assign_context + iterator_path,
                 value=iterator_value,
             )

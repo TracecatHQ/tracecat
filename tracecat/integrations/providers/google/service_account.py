@@ -70,7 +70,7 @@ class GoogleServiceAccountOAuthProvider(ServiceAccountOAuthProvider):
                 "Overriding token endpoint from service account JSON",
                 configured=token_uri,
             )
-            self._token_endpoint = token_uri  # type: ignore[attr-defined]
+            self._token_endpoint = token_uri
 
         return info
 

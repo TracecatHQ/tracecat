@@ -7,15 +7,12 @@ from temporalio import activity
 from tracecat.auth.types import AccessLevel
 from tracecat.db.models import Schedule
 from tracecat.db.session_events import add_after_commit_callback
-from tracecat.exceptions import (
-    TracecatAuthorizationError,
-    TracecatNotFoundError,
-)
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
@@ -25,7 +22,7 @@ from tracecat.workflow.schedules.schemas import (
 )
 
 
-class WorkflowSchedulesService(BaseService):
+class WorkflowSchedulesService(BaseWorkspaceService):
     """Manages schedules for Workflows."""
 
     service_name = "workflow_schedules"
@@ -46,9 +43,7 @@ class WorkflowSchedulesService(BaseService):
         list[Schedule]
             A list of Schedule objects representing the schedules for the specified workflow, or all schedules if no workflow ID is provided.
         """
-        statement = select(Schedule).where(
-            Schedule.workspace_id == self.role.workspace_id
-        )
+        statement = select(Schedule).where(Schedule.workspace_id == self.workspace_id)
         if workflow_id is not None:
             statement = statement.where(Schedule.workflow_id == workflow_id)
         result = await self.session.execute(statement)
@@ -77,11 +72,8 @@ class WorkflowSchedulesService(BaseService):
             If there is an error creating the schedule.
 
         """
-        workspace_id = self.role.workspace_id
-        if workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
         schedule = Schedule(
-            workspace_id=workspace_id,
+            workspace_id=self.workspace_id,
             workflow_id=WorkflowUUID.new(params.workflow_id),
             inputs=params.inputs or {},
             every=params.every,
@@ -95,7 +87,7 @@ class WorkflowSchedulesService(BaseService):
         self.session.add(schedule)
         await self.session.flush()
 
-        role = self.role.model_copy(
+        role_copy = self.role.model_copy(
             update={
                 "type": "service",
                 "service_id": "tracecat-schedule-runner",
@@ -118,14 +110,14 @@ class WorkflowSchedulesService(BaseService):
                     start_at=params.start_at,
                     end_at=params.end_at,
                     timeout=params.timeout,
-                    role=role,
+                    role=role_copy,
                 )
                 logger.info(
                     "Created schedule",
                     handle_id=handle.id,
                     workflow_id=params.workflow_id,
                     schedule_id=schedule_id,
-                    schedule_role=role,
+                    schedule_role=role_copy,
                 )
             except Exception as e:
                 # Log; optionally wire to a retry/outbox
@@ -134,7 +126,7 @@ class WorkflowSchedulesService(BaseService):
                     error=str(e),
                     workflow_id=params.workflow_id,
                     schedule_id=schedule_id,
-                    schedule_role=role,
+                    schedule_role=role_copy,
                 )
 
         add_after_commit_callback(self.session, _create_schedule)
@@ -172,7 +164,7 @@ class WorkflowSchedulesService(BaseService):
         schedule_uuid = ScheduleUUID.new(schedule_id)
         result = await self.session.execute(
             select(Schedule).where(
-                Schedule.workspace_id == self.role.workspace_id,
+                Schedule.workspace_id == self.workspace_id,
                 Schedule.id == schedule_uuid,
             )
         )

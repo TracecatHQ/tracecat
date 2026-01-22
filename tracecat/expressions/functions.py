@@ -1239,7 +1239,7 @@ def mappable(func: F) -> F:
         zipped_args = zip(*iterables, strict=False)
         return [func(*zipped) for zipped in zipped_args]
 
-    wrapper.map = broadcast_map  # type: ignore
+    wrapper.map = broadcast_map  # pyright: ignore[reportAttributeAccessIssue]
     wrapper.__doc__ = func.__doc__
     return wrapper
 

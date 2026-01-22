@@ -1,4 +1,4 @@
-from fastapi import Request, status
+from fastapi import Request, Response, status
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from temporalio.api.enums.v1 import IndexedValueType
@@ -22,7 +22,7 @@ from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-def generic_exception_handler(request: Request, exc: Exception):
+def generic_exception_handler(request: Request, exc: Exception) -> Response:
     logger.error(
         "Unexpected error",
         exc=exc,
@@ -45,22 +45,29 @@ def bootstrap_role():
     )
 
 
-def tracecat_exception_handler(request: Request, exc: TracecatException):
+def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     """Generic exception handler for Tracecat exceptions.
 
     We can customize exceptions to expose only what should be user facing.
     """
-    msg = str(exc)
+    tracecat_exc = (
+        exc if isinstance(exc, TracecatException) else TracecatException(str(exc))
+    )
+    msg = str(tracecat_exc)
     logger.error(
         msg,
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
-        detail=exc.detail,
+        detail=tracecat_exc.detail,
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"type": type(exc).__name__, "message": msg, "detail": exc.detail},
+        content={
+            "type": type(exc).__name__,
+            "message": msg,
+            "detail": tracecat_exc.detail,
+        },
     )
 
 

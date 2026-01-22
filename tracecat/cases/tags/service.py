@@ -1,11 +1,9 @@
 import uuid
 from collections.abc import Sequence
-from typing import cast
 
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
@@ -192,8 +190,8 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def list_tags_for_case(self, case_id: uuid.UUID) -> Sequence[CaseTag]:
         """List all tags attached to a specific case."""
-        onclause = cast(ColumnElement[bool], CaseTagLink.tag_id == CaseTag.id)
-        condition = cast(ColumnElement[bool], CaseTagLink.case_id == case_id)
+        onclause = CaseTagLink.tag_id == CaseTag.id
+        condition = CaseTagLink.case_id == case_id
         stmt = select(CaseTag).join(CaseTagLink, onclause).where(condition)
         result = await self.session.execute(stmt)
         return result.scalars().all()

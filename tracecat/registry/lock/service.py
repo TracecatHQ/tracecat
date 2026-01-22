@@ -14,7 +14,10 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import RegistryError
-from tracecat.registry.actions.schemas import RegistryActionImplValidator
+from tracecat.registry.actions.schemas import (
+    RegistryActionImplValidator,
+    RegistryActionTemplateImpl,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.service import BaseService
@@ -146,7 +149,7 @@ class RegistryLockService(BaseService):
                 impl = RegistryActionImplValidator.validate_python(
                     manifest_action.implementation
                 )
-                if impl.type == "template" and impl.template_action is not None:
+                if isinstance(impl, RegistryActionTemplateImpl):
                     for step in impl.template_action.definition.steps:
                         if PlatformAction.is_interface(step.action):
                             raise RegistryError(

@@ -228,7 +228,7 @@ def to_pydantic_ai_deferred_results(
             pa_approvals[tool_call_id] = PAToolDenied(message=approval.message)
         else:
             # Fallback for raw dict or unexpected types
-            pa_approvals[tool_call_id] = approval  # type: ignore[assignment]
+            pa_approvals[tool_call_id] = approval
 
     return PADeferredToolResults(
         approvals=pa_approvals,

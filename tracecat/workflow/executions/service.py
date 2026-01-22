@@ -124,7 +124,7 @@ class WorkflowExecutionsService:
         Returns:
             timedelta if timeout should be applied, None for unlimited
         """
-        if (ws_id := self.role.workspace_id) is not None:
+        if self.role is not None and (ws_id := self.role.workspace_id) is not None:
             async with WorkspaceService.with_session(role=self.role) as ws_svc:
                 workspace = await ws_svc.get_workspace(ws_id)
                 if workspace and isinstance(workspace.settings, dict):
@@ -835,6 +835,8 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
+        if self.role is None:
+            raise ValueError("Role is required to dispatch a workflow")
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
             kwargs["rpc_timeout"] = datetime.timedelta(seconds=float(rpc_timeout))
         if task_timeout := config.TEMPORAL__TASK_TIMEOUT:
@@ -877,16 +879,19 @@ class WorkflowExecutionsService:
         )
 
         pairs = [trigger_type.to_temporal_search_attr_pair()]
-        if self.role.user_id is not None:
-            pairs.append(
-                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
-                    str(self.role.user_id)
+        if self.role is not None:
+            if self.role.user_id is not None:
+                pairs.append(
+                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                        str(self.role.user_id)
+                    )
                 )
-            )
-        if self.role.workspace_id is not None:
-            pairs.append(
-                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
-            )
+            if self.role.workspace_id is not None:
+                pairs.append(
+                    TemporalSearchAttr.WORKSPACE_ID.create_pair(
+                        str(self.role.workspace_id)
+                    )
+                )
         # Add execution type search attribute
         pairs.append(execution_type.to_temporal_search_attr_pair())
         search_attrs = TypedSearchAttributes(search_attributes=pairs)

@@ -40,7 +40,7 @@ def _format_markdown(x: list[dict[str, Any]], default_value: str = "") -> str:
     header_row = "|" + "|".join(headers) + "|"
 
     # Build separator row
-    separator_row = "|" + "|".join(["-" for key in headers]) + "|"
+    separator_row = "|" + "|".join(["-" for _ in headers]) + "|"
 
     # Build data rows
     data_rows = []

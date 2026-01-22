@@ -29,8 +29,8 @@ class Expression:
         self,
         expression: str,
         *,
-        operand: ExprOperand | None = None,
-        visitor: Visitor | None = None,
+        operand: ExprOperand[str] | None = None,
+        visitor: Visitor[Token] | None = None,
     ) -> None:
         self._expr = expression
         self._operand = operand
@@ -140,9 +140,9 @@ class TemplateExpression:
     def __init__(
         self,
         template: str,
-        operand: ExprOperand | None = None,
+        operand: ExprOperand[str] | None = None,
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         match = pattern.match(template)
         if match is None:
@@ -166,7 +166,7 @@ class TemplateExpression:
         return self.expr.result()
 
 
-class ExprExtractor[ExtractorResult](Visitor, abc.ABC):
+class ExprExtractor[ExtractorResult](Visitor[Token], abc.ABC):
     """Extract components from an expression."""
 
     _visitor_name = "ExprExtractor"

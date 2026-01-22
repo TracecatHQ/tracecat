@@ -47,7 +47,7 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.lock.service import RegistryLockService
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,
@@ -70,7 +70,7 @@ from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
-class WorkflowsManagementService(BaseService):
+class WorkflowsManagementService(BaseWorkspaceService):
     """Manages CRUD operations for Workflows."""
 
     service_name = "workflows"
@@ -105,7 +105,7 @@ class WorkflowsManagementService(BaseService):
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at,
             )
-            .where(Workflow.workspace_id == self.role.workspace_id)
+            .where(Workflow.workspace_id == self.workspace_id)
             .outerjoin(
                 latest_defn_subq,
                 sa.cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
@@ -191,7 +191,7 @@ class WorkflowsManagementService(BaseService):
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at.label("defn_created_at"),
             )
-            .where(Workflow.workspace_id == self.role.workspace_id)
+            .where(Workflow.workspace_id == self.workspace_id)
             .outerjoin(
                 latest_defn_subq,
                 sa.cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
@@ -337,7 +337,7 @@ class WorkflowsManagementService(BaseService):
         statement = (
             select(Workflow)
             .where(
-                Workflow.workspace_id == self.role.workspace_id,
+                Workflow.workspace_id == self.workspace_id,
                 Workflow.id == workflow_id,
             )
             .options(
@@ -421,7 +421,7 @@ class WorkflowsManagementService(BaseService):
             statement = (
                 select(WorkflowDefinition.workflow_id)
                 .where(
-                    WorkflowDefinition.workspace_id == self.role.workspace_id,
+                    WorkflowDefinition.workspace_id == self.workspace_id,
                     WorkflowDefinition.alias == alias,
                 )
                 .order_by(WorkflowDefinition.version.desc())
@@ -430,7 +430,7 @@ class WorkflowsManagementService(BaseService):
         else:
             # For draft executions: resolve from draft Workflow table
             statement = select(Workflow.id).where(
-                Workflow.workspace_id == self.role.workspace_id,
+                Workflow.workspace_id == self.workspace_id,
                 Workflow.alias == alias,
             )
         result = await self.session.execute(statement)
@@ -441,7 +441,7 @@ class WorkflowsManagementService(BaseService):
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         statement = select(Workflow).where(
-            Workflow.workspace_id == self.role.workspace_id,
+            Workflow.workspace_id == self.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.execute(statement)
@@ -470,7 +470,7 @@ class WorkflowsManagementService(BaseService):
         before the database cascade deletion occurs.
         """
         statement = select(Workflow).where(
-            Workflow.workspace_id == self.role.workspace_id,
+            Workflow.workspace_id == self.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.execute(statement)
@@ -506,7 +506,7 @@ class WorkflowsManagementService(BaseService):
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
 
-        if self.role.workspace_id is None:
+        if self.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
 
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
@@ -517,7 +517,7 @@ class WorkflowsManagementService(BaseService):
         workflow = Workflow(
             title=title,
             description=description,
-            workspace_id=self.role.workspace_id,
+            workspace_id=self.workspace_id,
         )
         # When we create a workflow, we automatically create a webhook
         # Add the Workflow to the session first to generate an ID
@@ -527,7 +527,7 @@ class WorkflowsManagementService(BaseService):
 
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
-            workspace_id=self.role.workspace_id,
+            workspace_id=self.workspace_id,
             # workflow_id=workflow.id,
         )
         webhook.workflow = workflow
@@ -645,7 +645,7 @@ class WorkflowsManagementService(BaseService):
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
         self.logger.info("Creating workflow from DSL", dsl=dsl)
-        if self.role.workspace_id is None:
+        if self.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
 
         # Resolve registry_lock with action bindings from the DSL
@@ -658,7 +658,7 @@ class WorkflowsManagementService(BaseService):
         workflow_kwargs = {
             "title": dsl.title,
             "description": dsl.description,
-            "workspace_id": self.role.workspace_id,
+            "workspace_id": self.workspace_id,
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "expects": entrypoint.get("expects"),
@@ -681,7 +681,7 @@ class WorkflowsManagementService(BaseService):
 
         # Create and associate Webhook with the Workflow
         webhook = Webhook(
-            workspace_id=self.role.workspace_id,
+            workspace_id=self.workspace_id,
             workflow_id=workflow.id,
         )
         self.session.add(webhook)
@@ -704,7 +704,7 @@ class WorkflowsManagementService(BaseService):
         Builds upstream_edges from depends_on relationships.
         For root actions (no depends_on), creates trigger->action edge.
         """
-        if self.role.workspace_id is None:
+        if self.workspace_id is None:
             raise TracecatAuthorizationError("Workspace ID is required")
 
         # Create all actions and build ref->action mapping
@@ -721,7 +721,7 @@ class WorkflowsManagementService(BaseService):
             )
             new_action = Action(
                 id=uuid.uuid4(),
-                workspace_id=self.role.workspace_id,
+                workspace_id=self.workspace_id,
                 workflow_id=workflow_id,
                 type=act_stmt.action,
                 inputs=yaml.dump(act_stmt.args),

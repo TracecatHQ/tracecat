@@ -4,11 +4,19 @@ from tracecat.interactions.schemas import *  # noqa: F401,F403
 # EE-specific models are re-exported from tracecat_ee when available
 try:
     from tracecat_ee.interactions.service import (  # noqa: F401
-        CreateInteractionActivityInputs,
-        InteractionCreate,
-        InteractionRead,
-        InteractionUpdate,
-        UpdateInteractionActivityInputs,
+        CreateInteractionActivityInputs as CreateInteractionActivityInputs,
+    )
+    from tracecat_ee.interactions.service import (
+        InteractionCreate as InteractionCreate,
+    )
+    from tracecat_ee.interactions.service import (
+        InteractionRead as InteractionRead,
+    )
+    from tracecat_ee.interactions.service import (
+        InteractionUpdate as InteractionUpdate,
+    )
+    from tracecat_ee.interactions.service import (
+        UpdateInteractionActivityInputs as UpdateInteractionActivityInputs,
     )
 except ImportError:
     # If EE is not installed, these models won't be available

@@ -63,9 +63,11 @@ class BaseService:
 class BaseWorkspaceService(BaseService):
     """Base class for services that require a workspace."""
 
+    role: Role  # Override parent - always non-None for workspace services
+
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        if self.role.workspace_id is None:
+        if self.role is None or self.role.workspace_id is None:
             raise TracecatAuthorizationError(
                 f"{self.service_name} service requires workspace"
             )

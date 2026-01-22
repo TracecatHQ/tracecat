@@ -101,7 +101,7 @@ class SlackOAuthProvider(AuthorizationCodeOAuthProvider):
                     code=code,
                     state=state,
                     **token_params,
-                ),  # type: ignore[arg-type]
+                ),
             )
             self.logger.info(
                 "Successfully acquired Slack OAuth token",

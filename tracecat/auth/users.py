@@ -35,7 +35,6 @@ from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDataba
 from pydantic import EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
@@ -67,7 +66,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = config.USER_AUTH_SECRET
     verification_token_secret = config.USER_AUTH_SECRET
 
-    def __init__(self, user_db: SQLAlchemyUserDatabase) -> None:
+    def __init__(self, user_db: SQLAlchemyUserDatabase[User, uuid.UUID]) -> None:
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
         self.role = bootstrap_role()
@@ -143,7 +142,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
-    async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
+    async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[invalid-method-override]
         self,
         oauth_name: str,
         access_token: str,
@@ -320,18 +319,18 @@ async def get_access_token_db(
 
 def get_user_db_context(
     session: AsyncSession,
-) -> contextlib.AbstractAsyncContextManager[SQLAlchemyUserDatabase]:
+) -> contextlib.AbstractAsyncContextManager[SQLAlchemyUserDatabase[User, uuid.UUID]]:
     return contextlib.asynccontextmanager(get_user_db)(session=session)
 
 
 async def get_user_manager(
-    user_db: SQLAlchemyUserDatabase = Depends(get_user_db),
+    user_db: SQLAlchemyUserDatabase[User, uuid.UUID] = Depends(get_user_db),
 ) -> AsyncGenerator[UserManager, None]:
     yield UserManager(user_db)
 
 
 def get_user_manager_context(
-    user_db: SQLAlchemyUserDatabase,
+    user_db: SQLAlchemyUserDatabase[User, uuid.UUID],
 ) -> contextlib.AbstractAsyncContextManager[UserManager]:
     return contextlib.asynccontextmanager(get_user_manager)(user_db=user_db)
 
@@ -395,7 +394,7 @@ cookie_transport = CookieTransport(
 
 def get_database_strategy(
     access_token_db: AccessTokenDatabase[AccessToken] = Depends(get_access_token_db),
-) -> DatabaseStrategy:
+) -> DatabaseStrategy[User, uuid.UUID, AccessToken]:
     strategy = DatabaseStrategy(
         access_token_db,
         lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,
@@ -404,7 +403,7 @@ def get_database_strategy(
     return strategy
 
 
-auth_backend = AuthenticationBackend(
+auth_backend: AuthenticationBackend[User, uuid.UUID] = AuthenticationBackend(
     name="database",
     transport=cookie_transport,
     get_strategy=get_database_strategy,
@@ -419,7 +418,7 @@ UserManagerDep = Annotated[UserManager, Depends(get_user_manager)]
 class FastAPIUserWithLogoutRouter(FastAPIUsers[models.UP, models.ID]):
     def get_logout_router(
         self,
-        backend: AuthenticationBackend,
+        backend: AuthenticationBackend[models.UP, models.ID],
         requires_verification: bool = config.TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION,
     ) -> APIRouter:
         """
@@ -442,7 +441,7 @@ class FastAPIUserWithLogoutRouter(FastAPIUsers[models.UP, models.ID]):
         @router.post(
             "/logout", name=f"auth:{backend.name}.logout", responses=logout_responses
         )
-        async def logout(
+        async def logout(  # pyright: ignore[reportUnusedFunction] - registered as FastAPI route handler
             user_token: tuple[models.UP, str] = Depends(get_current_user_token),
             strategy: Strategy[models.UP, models.ID] = Depends(backend.get_strategy),
         ) -> Response:
@@ -494,7 +493,7 @@ async def search_users(
 ) -> Sequence[User]:
     statement = select(User)
     if user_ids:
-        statement = statement.where(cast(Mapped[uuid.UUID], User.id).in_(user_ids))
+        statement = statement.where(User.id.in_(user_ids))  # pyright: ignore[reportAttributeAccessIssue]
     result = await session.execute(statement)
     return result.scalars().all()
 
@@ -519,6 +518,6 @@ async def lookup_user_by_email(*, session: AsyncSession, email: str) -> User | N
     Returns:
         User | None: The user object if found, None otherwise.
     """
-    statement = select(User).where(cast(Mapped[str], User.email) == email)
+    statement = select(User).where(User.email == email)  # pyright: ignore[reportArgumentType]
     result = await session.execute(statement)
     return result.scalars().first()

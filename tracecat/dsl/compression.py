@@ -2,7 +2,11 @@
 
 from collections.abc import Iterable
 
-import cramjam
+from cramjam import (
+    brotli as cramjam_brotli,  # pyright: ignore[reportAttributeAccessIssue]
+)
+from cramjam import gzip as cramjam_gzip  # pyright: ignore[reportAttributeAccessIssue]
+from cramjam import zstd as cramjam_zstd  # pyright: ignore[reportAttributeAccessIssue]
 from loguru import logger
 from temporalio.api.common.v1 import Payload
 from temporalio.converter import PayloadCodec
@@ -64,13 +68,13 @@ class CompressionPayloadCodec(PayloadCodec):
             try:
                 # Compress the payload data
                 if self.algorithm == "zstd":
-                    compressed_data = bytes(cramjam.zstd.compress(payload.data, 11))  # type: ignore
+                    compressed_data = bytes(cramjam_zstd.compress(payload.data, 11))
                     encoding = b"binary/zstd"
                 elif self.algorithm == "gzip":
-                    compressed_data = bytes(cramjam.gzip.compress(payload.data))  # type: ignore
+                    compressed_data = bytes(cramjam_gzip.compress(payload.data))
                     encoding = b"binary/gzip"
                 elif self.algorithm == "brotli":
-                    compressed_data = bytes(cramjam.brotli.compress(payload.data))  # type: ignore
+                    compressed_data = bytes(cramjam_brotli.compress(payload.data))
                     encoding = b"binary/brotli"
                 else:
                     logger.warning(f"Unknown compression algorithm: {self.algorithm}")
@@ -142,11 +146,11 @@ class CompressionPayloadCodec(PayloadCodec):
             try:
                 # Decompress based on encoding
                 if encoding == "binary/zstd":
-                    decompressed_data = bytes(cramjam.zstd.decompress(payload.data))  # type: ignore
+                    decompressed_data = bytes(cramjam_zstd.decompress(payload.data))
                 elif encoding == "binary/gzip":
-                    decompressed_data = bytes(cramjam.gzip.decompress(payload.data))  # type: ignore
+                    decompressed_data = bytes(cramjam_gzip.decompress(payload.data))
                 elif encoding == "binary/brotli":
-                    decompressed_data = bytes(cramjam.brotli.decompress(payload.data))  # type: ignore
+                    decompressed_data = bytes(cramjam_brotli.decompress(payload.data))
                 else:
                     logger.warning(f"Unknown compression encoding: {encoding}")
                     result.append(payload)

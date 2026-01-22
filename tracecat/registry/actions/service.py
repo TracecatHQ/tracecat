@@ -38,7 +38,9 @@ from tracecat.registry.actions.schemas import (
     RegistryActionInterface,
     RegistryActionOptions,
     RegistryActionRead,
+    RegistryActionTemplateImpl,
     RegistryActionType,
+    RegistryActionUDFImpl,
     RegistryActionUpdate,
     RegistryActionValidationErrorInfo,
     TemplateAction,
@@ -719,18 +721,16 @@ class RegistryActionsService(BaseService):
         Returns:
             set[RegistrySecret]: A set of secret names used by the action and its template steps
         """
-        secrets = set()
+        secrets: set[RegistrySecretType] = set()
         impl = RegistryActionImplValidator.validate_python(action.implementation)
-        if impl.type == "udf":
+        if isinstance(impl, RegistryActionUDFImpl):
             if action.secrets:
                 secrets.update(
                     RegistrySecretTypeValidator.validate_python(secret)
                     for secret in action.secrets
                 )
-        elif impl.type == "template":
+        elif isinstance(impl, RegistryActionTemplateImpl):
             ta = impl.template_action
-            if ta is None:
-                raise ValueError("Template action is not defined")
             # Add secrets from the template action itself
             if template_secrets := ta.definition.secrets:
                 secrets.update(template_secrets)
@@ -874,7 +874,7 @@ async def validate_action_template(
 def _implementation_to_interface(
     impl: AnnotatedRegistryActionImpl,
 ) -> RegistryActionInterface:
-    if impl.type == "template":
+    if isinstance(impl, RegistryActionTemplateImpl):
         expects = create_expectation_model(
             schema=impl.template_action.definition.expects,
             model_name=impl.template_action.definition.action.replace(".", "__"),

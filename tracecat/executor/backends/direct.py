@@ -199,7 +199,7 @@ class DirectBackend(ExecutorBackend):
         # Always set interaction context (even if None) to prevent stale context leakage
         ctx_interaction.set(input.interaction_context)
 
-        log = ctx_logger.get(logger.bind(ref=input.task.ref))
+        log = ctx_logger.get() or logger.bind(ref=input.task.ref)
 
         # Set up registry context for SDK access within UDFs
         registry_ctx = RegistryContext(

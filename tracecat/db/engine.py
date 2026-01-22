@@ -10,7 +10,9 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from tracecat import config
-from tracecat.db import session_events  # noqa: F401 - ensure listeners are registered
+from tracecat.db import (
+    session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
+)
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -36,7 +38,7 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
     if config.TRACECAT__DB_PASS__ARN:
         logger.info("Retrieving database password from AWS Secrets Manager...")
         try:
-            session = boto3.session.Session()  # type: ignore
+            session = boto3.session.Session()
             client = session.client(service_name="secretsmanager")
             response = client.get_secret_value(SecretId=config.TRACECAT__DB_PASS__ARN)
             secret_string = response.get("SecretString")
@@ -93,23 +95,43 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
             raise e
 
         # Get the password from AWS Secrets Manager
+        if not config.TRACECAT__DB_ENDPOINT:
+            raise ValueError(
+                "TRACECAT__DB_ENDPOINT is required when using AWS Secrets Manager"
+            )
+        if not config.TRACECAT__DB_PORT:
+            raise ValueError(
+                "TRACECAT__DB_PORT is required when using AWS Secrets Manager"
+            )
+        if not config.TRACECAT__DB_NAME:
+            raise ValueError(
+                "TRACECAT__DB_NAME is required when using AWS Secrets Manager"
+            )
         uri = get_connection_string(
             username=username,
             password=password,
-            host=config.TRACECAT__DB_ENDPOINT,  # type: ignore
-            port=config.TRACECAT__DB_PORT,  # type: ignore
-            database=config.TRACECAT__DB_NAME,  # type: ignore
+            host=config.TRACECAT__DB_ENDPOINT,
+            port=config.TRACECAT__DB_PORT,
+            database=config.TRACECAT__DB_NAME,
             driver=driver,
         )
         logger.info("Successfully retrieved database password from AWS Secrets Manager")
     # Else check if the password is in the local environment
     elif config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS:
+        if not config.TRACECAT__DB_ENDPOINT:
+            raise ValueError(
+                "TRACECAT__DB_ENDPOINT is required when using DB credentials"
+            )
+        if not config.TRACECAT__DB_PORT:
+            raise ValueError("TRACECAT__DB_PORT is required when using DB credentials")
+        if not config.TRACECAT__DB_NAME:
+            raise ValueError("TRACECAT__DB_NAME is required when using DB credentials")
         uri = get_connection_string(
             username=config.TRACECAT__DB_USER,
             password=config.TRACECAT__DB_PASS,
-            host=config.TRACECAT__DB_ENDPOINT,  # type: ignore
-            port=config.TRACECAT__DB_PORT,  # type: ignore
-            database=config.TRACECAT__DB_NAME,  # type: ignore
+            host=config.TRACECAT__DB_ENDPOINT,
+            port=config.TRACECAT__DB_PORT,
+            database=config.TRACECAT__DB_NAME,
             driver=driver,
         )
     # Else use the default URI

@@ -533,7 +533,7 @@ async def _multi_pass_rank(
         # Process results and collect scores
         for batch_idx, result in enumerate(batch_results):
             batch = batches[batch_idx]
-            batch_ids = [item[id_field] for item in batch]
+            batch_ids = [item[id_field] for item in batch]  # ty: ignore[invalid-key]
 
             if isinstance(result, Exception):
                 logger.warning(
@@ -614,7 +614,7 @@ async def _multi_pass_rank(
             bottom_ids = sorted_ids[refinement_count:]
 
             # Filter items for refinement
-            top_items = [item for item in items if item[id_field] in top_ids]
+            top_items = [item for item in items if item[id_field] in top_ids]  # ty: ignore[invalid-key]
 
             # Recursively refine the top portion
             # Reduce passes and refinement ratio for deeper levels

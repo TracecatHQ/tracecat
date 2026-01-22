@@ -18,7 +18,11 @@ from tracecat.exceptions import RegistryError
 from tracecat.executor.schemas import ActionImplementation
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionImplValidator
+from tracecat.registry.actions.schemas import (
+    RegistryActionImplValidator,
+    RegistryActionTemplateImpl,
+    RegistryActionUDFImpl,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
@@ -38,7 +42,7 @@ def _build_impl_index(
             manifest_action.implementation
         )
 
-        if impl.type == "udf":
+        if isinstance(impl, RegistryActionUDFImpl):
             index[action_name] = ActionImplementation(
                 type="udf",
                 action_name=action_name,
@@ -46,7 +50,7 @@ def _build_impl_index(
                 name=impl.name,
                 origin=origin,
             )
-        else:  # template
+        elif isinstance(impl, RegistryActionTemplateImpl):
             index[action_name] = ActionImplementation(
                 type="template",
                 action_name=action_name,
@@ -55,6 +59,8 @@ def _build_impl_index(
                 ),
                 origin=origin,
             )
+        else:
+            raise ValueError(f"Unknown implementation type: {impl}")
 
     return index
 
@@ -249,11 +255,11 @@ async def _collect_secrets_recursive(
     """Recursively collect secrets from an action and its template steps."""
     impl = RegistryActionImplValidator.validate_python(manifest_action.implementation)
 
-    if impl.type == "udf":
+    if isinstance(impl, RegistryActionUDFImpl):
         # UDF: collect declared secrets
         if manifest_action.secrets:
             secrets.update(manifest_action.secrets)
-    else:
+    elif isinstance(impl, RegistryActionTemplateImpl):
         # Template: collect from definition.secrets and recurse into steps
         if impl.template_action.definition.secrets:
             secrets.update(impl.template_action.definition.secrets)
@@ -292,4 +298,4 @@ async def _collect_secrets_recursive(
 
 async def clear_cache() -> None:
     """Clear the manifest cache. Useful for testing."""
-    await _get_manifest_entry.cache.clear()  # type: ignore[attr-defined]
+    await _get_manifest_entry.cache.clear()  # pyright: ignore[reportAttributeAccessIssue]

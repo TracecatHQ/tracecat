@@ -8,16 +8,11 @@ import sqlalchemy as sa
 from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.orm import selectinload
 
-from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, WorkflowDefinition, WorkflowFolder
-from tracecat.exceptions import (
-    TracecatAuthorizationError,
-    TracecatNotFoundError,
-    TracecatValidationError,
-)
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
     DirectoryItem,
@@ -27,16 +22,10 @@ from tracecat.workflow.management.folders.schemas import (
 from tracecat.workflow.management.schemas import WorkflowDefinitionReadMinimal
 
 
-class WorkflowFolderService(BaseService):
+class WorkflowFolderService(BaseWorkspaceService):
     """Service for managing workflow folders using materialized path pattern."""
 
     service_name = "workflow_folders"
-
-    def __init__(self, session, role: Role | None = None):
-        super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Workspace ID is required")
-        self.workspace_id = self.role.workspace_id
 
     async def create_folder(
         self, name: str, parent_path: str = "/", commit: bool = True
