@@ -77,7 +77,8 @@ jobs:
       #    python -c "import importlib, sys; print('import ok:', bool(importlib.import_module('internal_registry', package=None))); sys.exit(0)"
 
   # ──────────────────────────────────────────────────────────────────
-  # 2.  FULL INTEGRATION TESTS  (unchanged, now depends on ssh-sanity)
+  # 2.  FULL INTEGRATION TESTS (with pytest-xdist for parallelization)
+  #     Uses worker-specific task queues from conftest.py for isolation
   # ──────────────────────────────────────────────────────────────────
   test-integration:
     needs: ssh-sanity # only start if key check passed
@@ -163,8 +164,14 @@ jobs:
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
           # Use local subprocess sync instead of Temporal workflow (faster, simpler for CI)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"
+          TRACECAT__DISABLE_NSJAIL: "true"
         run: |
-          uv run pytest tests/integration -ra -v
+          # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
+          uv run pytest tests/integration/test_pool_integration.py -ra -v -o faulthandler_timeout=300
+
+          # Run other integration tests in parallel with pytest-xdist
+          # Worker-specific task queues in conftest.py ensure isolation
+          uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
         if: failure()
@@ -180,6 +187,12 @@ jobs:
 
           echo "=== Executor Logs ==="
           docker compose -f docker-compose.local.yml logs executor --tail=200
+
+          echo "=== Temporal Logs ==="
+          docker compose -f docker-compose.local.yml logs temporal --tail=200
+
+          echo "=== Redis Logs ==="
+          docker compose -f docker-compose.local.yml logs redis --tail=200
 
           echo "=== MinIO Logs ==="
           docker compose -f docker-compose.local.yml logs minio --tail=200

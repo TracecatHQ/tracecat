@@ -29,6 +29,7 @@ from tracecat_ee.agent.activities import AgentActivities
 from tracecat_ee.agent.approvals.service import ApprovalManager
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
+from tests.conftest import AGENT_TASK_QUEUE
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -50,8 +51,8 @@ from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.redis.client import get_redis_client
 
-# Use a unique test queue to avoid collision with docker-compose workers
-TEST_AGENT_QUEUE = "test-agent-worker-queue"
+# Use worker-specific queue from conftest for pytest-xdist isolation
+TEST_AGENT_QUEUE = AGENT_TASK_QUEUE
 
 
 # =============================================================================
