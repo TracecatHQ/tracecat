@@ -2815,7 +2815,6 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
     role: Mapped[OrgRole] = mapped_column(
         Enum(OrgRole, name="orgrole"),
         default=OrgRole.MEMBER,
@@ -2837,7 +2836,6 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
-    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
     role: Mapped[WorkspaceRole] = mapped_column(
         Enum(WorkspaceRole, name="workspacerole"),
         default=WorkspaceRole.EDITOR,
