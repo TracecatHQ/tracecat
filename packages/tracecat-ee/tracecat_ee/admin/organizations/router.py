@@ -8,8 +8,14 @@ from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat_ee.admin.organizations.schemas import OrgCreate, OrgRead, OrgUpdate
+from tracecat_ee.admin.organizations.schemas import (
+    OrgCreate,
+    OrgRead,
+    OrgUpdate,
+    OrgUpdateTier,
+)
 from tracecat_ee.admin.organizations.service import AdminOrgService
+from tracecat_ee.admin.organizations.types import TierChangeResult
 
 router = APIRouter(prefix="/organizations", tags=["admin:organizations"])
 
@@ -69,6 +75,29 @@ async def update_organization(
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
             ) from e
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.put("/{org_id}/tier", response_model=TierChangeResult)
+async def update_organization_tier(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    params: OrgUpdateTier,
+) -> TierChangeResult:
+    """Update organization tier.
+
+    This endpoint manages worker pool provisioning/deprovisioning based on tier:
+    - Upgrade to ENTERPRISE: Creates a dedicated worker pool
+    - Downgrade from ENTERPRISE: Removes the dedicated worker pool
+
+    The tier change is persisted even if worker pool management fails.
+    Check the `error` field in the response for any provisioning issues.
+    """
+    service = AdminOrgService(session, role=role)
+    try:
+        return await service.update_organization_tier(org_id, params)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)

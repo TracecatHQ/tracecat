@@ -1,6 +1,5 @@
 """Enterprise Edition compute module for worker pool management."""
 
-from tracecat.ee.compute.manager import WorkerPoolManager
 from tracecat.ee.compute.schemas import (
     AutoscalingSpec,
     AutoscalingWorkerConfig,
@@ -22,7 +21,6 @@ __all__ = [
     "TenantSpec",
     "TenantType",
     "Tier",
-    "WorkerPoolManager",
     "WorkerPoolSpec",
     "WorkerSpec",
     "WorkersSpec",

@@ -39,6 +39,8 @@ import type {
   AdminSyncRepositoryResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationResponse,
+  AdminUpdateOrganizationTierData,
+  AdminUpdateOrganizationTierResponse,
   AdminUpdateRegistrySettingsData,
   AdminUpdateRegistrySettingsResponse,
   AgentCreateProviderCredentialsData,
@@ -3636,6 +3638,39 @@ export const adminDeleteOrganization = (
     path: {
       org_id: data.orgId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Organization Tier
+ * Update organization tier.
+ *
+ * This endpoint manages worker pool provisioning/deprovisioning based on tier:
+ * - Upgrade to ENTERPRISE: Creates a dedicated worker pool
+ * - Downgrade from ENTERPRISE: Removes the dedicated worker pool
+ *
+ * The tier change is persisted even if worker pool management fails.
+ * Check the `error` field in the response for any provisioning issues.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.requestBody
+ * @returns TierChangeResult Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateOrganizationTier = (
+  data: AdminUpdateOrganizationTierData
+): CancelablePromise<AdminUpdateOrganizationTierResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/organizations/{org_id}/tier",
+    path: {
+      org_id: data.orgId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

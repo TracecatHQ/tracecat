@@ -665,6 +665,15 @@ ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
 )
 """Whether the enterprise edition is enabled."""
 
+# === Worker Pool Manager Config === #
+TRACECAT__K8S_NAMESPACE = os.environ.get("TRACECAT__K8S_NAMESPACE", "tracecat")
+"""Kubernetes namespace for worker pool resources."""
+
+TRACECAT__K8S_IN_CLUSTER = os.environ.get(
+    "TRACECAT__K8S_IN_CLUSTER", "true"
+).lower() in ("true", "1")
+"""Whether the API is running inside a Kubernetes cluster."""
+
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
 for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):

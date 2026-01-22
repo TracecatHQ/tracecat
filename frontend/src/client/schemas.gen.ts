@@ -9003,6 +9003,10 @@ export const $OrgCreate = {
       pattern: "^[a-z0-9-]+$",
       title: "Slug",
     },
+    tier: {
+      $ref: "#/components/schemas/Tier",
+      default: "starter",
+    },
   },
   type: "object",
   required: ["name", "slug"],
@@ -9106,6 +9110,9 @@ export const $OrgRead = {
       type: "boolean",
       title: "Is Active",
     },
+    tier: {
+      $ref: "#/components/schemas/Tier",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -9125,7 +9132,7 @@ export const $OrgRead = {
     },
   },
   type: "object",
-  required: ["id", "name", "slug", "is_active", "created_at"],
+  required: ["id", "name", "slug", "is_active", "tier", "created_at"],
   title: "OrgRead",
   description: "Organization response.",
 } as const
@@ -9170,10 +9177,32 @@ export const $OrgUpdate = {
       ],
       title: "Is Active",
     },
+    tier: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Tier",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   title: "OrgUpdate",
   description: "Update organization request.",
+} as const
+
+export const $OrgUpdateTier = {
+  properties: {
+    tier: {
+      $ref: "#/components/schemas/Tier",
+    },
+  },
+  type: "object",
+  required: ["tier"],
+  title: "OrgUpdateTier",
+  description: "Update organization tier request.",
 } as const
 
 export const $OrganizationSecretRead = {
@@ -14630,6 +14659,51 @@ export const $ThinkingBlock = {
   type: "object",
   required: ["thinking", "signature"],
   title: "ThinkingBlock",
+} as const
+
+export const $Tier = {
+  type: "string",
+  enum: ["starter", "pro", "enterprise"],
+  title: "Tier",
+  description: "Subscription tier.",
+} as const
+
+export const $TierChangeResult = {
+  properties: {
+    previous_tier: {
+      $ref: "#/components/schemas/Tier",
+    },
+    new_tier: {
+      $ref: "#/components/schemas/Tier",
+    },
+    worker_pool_provisioned: {
+      type: "boolean",
+      title: "Worker Pool Provisioned",
+    },
+    worker_pool_deprovisioned: {
+      type: "boolean",
+      title: "Worker Pool Deprovisioned",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: [
+    "previous_tier",
+    "new_tier",
+    "worker_pool_provisioned",
+    "worker_pool_deprovisioned",
+  ],
+  title: "TierChangeResult",
 } as const
 
 export const $Toggle = {

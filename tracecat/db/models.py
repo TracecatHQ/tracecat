@@ -174,6 +174,7 @@ class Organization(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String, index=True)
     slug: Mapped[str] = mapped_column(String, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    tier: Mapped[str] = mapped_column(String, default="starter", nullable=False)
 
 
 class OrganizationModel(RecordModel):
