@@ -138,7 +138,7 @@ jobs:
           TRACECAT__DISABLE_NSJAIL: "true"
           TRACECAT__POOL_WORKER_TEST_MODE: "true"
         run: |
-          uv run pytest tests/integration/test_pool_integration.py -ra -v --timeout=600
+          uv run pytest tests/integration/test_pool_integration.py -ra -v
 
       - name: Show Docker logs on failure
         if: failure()
@@ -220,7 +220,7 @@ jobs:
         env:
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
-          uv run pytest tests/integration/test_agent_worker.py -ra -v --timeout=600
+          uv run pytest tests/integration/test_agent_worker.py -ra -v
 
       - name: Show Docker logs on failure
         if: failure()
