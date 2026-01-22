@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from collections.abc import AsyncIterator
@@ -27,6 +28,33 @@ from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.safe_executor import SafePythonExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
+
+
+def validate_run_python_script(script: str) -> tuple[bool, str | None]:
+    """Validate that a Python script has the required structure for run_python.
+
+    The script must contain at least one function definition. If multiple
+    functions are defined, one must be named 'main'.
+
+    Args:
+        script: The Python script content to validate.
+
+    Returns:
+        A tuple of (is_valid, error_message). If valid, error_message is None.
+    """
+    function_pattern = r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+    functions = re.findall(function_pattern, script)
+
+    if not functions:
+        return False, "Script must contain at least one function definition."
+
+    if len(functions) > 1 and "main" not in functions:
+        return (
+            False,
+            "When script contains multiple functions, one must be named 'main'.",
+        )
+
+    return True, None
 
 
 class SandboxService:

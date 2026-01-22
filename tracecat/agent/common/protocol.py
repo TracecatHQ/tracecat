@@ -44,6 +44,7 @@ class RuntimeInitPayload:
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
+    is_fork: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
@@ -75,6 +76,7 @@ class RuntimeInitPayload:
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
+            is_fork=data.get("is_fork", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -87,6 +89,7 @@ class RuntimeInitPayload:
             "user_prompt": self.user_prompt,
             "litellm_auth_token": self.litellm_auth_token,
             "is_approval_continuation": self.is_approval_continuation,
+            "is_fork": self.is_fork,
         }
         if self.allowed_actions is not None:
             result["allowed_actions"] = {

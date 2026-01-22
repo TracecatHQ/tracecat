@@ -4,9 +4,9 @@ This module generates protobuf-format nsjail configurations specifically
 for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network isolated (clone_newnet: true) - no direct network access
-- LLM access via Unix socket proxy (llm.sock) to LiteLLM on host
-- Namespace isolation (PID, user, mount, IPC, UTS, network namespaces)
+- Network enabled (clone_newnet: false) - direct internet access for API calls
+- LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LiteLLM
+- Namespace isolation (PID, user, mount, IPC, UTS namespaces)
 - /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
@@ -210,6 +210,8 @@ def build_agent_nsjail_config(
     site_packages_dir: Path,
     tracecat_pkg_dir: Path,
     llm_socket_path: Path,
+    *,
+    enable_internet_access: bool = False,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -223,6 +225,9 @@ def build_agent_nsjail_config(
         tracecat_pkg_dir: Path to the tracecat package directory.
             Only specific subdirectories are mounted for minimal cold start.
         llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
+        enable_internet_access: If True, disables network isolation to allow
+            direct internet access. Required for MCP command servers that need
+            to call external APIs. Default is False (network isolated).
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -243,6 +248,10 @@ def build_agent_nsjail_config(
     _validate_path(control_socket_path, "control_socket_path")
     # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
+    # Determine network isolation setting
+    # When internet access is enabled, we disable network namespacing to allow
+    # direct network access (required for MCP command servers calling external APIs)
+    clone_newnet = "false" if enable_internet_access else "true"
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
@@ -250,8 +259,7 @@ def build_agent_nsjail_config(
         "keep_env: false",
         "",
         "# Namespace isolation",
-        "# Network isolated - LLM access via Unix socket proxy",
-        "clone_newnet: true",
+        f"clone_newnet: {clone_newnet}",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
@@ -340,6 +348,18 @@ def build_agent_nsjail_config(
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
+
+    # DNS resolution mounts - required when internet access is enabled
+    if enable_internet_access:
+        lines.extend(
+            [
+                "",
+                "# DNS resolution - required for internet access",
+                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
+            ]
+        )
 
     # Resource limits
     lines.extend(

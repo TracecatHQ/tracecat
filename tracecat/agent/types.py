@@ -161,6 +161,8 @@ class AgentConfig:
     retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
+    # Sandbox
+    enable_internet_access: bool = False
 
 
 # --- Tool Types (Harness-Agnostic) ---

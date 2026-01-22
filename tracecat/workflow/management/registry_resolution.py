@@ -44,12 +44,7 @@ async def resolve_action_origins_from_lock(
 
     This is intended for publish-time resolution to avoid ambiguous action names at runtime.
     """
-    roots = {
-        stmt.action
-        for stmt in dsl.actions
-        # Interface-only actions aren't resolved via registry
-        if not PlatformAction.is_interface(stmt.action)
-    }
+    roots = {stmt.action for stmt in dsl.actions}
     if not roots:
         return {}, []
 
@@ -223,8 +218,18 @@ async def resolve_action_origins_from_lock(
                 )
                 continue
             for step in impl.template_action.definition.steps:
-                # Skip interface-only actions (handled by workflow scheduler, not registry)
                 if PlatformAction.is_interface(step.action):
+                    errors.append(
+                        RegistryActionResolutionError(
+                            action=step.action,
+                            msg=f"Platform action '{step.action}' cannot be used inside template '{action_name}' (step '{step.ref}'). Use platform actions directly in workflows.",
+                            detail={
+                                "template": action_name,
+                                "step_ref": step.ref,
+                                "origin": origin,
+                            },
+                        )
+                    )
                     continue
                 if step.action not in resolved:
                     queue.append(step.action)

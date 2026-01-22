@@ -427,6 +427,7 @@ class ActionRunner:
             )
             sandbox_env["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
             sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
+            sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
 
             # Mint an executor token for SDK calls

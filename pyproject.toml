@@ -66,7 +66,7 @@ dependencies = [
     "pydantic==2.12.5",
     "pygithub==2.8.1",
     "pynacl==1.6.2",
-    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
+    "pyasn1==0.6.2",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "redis[hiredis]==7.1.0",
@@ -118,9 +118,7 @@ override-dependencies = [
 ]
 
 [dependency-groups]
-admin = [
-    "tracecat-admin",
-]
+admin = ["tracecat-admin"]
 dev = [
     "mypy==1.15.0",
     "pre-commit==4.1.0",
@@ -167,12 +165,20 @@ ignore = [
     "W191", # indentation contains tabs
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/temporal/*" = ["E402"]  # pytestmark before imports is intentional
+
 [tool.ruff.lint.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
 
 [tool.pytest.ini_options]
-addopts = ["--strict-config", "--strict-markers", "-vvrP"]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "-vvrP",
+    "--benchmark-disable",
+]
 xfail_strict = true
 log_level = "ERROR"
 log_cli = true
@@ -187,4 +193,6 @@ markers = [
     "integration: marks tests that perform live network calls and container operations",
     "llm: marks tests that perform LLM calls",
     "ollama: mark tests that require Ollama",
+    "temporal: marks tests that require Temporal server",
+    "regression: marks regression tests",
 ]

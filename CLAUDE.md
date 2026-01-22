@@ -36,10 +36,46 @@ uv sync
 
 ### Development Stack
 ```bash
-# Standalone stack for use with git worktrees
+# IMPORTANT: Always use `just cluster` to manage the development stack
+# This handles database, Temporal, Redis, MinIO, API, and UI services
+# It also manages port allocation across multiple worktrees
+
+# Start the full stack (auto-selects available cluster number)
+just cluster up -d
+
+# Start with auto-registered test user (test@tracecat.com / password1234)
+just cluster up -d --seed
+
+# View all available commands
 just cluster
 
+# Common commands:
+just cluster ps              # Show running containers
+just cluster logs api        # View API service logs
+just cluster logs -f api     # Follow API logs
+just cluster restart api     # Restart a service (hot reload)
+just cluster down            # Stop the stack (keeps volumes)
+just cluster rm              # Stop and remove volumes
+just cluster attach api      # Shell into a container
+just cluster db              # Open TablePlus to PostgreSQL
+just cluster ports           # Show port mappings
+just cluster list            # List all running clusters
+
+# Port mappings (cluster 1 defaults):
+# - App UI: http://localhost:80
+# - API: http://localhost:80/api
+# - PostgreSQL: localhost:5432
+# - Temporal UI: http://localhost:8081
 ```
+
+**When to use `just cluster`:**
+- Need a database connection → `just cluster up -d`
+- Need to run integration tests → `just cluster up -d`
+- Need Temporal for workflow testing → `just cluster up -d`
+- Need to check service logs → `just cluster logs <service>`
+- Need to restart after code changes → `just cluster restart <service>`
+
+**Do NOT use raw `docker` or `docker compose` commands** - the cluster script handles environment variables, port allocation, and worktree isolation automatically.
 
 ### Testing
 ```bash
@@ -175,6 +211,7 @@ tracecat/agent/
 - Use "Title case example" over "Title Case Example" for UI text
 - Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
 - Avoid nested ternary statements - use `if/else` or `switch/case` instead
+- Place React hooks in `frontend/src/hooks/` directory (e.g., `use-inbox.ts`, `use-auth.ts`)
 
 ### UI Component Best Practices
 - **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
@@ -230,10 +267,18 @@ tracecat/agent/
 - If you need to add frontend types, you should first try to generate them from the backend using `just gen-client`
 
 ## Database Migrations
+- Ensure the database is running first: `just cluster up -d`
 - When running an alembic migration, you should use `export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:5432/postgres` or pass it into the command
+- Check `just cluster ports` if using a non-default cluster number (port may be 5532, 5632, etc.)
 
 ## Services and Logging Guidelines
-- When working with live services, avoid using `just` commands. You should use `docker` commands to inspect/manage services and read logs.
+- When working with live services, use `just cluster` commands to manage the stack:
+  - `just cluster logs <service>` - View service logs
+  - `just cluster logs -f <service>` - Follow logs in real-time
+  - `just cluster ps` - Check container status
+  - `just cluster restart <service>` - Restart a service
+  - `just cluster attach <service>` - Shell into a running container
+- Do NOT use raw `docker` or `docker compose` commands directly - the cluster script handles environment variables and port allocation
 
 ## Tracecat Template Best Practices
 

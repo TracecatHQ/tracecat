@@ -696,10 +696,15 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        memo: dict[str, Any] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
         Note: This method schedules the workflow execution and returns immediately.
+
+        Args:
+            memo: Optional memo dict to store with the workflow execution.
+                  Useful for correlation (e.g., parent_wf_exec_id).
         """
         wf_exec_id = generate_exec_id(wf_id)
         coro = self.create_workflow_execution(
@@ -710,6 +715,7 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            memo=memo,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -793,10 +799,15 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        memo: dict[str, Any] | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
         Note: This method blocks until the workflow execution completes.
+
+        Args:
+            memo: Optional memo dict to store with the workflow execution.
+                  Useful for correlation (e.g., parent_wf_exec_id).
         """
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
@@ -809,6 +820,7 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            memo=memo,
         )
 
     async def _dispatch_workflow(

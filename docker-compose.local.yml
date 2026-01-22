@@ -47,7 +47,6 @@ services:
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
-      RUN_MIGRATIONS: "true"
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
       TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
@@ -81,8 +80,8 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      postgres_db:
-        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
       temporal:
         condition: service_healthy
       minio:
@@ -139,8 +138,8 @@ services:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
-      postgres_db:
-        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
       api:
         condition: service_started
       temporal:
@@ -209,8 +208,8 @@ services:
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
     command: ["python", "-m", "tracecat.executor.worker"]
     depends_on:
-      postgres_db:
-        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
       temporal:
         condition: service_healthy
       redis:
@@ -267,8 +266,6 @@ services:
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       # Redis
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO tarball access)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
@@ -279,11 +276,13 @@ services:
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
     command: ["python", "-m", "tracecat.agent.worker"]
     depends_on:
-      postgres_db:
-        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
       temporal:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
   ui:
     build:
@@ -324,6 +323,24 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
+
+  migrations:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: migrations
+    restart: "no"
+    networks:
+      - core-db
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI}
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+    command: ["python3", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres_db:
+        condition: service_healthy
 
   temporal_postgres_db:
     image: postgres:13

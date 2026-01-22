@@ -97,6 +97,10 @@ class SandboxAgentConfig:
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP servers to connect to."""
 
+    # Sandbox
+    enable_internet_access: bool = False
+    """Whether to enable internet access tools (WebSearch, WebFetch)."""
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SandboxAgentConfig:
         """Construct from dict (orjson parsed)."""
@@ -107,6 +111,7 @@ class SandboxAgentConfig:
             instructions=data.get("instructions"),
             tool_approvals=data.get("tool_approvals"),
             mcp_servers=data.get("mcp_servers"),
+            enable_internet_access=data.get("enable_internet_access", False),
         )
 
     @classmethod
@@ -125,6 +130,7 @@ class SandboxAgentConfig:
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
+            enable_internet_access=getattr(config, "enable_internet_access", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -141,4 +147,5 @@ class SandboxAgentConfig:
             result["tool_approvals"] = self.tool_approvals
         if self.mcp_servers is not None:
             result["mcp_servers"] = self.mcp_servers
+        result["enable_internet_access"] = self.enable_internet_access
         return result

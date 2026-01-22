@@ -61,6 +61,7 @@ class RepositoryStatus(BaseModel):
     origin: str
     last_synced_at: datetime | None
     commit_sha: str | None
+    current_version_id: uuid.UUID | None = None
 
 
 class RegistryStatusResponse(BaseModel):
@@ -88,3 +89,51 @@ class RegistrySettingsRead(BaseModel):
     git_repo_url: str | None = None
     git_repo_package_name: str | None = None
     git_allowed_domains: set[str] | None = None
+
+
+class RegistryVersionPromoteResponse(BaseModel):
+    """Response from promoting a registry version."""
+
+    repository_id: uuid.UUID
+    origin: str
+    previous_version_id: uuid.UUID | None
+    current_version_id: uuid.UUID
+    version: str
+
+
+# Org Registry Schemas
+
+
+class OrgRegistryRepositoryRead(BaseModel):
+    """Organization registry repository response."""
+
+    id: uuid.UUID
+    origin: str
+    last_synced_at: datetime | None = None
+    commit_sha: str | None = None
+    current_version_id: uuid.UUID | None = None
+
+
+class OrgRegistrySyncResponse(BaseModel):
+    """Organization registry sync response."""
+
+    success: bool
+    repository_id: uuid.UUID
+    origin: str
+    version: str | None = None
+    commit_sha: str | None = None
+    actions_count: int | None = None
+    forced: bool = False
+    skipped: bool = False
+    message: str | None = None
+
+
+class OrgRegistryVersionPromoteResponse(BaseModel):
+    """Response from promoting an organization registry version."""
+
+    repository_id: uuid.UUID
+    origin: str
+    previous_version_id: uuid.UUID | None
+    previous_version: str | None
+    current_version_id: uuid.UUID
+    current_version: str

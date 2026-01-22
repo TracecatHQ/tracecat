@@ -19,7 +19,7 @@ from typing import Any, TypedDict
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
 from tracecat.agent.session.schemas import (
     AgentSessionRead,

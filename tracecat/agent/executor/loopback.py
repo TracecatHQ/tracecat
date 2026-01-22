@@ -16,11 +16,9 @@ The loopback is used by the agent executor activity which handles:
 from __future__ import annotations
 
 import asyncio
-import html
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import orjson
 from sqlalchemy import select
@@ -32,33 +30,14 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
 )
 from tracecat.agent.common.types import (
-    MCPToolDefinition as SharedMCPToolDefinition,
-)
-from tracecat.agent.common.types import (
+    MCPToolDefinition,
     SandboxAgentConfig,
 )
-from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.types import AgentConfig
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.logger import logger
-
-
-def _sanitize_value(value: Any) -> Any:
-    """Recursively sanitize a value by escaping HTML in strings.
-
-    Prevents XSS when session content is rendered in the frontend.
-    """
-    if isinstance(value, str):
-        return html.escape(value, quote=True)
-    elif isinstance(value, dict):
-        return {k: _sanitize_value(v) for k, v in value.items()}
-    elif isinstance(value, list):
-        return [_sanitize_value(item) for item in value]
-    else:
-        # int, float, bool, None - pass through unchanged
-        return value
 
 
 @dataclass(kw_only=True, slots=True)
@@ -87,6 +66,7 @@ class LoopbackInput:
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
     is_approval_continuation: bool = False
+    is_fork: bool = False  # True when forking from parent session
 
 
 @dataclass(kw_only=True, slots=True)
@@ -118,6 +98,22 @@ class LoopbackHandler:
         self._stream: AgentStream | None = None
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
+        self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
+        # Track which session lines have been persisted to avoid duplicates
+        self._persisted_line_uuids: set[str] = set()
+
+    async def _emit_stream_done(self) -> None:
+        """Emit stream.done() exactly once.
+
+        This helper ensures the stream end marker is emitted exactly once,
+        even if multiple code paths could trigger it (e.g., error + finally).
+        """
+        if self._stream and not self._stream_done_emitted:
+            self._stream_done_emitted = True
+            try:
+                await self._stream.done()
+            except Exception as e:
+                logger.warning("Failed to emit stream done", error=str(e))
 
     async def handle_connection(
         self,
@@ -159,14 +155,22 @@ class LoopbackHandler:
                 self._result.success = True
 
         except asyncio.IncompleteReadError:
-            logger.warning("Runtime disconnected unexpectedly")
+            # Connection closed during init payload send
+            logger.warning("Runtime disconnected unexpectedly during init")
             self._result.error = "Runtime disconnected unexpectedly"
+            if self._stream:
+                await self._stream.error(self._result.error)
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
             if self._stream:
-                await self._stream.error(str(e))
+                try:
+                    await asyncio.wait_for(self._stream.error(str(e)), timeout=5.0)
+                except TimeoutError:
+                    logger.warning("Timeout emitting stream error")
         finally:
+            # ALWAYS emit done on any exit path to prevent SSE consumers from hanging
+            await self._emit_stream_done()
             writer.close()
             await writer.wait_closed()
 
@@ -177,28 +181,17 @@ class LoopbackHandler:
         # Convert AgentConfig (Pydantic) to SandboxAgentConfig (dataclass)
         sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
 
-        # Convert MCPToolDefinition (Pydantic) to SharedMCPToolDefinition (dataclass)
-        allowed_actions: dict[str, SharedMCPToolDefinition] | None = None
-        if self.input.allowed_actions:
-            allowed_actions = {
-                name: SharedMCPToolDefinition(
-                    name=tool.name,
-                    description=tool.description,
-                    parameters_json_schema=tool.parameters_json_schema,
-                )
-                for name, tool in self.input.allowed_actions.items()
-            }
-
         payload = RuntimeInitPayload(
             session_id=self.input.session_id,
             mcp_auth_token=self.input.mcp_auth_token,
             config=sandbox_config,
             user_prompt=self.input.user_prompt,
             litellm_auth_token=self.input.litellm_auth_token,
-            allowed_actions=allowed_actions,
+            allowed_actions=self.input.allowed_actions,
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
+            is_fork=self.input.is_fork,
         )
 
         payload_bytes = orjson.dumps(payload.to_dict())
@@ -228,9 +221,13 @@ class LoopbackHandler:
                     reader, expected_type=MessageType.EVENT
                 )
             except asyncio.IncompleteReadError:
-                # Connection closed
-                logger.debug("Runtime connection closed")
-                break
+                # Connection closed unexpectedly - treat as error, not silent break
+                logger.warning(
+                    "Runtime connection closed unexpectedly during execution"
+                )
+                self._result.error = "Runtime disconnected during execution"
+                await self._stream.error(self._result.error)
+                break  # done() will be called in finally of handle_connection
 
             # Parse the envelope
             envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload_bytes))
@@ -245,6 +242,19 @@ class LoopbackHandler:
                             session_id=self.input.session_id,
                         )
                         await self._stream.append(envelope.event)
+
+                        # Check for error events (e.g., from LiteLLM/SDK)
+                        if envelope.event.type == StreamEventType.ERROR:
+                            error_msg = envelope.event.error or "Unknown error"
+                            logger.error(
+                                "Error event received from runtime",
+                                session_id=self.input.session_id,
+                                error=error_msg,
+                            )
+                            await self._stream.error(error_msg)
+                            await self._emit_stream_done()
+                            self._result.error = error_msg
+                            break
 
                         # Check for approval request
                         if envelope.event.type == StreamEventType.APPROVAL_REQUEST:
@@ -283,7 +293,7 @@ class LoopbackHandler:
                     error_msg = envelope.error or "Unknown runtime error"
                     logger.error("Runtime error", error=error_msg)
                     await self._stream.error(error_msg)
-                    await self._stream.done()  # Signal end of stream to SSE consumers
+                    await self._emit_stream_done()  # Use helper (dedupes with finally)
                     self._result.error = error_msg
                     break
 
@@ -293,21 +303,35 @@ class LoopbackHandler:
                         "Runtime completed",
                         session_id=self.input.session_id,
                     )
-                    await self._stream.done()
+                    await self._emit_stream_done()  # Use helper (dedupes with finally)
                     break
+
+                case "log":
+                    # Log message from runtime - forward to worker logger
+                    level = envelope.log_level or "info"
+                    message = envelope.log_message or "Runtime log"
+                    extra = envelope.log_extra or {}
+                    log_fn = getattr(logger, level, logger.info)
+                    # Use opt(raw=False) to prevent loguru from parsing {} in message
+                    log_fn(
+                        "[runtime] {}",
+                        message,
+                        session_id=self.input.session_id,
+                        **extra,
+                    )
 
     async def _persist_session_line(
         self, sdk_session_id: str, session_line: str, *, internal: bool = False
     ) -> None:
-        """Persist sanitiszed JSONL line from SDK session file.
+        """Persist sanitized JSONL line from SDK session file.
 
         Writes to AgentSessionHistory only. The session_id in self.input
         is the AgentSession.id for new chats, so all writes go to the
         correct session history table.
 
-        Content is sanitized (HTML-escaped) before persistence to prevent XSS
-        from untrusted content like tool results. The sdk_session_id is tracked
-        on the AgentSession model.
+        Deduplication: Each JSONL line has a unique 'uuid' field. We track
+        persisted UUIDs to prevent duplicates from race conditions (e.g.,
+        session lines arriving before StreamEvent sets up indexes).
 
         Args:
             sdk_session_id: The SDK's internal session ID (for JSONL reconstruction).
@@ -316,13 +340,23 @@ class LoopbackHandler:
         """
         # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
         line_data = orjson.loads(session_line)
-        line_data = _sanitize_value(line_data)
+
+        # Deduplicate by UUID - each JSONL line has a unique uuid field
+        line_uuid = line_data.get("uuid")
+        if line_uuid and line_uuid in self._persisted_line_uuids:
+            logger.debug(
+                "Skipping duplicate session line",
+                uuid=line_uuid,
+                session_id=self.input.session_id,
+            )
+            return
 
         logger.debug(
             "Persisting session line",
             session_id=self.input.session_id,
             sdk_session_id=sdk_session_id,
             internal=internal,
+            uuid=line_uuid,
         )
 
         async with get_async_session_context_manager() as session:
@@ -354,3 +388,7 @@ class LoopbackHandler:
             )
             session.add(history_entry)
             await session.commit()
+
+        # Track as persisted after successful commit
+        if line_uuid:
+            self._persisted_line_uuids.add(line_uuid)

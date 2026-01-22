@@ -14,8 +14,7 @@ from typing import Any, Literal
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
-from tracecat.agent.common.types import MCPServerConfig
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPServerConfig, MCPToolDefinition
 from tracecat.logger import logger
 
 

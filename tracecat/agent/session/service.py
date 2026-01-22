@@ -66,6 +66,7 @@ class SessionHistoryData:
 
     sdk_session_id: str
     sdk_session_data: str
+    is_fork: bool = False  # If True, SDK should use fork_session=True
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -190,6 +191,8 @@ class AgentSessionService(BaseWorkspaceService):
         created_by: UserID | None = None,
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
+        exclude_entity_types: list[AgentSessionEntity] | None = None,
+        parent_session_id: uuid.UUID | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[AgentSessionRead | ChatReadMinimal]:
@@ -202,6 +205,8 @@ class AgentSessionService(BaseWorkspaceService):
             created_by: Filter by user who created the session.
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
+            exclude_entity_types: Entity types to exclude from results.
+            parent_session_id: Filter by parent session ID (for finding forked sessions).
             limit: Maximum number of results.
             offset: Number of results to skip.
 
@@ -218,13 +223,26 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.entity_type == entity_type.value
             )
+        if exclude_entity_types:
+            session_stmt = session_stmt.where(
+                AgentSession.entity_type.notin_(
+                    [et.value for et in exclude_entity_types]
+                )
+            )
         if entity_id is not None:
             session_stmt = session_stmt.where(AgentSession.entity_id == entity_id)
+        if parent_session_id is not None:
+            session_stmt = session_stmt.where(
+                AgentSession.parent_session_id == parent_session_id
+            )
 
         session_result = await self.session.execute(session_stmt)
         sessions = list(session_result.scalars().all())
 
         # Query legacy Chat table
+        # Note: exclude_entity_types is not applied here because legacy Chat records
+        # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
+        # Legacy chats only have entity types like "case" or "agent_preset".
         chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
         if created_by is not None:
             chat_stmt = chat_stmt.where(Chat.user_id == created_by)
@@ -333,6 +351,9 @@ class AgentSessionService(BaseWorkspaceService):
         Reconstructs the SDK session JSONL from stored history entries.
         Returns None if no history exists or no sdk_session_id is set.
 
+        For forked sessions (with parent_session_id), loads the parent's history
+        and sets is_fork=True so the runtime uses fork_session=True with the SDK.
+
         The sdk_session_id is stored on the AgentSession model (not in the
         JSONL content) to keep the history entries pristine for SDK resume.
 
@@ -343,24 +364,45 @@ class AgentSessionService(BaseWorkspaceService):
             SessionHistoryData with sdk_session_id and reconstructed JSONL,
             or None if no history found or sdk_session_id not set.
         """
-        # First get the AgentSession to retrieve sdk_session_id
+        # First get the AgentSession to check for fork and retrieve sdk_session_id
         agent_session = await self.get_session(session_id)
         if agent_session is None:
             return None
 
-        sdk_session_id = agent_session.sdk_session_id
+        # For forked sessions, only fork on the first turn (when child has no sdk_session_id yet)
+        # On subsequent turns, child has its own sdk_session_id and should resume normally
+        if (
+            agent_session.parent_session_id is not None
+            and agent_session.sdk_session_id is None
+        ):
+            parent_session = await self.get_session(agent_session.parent_session_id)
+            if parent_session is None:
+                logger.warning(
+                    "Forked session references non-existent parent",
+                    session_id=session_id,
+                    parent_session_id=agent_session.parent_session_id,
+                )
+                return None
+            # Use parent's sdk_session_id and history
+            source_session = parent_session
+            source_session_id = agent_session.parent_session_id
+        else:
+            source_session = agent_session
+            source_session_id = session_id
+
+        sdk_session_id = source_session.sdk_session_id
         if not sdk_session_id:
             logger.debug(
                 "No sdk_session_id on session (new session or legacy)",
-                session_id=session_id,
+                session_id=source_session_id,
             )
             return None
 
-        # Load history entries
+        # Load history entries from source session
         stmt = (
             select(AgentSessionHistory)
             .where(
-                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.session_id == source_session_id,
             )
             .order_by(AgentSessionHistory.surrogate_id)
         )
@@ -370,7 +412,7 @@ class AgentSessionService(BaseWorkspaceService):
         if not history_entries:
             logger.warning(
                 "sdk_session_id set but no history entries",
-                session_id=session_id,
+                session_id=source_session_id,
                 sdk_session_id=sdk_session_id,
             )
             return None
@@ -732,6 +774,67 @@ class AgentSessionService(BaseWorkspaceService):
                         model_provider=model_config.provider,
                         actions=agent_session.tools,
                     )
+        elif session_entity in (
+            AgentSessionEntity.WORKFLOW,
+            AgentSessionEntity.APPROVAL,
+        ):
+            # Check if this is a forked session (has parent_session_id)
+            if agent_session.parent_session_id is not None:
+                # Forked sessions use the parent's preset but with no tools.
+                # Prepend context - agent should not mention this is a forked session.
+                fork_context = (
+                    "You do not have access to any tools in this conversation. "
+                    "If the user asks you to perform actions, politely decline and "
+                    "suggest they start a new workflow if they need to take action.\n\n"
+                )
+                # Get parent session to check for preset
+                parent_session = await self.get_session(agent_session.parent_session_id)
+                if parent_session and parent_session.agent_preset_id:
+                    # Use parent's preset with forked context prepended
+                    async with agent_svc.with_preset_config(
+                        preset_id=parent_session.agent_preset_id,
+                        use_workspace_credentials=True,
+                    ) as preset_config:
+                        combined_instructions = (
+                            f"{fork_context}{preset_config.instructions}"
+                            if preset_config.instructions
+                            else fork_context.strip()
+                        )
+                        yield AgentConfig(
+                            instructions=combined_instructions,
+                            model_name=preset_config.model_name,
+                            model_provider=preset_config.model_provider,
+                            actions=[],  # No tools for forked sessions
+                        )
+                else:
+                    # No preset - use workspace model with fork context
+                    async with agent_svc.with_model_config(
+                        use_workspace_credentials=True
+                    ) as model_config:
+                        yield AgentConfig(
+                            instructions=fork_context.strip(),
+                            model_name=model_config.name,
+                            model_provider=model_config.provider,
+                            actions=[],  # No tools for forked sessions
+                        )
+            elif agent_session.agent_preset_id:
+                # Workflow sessions with preset use the preset config
+                async with agent_svc.with_preset_config(
+                    preset_id=agent_session.agent_preset_id,
+                    use_workspace_credentials=True,
+                ) as preset_config:
+                    yield preset_config
+            else:
+                # Workflow without preset uses workspace credentials
+                async with agent_svc.with_model_config(
+                    use_workspace_credentials=True
+                ) as model_config:
+                    yield AgentConfig(
+                        instructions="",
+                        model_name=model_config.name,
+                        model_provider=model_config.provider,
+                        actions=agent_session.tools,
+                    )
         else:
             raise ValueError(
                 f"Unsupported session entity type: {agent_session.entity_type}. "
@@ -777,6 +880,7 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> list[ChatMessage]:
         """Retrieve session messages, optionally filtered by message kind.
 
+        For forked sessions, includes parent session messages first.
         Checks the new AgentSessionHistory table first, then falls back to
         the legacy ChatMessage table for backward compatibility.
 
@@ -785,25 +889,31 @@ class AgentSessionService(BaseWorkspaceService):
             kinds: Optional list of message kinds to filter by.
 
         Returns:
-            List of ChatMessage objects.
+            List of ChatMessage objects (parent messages + current if forked).
         """
+        agent_session = await self.get_session(session_id)
+
+        # If no history in new table, fall back to legacy ChatMessage table
+        if not agent_session:
+            chat_service = ChatService(self.session, self.role)
+            return await chat_service.list_legacy_messages(session_id, kinds=kinds)
+
+        session_ids = [session_id]
+        if agent_session and agent_session.parent_session_id:
+            session_ids.insert(0, agent_session.parent_session_id)
+
         # Fetch all history entries (both chat-message and internal)
         # Internal entries are needed for tool result enrichment in the adapter
         all_history_stmt = (
             select(AgentSessionHistory)
-            .where(AgentSessionHistory.session_id == session_id)
+            .where(AgentSessionHistory.session_id.in_(session_ids))
             .order_by(AgentSessionHistory.surrogate_id)
         )
         all_history_result = await self.session.execute(all_history_stmt)
         all_entries = list(all_history_result.scalars().all())
 
-        # If no history in new table, fall back to legacy ChatMessage table
-        if not all_entries:
-            chat_service = ChatService(self.session, self.role)
-            return await chat_service.list_legacy_messages(session_id, kinds=kinds)
-
-        # Fetch all approvals for this session
-        approval_stmt = select(Approval).where(Approval.session_id == session_id)
+        # Fetch approvals for this session and parent session (for forked sessions)
+        approval_stmt = select(Approval).where(Approval.session_id.in_(session_ids))
         approval_result = await self.session.execute(approval_stmt)
         approvals = approval_result.scalars().all()
         approval_by_tool_id: dict[str, Approval] = {
@@ -1085,3 +1195,63 @@ class AgentSessionService(BaseWorkspaceService):
             return orjson.dumps(result).decode("utf-8")
         except (TypeError, ValueError):
             return str(result)
+
+    # =========================================================================
+    # Session Forking (for post-decision agent interactions)
+    # =========================================================================
+
+    async def fork_session(
+        self,
+        parent_session_id: uuid.UUID,
+        *,
+        entity_type: AgentSessionEntity | None = None,
+    ) -> AgentSession:
+        """Create a forked session from a parent session.
+
+        Forked sessions allow users to continue interacting with an agent
+        after making approval decisions, to ask for context or clarification.
+
+        Args:
+            parent_session_id: The ID of the session to fork.
+            entity_type: Override entity type for the forked session. If None,
+                inherits from parent. Use APPROVAL for inbox forks to hide
+                from main chat list.
+
+        Returns:
+            The newly created forked AgentSession.
+
+        Raises:
+            TracecatNotFoundError: If the parent session is not found.
+        """
+        parent = await self.get_session(parent_session_id)
+        if parent is None:
+            raise TracecatNotFoundError(
+                f"Parent session with ID {parent_session_id} not found"
+            )
+
+        # Forked sessions are read-only "reviewer" sessions.
+        forked_session = AgentSession(
+            workspace_id=self.workspace_id,
+            # Metadata - inherit from parent, except entity_type if overridden
+            title=f"{parent.title} (continued)",
+            created_by=self.role.user_id,
+            entity_type=entity_type.value if entity_type else parent.entity_type,
+            entity_id=parent.entity_id,
+            tools=[],
+            agent_preset_id=None,
+            # Harness - inherit from parent
+            harness_type=parent.harness_type,
+            # Fork reference
+            parent_session_id=parent_session_id,
+        )
+        self.session.add(forked_session)
+        await self.session.commit()
+        await self.session.refresh(forked_session)
+
+        logger.info(
+            "Created forked session",
+            forked_session_id=forked_session.id,
+            parent_session_id=parent_session_id,
+        )
+
+        return forked_session

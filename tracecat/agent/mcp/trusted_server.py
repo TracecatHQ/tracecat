@@ -20,9 +20,10 @@ import json
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 
 from tracecat.agent.common.types import MCPServerConfig
-from tracecat.agent.mcp.executor import execute_action
+from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
     InternalToolError,
@@ -74,14 +75,18 @@ async def execute_action_tool(
             normalized_action_name, args, claims, registry_lock
         )
         return json.dumps(result, default=str)
+    except ActionExecutionError as e:
+        # User error
+        raise ToolError(str(e)) from e
     except Exception as e:
+        # Platform error
         logger.error(
             "Action execution failed",
             action_name=normalized_action_name,
             workspace_id=str(claims.workspace_id),
             error=str(e),
         )
-        return json.dumps({"error": "Action execution failed"})
+        raise RuntimeError("Action execution failed") from None
 
 
 @mcp.tool
@@ -146,7 +151,8 @@ async def execute_user_mcp_tool(
         )
 
         return json.dumps(result, default=str)
-
+    except ToolError:
+        raise
     except Exception as e:
         logger.error(
             "User MCP tool execution failed",
@@ -155,7 +161,7 @@ async def execute_user_mcp_tool(
             workspace_id=str(claims.workspace_id),
             error=str(e),
         )
-        return json.dumps({"error": "Tool execution failed"})
+        raise RuntimeError("Tool execution failed") from None
 
 
 @mcp.tool

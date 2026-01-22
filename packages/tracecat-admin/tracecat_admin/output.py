@@ -11,8 +11,12 @@ from rich.table import Table
 
 from tracecat_admin.schemas import (
     OrgRead,
+    OrgRegistryRepositoryRead,
+    OrgRegistrySyncResponse,
+    OrgRegistryVersionPromoteResponse,
     RegistryStatusResponse,
     RegistrySyncResponse,
+    RegistryVersionPromoteResponse,
     RegistryVersionRead,
     UserRead,
 )
@@ -217,3 +221,107 @@ def print_registry_versions(versions: list[RegistryVersionRead]) -> None:
         )
 
     console.print(table)
+
+
+def print_version_promote_result(result: RegistryVersionPromoteResponse) -> None:
+    """Print the result of promoting a registry version."""
+    console.print("[green]Version promoted successfully[/green]")
+    console.print(f"  Repository: {result.origin}")
+    if result.previous_version_id:
+        console.print(f"  Previous version ID: {result.previous_version_id}")
+    else:
+        console.print("  Previous version: [dim]None[/dim]")
+    console.print(f"  Current version: {result.version}")
+    console.print(f"  Current version ID: {result.current_version_id}")
+
+
+# Org Registry output functions
+
+
+def print_org_registry_repositories_table(
+    repos: list[OrgRegistryRepositoryRead],
+) -> None:
+    """Print organization registry repositories in a table format."""
+    table = Table(title="Organization Registry Repositories")
+    table.add_column("ID", style="dim")
+    table.add_column("Origin", style="cyan")
+    table.add_column("Commit SHA", style="magenta")
+    table.add_column("Current Version ID", style="dim")
+    table.add_column("Last Synced")
+
+    for repo in repos:
+        sha = repo.commit_sha or "-"
+        if sha != "-":
+            sha = sha[:8]  # Truncate SHA
+        table.add_row(
+            str(repo.id),
+            repo.origin,
+            sha,
+            str(repo.current_version_id) if repo.current_version_id else "-",
+            format_datetime(repo.last_synced_at),
+        )
+
+    console.print(table)
+
+
+def print_org_registry_versions_table(versions: list[RegistryVersionRead]) -> None:
+    """Print organization registry versions in a table format."""
+    table = Table(title="Organization Registry Versions")
+    table.add_column("ID", style="dim")
+    table.add_column("Version", style="cyan")
+    table.add_column("Commit SHA", style="magenta")
+    table.add_column("Tarball URI", style="dim")
+    table.add_column("Created")
+
+    for version in versions:
+        sha = version.commit_sha or "-"
+        if sha != "-":
+            sha = sha[:8]  # Truncate SHA
+        tarball = version.tarball_uri or "-"
+        if tarball != "-" and len(tarball) > 40:
+            tarball = tarball[:37] + "..."
+        table.add_row(
+            str(version.id),
+            version.version,
+            sha,
+            tarball,
+            format_datetime(version.created_at),
+        )
+
+    console.print(table)
+
+
+def print_org_registry_sync_result(result: OrgRegistrySyncResponse) -> None:
+    """Print organization registry sync result."""
+    if result.skipped:
+        console.print("[yellow]Sync skipped[/yellow]")
+        console.print(f"  Repository: {result.origin}")
+        if result.version:
+            console.print(f"  Current version: {result.version}")
+        if result.message:
+            console.print(f"  [dim]{result.message}[/dim]")
+        return
+
+    status = "[green]Success[/green]" if result.success else "[red]Failed[/red]"
+    console.print(f"Sync status: {status}")
+    console.print(f"  Repository: {result.origin}")
+    console.print(f"  Repository ID: {result.repository_id}")
+    if result.version:
+        console.print(f"  Version: {result.version}")
+    if result.commit_sha:
+        console.print(f"  Commit SHA: {result.commit_sha[:8]}")
+    if result.actions_count is not None:
+        console.print(f"  Actions synced: {result.actions_count}")
+    if result.forced:
+        console.print("  [yellow]Force sync: previous version was deleted[/yellow]")
+
+
+def print_org_version_promote_result(result: OrgRegistryVersionPromoteResponse) -> None:
+    """Print the result of promoting an org registry version."""
+    console.print("[green]Version promoted successfully[/green]")
+    console.print(f"  Repository: {result.origin}")
+    if result.previous_version:
+        console.print(f"  Previous version: {result.previous_version}")
+    else:
+        console.print("  Previous version: [dim]None[/dim]")
+    console.print(f"  Current version: {result.current_version}")

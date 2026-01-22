@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
-import orjson
 
 from tracecat.logger import logger
 
@@ -34,6 +34,31 @@ LLM_SOCKET_NAME = "llm.sock"
 
 # Maximum request body size (10 MB) - prevents memory exhaustion DoS
 MAX_BODY_SIZE = 10 * 1024 * 1024
+
+# Non-critical endpoints that should not trigger fatal errors on failure.
+# These are internal LiteLLM endpoints for telemetry, health checks, etc.
+# Errors on these endpoints are logged but don't fail the agent.
+_NON_CRITICAL_PATHS = frozenset(
+    {
+        "/api/event_logging/batch",
+        "/health",
+        "/health/liveliness",
+        "/health/readiness",
+    }
+)
+
+# User-friendly error messages by status code
+_ERROR_MESSAGES = {
+    400: "Invalid request to LLM provider",
+    401: "Authentication failed - check your API credentials",
+    403: "Access denied - check your API permissions",
+    404: "Model not found - check your model configuration",
+    429: "Rate limit exceeded - please try again later",
+    500: "LLM provider internal error",
+    502: "LLM provider unavailable",
+    503: "LLM provider temporarily unavailable",
+    504: "LLM provider request timed out",
+}
 
 
 class LLMSocketProxy:
@@ -47,17 +72,21 @@ class LLMSocketProxy:
         self,
         socket_path: Path,
         litellm_url: str = LITELLM_URL,
+        on_error: Callable[[str], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
             litellm_url: URL of the LiteLLM proxy (default: http://127.0.0.1:4000).
+            on_error: Callback invoked when an error (e.g., auth failure) is detected.
         """
         self.socket_path = socket_path
         self.litellm_url = litellm_url
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
+        self._on_error = on_error
+        self._error_emitted = False  # Only call callback once
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -115,6 +144,14 @@ class LLMSocketProxy:
 
         logger.info("LLM socket proxy stopped")
 
+    def _emit_error(self, message: str) -> None:
+        """Emit error via callback (only once)."""
+        if not self._error_emitted:
+            self._error_emitted = True
+            logger.error("LLM proxy error", error=message)
+            if self._on_error:
+                self._on_error(message)
+
     async def _handle_connection(
         self,
         reader: asyncio.StreamReader,
@@ -129,7 +166,7 @@ class LLMSocketProxy:
 
         try:
             # Parse the HTTP request
-            request = await self._parse_http_request(reader, writer)
+            request = await self._parse_http_request(reader)
             if not request:
                 return
 
@@ -140,10 +177,7 @@ class LLMSocketProxy:
             logger.debug("Client disconnected during request")
         except Exception as e:
             logger.exception("LLM proxy error", error=str(e))
-            try:
-                await self._send_error_response(writer, 500, str(e))
-            except Exception:
-                pass
+            self._emit_error(f"Proxy error: {e}")
         finally:
             try:
                 writer.close()
@@ -154,13 +188,11 @@ class LLMSocketProxy:
     async def _parse_http_request(
         self,
         reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
     ) -> dict | None:
         """Parse an HTTP request from the socket.
 
         Returns:
-            Dict with method, path, headers, and body, or None if connection closed
-            or an error response was sent.
+            Dict with method, path, headers, and body, or None if connection closed.
         """
         # Read request line
         request_line = await reader.readline()
@@ -171,12 +203,12 @@ class LLMSocketProxy:
             request_line_str = request_line.decode("utf-8").strip()
             parts = request_line_str.split(" ", 2)
             if len(parts) < 2:
-                await self._send_error_response(writer, 400, "Malformed request line")
+                self._emit_error("Malformed request line")
                 return None
             method = parts[0]
             path = parts[1]
         except (UnicodeDecodeError, ValueError):
-            await self._send_error_response(writer, 400, "Invalid request encoding")
+            self._emit_error("Invalid request encoding")
             return None
 
         # Read headers
@@ -205,7 +237,7 @@ class LLMSocketProxy:
                 content_length=content_length,
                 max_size=MAX_BODY_SIZE,
             )
-            await self._send_error_response(writer, 413, "Request body too large")
+            self._emit_error("Request body too large")
             return None
 
         # Read body if present
@@ -230,7 +262,7 @@ class LLMSocketProxy:
         Handles both regular responses and streaming responses (SSE).
         """
         if not self._client:
-            await self._send_error_response(writer, 503, "Proxy not initialized")
+            self._emit_error("Proxy not initialized")
             return
 
         url = f"{self.litellm_url}{request['path']}"
@@ -253,6 +285,45 @@ class LLMSocketProxy:
                 headers=forward_headers,
                 content=body if body else None,
             ) as response:
+                # Detect error responses from LiteLLM
+                if response.status_code >= 400:
+                    # Check if this is a non-critical endpoint (telemetry, health checks, etc.)
+                    is_non_critical = request["path"] in _NON_CRITICAL_PATHS
+
+                    # Read error body but only log metadata to avoid sensitive data leakage
+                    try:
+                        error_body = await response.aread()
+                        log_method = logger.warning if is_non_critical else logger.error
+                        log_method(
+                            "LiteLLM error response",
+                            status_code=response.status_code,
+                            url=url,
+                            response_length=len(error_body),
+                            non_critical=is_non_critical,
+                        )
+                        # Log full body only at debug level
+                        logger.debug(
+                            "LiteLLM error body",
+                            response_body=error_body.decode("utf-8", errors="replace")[
+                                :1000
+                            ],
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to read error body",
+                            status_code=response.status_code,
+                            error=str(e),
+                        )
+
+                    # Only emit fatal error for critical endpoints
+                    if not is_non_critical:
+                        error_msg = _ERROR_MESSAGES.get(
+                            response.status_code,
+                            f"LLM request failed ({response.status_code})",
+                        )
+                        self._emit_error(error_msg)
+                    return  # Don't forward error responses
+
                 # Build response headers
                 response_line = (
                     f"HTTP/1.1 {response.status_code} {response.reason_phrase}\r\n"
@@ -282,42 +353,10 @@ class LLMSocketProxy:
 
         except httpx.ConnectError as e:
             logger.error("Failed to connect to LiteLLM", error=str(e))
-            await self._send_error_response(writer, 502, "LiteLLM unavailable")
+            self._emit_error("LiteLLM unavailable")
         except httpx.TimeoutException as e:
             logger.error("LiteLLM request timeout", error=str(e))
-            await self._send_error_response(writer, 504, "Gateway timeout")
+            self._emit_error("Gateway timeout")
         except (ConnectionResetError, BrokenPipeError):
             # Client disconnected - this is normal when sandbox exits
             logger.debug("Client disconnected during request forwarding")
-
-    async def _send_error_response(
-        self,
-        writer: asyncio.StreamWriter,
-        status_code: int,
-        message: str,
-    ) -> None:
-        """Send an HTTP error response through the socket."""
-        status_messages = {
-            400: "Bad Request",
-            401: "Unauthorized",
-            403: "Forbidden",
-            404: "Not Found",
-            413: "Payload Too Large",
-            429: "Too Many Requests",
-            500: "Internal Server Error",
-            502: "Bad Gateway",
-            503: "Service Unavailable",
-            504: "Gateway Timeout",
-        }
-        status_text = status_messages.get(status_code, "Error")
-        body = orjson.dumps({"error": message}).decode()
-        response = (
-            f"HTTP/1.1 {status_code} {status_text}\r\n"
-            f"Content-Type: application/json\r\n"
-            f"Content-Length: {len(body)}\r\n"
-            f"Connection: close\r\n"
-            f"\r\n"
-            f"{body}"
-        )
-        writer.write(response.encode())
-        await writer.drain()

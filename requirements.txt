@@ -322,9 +322,9 @@ botocore==1.40.61 \
     #   aiobotocore
     #   boto3
     #   s3transfer
-botocore-stubs==1.42.28 \
-    --hash=sha256:aa131f92f266c0ac479873e8e914c46256c39db3aecea0c73edf0846d304e9df \
-    --hash=sha256:ce16fb37db1b2d6f8877b9ca2a03cabb6bc67bd40e9f22de8001bc536eecd10d
+botocore-stubs==1.42.30 \
+    --hash=sha256:c4d11678eb172263feb1de805452c376d9c11e54f1903a7cfa132ba765d57b7d \
+    --hash=sha256:e41f864440d7d84ef514384557454ca094a5ee74e72c4ff907f637bc8a786df4
     # via
     #   types-aioboto3
     #   types-aiobotocore
@@ -608,9 +608,9 @@ cryptography==44.0.1 \
     #   pysaml2
     #   secretstorage
     #   tracecat
-cyclopts==4.4.6 \
-    --hash=sha256:9d06febb128b765b7fd283b55820db282f209a0cb166125f43345b4809dbee62 \
-    --hash=sha256:ffeef064d867b8a567b5efdfc09e3295b2774735ea1df33e5230e818d52d9942
+cyclopts==4.5.0 \
+    --hash=sha256:305b9aa90a9cd0916f0a450b43e50ad5df9c252680731a0719edfb9b20381bf5 \
+    --hash=sha256:717ac4235548b58d500baf7e688aa4d024caf0ee68f61a012ffd5e29db3099f9
     # via fastmcp
 dateparser==1.2.2 \
     --hash=sha256:5a5d7211a09013499867547023a2a0c91d5a27d15dd4dbcea676ea9fe66f2482 \
@@ -1344,9 +1344,9 @@ lockfile==0.12.2 \
     --hash=sha256:6aed02de03cba24efabcd600b30540140634fc06cfa603822d508d5361e9f799 \
     --hash=sha256:6c3cb24f344923d30b2785d5ad75182c8ea7ac1b6171b08657258ec7429d50fa
     # via python-daemon
-logfire-api==4.18.0 \
-    --hash=sha256:83a926e2e784cce0973faead8dcbc6fddcfa2023dae375acbad57192a3b2903f \
-    --hash=sha256:b458af414aaae60e85c14829c83f6f95f4a3f31e27e8fec9f4bc097a7b1d7b6c
+logfire-api==4.19.0 \
+    --hash=sha256:98c47e4995ab735791070529263f7cc19d07807204552be1f449bf1045f23ebc \
+    --hash=sha256:a38b3b42160df8c02d3cb722cf2d6a43d3a633e7b8ee832d01ac9a9a41fc0c76
     # via pydantic-graph
 loguru==0.7.3 \
     --hash=sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6 \
@@ -2068,13 +2068,14 @@ pyarrow==16.1.0 \
     --hash=sha256:e1369af39587b794873b8a307cc6623a3b1194e69399af0efd05bb202195a5a7 \
     --hash=sha256:febde33305f1498f6df85e8020bca496d0e9ebf2093bab9e0f65e2b4ae2b3444
     # via tracecat
-pyasn1==0.6.1 \
-    --hash=sha256:0d632f46f2ba09143da3a8afe9e33fb6f92fa2320ab7e886e2d0f7672af84629 \
-    --hash=sha256:6f580d2bdd84365380830acf45550f2511469f673cb4a5ae3857a3170128b034
+pyasn1==0.6.2 \
+    --hash=sha256:1eb26d860996a18e9b6ed05e7aae0e9fc21619fcee6af91cca9bad4fbea224bf \
+    --hash=sha256:9b59a2b25ba7e4f8197db7686c09fb33e658b98339fadb826e9512629017833b
     # via
     #   ldap3
     #   pyasn1-modules
     #   rsa
+    #   tracecat
 pyasn1-modules==0.4.2 \
     --hash=sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a \
     --hash=sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6
@@ -2820,9 +2821,9 @@ sqlalchemy==2.0.45 \
     #   fastapi-users-db-sqlalchemy
     #   tracecat
     #   tracecat-registry
-sse-starlette==3.1.2 \
-    --hash=sha256:55eff034207a83a0eb86de9a68099bd0157838f0b8b999a1b742005c71e33618 \
-    --hash=sha256:cd800dd349f4521b317b9391d3796fa97b71748a4da9b9e00aafab32dda375c8
+sse-starlette==3.2.0 \
+    --hash=sha256:5876954bd51920fc2cd51baee47a080eb88a37b5b784e615abb0b283f801cdbf \
+    --hash=sha256:8127594edfb51abe44eac9c49e59b0b01f1039d0c7461c6fd91d4e03b70da422
     # via mcp
 starlette==0.49.3 \
     --hash=sha256:1c14546f299b5901a1ea0e34410575bc33bbd741377a10484a54445588d00284 \
@@ -2976,9 +2977,9 @@ types-aiobotocore-sts==2.25.2 \
     --hash=sha256:1342271243d03fd8d4a1eab566d9137f70ec723bb6ad613669c74152ac3a0427 \
     --hash=sha256:487da184371dc9761fd3ed663d519f4a19f690d7dcc1fe8f551b6dd805f08549
     # via types-aioboto3
-types-awscrt==0.31.0 \
-    --hash=sha256:009cfe5b9af8c75e8304243490e20a5229e7a56203f1d41481f5522233453f51 \
-    --hash=sha256:aa8b42148af0847be14e2b8ea3637a3518ffab038f8d3be7083950f3ce87d3ff
+types-awscrt==0.31.1 \
+    --hash=sha256:08b13494f93f45c1a92eb264755fce50ed0d1dc75059abb5e31670feb9a09724 \
+    --hash=sha256:7e4364ac635f72bd57f52b093883640b1448a6eded0ecbac6e900bf4b1e4777b
     # via botocore-stubs
 types-boto3==1.42.25 \
     --hash=sha256:0b47f5219bae83355fd6942989e0d120847032224a09e57996753a9cd1d153e6 \

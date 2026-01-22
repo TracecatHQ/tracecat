@@ -29,7 +29,7 @@ from tracecat.auth.users import (
     is_unprivileged,
     optional_current_active_user,
 )
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
@@ -69,6 +69,7 @@ def get_role_from_user(
     organization_id: UUID4,
     workspace_id: UUID4 | None = None,
     workspace_role: WorkspaceRole | None = None,
+    org_role: OrgRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
     # Superusers always get ADMIN access level
@@ -83,6 +84,7 @@ def get_role_from_user(
         service_id=service_id,
         access_level=access_level,
         workspace_role=workspace_role,
+        org_role=org_role,
     )
 
 
@@ -126,6 +128,10 @@ async def _authenticate_service(
         role_params["user_id"] = user_id
     if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None:
         role_params["workspace_id"] = ws_id
+    if (ws_role := request.headers.get("x-tracecat-role-workspace-role")) is not None:
+        role_params["workspace_role"] = WorkspaceRole(ws_role)
+    if (org_role := request.headers.get("x-tracecat-role-org-role")) is not None:
+        role_params["org_role"] = OrgRole(org_role)
     return Role(**role_params)
 
 

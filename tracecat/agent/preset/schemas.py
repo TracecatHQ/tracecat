@@ -26,6 +26,7 @@ class AgentPresetBase(Schema):
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
+    enable_internet_access: bool = Field(default=False)
 
 
 class AgentPresetCreate(AgentPresetBase):
@@ -51,6 +52,7 @@ class AgentPresetUpdate(BaseModel):
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
+    enable_internet_access: bool | None = Field(default=None)
 
 
 class AgentPresetReadMinimal(Schema):
@@ -90,6 +92,7 @@ class AgentPresetRead(AgentPresetBase):
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
             retries=self.retries,
+            enable_internet_access=self.enable_internet_access,
         )
 
 

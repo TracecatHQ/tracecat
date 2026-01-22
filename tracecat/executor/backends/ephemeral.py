@@ -58,7 +58,7 @@ class EphemeralBackend(ExecutorBackend):
     - Resource limits (CPU, memory, file size)
     """
 
-    async def execute(
+    async def _execute(
         self,
         input: RunActionInput,
         role: Role,

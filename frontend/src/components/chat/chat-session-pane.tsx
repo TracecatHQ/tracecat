@@ -100,6 +100,23 @@ export interface ChatSessionPaneProps {
   toolsEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
+  /**
+   * Called before sending a message. If provided, receives the message text
+   * and should handle sending it (e.g., to a forked session). Returns the
+   * new session ID to switch to, or null to cancel.
+   * Used for inbox fork-on-send behavior.
+   */
+  onBeforeSend?: (messageText: string) => Promise<string | null>
+  /**
+   * Message to send immediately on mount. Used after forking a session
+   * to send the user's message to the newly forked session.
+   */
+  pendingMessage?: string
+  /**
+   * Callback when the pending message has been sent.
+   * Used to clear the pending message state in the parent.
+   */
+  onPendingMessageSent?: () => void
 }
 
 export function ChatSessionPane({
@@ -113,6 +130,9 @@ export function ChatSessionPane({
   modelInfo,
   toolsEnabled = true,
   autoFocusInput = false,
+  onBeforeSend,
+  pendingMessage,
+  onPendingMessageSent,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -140,6 +160,28 @@ export function ChatSessionPane({
       messages: uiMessages,
       modelInfo,
     })
+
+  // Track whether we've sent the pending message to avoid double-sends
+  const pendingMessageSentRef = useRef(false)
+
+  // Send pending message on mount (used after forking)
+  useEffect(() => {
+    if (pendingMessage && !pendingMessageSentRef.current && !isReadonly) {
+      pendingMessageSentRef.current = true
+      clearError()
+      sendMessage({ text: pendingMessage })
+      onPendingMessageSent?.()
+    }
+  }, [
+    pendingMessage,
+    isReadonly,
+    clearError,
+    sendMessage,
+    onPendingMessageSent,
+  ])
+
+  // Allow input when ready OR in error state (so user can retry after transient failures)
+  const canSubmit = status === "ready" || status === "error"
 
   const isWaitingForResponse = useMemo(() => {
     if (status === "submitted") return true
@@ -240,23 +282,37 @@ export function ChatSessionPane({
     }
   }, [messages, invalidateEntityQueries])
 
-  const handleSubmit = (message: PromptInputMessage) => {
+  const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text?.trim())
 
     if (!hasText) {
       return
     }
 
+    const messageText = message.text || ""
+
+    if (onBeforeSend) {
+      const result = await onBeforeSend(messageText)
+      // Only clear input if onBeforeSend succeeded (non-null)
+      // If null, the action was cancelled and user keeps their draft
+      if (result !== null) {
+        setInput("")
+      }
+      // Parent will handle switching sessions and sending via pendingMessage
+      return
+    }
+
+    // Clear input for normal message sending
+    setInput("")
+
     try {
       clearError()
       sendMessage({
-        text: message.text || "Sent with attachments",
+        text: messageText,
         ...(message.files?.length ? { files: message.files } : {}),
       })
     } catch (error) {
       console.error("Failed to send message:", error)
-    } finally {
-      setInput("")
     }
   }
 
@@ -369,7 +425,7 @@ export function ChatSessionPane({
               }
               value={input}
               autoFocus={autoFocusInput && !isReadonly}
-              disabled={isReadonly}
+              disabled={isReadonly || !canSubmit}
             />
           </PromptInputBody>
           <PromptInputToolbar>
@@ -398,7 +454,7 @@ export function ChatSessionPane({
               </PromptInputTools>
             )}
             <PromptInputSubmit
-              disabled={isReadonly || !input || !!status}
+              disabled={isReadonly || !canSubmit || !input}
               status={status}
               className="ml-auto text-muted-foreground/80"
             />

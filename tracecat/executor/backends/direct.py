@@ -99,7 +99,7 @@ class DirectBackend(ExecutorBackend):
     For production use pool (single-tenant) or ephemeral (multi-tenant).
     """
 
-    async def execute(
+    async def _execute(
         self,
         input: RunActionInput,
         role: Role,

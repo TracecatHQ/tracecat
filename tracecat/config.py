@@ -726,6 +726,7 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
     "gpt-5": 350_000,
     "claude-sonnet-4-5-20250929": 180_000,
     "claude-haiku-4-5-20251001": 180_000,
+    "claude-opus-4-5-20251101": 180_000,
     "anthropic.claude-sonnet-4-5-20250929-v1:0": 180_000,
     "anthropic.claude-haiku-4-5-20251001-v1:0": 180_000,
 }

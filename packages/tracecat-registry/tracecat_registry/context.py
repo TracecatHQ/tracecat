@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
     from tracecat_registry.sdk.cases import CasesClient
     from tracecat_registry.sdk.tables import TablesClient
+    from tracecat_registry.sdk.workflows import WorkflowsClient
 
 
 @dataclass
@@ -32,6 +33,7 @@ class RegistryContext:
         workspace_id: The workspace UUID where the workflow is running.
         workflow_id: The workflow UUID being executed.
         run_id: The workflow run UUID.
+        wf_exec_id: The full workflow execution ID (for correlation).
         environment: The execution environment (e.g., "default").
         api_url: The Tracecat API URL.
         executor_url: The Tracecat executor service URL (sandbox execution).
@@ -41,6 +43,7 @@ class RegistryContext:
     workspace_id: str
     workflow_id: str
     run_id: str
+    wf_exec_id: str | None = None
     environment: str = "default"
     api_url: str = "http://api:8000"
     executor_url: str = "http://executor:8000"
@@ -57,6 +60,7 @@ class RegistryContext:
         - TRACECAT__WORKSPACE_ID: Workspace UUID
         - TRACECAT__WORKFLOW_ID: Workflow UUID
         - TRACECAT__RUN_ID: Run UUID
+        - TRACECAT__WF_EXEC_ID: Full workflow execution ID (for correlation)
         - TRACECAT__ENVIRONMENT: Execution environment (default: "default")
         - TRACECAT__API_URL: API URL (default: "http://api:8000")
         - TRACECAT__EXECUTOR_URL: Executor URL (default: "http://executor:8000")
@@ -83,6 +87,7 @@ class RegistryContext:
             workspace_id=workspace_id,
             workflow_id=workflow_id,
             run_id=run_id,
+            wf_exec_id=os.environ.get("TRACECAT__WF_EXEC_ID"),
             environment=os.environ.get("TRACECAT__ENVIRONMENT", "default"),
             api_url=os.environ.get("TRACECAT__API_URL", "http://api:8000"),
             executor_url=os.environ.get(
@@ -111,6 +116,11 @@ class RegistryContext:
     def tables(self) -> "TablesClient":
         """Get the Tables API client."""
         return self.client.tables
+
+    @property
+    def workflows(self) -> "WorkflowsClient":
+        """Get the Workflows API client."""
+        return self.client.workflows
 
 
 # Context variable for the current registry context

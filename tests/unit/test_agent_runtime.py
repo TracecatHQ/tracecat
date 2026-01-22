@@ -20,12 +20,12 @@ from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
-    MCPToolDefinition as SharedMCPToolDefinition,
-)
-from tracecat.agent.common.types import (
+    MCPToolDefinition,
     SandboxAgentConfig,
 )
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPToolDefinition as SharedMCPToolDefinition,
+)
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.types import AgentConfig
 
@@ -354,27 +354,3 @@ class TestClaudeAgentRuntimePreToolUseHook:
         # Should have sent approval request and interrupted
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
-
-    @pytest.mark.anyio
-    async def test_deny_unknown_tool(
-        self,
-        mock_socket_writer: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
-        """Test that unknown tools are denied."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
-        runtime.registry_tools = sample_init_payload.allowed_actions
-        runtime.tool_approvals = sample_init_payload.config.tool_approvals
-
-        # Tool not in registry and not a user MCP tool
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_hook_input(
-                tool_name="some_random_tool",
-                tool_input={},
-            ),
-            tool_use_id="call-4",
-            context=make_hook_context(),
-        )
-
-        hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "deny"

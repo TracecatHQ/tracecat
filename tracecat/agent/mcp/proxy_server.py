@@ -18,7 +18,7 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from tracecat.agent.mcp.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
 from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
@@ -88,6 +88,18 @@ def _make_tool_handler(
                     {**trusted_tool_args, "args": args, "auth_token": auth_token},
                 )
 
+            # Check if the tool call returned an error
+            if call_result.is_error:
+                # Extract error message from content
+                error_text = ""
+                if call_result.content and len(call_result.content) > 0:
+                    first_block = call_result.content[0]
+                    error_text = getattr(first_block, "text", str(first_block))
+                logger.error(
+                    "Tool call returned error", error=error_text, **log_context
+                )
+                raise RuntimeError(error_text or "Tool execution failed")
+
             if call_result.content and len(call_result.content) > 0:
                 first_block = call_result.content[0]
                 result_text = getattr(first_block, "text", str(first_block))
@@ -98,10 +110,7 @@ def _make_tool_handler(
 
         except Exception as e:
             logger.error("Proxy request failed", error=str(e), **log_context)
-            return {
-                "content": [{"type": "text", "text": "Error: Proxy request failed"}],
-                "isError": True,
-            }
+            raise
 
     return _handler
 

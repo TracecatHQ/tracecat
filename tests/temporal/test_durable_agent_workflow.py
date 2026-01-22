@@ -15,6 +15,9 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+
+pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
+
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
 from temporalio.client import Client
@@ -34,6 +37,7 @@ from tracecat_ee.agent.workflows.durable import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -41,7 +45,6 @@ from tracecat.agent.executor.activity import (
     ExecuteApprovedToolsResult,
     ToolExecutionResult,
 )
-from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -56,8 +59,6 @@ from tracecat.db.models import User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.feature_flags import FeatureFlag
 from tracecat.registry.lock.types import RegistryLock
-
-pytestmark = pytest.mark.usefixtures("db")
 
 
 @pytest.fixture(autouse=True)

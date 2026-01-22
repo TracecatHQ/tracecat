@@ -203,6 +203,7 @@ class DurableAgentWorkflow:
         logger.info("Running agent with NSJail harness", session_id=self.session_id)
 
         # Create or get the AgentSession - idempotent, safe to call on resume
+        # Pass session_id as curr_run_id since the workflow ID is agent/<session_id>
         create_result = await workflow.execute_activity(
             create_session_activity,
             CreateSessionInput(
@@ -215,6 +216,7 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 harness_type=HarnessType(self.harness_type),
+                curr_run_id=self.session_id,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -269,11 +271,15 @@ class DurableAgentWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
 
+        is_fork = False
         if load_result.found and load_result.sdk_session_data:
             self._sdk_session_id = load_result.sdk_session_id
             self._sdk_session_data = load_result.sdk_session_data
+            is_fork = load_result.is_fork
             logger.info(
-                "Resuming from existing session", sdk_session_id=self._sdk_session_id
+                "Resuming from existing session",
+                sdk_session_id=self._sdk_session_id,
+                is_fork=is_fork,
             )
 
         # Mint tokens for MCP server and LiteLLM gateway auth
@@ -308,6 +314,7 @@ class DurableAgentWorkflow:
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
+            is_fork=is_fork,
         )
 
         info = workflow.info()

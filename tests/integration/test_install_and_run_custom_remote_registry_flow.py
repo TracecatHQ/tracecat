@@ -178,8 +178,14 @@ async def test_remote_custom_registry_repo() -> None:
     sync_response = session.post(
         f"{base_url}/registry/repos/{repository_id}/sync",
     )
-    assert sync_response.status_code == 204, f"Sync failed: {sync_response.text}"
-    logger.info("Repository sync completed successfully")
+    assert sync_response.status_code == 200, f"Sync failed: {sync_response.text}"
+    sync_data = sync_response.json()
+    assert sync_data["success"] is True, f"Sync was not successful: {sync_data}"
+    logger.info(
+        "Repository sync completed successfully",
+        version=sync_data.get("version"),
+        actions_count=sync_data.get("actions_count"),
+    )
 
     # ---------------------------------------------------------------------
     # 5.  Verify the action is registered

@@ -63,6 +63,14 @@ MODEL_CONFIGS = {
             "required": ["anthropic"],
         },
     ),
+    "claude-opus-4-5-20251101": ModelConfig(
+        name="claude-opus-4-5-20251101",
+        provider="anthropic",
+        org_secret_name="agent-anthropic-credentials",
+        secrets={
+            "required": ["anthropic"],
+        },
+    ),
     "bedrock": ModelConfig(
         name="bedrock",  # Placeholder; actual ARN from AWS_MODEL_ARN credential will be used at runtime
         provider="bedrock",

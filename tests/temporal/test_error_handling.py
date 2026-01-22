@@ -1,6 +1,9 @@
 import os
 
 import pytest
+
+pytestmark = pytest.mark.temporal
+
 from temporalio.client import WorkflowFailureError
 
 from tests import shared

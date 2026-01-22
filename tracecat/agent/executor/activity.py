@@ -39,12 +39,12 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import ToolCallContent, UnifiedStreamEvent
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
-from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
@@ -85,6 +85,8 @@ class AgentExecutorInput(BaseModel):
     sdk_session_data: str | None = None
     # True when resuming after approval decision (continuation prompt should be internal)
     is_approval_continuation: bool = False
+    # True when forking from parent session (SDK should use fork_session=True)
+    is_fork: bool = False
 
 
 class AgentExecutorResult(BaseModel):
@@ -123,6 +125,10 @@ class SandboxedAgentExecutor:
         default=None, init=False, repr=False
     )
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
+    _fatal_error: str | None = field(default=None, init=False, repr=False)
+    _fatal_error_event: asyncio.Event = field(
+        default_factory=asyncio.Event, init=False, repr=False
+    )
 
     async def run(self) -> AgentExecutorResult:
         """Execute the agent in an NSJail sandbox.
@@ -150,6 +156,7 @@ class SandboxedAgentExecutor:
                 sdk_session_id=self.input.sdk_session_id,
                 sdk_session_data=self.input.sdk_session_data,
                 is_approval_continuation=self.input.is_approval_continuation,
+                is_fork=self.input.is_fork,
             )
             handler = LoopbackHandler(input=loopback_input)
 
@@ -194,7 +201,16 @@ class SandboxedAgentExecutor:
 
             # Start LLM socket proxy (proxies HTTP to LiteLLM via Unix socket)
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
-            self._llm_proxy = LLMSocketProxy(socket_path=llm_socket_path)
+
+            def on_llm_error(error_msg: str) -> None:
+                """Callback invoked when LLM proxy detects an error."""
+                self._fatal_error = error_msg
+                self._fatal_error_event.set()
+
+            self._llm_proxy = LLMSocketProxy(
+                socket_path=llm_socket_path,
+                on_error=on_llm_error,
+            )
             await self._llm_proxy.start()
             logger.info(
                 "Started LLM socket proxy",
@@ -215,6 +231,7 @@ class SandboxedAgentExecutor:
                 runtime_result = await spawn_jailed_runtime(
                     socket_dir=socket_dir,
                     llm_socket_path=llm_socket_path,
+                    enable_internet_access=self.input.config.enable_internet_access,
                 )
                 self._process = runtime_result.process
                 logger.info(
@@ -224,45 +241,51 @@ class SandboxedAgentExecutor:
                     mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
                 )
 
-                # Start a task to read and log stderr from the agent runtime
-                async def log_stderr() -> None:
-                    if self._process and self._process.stderr:
-                        async for line in self._process.stderr:
-                            decoded = line.decode("utf-8", errors="replace").rstrip()
-                            if decoded:
-                                logger.info("Agent runtime stderr", line=decoded)
-
-                asyncio.create_task(log_stderr())
-
-                # Wait for loopback to complete (socket communication drives the flow)
-                # The loopback handler signals completion via _loopback_result future
+                # Wait for loopback to complete OR fatal error from LLM proxy OR process exit
                 # We poll with short timeout to allow heartbeats to Temporal
-                logger.debug("Waiting for loopback result future")
+                logger.debug("Waiting for loopback result or fatal error")
                 heartbeat_interval = 30  # seconds
                 elapsed = 0
+
+                # Create a task to wait for fatal error event
+                async def wait_fatal_error() -> str:
+                    await self._fatal_error_event.wait()
+                    return self._fatal_error or "Unknown LLM error"
+
+                fatal_error_task = asyncio.create_task(wait_fatal_error())
+
+                # Create a task to monitor process exit (to capture crash errors)
+                async def wait_process_exit() -> tuple[int, str]:
+                    """Wait for process to exit and capture stderr."""
+                    if self._process is None:
+                        return -1, "Process not started"
+                    _, stderr_bytes = await self._process.communicate()
+                    stderr = (
+                        stderr_bytes.decode("utf-8", errors="replace")
+                        if stderr_bytes
+                        else ""
+                    )
+                    return self._process.returncode or 0, stderr
+
+                process_exit_task = asyncio.create_task(wait_process_exit())
+
                 try:
                     while elapsed < self.timeout_seconds:
-                        try:
-                            loopback_result = await asyncio.wait_for(
-                                asyncio.shield(self._loopback_result),
-                                timeout=heartbeat_interval,
-                            )
-                            logger.info(
-                                "Loopback result received",
-                                success=loopback_result.success,
-                                error=loopback_result.error,
-                            )
-                            result.success = loopback_result.success
-                            result.error = loopback_result.error
-                            result.approval_requested = (
-                                loopback_result.approval_requested
-                            )
-                            result.approval_items = (
-                                loopback_result.approval_items or None
-                            )
-                            break
-                        except TimeoutError:
-                            # Heartbeat to Temporal and continue waiting
+                        # Wait for either loopback result, fatal error, or process exit
+                        done, _ = await asyncio.wait(
+                            [
+                                asyncio.ensure_future(
+                                    asyncio.shield(self._loopback_result)
+                                ),
+                                fatal_error_task,
+                                process_exit_task,
+                            ],
+                            timeout=heartbeat_interval,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+
+                        if not done:
+                            # Timeout - send heartbeat and continue waiting
                             elapsed += heartbeat_interval
                             activity.heartbeat(
                                 f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
@@ -272,6 +295,85 @@ class SandboxedAgentExecutor:
                                 elapsed=elapsed,
                                 timeout=self.timeout_seconds,
                             )
+                            continue
+
+                        # Check if fatal error task completed
+                        if fatal_error_task in done:
+                            # Fatal error from LLM proxy - fail immediately
+                            error_msg = fatal_error_task.result()
+                            logger.error(
+                                "Fatal LLM error detected, terminating agent",
+                                error=error_msg,
+                            )
+                            result.error = error_msg
+
+                            # Kill the process
+                            if self._process and self._process.returncode is None:
+                                self._process.kill()
+
+                            # Send error to stream
+                            try:
+                                stream = await AgentStream.new(
+                                    session_id=self.input.session_id,
+                                    workspace_id=self.input.workspace_id,
+                                )
+                                await stream.error(error_msg)
+                            except Exception:
+                                pass
+                            break
+
+                        # Check if process exited before connecting (crash)
+                        if (
+                            process_exit_task in done
+                            and not self._loopback_result.done()
+                        ):
+                            # Process exited without connecting to loopback
+                            returncode, stderr = process_exit_task.result()
+                            # Log stderr - show last 4000 chars which typically contain the actual error
+                            # (NSJail mount logs consume the beginning)
+                            if stderr:
+                                # Log the tail of stderr (where Python errors typically appear)
+                                stderr_tail = (
+                                    stderr[-4000:] if len(stderr) > 4000 else stderr
+                                )
+                                logger.error(
+                                    "Runtime process stderr (tail)",
+                                    stderr=stderr_tail,
+                                )
+                            error_msg = (
+                                f"Runtime process exited with code {returncode} "
+                                f"before connecting. stderr: {stderr[-1000:] if stderr else 'empty'}"
+                            )
+                            logger.error(
+                                "Runtime process crashed",
+                                returncode=returncode,
+                                stderr_tail=stderr[-500:] if stderr else None,
+                            )
+                            result.error = error_msg
+
+                            # Send error to stream
+                            try:
+                                stream = await AgentStream.new(
+                                    session_id=self.input.session_id,
+                                    workspace_id=self.input.workspace_id,
+                                )
+                                await stream.error(error_msg)
+                            except Exception:
+                                pass
+                            break
+
+                        # Loopback completed
+                        loopback_result = self._loopback_result.result()
+                        logger.info(
+                            "Loopback result received",
+                            success=loopback_result.success,
+                            error=loopback_result.error,
+                        )
+                        result.success = loopback_result.success
+                        result.error = loopback_result.error
+                        result.approval_requested = loopback_result.approval_requested
+                        result.approval_items = loopback_result.approval_items or None
+                        break
                     else:
                         # Exceeded total timeout
                         logger.error("Agent execution timed out waiting for loopback")
@@ -298,6 +400,15 @@ class SandboxedAgentExecutor:
                         else None,
                     )
                     raise
+                finally:
+                    # Clean up tasks if still pending
+                    for task in [fatal_error_task, process_exit_task]:
+                        if not task.done():
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
 
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))

@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tracecat.fullname" . }}-migrations
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+        tracecat.com/access-postgres: "true"
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c']
+          args:
+            - |
+              echo "Waiting for PostgreSQL to be ready..."
+              HOST="{{ include "tracecat.postgres.host" . }}"
+              PORT="{{ include "tracecat.postgres.port" . }}"
+              MAX_RETRIES=60
+              RETRY_COUNT=0
+              until nc -z "$HOST" "$PORT"; do
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                  echo "PostgreSQL not ready after $MAX_RETRIES retries"
+                  exit 1
+                fi
+                echo "Attempt $RETRY_COUNT/$MAX_RETRIES - PostgreSQL not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "PostgreSQL is ready"
+      containers:
+        - name: migrations
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python3", "-m", "alembic", "upgrade", "head"]
+          env:
+            {{- include "tracecat.env.common" . | nindent 12 }}
+            {{- include "tracecat.env.postgres" . | nindent 12 }}
+          {{- with include "tracecat.postgres.caVolumeMount" . }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      {{- with include "tracecat.postgres.caVolume" . }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}

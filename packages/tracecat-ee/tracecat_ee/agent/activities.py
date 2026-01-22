@@ -7,13 +7,12 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 from temporalio import activity
 
-from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.common.types import MCPServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
-from tracecat.agent.mcp.types import MCPToolDefinition
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools

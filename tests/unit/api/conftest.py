@@ -13,7 +13,7 @@ from tracecat.agent.router import (
 )
 from tracecat.api.app import app
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
@@ -60,6 +60,7 @@ def client() -> Generator[TestClient, None, None]:
     # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
+        ExecutorWorkspaceRole,
         WorkspaceUser,
         WorkspaceUserInPath,
         WorkspaceAdminUserInPath,

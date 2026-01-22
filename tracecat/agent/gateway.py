@@ -121,10 +121,10 @@ class TracecatCallbackHandler(CustomLogger):
                 "Model not found in token metadata", workspace_id=workspace_id
             )
             raise ProxyException(
-                message="Invalid request configuration",
-                type="auth_error",
+                message="Model not specified. Please select a model in the chat settings.",
+                type="config_error",
                 param=None,
-                code=401,
+                code=400,
             )
         data["model"] = model
 
@@ -145,8 +145,8 @@ class TracecatCallbackHandler(CustomLogger):
                 provider=provider,
             )
             raise ProxyException(
-                message="Provider credentials not configured",
-                type="auth_error",
+                message=f"No {provider} API credentials configured. Add them in workspace settings.",
+                type="credential_error",
                 param=None,
                 code=401,
             )

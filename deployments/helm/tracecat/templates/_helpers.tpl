@@ -608,8 +608,6 @@ Merges: common + temporal + postgres + redis + api-specific
 {{- end }}
 - name: TRACECAT__ALLOW_ORIGINS
   value: {{ .Values.tracecat.allowOrigins | quote }}
-- name: RUN_MIGRATIONS
-  value: "true"
 {{- /* Auth settings */}}
 - name: TRACECAT__AUTH_TYPES
   value: {{ .Values.tracecat.auth.types | quote }}

@@ -35,6 +35,7 @@ class RepositoryStatus(BaseModel):
     origin: str
     last_synced_at: datetime | None
     commit_sha: str | None
+    current_version_id: uuid.UUID | None = None
 
 
 class RegistryStatusResponse(BaseModel):
@@ -56,3 +57,13 @@ class RegistryVersionRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class RegistryVersionPromoteResponse(BaseModel):
+    """Response from promoting a registry version."""
+
+    repository_id: uuid.UUID
+    origin: str
+    previous_version_id: uuid.UUID | None
+    current_version_id: uuid.UUID
+    version: str

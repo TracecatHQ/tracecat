@@ -194,7 +194,9 @@ Profiles:
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
-  down          Stop the cluster
+                Use --seed to auto-register test@tracecat.com:password1234
+  down          Stop the cluster (keeps volumes)
+  rm            Remove the cluster (down + remove volumes)
   restart [svc] Restart the cluster or specific service
   ps            Show running containers
   logs [svc]    Show logs (optionally for specific service)
@@ -202,16 +204,29 @@ Commands:
   db            Open lazysql to the cluster's PostgreSQL database
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
+  nuke [opts]   Destroy cluster and optionally volumes/images
+
+Nuke options:
+  nuke                  Stop cluster and remove volumes
+  nuke --images         Also remove images
+  nuke --dry-run        Show what would be deleted
+  nuke <service>        Remove specific service volume (e.g., nuke minio)
+  nuke volumes          List and select volumes to remove
 
 Examples:
   ./cluster up -d                Start next available cluster
-  ./cluster down                 Stop cluster (auto-select if one running)
+  ./cluster up -d --seed         Start cluster and register test user
+  ./cluster down                 Stop cluster (keeps volumes)
+  ./cluster rm                   Remove cluster and volumes
   ./cluster restart api          Restart the api service
   ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
   ./cluster attach api           Attach shell to api service
   ./cluster db                   Open lazysql to the database
   ./cluster list                 List all clusters
+  ./cluster nuke                 Destroy cluster and volumes (interactive)
+  ./cluster nuke minio           Remove only minio volume
+  ./cluster nuke --images        Destroy cluster, volumes, and images
 
 Current worktree: ${WORKTREE_ID}
 EOF
@@ -360,7 +375,40 @@ fi
 COMMAND="$1"
 shift
 
-# Handle 'db' command - open TablePlus to postgres (no cluster selection needed)
+# Auto-select cluster number if not specified
+if [[ "$AUTO_SELECT" == "true" ]]; then
+    if [[ "$COMMAND" == "up" ]]; then
+        CLUSTER_NUM=$(get_next_cluster_num)
+        echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
+    elif [[ "$COMMAND" == "nuke" ]]; then
+        # For nuke, try to find any cluster (running or with leftover volumes)
+        CLUSTER_NUM=$(get_running_clusters | head -1)
+        if [[ -z "$CLUSTER_NUM" ]]; then
+            # No running cluster, check for orphaned volumes
+            ORPHAN_VOLUME=$(docker volume ls --format "{{.Name}}" | grep "^tracecat-${WORKTREE_ID}-" | head -1 || true)
+            if [[ -n "$ORPHAN_VOLUME" && "$ORPHAN_VOLUME" =~ ^tracecat-${WORKTREE_ID}-([0-9]+)_ ]]; then
+                CLUSTER_NUM="${BASH_REMATCH[1]}"
+                echo "Found orphaned volumes for cluster ${CLUSTER_NUM}"
+            else
+                CLUSTER_NUM="1"
+                echo "No clusters or volumes found, defaulting to cluster 1"
+            fi
+        fi
+    else
+        CLUSTER_NUM=$(auto_select_cluster "$COMMAND")
+    fi
+fi
+
+# Get compose file for profile
+COMPOSE_FILE=$(get_compose_file "$PROFILE")
+
+# Handle 'ports' command
+if [[ "$COMMAND" == "ports" ]]; then
+    show_ports "$CLUSTER_NUM"
+    exit 0
+fi
+
+# Handle 'db' command - open TablePlus to postgres
 if [[ "$COMMAND" == "db" ]]; then
     if [[ ! -d "/Applications/TablePlus.app" ]]; then
         echo "Error: TablePlus is not installed" >&2
@@ -376,38 +424,13 @@ if [[ "$COMMAND" == "db" ]]; then
         set +a
     fi
 
-    # Use env vars with sensible defaults
-    pg_port="${PG_PORT:-5432}"
+    calculate_ports "$CLUSTER_NUM"
     pg_user="${TRACECAT__POSTGRES_USER:-postgres}"
     pg_pass="${TRACECAT__POSTGRES_PASSWORD:-postgres}"
 
-    open -a TablePlus "postgresql://${pg_user}:${pg_pass}@localhost:${pg_port}/postgres?sslmode=disable"
+    echo "Opening TablePlus for cluster ${WORKTREE_ID}-${CLUSTER_NUM} (port ${PG_PORT})..."
+    open -a TablePlus "postgresql://${pg_user}:${pg_pass}@localhost:${PG_PORT}/postgres?sslmode=disable"
     exit 0
-fi
-
-# Auto-select cluster number if not specified
-if [[ "$AUTO_SELECT" == "true" ]]; then
-    if [[ "$COMMAND" == "up" ]]; then
-        CLUSTER_NUM=$(get_next_cluster_num)
-        echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
-    else
-        CLUSTER_NUM=$(auto_select_cluster "$COMMAND")
-    fi
-fi
-
-# Get compose file for profile
-COMPOSE_FILE=$(get_compose_file "$PROFILE")
-
-# Handle 'ports' command
-if [[ "$COMMAND" == "ports" ]]; then
-    show_ports "$CLUSTER_NUM"
-    exit 0
-fi
-
-# Handle 'db' command - open lazysql to postgres
-if [[ "$COMMAND" == "db" ]]; then
-    calculate_ports "$CLUSTER_NUM"
-    exec lazysql "postgres://postgres:postgres@localhost:${PG_PORT}/postgres"
 fi
 
 # Handle 'attach' command
@@ -429,6 +452,142 @@ fi
 if [[ "$COMMAND" == "restart" ]]; then
     build_env "$CLUSTER_NUM"
     exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
+fi
+
+# Handle 'rm' command - down + remove volumes
+if [[ "$COMMAND" == "rm" ]]; then
+    build_env "$CLUSTER_NUM"
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+fi
+
+# Handle 'nuke' command - destroy cluster and optionally volumes/images
+if [[ "$COMMAND" == "nuke" ]]; then
+    build_env "$CLUSTER_NUM"
+    PROJECT_NAME="tracecat-${WORKTREE_ID}-${CLUSTER_NUM}"
+
+    # Parse nuke options
+    NUKE_IMAGES=false
+    DRY_RUN=false
+    TARGET_SERVICE=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --images)
+                NUKE_IMAGES=true
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            volumes)
+                # List volumes for this project (exact prefix match)
+                echo "Volumes for ${PROJECT_NAME}:"
+                docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep "^${PROJECT_NAME}_" | sed 's/^/  /' || echo "  (none)"
+                exit 0
+                ;;
+            *)
+                TARGET_SERVICE="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Get all volumes for this project (exact prefix match to avoid cluster1 matching cluster10)
+    get_project_volumes() {
+        docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep "^${PROJECT_NAME}_" || true
+    }
+
+    # Get volume for a specific service
+    get_service_volume() {
+        local service=$1
+        docker volume ls --filter "name=${PROJECT_NAME}" --format "{{.Name}}" | grep "^${PROJECT_NAME}_" | grep -i "${service}" || true
+    }
+
+    if [[ -n "$TARGET_SERVICE" ]]; then
+        # Nuke specific service volume
+        VOLUMES=$(get_service_volume "$TARGET_SERVICE")
+        if [[ -z "$VOLUMES" ]]; then
+            echo "No volumes found matching '${TARGET_SERVICE}' for ${PROJECT_NAME}"
+            echo ""
+            echo "Available volumes:"
+            get_project_volumes | sed 's/^/  /'
+            exit 1
+        fi
+
+        echo "Volumes to remove:"
+        echo "$VOLUMES" | sed 's/^/  /'
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo ""
+            echo "[dry-run] Would remove the above volumes"
+            exit 0
+        fi
+
+        echo ""
+        read -p "Remove these volumes? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo "$VOLUMES" | xargs docker volume rm
+            echo "Done."
+        else
+            echo "Aborted."
+        fi
+        exit 0
+    fi
+
+    # Full nuke
+    echo "=== NUKE: ${PROJECT_NAME} ==="
+    echo ""
+    echo "This will destroy:"
+    echo "  - All containers"
+    echo "  - All volumes:"
+    get_project_volumes | sed 's/^/      /'
+
+    if [[ "$NUKE_IMAGES" == "true" ]]; then
+        echo "  - All images (built for this project)"
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo ""
+        echo "[dry-run] Would execute the above"
+        exit 0
+    fi
+
+    echo ""
+    read -p "Are you sure? This cannot be undone. [y/N] " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+
+    echo ""
+    echo "Stopping containers..."
+    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down --remove-orphans
+
+    echo ""
+    echo "Removing volumes..."
+    VOLUMES=$(get_project_volumes)
+    if [[ -n "$VOLUMES" ]]; then
+        echo "$VOLUMES" | xargs docker volume rm
+    fi
+
+    if [[ "$NUKE_IMAGES" == "true" ]]; then
+        echo ""
+        echo "Removing images..."
+        # Get images built for this project (tagged with project name)
+        IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${PROJECT_NAME}" || true)
+        if [[ -n "$IMAGES" ]]; then
+            echo "$IMAGES" | xargs docker rmi -f
+        else
+            echo "  No project-specific images found"
+        fi
+    fi
+
+    echo ""
+    echo "=== NUKE COMPLETE ==="
+    exit 0
 fi
 
 # Build environment and run docker compose
@@ -462,9 +621,74 @@ fi
 # Sync dependencies before starting cluster
 if [[ "$COMMAND" == "up" ]]; then
     echo "Syncing dependencies..."
-    (cd "$REPO_ROOT" && uv sync --quiet)
+    (cd "$REPO_ROOT" && uv sync --group admin --quiet)
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
+# Check for --seed flag in up command
+SEED_USER=false
+UP_ARGS=()
+if [[ "$COMMAND" == "up" ]]; then
+    for arg in "$@"; do
+        if [[ "$arg" == "--seed" ]]; then
+            SEED_USER=true
+        else
+            UP_ARGS+=("$arg")
+        fi
+    done
+    set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
+fi
+
+# Function to seed test user after cluster starts
+seed_test_user() {
+    local api_url="http://localhost:${PUBLIC_APP_PORT}/api"
+    local max_attempts=30
+    local attempt=1
+
+    echo "Waiting for API to be ready..."
+    while [[ $attempt -le $max_attempts ]]; do
+        if curl -s "${api_url}/health" > /dev/null 2>&1; then
+            echo "API is ready"
+            break
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+
+    if [[ $attempt -gt $max_attempts ]]; then
+        echo "Warning: API did not become ready in time, skipping user registration"
+        return 1
+    fi
+
+    echo "Registering test user (test@tracecat.com)..."
+    local response
+    response=$(curl -s -w "\n%{http_code}" -X POST "${api_url}/auth/register" \
+        -H "Content-Type: application/json" \
+        -d '{"email": "test@tracecat.com", "password": "password1234"}')
+
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
+
+    case "$http_code" in
+        201)
+            echo "Successfully registered test user"
+            ;;
+        400|409)
+            echo "Test user already exists"
+            ;;
+        *)
+            echo "Warning: Registration returned status $http_code: $body"
+            ;;
+    esac
+}
+
 # Run docker compose with the configured environment
-exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
+    # Run in background mode for seeding, then seed
+    docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    seed_test_user
+else
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+fi

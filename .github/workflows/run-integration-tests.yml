@@ -164,7 +164,7 @@ jobs:
           # Use local subprocess sync instead of Temporal workflow (faster, simpler for CI)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"
         run: |
-          uv run pytest tests/integration -ra -vvs --log-cli-level=INFO
+          uv run pytest tests/integration -ra -v
 
       - name: Show Docker logs on failure
         if: failure()

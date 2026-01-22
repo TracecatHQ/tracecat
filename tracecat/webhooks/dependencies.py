@@ -15,6 +15,7 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.api_keys import verify_api_key
 from tracecat.auth.types import Role
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Webhook, WorkflowDefinition
@@ -177,6 +178,7 @@ async def validate_incoming_webhook(
                 type="service",
                 workspace_id=webhook.workspace_id,
                 service_id="tracecat-runner",
+                workspace_role=WorkspaceRole.EDITOR,
             )
         )
 
@@ -340,7 +342,9 @@ async def validate_draft_workflow(
             )
         try:
             dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
-            return DraftWorkflowContext(dsl=dsl, registry_lock=workflow.registry_lock)
+            # Draft executions use None for registry_lock to resolve at runtime (latest registry)
+            # This avoids stale locks when actions are edited in the UI
+            return DraftWorkflowContext(dsl=dsl, registry_lock=None)
         except TracecatValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

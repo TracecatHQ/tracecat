@@ -46,3 +46,65 @@ class OrgRead(Schema):
     updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+# Org Registry Schemas
+
+
+class OrgRegistryRepositoryRead(Schema):
+    """Organization registry repository response."""
+
+    id: uuid.UUID
+    origin: str
+    last_synced_at: datetime | None = None
+    commit_sha: str | None = None
+    current_version_id: uuid.UUID | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class OrgRegistryVersionRead(Schema):
+    """Organization registry version response."""
+
+    id: uuid.UUID
+    repository_id: uuid.UUID
+    version: str
+    commit_sha: str | None = None
+    tarball_uri: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OrgRegistrySyncRequest(Schema):
+    """Organization registry sync request."""
+
+    force: bool = Field(
+        default=False,
+        description="Force sync by deleting the existing version first",
+    )
+
+
+class OrgRegistrySyncResponse(Schema):
+    """Organization registry sync response."""
+
+    success: bool
+    repository_id: uuid.UUID
+    origin: str
+    version: str | None = None
+    commit_sha: str | None = None
+    actions_count: int | None = None
+    forced: bool = False
+    skipped: bool = False
+    message: str | None = None
+
+
+class OrgRegistryVersionPromoteResponse(Schema):
+    """Response from promoting an organization registry version."""
+
+    repository_id: uuid.UUID
+    origin: str
+    previous_version_id: uuid.UUID | None
+    previous_version: str | None
+    current_version_id: uuid.UUID
+    current_version: str

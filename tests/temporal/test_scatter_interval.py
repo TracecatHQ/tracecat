@@ -11,6 +11,9 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+
+pytestmark = pytest.mark.temporal
+
 from temporalio.client import Client
 from temporalio.worker import Worker
 
