@@ -11,7 +11,7 @@ from httpx import Response
 from tracecat_admin.cli import app
 from typer.testing import CliRunner
 
-from tests.conftest import API_URL
+from .conftest import API_URL
 
 runner = CliRunner()
 
