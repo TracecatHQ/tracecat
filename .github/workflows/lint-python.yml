@@ -5,7 +5,8 @@ on:
     branches: ["main"]
     paths:
       - tracecat/**
-      - registry/**
+      - packages/**
+      - alembic/**
       - tests/**
       - pyproject.toml
       - .github/workflows/lint-python.yml
@@ -13,7 +14,8 @@ on:
     branches: ["main", "staging"]
     paths:
       - tracecat/**
-      - registry/**
+      - packages/**
+      - alembic/**
       - tests/**
       - pyproject.toml
       - .github/workflows/lint-python.yml
@@ -38,3 +40,19 @@ jobs:
           src: tracecat/
           version: latest
           args: format --diff
+
+  pyright:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --no-install-project --group lint
+
+      - name: Run basedpyright
+        run: uv run --no-sync basedpyright --warnings --threads 4
