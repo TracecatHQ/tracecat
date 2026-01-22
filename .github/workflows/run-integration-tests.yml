@@ -77,9 +77,121 @@ jobs:
       #    python -c "import importlib, sys; print('import ok:', bool(importlib.import_module('internal_registry', package=None))); sys.exit(0)"
 
   # ──────────────────────────────────────────────────────────────────
-  # 2.  FULL INTEGRATION TESTS  (unchanged, now depends on ssh-sanity)
+  # 2.  POOL INTEGRATION TESTS (no Docker services needed)
+  #     Workers run in test mode (TRACECAT__POOL_WORKER_TEST_MODE=true)
   # ──────────────────────────────────────────────────────────────────
-  test-integration:
+  pool-tests:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run pool integration tests
+        env:
+          # Enable test mode for pool workers (mock responses, no DB access)
+          TRACECAT__DISABLE_NSJAIL: "true"
+          TRACECAT__POOL_WORKER_TEST_MODE: "true"
+        run: |
+          uv run pytest tests/integration/test_pool_integration.py -n auto -ra -v
+
+  # ──────────────────────────────────────────────────────────────────
+  # 3.  TEMPORAL/AGENT INTEGRATION TESTS (needs Temporal + Redis)
+  # ──────────────────────────────────────────────────────────────────
+  temporal-tests:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run environment setup script
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
+      - name: Start Temporal and Redis services
+        env:
+          COMPOSE_BAKE: "true"
+        run: |
+          docker compose -f docker-compose.local.yml up -d temporal redis
+
+          # Wait for Temporal to become healthy
+          echo "Waiting for Temporal to become healthy..."
+          timeout 120 bash -c '
+            while true; do
+              health=$(docker compose -f docker-compose.local.yml ps temporal --format json | jq -r ".Health // empty")
+              if [ "$health" = "healthy" ]; then
+                echo "Temporal is healthy"
+                break
+              fi
+              echo "Waiting for Temporal... (current: $health)"
+              sleep 5
+            done
+          '
+
+          # Show final service status
+          docker compose -f docker-compose.local.yml ps
+
+      - name: Run temporal/agent integration tests
+        env:
+          TRACECAT__DISABLE_NSJAIL: "true"
+        run: |
+          uv run pytest tests/integration/test_agent_worker.py -ra -v
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Service Status ==="
+          docker compose -f docker-compose.local.yml ps
+
+          echo "=== Temporal Logs ==="
+          docker compose -f docker-compose.local.yml logs temporal --tail=200
+
+          echo "=== Redis Logs ==="
+          docker compose -f docker-compose.local.yml logs redis --tail=200
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose -f docker-compose.local.yml down -v
+
+  # ──────────────────────────────────────────────────────────────────
+  # 4.  E2E INTEGRATION TESTS (needs full Docker stack)
+  #     Includes registry sync, MinIO, and custom remote registry tests
+  # ──────────────────────────────────────────────────────────────────
+  e2e-tests:
     needs: ssh-sanity # only start if key check passed
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 30
@@ -157,14 +269,14 @@ jobs:
           timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready"
 
-      - name: Run integration tests
+      - name: Run E2E integration tests
         env:
           # Expect a base64 encoded key
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
           # Use local subprocess sync instead of Temporal workflow (faster, simpler for CI)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"
         run: |
-          uv run pytest tests/integration -ra -v
+          uv run pytest tests/integration/test_syncv2_execv2_e2e.py tests/integration/test_install_and_run_custom_remote_registry_flow.py -ra -v
 
       - name: Show Docker logs on failure
         if: failure()
