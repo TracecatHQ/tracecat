@@ -2815,7 +2815,7 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     """Invitation to join an organization."""
 
     __tablename__ = "organization_invitation"
-    __table_args__ = (Index("ix_organization_invitation_email", "email"),)
+    __table_args__ = (UniqueConstraint("email", "organization_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(

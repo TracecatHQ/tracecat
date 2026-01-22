@@ -2811,7 +2811,7 @@ export type InteractionType = "approval" | "response"
 /**
  * Invitation lifecycle status.
  */
-export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked"
+export type InvitationStatus = "pending" | "accepted" | "revoked"
 
 export type JoinStrategy = "any" | "all"
 

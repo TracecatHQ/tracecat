@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 from sqlalchemy import and_, cast, select
 from sqlalchemy.dialects.postgresql import UUID
@@ -26,7 +26,11 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 
 from tracecat.invitations.enums import InvitationStatus
@@ -256,8 +260,30 @@ class OrgService(BaseOrgService):
         Returns:
             OrganizationInvitation: The created invitation record.
         """
+        if self.role is None or self.role.user_id is None:
+            raise TracecatAuthorizationError(
+                "User must be authenticated to create invitation"
+            )
+
+        # Check for existing invitation
+        existing_stmt = select(OrganizationInvitation).where(
+            OrganizationInvitation.organization_id == self.organization_id,
+            OrganizationInvitation.email == email,
+        )
+        existing_result = await self.session.execute(existing_stmt)
+        existing = existing_result.scalar_one_or_none()
+
+        if existing:
+            if existing.expires_at >= datetime.now(UTC):
+                raise TracecatValidationError(
+                    f"An invitation already exists for {email} in this organization"
+                )
+            # Expired - delete it
+            await self.session.delete(existing)
+            await self.session.flush()
+
         invitation = OrganizationInvitation(
-            organization_id=self.role.organization_id,
+            organization_id=self.organization_id,
             email=email,
             role=role,
             invited_by=self.role.user_id,
@@ -285,7 +311,7 @@ class OrgService(BaseOrgService):
             Sequence[OrganizationInvitation]: List of invitations.
         """
         statement = select(OrganizationInvitation).where(
-            OrganizationInvitation.organization_id == self.role.organization_id
+            OrganizationInvitation.organization_id == self.organization_id
         )
         if status is not None:
             statement = statement.where(OrganizationInvitation.status == status)
@@ -293,7 +319,7 @@ class OrgService(BaseOrgService):
         return result.scalars().all()
 
     @require_access_level(AccessLevel.ADMIN)
-    async def get_invitation(self, invitation_id: UUID) -> OrganizationInvitation:
+    async def get_invitation(self, invitation_id: uuid.UUID) -> OrganizationInvitation:
         """Get an invitation by ID (must belong to this organization).
 
         Args:
@@ -308,7 +334,7 @@ class OrgService(BaseOrgService):
         statement = select(OrganizationInvitation).where(
             and_(
                 OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == self.role.organization_id,
+                OrganizationInvitation.organization_id == self.organization_id,
             )
         )
         result = await self.session.execute(statement)
@@ -356,7 +382,7 @@ class OrgService(BaseOrgService):
             TracecatAuthorizationError: If the invitation is expired, revoked,
                 or already accepted, or if the user is not authenticated.
         """
-        if self.role.user_id is None:
+        if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
                 "User must be authenticated to accept invitation"
             )
@@ -368,12 +394,7 @@ class OrgService(BaseOrgService):
             raise TracecatAuthorizationError("Invitation has already been accepted")
         if invitation.status == InvitationStatus.REVOKED:
             raise TracecatAuthorizationError("Invitation has been revoked")
-        if invitation.status == InvitationStatus.EXPIRED:
-            raise TracecatAuthorizationError("Invitation has expired")
         if invitation.expires_at < datetime.now(UTC):
-            # Update status to expired
-            invitation.status = InvitationStatus.EXPIRED
-            await self.session.commit()
             raise TracecatAuthorizationError("Invitation has expired")
 
         # Create membership
@@ -392,7 +413,9 @@ class OrgService(BaseOrgService):
 
     @audit_log(resource_type="organization_invitation", action="revoke")
     @require_access_level(AccessLevel.ADMIN)
-    async def revoke_invitation(self, invitation_id: UUID) -> OrganizationInvitation:
+    async def revoke_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> OrganizationInvitation:
         """Revoke a pending invitation.
 
         Args:
