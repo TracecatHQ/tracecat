@@ -100,6 +100,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Run environment setup script
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
       - name: Run pool integration tests
         env:
           # Enable test mode for pool workers (mock responses, no DB access)
@@ -141,22 +148,23 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Start Temporal and Redis services
+      - name: Start Temporal, Redis, and PostgreSQL services
         env:
           COMPOSE_BAKE: "true"
         run: |
-          docker compose -f docker-compose.local.yml up -d temporal redis
+          docker compose -f docker-compose.local.yml up -d temporal redis postgres_db
 
-          # Wait for Temporal to become healthy
-          echo "Waiting for Temporal to become healthy..."
+          # Wait for services to become healthy
+          echo "Waiting for services to become healthy..."
           timeout 120 bash -c '
             while true; do
-              health=$(docker compose -f docker-compose.local.yml ps temporal --format json | jq -r ".Health // empty")
-              if [ "$health" = "healthy" ]; then
-                echo "Temporal is healthy"
+              temporal_health=$(docker compose -f docker-compose.local.yml ps temporal --format json | jq -r ".Health // empty")
+              pg_health=$(docker compose -f docker-compose.local.yml ps postgres_db --format json | jq -r ".Health // empty")
+              if [ "$temporal_health" = "healthy" ] && [ "$pg_health" = "healthy" ]; then
+                echo "All services are healthy"
                 break
               fi
-              echo "Waiting for Temporal... (current: $health)"
+              echo "Waiting... (temporal: $temporal_health, postgres: $pg_health)"
               sleep 5
             done
           '
@@ -181,6 +189,9 @@ jobs:
 
           echo "=== Redis Logs ==="
           docker compose -f docker-compose.local.yml logs redis --tail=200
+
+          echo "=== PostgreSQL Logs ==="
+          docker compose -f docker-compose.local.yml logs postgres_db --tail=200
 
       - name: Clean up
         if: always()
