@@ -82,7 +82,7 @@ def upgrade() -> None:
             u.id AS user_id,
             w.organization_id,
             CASE
-                WHEN u.role = 'admin' THEN 'admin'::orgrole
+                WHEN u.role = 'ADMIN' THEN 'admin'::orgrole
                 ELSE 'member'::orgrole
             END AS role,
             NOW() AS created_at,
