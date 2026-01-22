@@ -6996,18 +6996,44 @@ export const $ExpectedField = {
       title: "Description",
     },
     default: {
+      title: "Default",
+      default: "__TRACECAT_UNSET__",
+    },
+    enum: {
       anyOf: [
-        {},
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
         {
           type: "null",
         },
       ],
-      title: "Default",
+      title: "Enum",
+    },
+    optional: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Optional",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type"],
   title: "ExpectedField",
+  description: `Schema for a field in a template action's expects definition.
+
+Note: The default field uses a sentinel to distinguish between
+"no default specified" (required field) and "default is explicitly None"
+(optional field).`,
 } as const
 
 export const $ExprType = {
@@ -10254,6 +10280,21 @@ export const $PullResult = {
   title: "PullResult",
 } as const
 
+export const $ReadinessResponse = {
+  properties: {
+    status: {
+      type: "string",
+      title: "Status",
+    },
+    registry: {
+      $ref: "#/components/schemas/RegistryStatus",
+    },
+  },
+  type: "object",
+  required: ["status", "registry"],
+  title: "ReadinessResponse",
+} as const
+
 export const $ReasoningUIPart = {
   properties: {
     type: {
@@ -11445,6 +11486,33 @@ export const $RegistrySecretType_Output = {
       oauth: "#/components/schemas/RegistryOAuthSecret-Output",
     },
   },
+} as const
+
+export const $RegistryStatus = {
+  properties: {
+    synced: {
+      type: "boolean",
+      title: "Synced",
+    },
+    expected_version: {
+      type: "string",
+      title: "Expected Version",
+    },
+    current_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version",
+    },
+  },
+  type: "object",
+  required: ["synced", "expected_version", "current_version"],
+  title: "RegistryStatus",
 } as const
 
 export const $RegistryStatusResponse = {

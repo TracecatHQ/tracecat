@@ -2154,10 +2154,19 @@ export type ExecutionContext = {
  */
 export type ExecutionType = "draft" | "published"
 
+/**
+ * Schema for a field in a template action's expects definition.
+ *
+ * Note: The default field uses a sentinel to distinguish between
+ * "no default specified" (required field) and "default is explicitly None"
+ * (optional field).
+ */
 export type ExpectedField = {
   type: string
   description?: string | null
-  default?: unknown | null
+  default?: unknown
+  enum?: Array<string> | null
+  optional?: boolean | null
 }
 
 export type ExprType =
@@ -3358,6 +3367,11 @@ export type PullResult = {
   message: string
 }
 
+export type ReadinessResponse = {
+  status: string
+  registry: RegistryStatus
+}
+
 /**
  * A reasoning part of a message.
  */
@@ -3780,6 +3794,12 @@ export type RegistrySecretType_Input =
 export type RegistrySecretType_Output =
   | RegistrySecret
   | RegistryOAuthSecret_Output
+
+export type RegistryStatus = {
+  synced: boolean
+  expected_version: string
+  current_version: string | null
+}
 
 /**
  * Registry health status.
@@ -8025,7 +8045,7 @@ export type AuthSsoAcsResponse = unknown
 
 export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = HealthResponse
+export type PublicCheckReadyResponse = ReadinessResponse
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -11925,7 +11945,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: HealthResponse
+        200: ReadinessResponse
       }
     }
   }
