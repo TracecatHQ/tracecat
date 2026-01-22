@@ -18,8 +18,7 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 if TYPE_CHECKING:
     from tracecat_registry import RegistrySecretType
-
-from tracecat_registry._internal.models import RegistryOAuthSecret
+    from tracecat_registry._internal.models import RegistryOAuthSecret
 
 
 @overload
@@ -124,7 +123,7 @@ async def get_action_secrets(
     optional_basic_secrets: Set[str] = Set()
     oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     for secret in action_secrets:
-        if isinstance(secret, RegistryOAuthSecret):
+        if secret.type == "oauth":
             key = ProviderKey(
                 id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
             )

@@ -9,12 +9,13 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 from aiocache import Cache
-from aiocache.base import BaseCache
 
 from tracecat.logger import logger
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
+    from aiocache.base import BaseCache
+
     from tracecat.storage.object import InlineObject, StoredObject
 
 # Cache configuration
