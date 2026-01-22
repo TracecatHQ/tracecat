@@ -45,9 +45,9 @@ def upgrade() -> None:
         ],
     )
 
-    sa.Enum(
-        "PENDING", "ACCEPTED", "EXPIRED", "REVOKED", name="invitationstatus"
-    ).create(op.get_bind())
+    sa.Enum("PENDING", "ACCEPTED", "REVOKED", name="invitationstatus").create(
+        op.get_bind()
+    )
     op.create_table(
         "organization_invitation",
         sa.Column("id", sa.UUID(), nullable=False),
@@ -65,7 +65,6 @@ def upgrade() -> None:
             postgresql.ENUM(
                 "PENDING",
                 "ACCEPTED",
-                "EXPIRED",
                 "REVOKED",
                 name="invitationstatus",
                 create_type=False,
@@ -136,7 +135,6 @@ def upgrade() -> None:
             postgresql.ENUM(
                 "PENDING",
                 "ACCEPTED",
-                "EXPIRED",
                 "REVOKED",
                 name="invitationstatus",
                 create_type=False,
@@ -201,7 +199,7 @@ def downgrade() -> None:
         "ix_organization_invitation_email", table_name="organization_invitation"
     )
     op.drop_table("organization_invitation")
-    sa.Enum("PENDING", "ACCEPTED", "EXPIRED", "REVOKED", name="invitationstatus").drop(
+    sa.Enum("PENDING", "ACCEPTED", "REVOKED", name="invitationstatus").drop(
         op.get_bind()
     )
 

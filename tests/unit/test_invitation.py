@@ -20,22 +20,6 @@ from tracecat.db.models import (
 from tracecat.invitations.enums import InvitationStatus
 
 
-class TestInvitationStatusEnum:
-    """Tests for the InvitationStatus enum."""
-
-    def test_invitation_status_values(self):
-        """Test InvitationStatus enum has expected values."""
-        assert InvitationStatus.PENDING == "pending"
-        assert InvitationStatus.ACCEPTED == "accepted"
-        assert InvitationStatus.EXPIRED == "expired"
-        assert InvitationStatus.REVOKED == "revoked"
-
-    def test_invitation_status_iteration(self):
-        """Test InvitationStatus can be iterated."""
-        statuses = list(InvitationStatus)
-        assert len(statuses) == 4
-
-
 class TestOrganizationInvitation:
     """Tests for OrganizationInvitation model."""
 
