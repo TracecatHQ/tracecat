@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from aiocache import Cache
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, union_all
 
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
@@ -20,7 +20,12 @@ from tracecat.contexts import (
     ctx_role,
 )
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.schemas import (
     ActionStatement,
@@ -33,6 +38,7 @@ from tracecat.dsl.schemas import (
 from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    RegistryValidationError,
     TracecatAuthorizationError,
     TracecatException,
 )
@@ -49,12 +55,14 @@ from tracecat.expressions.eval import (
     eval_templated_object,
     get_iterables_from_expression,
 )
+from tracecat.expressions.expectations import create_expectation_model
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
 from tracecat.variables.schemas import VariableSearch
@@ -96,7 +104,11 @@ async def get_registry_artifacts_for_lock(
 ) -> list[RegistryArtifactsContext]:
     """Get registry tarball URIs for specific locked versions.
 
-    Uses per-artifact caching - only queries DB for cache misses (batched).
+    Uses per-artifact caching - only queries DB for cache misses.
+    Uses UNION ALL to query both platform and org-scoped tables in a single round-trip.
+
+    Both table hierarchies share the same column structure via BaseRegistryVersion/BaseRegistryRepository,
+    so we select only the common columns and union the results.
 
     Args:
         origins: Maps origin -> version string from RegistryLock["origins"].
@@ -111,52 +123,91 @@ async def get_registry_artifacts_for_lock(
 
     # Check cache for each origin/version
     cached_artifacts: list[RegistryArtifactsContext] = []
-    misses: list[tuple[str, str]] = []
+    platform_misses: list[tuple[str, str]] = []
+    org_misses: list[tuple[str, str]] = []
 
     for origin, version in origins.items():
         key = _artifact_cache_key(origin, version, organization_id)
         cached = await _artifact_cache.get(key=key)
         if cached is not None:
             cached_artifacts.append(cached)
+        elif origin == DEFAULT_REGISTRY_ORIGIN:
+            platform_misses.append((origin, version))
         else:
-            misses.append((origin, version))
+            org_misses.append((origin, version))
 
     # If no misses, return cached results
-    if not misses:
+    if not platform_misses and not org_misses:
         return sorted(cached_artifacts, key=lambda x: x.origin)
 
-    # Batch fetch all misses in a single DB query
+    all_misses = platform_misses + org_misses
+
+    # Fetch all misses with a single UNION ALL query
     fetched_artifacts: list[RegistryArtifactsContext] = []
     async with get_async_session_context_manager() as session:
-        # Build OR conditions for all misses
-        conditions = [
-            and_(
-                RegistryRepository.origin == origin,
-                RegistryVersion.version == version,
-            )
-            for origin, version in misses
-        ]
+        statements = []
 
-        statement = (
-            select(
-                RegistryRepository.origin,
-                RegistryVersion.version,
-                RegistryVersion.tarball_uri,
+        # Platform query (no org filter)
+        if platform_misses:
+            platform_conditions = [
+                and_(
+                    PlatformRegistryRepository.origin == origin,
+                    PlatformRegistryVersion.version == version,
+                )
+                for origin, version in platform_misses
+            ]
+            platform_stmt = (
+                select(
+                    PlatformRegistryRepository.origin,
+                    PlatformRegistryVersion.version,
+                    PlatformRegistryVersion.tarball_uri,
+                )
+                .join(
+                    PlatformRegistryVersion,
+                    PlatformRegistryVersion.repository_id
+                    == PlatformRegistryRepository.id,
+                )
+                .where(or_(*platform_conditions))
             )
-            .join(
-                RegistryVersion,
-                RegistryVersion.repository_id == RegistryRepository.id,
+            statements.append(platform_stmt)
+
+        # Org query (with org filter)
+        if org_misses:
+            org_conditions = [
+                and_(
+                    RegistryRepository.origin == origin,
+                    RegistryVersion.version == version,
+                )
+                for origin, version in org_misses
+            ]
+            org_stmt = (
+                select(
+                    RegistryRepository.origin,
+                    RegistryVersion.version,
+                    RegistryVersion.tarball_uri,
+                )
+                .join(
+                    RegistryVersion,
+                    RegistryVersion.repository_id == RegistryRepository.id,
+                )
+                .where(
+                    RegistryRepository.organization_id == organization_id,
+                    or_(*org_conditions),
+                )
             )
-            .where(
-                RegistryRepository.organization_id == organization_id,
-                or_(*conditions),
-            )
-        )
-        result = await session.execute(statement)
+            statements.append(org_stmt)
+
+        # Execute single UNION ALL query
+        if len(statements) == 1:
+            combined = statements[0]
+        else:
+            combined = union_all(*statements)
+
+        result = await session.execute(combined)
         rows = result.all()
 
-        # Build a lookup for found rows
-        found: dict[tuple[str, str], RegistryArtifactsContext] = {}
+        # Process results
+        found_keys: set[tuple[str, str]] = set()
         for row in rows:
             origin_val, version_val, tarball_uri = row
             if tarball_uri is not None:
@@ -165,7 +216,13 @@ async def get_registry_artifacts_for_lock(
                     version=str(version_val),
                     tarball_uri=str(tarball_uri),
                 )
-                found[(str(origin_val), str(version_val))] = artifact
+                fetched_artifacts.append(artifact)
+                found_keys.add((str(origin_val), str(version_val)))
+                # Cache the artifact
+                key = _artifact_cache_key(
+                    str(origin_val), str(version_val), organization_id
+                )
+                await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(
                     "Registry version found but missing tarball_uri",
@@ -173,15 +230,9 @@ async def get_registry_artifacts_for_lock(
                     version=version_val,
                 )
 
-        # Cache results and collect artifacts
-        for origin, version in misses:
-            artifact = found.get((origin, version))
-            if artifact is not None:
-                fetched_artifacts.append(artifact)
-                # Cache the artifact
-                key = _artifact_cache_key(origin, version, organization_id)
-                await _artifact_cache.set(key=key, value=artifact)
-            else:
+        # Log warnings for any misses not found
+        for origin, version in all_misses:
+            if (origin, version) not in found_keys:
                 logger.warning(
                     "Registry version not found for lock entry",
                     origin=origin,
@@ -403,14 +454,29 @@ async def _execute_template_action(
 
     template_def = TemplateActionDefinition.model_validate(template_def_dict)
 
+    # Validate input args against the template's expects schema
+    # This applies defaults and validates types (including enums)
+    validated_input_args: dict[str, Any] = {}
+    if template_def.expects:
+        try:
+            args_model = create_expectation_model(
+                template_def.expects, model_name=f"{template_def.action}Args"
+            )
+            validated = args_model.model_validate(resolved_context.evaluated_args)
+            validated_input_args = validated.model_dump(mode="json")
+        except Exception as e:
+            raise RegistryValidationError(
+                f"Validation error for template action {template_def.action!r}: {e}",
+                key=template_def.action,
+            ) from e
+    else:
+        validated_input_args = dict(resolved_context.evaluated_args)
+
     # Build template context for expression evaluation
     # Secrets context uses the pre-resolved secrets from parent
     secrets_context = resolved_context.secrets
     env_context = input.exec_context.get("ENV", DSLEnvironment())
     vars_context = resolved_context.variables
-
-    # The evaluated_args are the template's input arguments
-    validated_input_args = resolved_context.evaluated_args
 
     template_context = TemplateExecutionContext(
         SECRETS=secrets_context,
