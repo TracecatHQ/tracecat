@@ -5,39 +5,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
 from tracecat.parse import safe_url
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.settings.service import get_setting
 
 
-async def reload_registry(session: AsyncSession, role: Role):
+async def reload_registry(session: AsyncSession, role: Role) -> None:
     logger.info("Setting up base registry repository")
     repos_service = RegistryReposService(session, role=role)
-    actions_service = RegistryActionsService(session, role=role)
-    use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
 
-    # Setup Tracecat base repository
+    # Setup Tracecat base repository using platform-scoped services
+    # The base registry is shared across all organizations and should be
+    # stored in platform_registry_* tables, not org-scoped registry_* tables
+    platform_repos_service = PlatformRegistryReposService(session, role=role)
+    platform_sync_service = PlatformRegistrySyncService(session, role=role)
+
     base_origin = DEFAULT_REGISTRY_ORIGIN
-    # Check if the base registry repository already exists
-    # NOTE: Should we sync the base repo every time?
-    if await repos_service.get_repository(base_origin) is None:
+    # Check if the base registry repository already exists in platform tables
+    if await platform_repos_service.get_repository(base_origin) is None:
         try:
-            base_repo = await repos_service.create_repository(
+            base_repo = await platform_repos_service.create_repository(
                 RegistryRepositoryCreate(origin=base_origin)
             )
         except Exception as e:
             logger.error("Error creating base registry repository", error=e)
         else:
             logger.info("Created base registry repository", origin=base_origin)
-            await _sync_repository(actions_service, base_repo, use_v2=use_v2_sync)
+            await platform_sync_service.sync_repository_v2(base_repo)
     else:
         logger.info("Base registry repository already exists", origin=base_origin)
 
@@ -96,26 +98,3 @@ async def reload_registry(session: AsyncSession, role: Role):
         n=len(repos),
         repos=[repo.origin for repo in repos],
     )
-
-
-async def _sync_repository(
-    actions_service: RegistryActionsService,
-    db_repo,
-    *,
-    use_v2: bool = False,
-) -> None:
-    """Sync a repository using v1 or v2 flow based on feature flag."""
-    if use_v2:
-        logger.info("Syncing repository with v2 flow", origin=db_repo.origin)
-        commit_sha, version = await actions_service.sync_actions_from_repository_v2(
-            db_repo
-        )
-        logger.info(
-            "Synced repository (v2)",
-            origin=db_repo.origin,
-            commit_sha=commit_sha,
-            version=version,
-        )
-    else:
-        logger.info("Syncing repository with v1 flow", origin=db_repo.origin)
-        await actions_service.sync_actions_from_repository(db_repo)
