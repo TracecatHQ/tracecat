@@ -2786,63 +2786,34 @@ class OrganizationInvitation(TimestampMixin, Base):
     """Invitation to join an organization."""
 
     __tablename__ = "organization_invitation"
-    __table_args__ = (
-        Index("ix_organization_invitation_token", "token"),
-        Index("ix_organization_invitation_email", "email"),
-    )
+    __table_args__ = (Index("ix_organization_invitation_email", "email"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        primary_key=True,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    email: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        doc="Email address of the invitee",
-    )
+    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
     role: Mapped[OrgRole] = mapped_column(
         Enum(OrgRole, name="orgrole"),
-        nullable=False,
         default=OrgRole.MEMBER,
         doc="Role to grant upon acceptance",
     )
     status: Mapped[InvitationStatus] = mapped_column(
-        INVITATION_STATUS_ENUM,
-        nullable=False,
-        default=InvitationStatus.PENDING,
-        index=True,
+        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
     )
-    invited_by: Mapped[uuid.UUID] = mapped_column(
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
         doc="User who created the invitation",
     )
     token: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        unique=True,
-        doc="Unique token for magic link acceptance",
+        String(64), unique=True, doc="Unique token for magic link acceptance"
     )
     expires_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        doc="When the invitation expires",
+        TIMESTAMP(timezone=True), doc="When the invitation expires"
     )
     accepted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=True,
-        doc="When the invitation was accepted",
+        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
     )
 
     # Relationships
@@ -2854,63 +2825,34 @@ class Invitation(TimestampMixin, Base):
     """Invitation to join a workspace."""
 
     __tablename__ = "invitation"
-    __table_args__ = (
-        Index("ix_invitation_token", "token"),
-        Index("ix_invitation_email", "email"),
-    )
+    __table_args__ = (Index("ix_invitation_email", "email"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        primary_key=True,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
-    email: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        doc="Email address of the invitee",
-    )
+    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
     role: Mapped[WorkspaceRole] = mapped_column(
         Enum(WorkspaceRole, name="workspacerole"),
-        nullable=False,
         default=WorkspaceRole.EDITOR,
         doc="Role to grant upon acceptance",
     )
     status: Mapped[InvitationStatus] = mapped_column(
-        INVITATION_STATUS_ENUM,
-        nullable=False,
-        default=InvitationStatus.PENDING,
-        index=True,
+        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
     )
-    invited_by: Mapped[uuid.UUID] = mapped_column(
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
         doc="User who created the invitation",
     )
     token: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        unique=True,
-        doc="Unique token for magic link acceptance",
+        String(64), unique=True, doc="Unique token for magic link acceptance"
     )
     expires_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        doc="When the invitation expires",
+        TIMESTAMP(timezone=True), doc="When the invitation expires"
     )
     accepted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=True,
-        doc="When the invitation was accepted",
+        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
     )
 
     # Relationships
