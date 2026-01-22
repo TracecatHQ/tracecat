@@ -36,7 +36,10 @@ uv sync
 
 ### Development Stack
 ```bash
-# Standalone stack for use with git worktrees
+# Standalone tracecat stack for use with git worktrees
+# Spin up stack for worktree
+just cluster up
+# More commands
 just cluster
 
 ```
