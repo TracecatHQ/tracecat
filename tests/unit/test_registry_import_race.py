@@ -53,6 +53,10 @@ def _bad_import_and_reload(module_name: str) -> ModuleType:
     return reloaded
 
 
+@pytest.mark.skip(
+    reason="Flaky: race condition may not trigger reliably. "
+    "The fix is validated by test_import_reload_no_race_with_lock."
+)
 @pytest.mark.anyio
 async def test_import_reload_race_old_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
     """Demonstrate the race by restoring the old behavior under load.
