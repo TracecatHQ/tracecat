@@ -255,7 +255,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
 
     # Nodes
 
-    def actions(self, node: Tree[Token]):  # ty: ignore[invalid-method-override]
+    def actions(self, node: Tree[Token]):  # type: ignore[invalid-method-override]
         token = node.children[0]
         self.logger.trace("Visit action expression", node=node, child=token)
         if not isinstance(token, Token):
@@ -353,15 +353,15 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
             )
         )
 
-    def trigger(self, node: Tree[Token]):  # ty: ignore[invalid-method-override]
+    def trigger(self, node: Tree[Token]):  # type: ignore[invalid-method-override]
         self.logger.trace("Visit trigger expression", node=node)
         self.add(status="success", type=ExprType.TRIGGER)
 
-    def env(self, node: Tree[Token]):  # ty: ignore[invalid-method-override]
+    def env(self, node: Tree[Token]):  # type: ignore[invalid-method-override]
         self.logger.trace("Visit env expression", node=node)
         self.add(status="success", type=ExprType.ENV)
 
-    def local_vars(self, node: Tree[Token]):  # ty: ignore[invalid-method-override]
+    def local_vars(self, node: Tree[Token]):  # type: ignore[invalid-method-override]
         self.logger.trace("Visit local vars expression", node=node)
         self.add(status="success", type=ExprType.LOCAL_VARS)
 

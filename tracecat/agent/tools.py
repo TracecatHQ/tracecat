@@ -176,7 +176,7 @@ async def create_tool_from_registry(
 
     # Get JSON schema from model class
     parameters_json_schema = (
-        model_cls.model_json_schema() if hasattr(model_cls, "model_json_schema") else {}  # ty: ignore[call-non-callable]
+        model_cls.model_json_schema() if hasattr(model_cls, "model_json_schema") else {}  # type: ignore[call-non-callable]
     )
 
     # Determine requires_approval

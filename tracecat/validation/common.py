@@ -65,7 +65,7 @@ def json_schema_to_pydantic(
         elif type_ == "array":
             items_schema = prop_schema.get("items", {})
             # Pass the field_name_for_enum for context in case array items are enums/objects
-            return list[create_field(items_schema, f"{enum_field_name}Item")]  # ty: ignore[invalid-type-form]
+            return list[create_field(items_schema, f"{enum_field_name}Item")]  # type: ignore[invalid-type-form]
         elif type_ == "string":
             format_type = prop_schema.get("format")
             if format_type == "date-time":
@@ -87,7 +87,7 @@ def json_schema_to_pydantic(
     for prop_name, prop_schema_val in properties.items():
         # Pass prop_name to create_field for enum name generation context
         created_type = create_field(prop_schema_val, prop_name)
-        field_type = Annotated[created_type, TemplateValidator()]  # ty: ignore[invalid-type-form]
+        field_type = Annotated[created_type, TemplateValidator()]  # type: ignore[invalid-type-form]
         field_params = {}
 
         if "description" in prop_schema_val:

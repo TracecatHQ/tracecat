@@ -11,4 +11,4 @@ class Schema(BaseModel):
 
     @classmethod
     def list_adapter(cls) -> TypeAdapter[list[Self]]:
-        return TypeAdapter(list[cls], config=cls.model_config)  # ty: ignore[invalid-type-form]
+        return TypeAdapter(list[cls], config=cls.model_config)  # type: ignore[invalid-type-form]

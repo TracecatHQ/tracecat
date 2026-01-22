@@ -142,7 +142,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
-    async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[invalid-method-override]
+    async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]  # type: ignore[invalid-method-override]
         self,
         oauth_name: str,
         access_token: str,
