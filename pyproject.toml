@@ -196,3 +196,38 @@ markers = [
     "temporal: marks tests that require Temporal server",
     "regression: marks regression tests",
 ]
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["tracecat", "packages", "alembic", "tests"]
+exclude = ["scripts/", "**/__pycache__", "**/node_modules"]
+# Core type checking - keep enabled for catching real bugs
+reportMissingTypeStubs = false    # Don't require stubs for all dependencies
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportUnusedFunction = "warning"
+reportDuplicateImport = "warning"
+# Disable noisy warnings that don't indicate real bugs
+reportAny = false
+reportExplicitAny = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownMemberType = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportMissingParameterType = false
+reportUnannotatedClassAttribute = false
+reportUnusedCallResult = false
+reportUnusedParameter = false
+reportImplicitStringConcatenation = false
+reportCallInDefaultInitializer = false
+reportImplicitOverride = false
+reportPrivateUsage = false
+reportPrivateLocalImportUsage = false
+reportImportCycles = false
+reportUnnecessaryComparison = false
+reportUnnecessaryIsInstance = false
+reportUnnecessaryCast = false
+reportDeprecated = false
+reportMissingTypeArgument = false
