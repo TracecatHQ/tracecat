@@ -5,6 +5,7 @@ Core fixtures for benchmarking and testing executor backends:
 - `executor_backend` - Creates/yields/shuts down backend based on type
 - `sandboxed_backend_type` - For isolation-only tests (POOL, EPHEMERAL)
 - `simple_action_input_factory` - Factory for test RunActionInput objects
+- `resolved_context_factory` - Factory for ResolvedContext objects
 
 Prerequisites for running benchmarks with real action execution:
 1. Start the dev stack: `just dev`
@@ -23,12 +24,16 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from tracecat.dsl.schemas import ExecutionContext
-from tracecat.executor.schemas import ExecutorBackendType
+from tracecat.executor.schemas import (
+    ActionImplementation,
+    ExecutorBackendType,
+    ResolvedContext,
+)
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -312,6 +317,38 @@ def benchmark_role() -> Role:
         workspace_id=uuid.UUID("38be3315-c172-4332-aea6-53fc4b93f053"),
         user_id=uuid.uuid4(),
     )
+
+
+@pytest.fixture
+def resolved_context_factory() -> Callable[..., ResolvedContext]:
+    """Factory for creating ResolvedContext objects for benchmark testing.
+
+    Returns a factory function that creates ResolvedContext with
+    sensible defaults for benchmarking.
+    """
+
+    def _create(
+        role: Role,
+        action: str = "core.transform.reshape",
+        args: dict[str, Any] | None = None,
+    ) -> ResolvedContext:
+        return ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name=action,
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            evaluated_args=args or {"value": {"benchmark": True}},
+            workspace_id=str(role.workspace_id),
+            workflow_id=str(uuid.uuid4()),
+            run_id=str(uuid.uuid4()),
+            executor_token="mock-token-for-benchmarks",
+        )
+
+    return _create
 
 
 # =============================================================================
