@@ -80,7 +80,6 @@ jobs:
         test_group:
           - unit
           - registry
-          - regression
           - temporal
           # - ee # TODO: re-enable this when we have tests
     steps:

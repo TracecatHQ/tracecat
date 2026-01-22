@@ -32,6 +32,8 @@ import pytest
 
 from tracecat.registry.repository import import_and_reload as safe_import_and_reload
 
+pytestmark = pytest.mark.regression
+
 
 def _bad_import_and_reload(module_name: str) -> ModuleType:
     """Old, unsafe import_and_reload strategy to widen the race window.

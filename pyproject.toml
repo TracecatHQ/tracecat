@@ -194,4 +194,5 @@ markers = [
     "llm: marks tests that perform LLM calls",
     "ollama: mark tests that require Ollama",
     "temporal: marks tests that require Temporal server",
+    "regression: marks regression tests",
 ]
