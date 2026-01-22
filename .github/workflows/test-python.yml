@@ -101,18 +101,18 @@ jobs:
 
       - name: Save Docker images
         run: |
-          # Save all images needed for tests
+          # Save all images needed for tests, compress with gzip
           docker save \
             $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'tracecat|temporalio|postgres|caddy|minio' | grep -v '<none>') \
-            -o docker-images.tar
+            | gzip > docker-images.tar.gz
 
       - name: Upload Docker images
         uses: actions/upload-artifact@v4
         with:
           name: docker-images
-          path: docker-images.tar
+          path: docker-images.tar.gz
           retention-days: 1
-          compression-level: 0  # Already compressed, skip re-compression
+          compression-level: 0  # Already gzipped
 
   test-all:
     needs: build-docker
@@ -159,7 +159,7 @@ jobs:
         env:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: |
-          docker load -i docker-images.tar
+          gunzip -c docker-images.tar.gz | docker load
           docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
 
       - name: Install dependencies
