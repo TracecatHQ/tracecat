@@ -17,7 +17,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
 
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
@@ -28,12 +27,11 @@ from tracecat.agent.session.schemas import (
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import RegistryAction
 from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.logger import logger
+from tracecat.registry.actions.service import RegistryActionsService
 
 # Tool name constants - these are the canonical names for internal tools
 BUILDER_INTERNAL_TOOL_NAMES = [
@@ -118,34 +116,28 @@ async def get_preset_summary(
 async def list_available_tools(
     args: dict[str, Any], claims: MCPTokenClaims
 ) -> dict[str, Any]:
-    """Return the list of available actions in the registry."""
+    """Return the list of available actions in the registry index."""
     query = args.get("query", "")
     if not query or len(query) < 1:
         raise InternalToolError("query parameter is required (1-100 characters)")
     if len(query) > 100:
         raise InternalToolError("query parameter must be at most 100 characters")
 
-    # Do naive contains + ilike search on the name column
-    async with get_async_session_context_manager() as session:
-        stmt = select(RegistryAction).where(
-            or_(
-                func.concat(RegistryAction.namespace, ".", RegistryAction.name).ilike(
-                    f"%{query}%"
-                ),
-                RegistryAction.description.ilike(f"%{query}%"),
-            )
-        )
-        result = await session.execute(stmt)
-        actions = result.scalars().all()
+    # Search using registry index instead of RegistryAction table
+    async with RegistryActionsService.with_session() as svc:
+        entries = await svc.search_actions_from_index(query)
         logger.info(
-            "Listed available actions",
+            "Listed available actions from index",
             query_term=query,
-            count=len(actions),
+            count=len(entries),
         )
         return {
             "tools": [
-                AgentToolSummary(action_id=ra.action, description=ra.description)
-                for ra in actions
+                AgentToolSummary(
+                    action_id=f"{entry.namespace}.{entry.name}",
+                    description=entry.description,
+                )
+                for entry, _ in entries
             ]
         }
 
