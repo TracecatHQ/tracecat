@@ -55,7 +55,11 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
 )
 @pytest.mark.anyio
 async def test_workflow_wait_until_future(
-    test_role: Role, env: WorkflowEnvironment, future_time, test_worker_factory
+    request: pytest.FixtureRequest,
+    test_role: Role,
+    env: WorkflowEnvironment,
+    future_time,
+    test_worker_factory,
 ):
     """Test that wait_until with future date causes time skip."""
     # Resolve the future_time if it's a callable (lazy evaluation)
@@ -103,7 +107,9 @@ async def test_workflow_wait_until_future(
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id("test_workflow_wait_until_future"),
+            id=generate_test_exec_id(
+                f"test_workflow_wait_until_future_{request.node.callspec.id}"
+            ),
             task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         )
         # Time skip 2 minutes
@@ -477,6 +483,7 @@ async def test_workflow_retry_until_condition_with_wait_until(
 )
 @pytest.mark.anyio
 async def test_workflow_wait_until_past(
+    request: pytest.FixtureRequest,
     env: WorkflowEnvironment,
     test_role: Role,
     monkeypatch: pytest.MonkeyPatch,
@@ -532,7 +539,9 @@ async def test_workflow_wait_until_past(
         await env.client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id("test_workflow_wait_until_past"),
+            id=generate_test_exec_id(
+                f"test_workflow_wait_until_past_{request.node.callspec.id}"
+            ),
             task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         )
         # Assert that no sleeps occurred

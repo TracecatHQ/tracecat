@@ -1040,6 +1040,7 @@ def child_dsl():
 )
 @pytest.mark.anyio
 async def test_child_workflow_loop(
+    request: pytest.FixtureRequest,
     test_role: Role,
     temporal_client: Client,
     child_dsl: DSLInput,
@@ -1049,7 +1050,7 @@ async def test_child_workflow_loop(
     test_executor_worker_factory: Callable[[Client], Worker],
 ):
     # Setup
-    test_name = test_child_workflow_loop.__name__
+    test_name = f"{test_child_workflow_loop.__name__}_{request.node.callspec.id}"
     wf_exec_id = generate_test_exec_id(test_name)
 
     # Child
@@ -1211,6 +1212,7 @@ async def test_single_child_workflow_alias(
 )
 @pytest.mark.anyio
 async def test_child_workflow_alias_with_loop(
+    request: pytest.FixtureRequest,
     test_role: Role,
     temporal_client: Client,
     child_dsl: DSLInput,
@@ -1221,7 +1223,9 @@ async def test_child_workflow_alias_with_loop(
     test_executor_worker_factory: Callable[[Client], Worker],
 ):
     """Test that child workflows can be executed using aliases."""
-    test_name = test_single_child_workflow_alias.__name__
+    test_name = (
+        f"{test_child_workflow_alias_with_loop.__name__}_{request.node.callspec.id}"
+    )
     wf_exec_id = generate_test_exec_id(test_name)
     child_workflow = await _create_and_commit_workflow(
         child_dsl, test_role, alias=alias
@@ -3033,6 +3037,7 @@ def assert_error_handler_completed(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_workflow_error_handler_success(
+    request: pytest.FixtureRequest,
     test_role: Role,
     temporal_client: Client,
     mode: Literal["id", "alias"],
@@ -3062,7 +3067,9 @@ async def test_workflow_error_handler_success(
     handler_wf = error_handler_wf_and_dsl.wf
 
     # 2. Create a failing workflow
-    wf_exec_id = generate_test_exec_id(test_workflow_error_handler_success.__name__)
+    wf_exec_id = generate_test_exec_id(
+        f"{test_workflow_error_handler_success.__name__}_{request.node.callspec.id}"
+    )
 
     match mode:
         case "id":
@@ -3140,6 +3147,7 @@ async def test_workflow_error_handler_success(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_workflow_error_handler_invalid_handler_fail_no_match(
+    request: pytest.FixtureRequest,
     test_role: Role,
     temporal_client: Client,
     failing_dsl: DSLInput,
@@ -3156,7 +3164,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     3. Run the failing workflow
     4. Check that the error handler fails
     """
-    test_name = test_workflow_error_handler_invalid_handler_fail_no_match.__name__
+    test_name = f"{test_workflow_error_handler_invalid_handler_fail_no_match.__name__}_{request.node.callspec.id}"
 
     # Set an invalid error handler
     failing_dsl.error_handler = id_or_alias
@@ -5333,6 +5341,7 @@ async def test_scatter_with_child_workflow(
     ],
 )
 async def test_workflow_scatter_gather(
+    request: pytest.FixtureRequest,
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: WorkerFactory,
@@ -5343,7 +5352,7 @@ async def test_workflow_scatter_gather(
     """
     Test that a workflow can scatter a collection.
     """
-    test_name = f"{test_workflow_scatter_gather.__name__}"
+    test_name = f"{test_workflow_scatter_gather.__name__}_{request.node.callspec.id}"
     wf_exec_id = generate_test_exec_id(test_name)
     run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
@@ -5614,6 +5623,7 @@ def assert_result_is_run_context(result: dict[str, Any]) -> bool:
 )
 @pytest.mark.anyio
 async def test_workflow_return_strategy(
+    request: pytest.FixtureRequest,
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: WorkerFactory,
@@ -5627,7 +5637,7 @@ async def test_workflow_return_strategy(
     """
     monkeypatch.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", return_strategy)
     monkeypatch.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", return_strategy)
-    test_name = f"{test_workflow_return_strategy.__name__}"
+    test_name = f"{test_workflow_return_strategy.__name__}_{request.node.callspec.id}"
     wf_exec_id = generate_test_exec_id(test_name)
 
     # Define the DSL workflow
