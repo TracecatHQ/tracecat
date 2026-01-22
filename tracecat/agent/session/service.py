@@ -29,7 +29,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionUpdate,
 )
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.audit.logger import audit_log
 from tracecat.cases.prompts import CaseCopilotPrompts
@@ -338,6 +338,74 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.refresh(agent_session)
         return agent_session
 
+    async def interrupt_session(
+        self,
+        session_id: uuid.UUID,
+    ) -> bool:
+        """Request interruption of a running agent session.
+
+        Sets the session status to INTERRUPTED. The loopback handler polls
+        for this status and terminates execution when detected.
+
+        Args:
+            session_id: The session UUID to interrupt.
+
+        Returns:
+            True if the session was running and is now marked for interrupt,
+            False if the session was not in a running state.
+        """
+        agent_session = await self.get_session(session_id)
+        if not agent_session:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        # Only interrupt if session is currently running
+        if agent_session.status != AgentSessionStatus.RUNNING:
+            logger.info(
+                "Session not in running state, cannot interrupt",
+                session_id=session_id,
+                current_status=agent_session.status,
+            )
+            return False
+
+        agent_session.status = AgentSessionStatus.INTERRUPTED
+        self.session.add(agent_session)
+        await self.session.commit()
+
+        logger.info(
+            "Session marked for interrupt",
+            session_id=session_id,
+        )
+        return True
+
+    async def update_session_status(
+        self,
+        session_id: uuid.UUID,
+        status: AgentSessionStatus,
+    ) -> None:
+        """Update the status of an agent session.
+
+        Args:
+            session_id: The session UUID.
+            status: The new status to set.
+        """
+        agent_session = await self.get_session(session_id)
+        if not agent_session:
+            logger.warning(
+                "Cannot update status for non-existent session",
+                session_id=session_id,
+            )
+            return
+
+        agent_session.status = status
+        self.session.add(agent_session)
+        await self.session.commit()
+
+        logger.debug(
+            "Session status updated",
+            session_id=session_id,
+            status=status,
+        )
+
     # =========================================================================
     # Session History Management (for Claude SDK session persistence)
     # =========================================================================
@@ -553,8 +621,9 @@ class AgentSessionService(BaseWorkspaceService):
                 agent_preset_id=agent_session.agent_preset_id,
             )
 
-            # Update session with current run_id for approval lookups
+            # Update session with current run_id and set status to running
             agent_session.curr_run_id = run_id
+            agent_session.status = AgentSessionStatus.RUNNING
             self.session.add(agent_session)
             await self.session.commit()
 

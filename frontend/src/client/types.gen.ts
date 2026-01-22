@@ -223,6 +223,7 @@ export type AgentOutput = {
   duration: number
   usage?: RunUsage | null
   session_id: string
+  interrupted?: boolean
 }
 
 export type AgentPreset = {
@@ -392,6 +393,7 @@ export type AgentSessionRead = {
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
+  status?: AgentSessionStatus
   last_stream_id?: string | null
   parent_session_id?: string | null
   created_at: string
@@ -411,6 +413,7 @@ export type AgentSessionReadVercel = {
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
+  status?: AgentSessionStatus
   last_stream_id?: string | null
   parent_session_id?: string | null
   created_at: string
@@ -434,6 +437,7 @@ export type AgentSessionReadWithMessages = {
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
+  status?: AgentSessionStatus
   last_stream_id?: string | null
   parent_session_id?: string | null
   created_at: string
@@ -443,6 +447,23 @@ export type AgentSessionReadWithMessages = {
    */
   messages?: Array<unknown>
 }
+
+/**
+ * Status of an agent session.
+ *
+ * Tracks the lifecycle state of an agent session:
+ * - IDLE: No active workflow running
+ * - RUNNING: Workflow currently executing
+ * - INTERRUPTED: User requested interrupt (transient state)
+ * - COMPLETED: Last run completed successfully
+ * - FAILED: Last run failed
+ */
+export type AgentSessionStatus =
+  | "idle"
+  | "running"
+  | "interrupted"
+  | "completed"
+  | "failed"
 
 /**
  * Request schema for updating an agent session.
@@ -6802,6 +6823,15 @@ export type AgentSessionsForkSessionData = {
 
 export type AgentSessionsForkSessionResponse = AgentSessionRead
 
+export type AgentSessionsInterruptSessionData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsInterruptSessionResponse = {
+  [key: string]: boolean
+}
+
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
   sessionId: string
@@ -9591,6 +9621,23 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sessions/{session_id}/interrupt": {
+    post: {
+      req: AgentSessionsInterruptSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
         /**
          * Validation Error
          */

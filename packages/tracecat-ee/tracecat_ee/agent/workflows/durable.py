@@ -29,10 +29,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         LoadSessionInput,
+        UpdateSessionStatusInput,
         create_session_activity,
         load_session_activity,
+        update_session_status_activity,
     )
-    from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
     from tracecat.agent.tokens import (
         InternalToolContext,
         mint_llm_token,
@@ -332,9 +334,46 @@ class DurableAgentWorkflow:
             )
 
             if not result.success:
+                # Update status to failed
+                await workflow.execute_activity(
+                    update_session_status_activity,
+                    UpdateSessionStatusInput(
+                        role=self.role,
+                        session_id=self.session_id,
+                        status=AgentSessionStatus.FAILED,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
                 raise ApplicationError(
                     f"Agent execution failed: {result.error}",
                     non_retryable=True,
+                )
+
+            # Check if execution was interrupted
+            if result.interrupted:
+                logger.info(
+                    "Agent execution interrupted by user",
+                    session_id=self.session_id,
+                )
+                # Update status to idle (interrupt complete)
+                await workflow.execute_activity(
+                    update_session_status_activity,
+                    UpdateSessionStatusInput(
+                        role=self.role,
+                        session_id=self.session_id,
+                        status=AgentSessionStatus.IDLE,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+                return AgentOutput(
+                    output=None,
+                    message_history=result.messages,
+                    duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+                    usage=RunUsage(),
+                    session_id=self.session_id,
+                    interrupted=True,
                 )
 
             if result.approval_requested:
@@ -422,7 +461,17 @@ class DurableAgentWorkflow:
                 self._turn += 1
                 continue
 
-            # Agent completed successfully
+            # Agent completed successfully - update status to completed
+            await workflow.execute_activity(
+                update_session_status_activity,
+                UpdateSessionStatusInput(
+                    role=self.role,
+                    session_id=self.session_id,
+                    status=AgentSessionStatus.COMPLETED,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
             return AgentOutput(
                 output=None,  # NSJail path doesn't return structured output yet
                 message_history=result.messages,  # Messages fetched from DB by activity

@@ -33,11 +33,14 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     SandboxAgentConfig,
 )
+from tracecat.agent.session.types import AgentSessionStatus
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.types import AgentConfig
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.logger import logger
+
+INTERRUPT_POLL_INTERVAL_SEC = 0.3
 
 
 @dataclass(kw_only=True, slots=True)
@@ -77,6 +80,7 @@ class LoopbackResult:
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
+    interrupted: bool = False
 
 
 class LoopbackHandler:
@@ -114,6 +118,23 @@ class LoopbackHandler:
                 await self._stream.done()
             except Exception as e:
                 logger.warning("Failed to emit stream done", error=str(e))
+
+    async def _check_interrupt(self) -> bool:
+        """Check if the session has been marked for interrupt.
+
+        Queries the database to check if the session status is INTERRUPTED.
+
+        Returns:
+            True if the session should be interrupted, False otherwise.
+        """
+        async with get_async_session_context_manager() as db_session:
+            stmt = select(AgentSession.status).where(
+                AgentSession.id == self.input.session_id,
+                AgentSession.workspace_id == self.input.workspace_id,
+            )
+            result = await db_session.execute(stmt)
+            status = result.scalar_one_or_none()
+            return status == AgentSessionStatus.INTERRUPTED
 
     async def handle_connection(
         self,
@@ -210,16 +231,31 @@ class LoopbackHandler:
         """Read and process events from the runtime.
 
         Forwards streaming events to Redis, persists complete messages to DB,
-        and handles session updates.
+        and handles session updates. Also polls for interrupt requests.
         """
         if self._stream is None:
             raise RuntimeError("Stream not initialized")
 
         while True:
+            # Use wait_for with timeout to allow interrupt polling between reads
             try:
-                _msg_type, payload_bytes = await read_message(
-                    reader, expected_type=MessageType.EVENT
+                _, payload_bytes = await asyncio.wait_for(
+                    read_message(reader, expected_type=MessageType.EVENT),
+                    timeout=INTERRUPT_POLL_INTERVAL_SEC,
                 )
+            except TimeoutError:
+                # No message received within timeout - check for interrupt
+                if await self._check_interrupt():
+                    logger.info(
+                        "Interrupt detected, stopping agent execution",
+                        session_id=self.input.session_id,
+                    )
+                    self._result.interrupted = True
+                    self._result.success = True  # Interrupt is a clean termination
+                    await self._emit_stream_done()
+                    return
+                # No interrupt - continue waiting for next message
+                continue
             except asyncio.IncompleteReadError:
                 # Connection closed unexpectedly - treat as error, not silent break
                 logger.warning(

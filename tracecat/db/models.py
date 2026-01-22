@@ -2030,6 +2030,14 @@ class AgentSession(WorkspaceModel):
         index=True,
         doc="Current workflow run ID - used to construct workflow handle for approvals",
     )
+    # Session status tracking (for interrupts and lifecycle)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="idle",
+        nullable=False,
+        index=True,
+        doc="Session status: idle, running, interrupted, completed, failed",
+    )
     # Stream position tracking (for resuming from last event)
     last_stream_id: Mapped[str | None] = mapped_column(
         String(128),

@@ -3,6 +3,24 @@
 from enum import StrEnum
 
 
+class AgentSessionStatus(StrEnum):
+    """Status of an agent session.
+
+    Tracks the lifecycle state of an agent session:
+    - IDLE: No active workflow running
+    - RUNNING: Workflow currently executing
+    - INTERRUPTED: User requested interrupt (transient state)
+    - COMPLETED: Last run completed successfully
+    - FAILED: Last run failed
+    """
+
+    IDLE = "idle"
+    RUNNING = "running"
+    INTERRUPTED = "interrupted"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class AgentSessionEntity(StrEnum):
     """The type of entity associated with an agent session.
 
