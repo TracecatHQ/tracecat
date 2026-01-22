@@ -1,16 +1,41 @@
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 from typing import cast as typing_cast
 
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
-from sqlalchemy import Boolean, cast, func, or_, select
-from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
+from sqlalchemy import (
+    Boolean,
+    cast,
+    func,
+    literal,
+    or_,
+    select,
+    text,
+    tuple_,
+    union_all,
+)
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecretType,
+    RegistrySecretTypeValidator,
+)
 
-from tracecat.db.models import RegistryAction, RegistryRepository
+from tracecat.db.models import (
+    PlatformRegistryAction,
+    PlatformRegistryIndex,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    RegistryAction,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
@@ -43,6 +68,7 @@ from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_cached
@@ -56,6 +82,42 @@ class SecretAggregate(TypedDict):
     optional_keys: set[str]
     optional: bool
     actions: set[str]
+
+
+@dataclass(slots=True)
+class IndexEntry:
+    """Simple data holder that mimics BaseRegistryIndex for list_actions_from_index results.
+
+    Used to convert raw UNION ALL query results into objects compatible with
+    RegistryActionReadMinimal.from_index() and RegistryActionRead.from_index_and_manifest().
+
+    Implements RegistryIndexLike protocol.
+    """
+
+    id: uuid.UUID
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    options: dict
+    doc_url: str | None = None
+    author: str | None = None
+    deprecated: str | None = None
+
+
+@dataclass(slots=True)
+class IndexedActionResult:
+    """Result from index/manifest lookup operations.
+
+    Combines index entry metadata with the full manifest for action resolution.
+    """
+
+    index_entry: IndexEntry
+    manifest: RegistryVersionManifest
+    origin: str
+    repository_id: uuid.UUID
 
 
 class RegistryActionsService(BaseService):
@@ -97,49 +159,773 @@ class RegistryActionsService(BaseService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def get_aggregated_secrets(self) -> list[SecretDefinition]:
-        organization_id = self.organization_id
-        statement = select(RegistryAction).where(
-            RegistryAction.organization_id == organization_id,
-            RegistryAction.secrets.is_not(None),
+    async def list_actions_from_index(
+        self,
+        *,
+        namespace: str | None = None,
+        include_marked: bool = False,
+        include_keys: set[str] | None = None,
+    ) -> list[tuple[IndexEntry, str]]:
+        """List actions from registry index for current versions.
+
+        Returns tuples of (index_entry, origin) from both org-scoped and platform registries.
+        Uses a single database call with UNION ALL for efficiency.
+        """
+        # Org-scoped registry query
+        org_statement = (
+            select(
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryRepository.origin,
+                literal("org").label("source"),
+            )
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
         )
-        result = await self.session.execute(statement)
-        actions = result.scalars().all()
+
+        # Platform registry query (same columns for UNION ALL compatibility)
+        platform_statement = (
+            select(
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryRepository.origin,
+                literal("platform").label("source"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+            )
+        )
+
+        # Apply filters to both queries
+        if not include_marked:
+            org_statement = org_statement.where(
+                cast(RegistryIndex.options["include_in_schema"].astext, Boolean).is_(
+                    True
+                )
+            )
+            platform_statement = platform_statement.where(
+                cast(
+                    PlatformRegistryIndex.options["include_in_schema"].astext, Boolean
+                ).is_(True)
+            )
+        if namespace:
+            org_statement = org_statement.where(
+                RegistryIndex.namespace.startswith(namespace)
+            )
+            platform_statement = platform_statement.where(
+                PlatformRegistryIndex.namespace.startswith(namespace)
+            )
+        if include_keys:
+            org_statement = org_statement.where(
+                func.concat(RegistryIndex.namespace, ".", RegistryIndex.name).in_(
+                    include_keys
+                )
+            )
+            platform_statement = platform_statement.where(
+                func.concat(
+                    PlatformRegistryIndex.namespace, ".", PlatformRegistryIndex.name
+                ).in_(include_keys)
+            )
+
+        # Combine with UNION ALL for a single database call
+        combined = union_all(org_statement, platform_statement)
+        result = await self.session.execute(combined)
+        rows = result.tuples().all()
+
+        # Convert raw tuples to index-like objects for compatibility with from_index()
+        entries: list[tuple[IndexEntry, str]] = []
+        for (
+            id_,
+            namespace_,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            origin,
+            _,  # source indicator (org/platform), not needed in result
+        ) in rows:
+            entry = IndexEntry(
+                id=id_,
+                namespace=namespace_,
+                name=name,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options,
+            )
+            entries.append((entry, origin))
+        return entries
+
+    async def list_actions_from_index_by_repository(
+        self,
+        repository_id: uuid.UUID,
+    ) -> list[RegistryActionRead]:
+        """List full action details from registry index for a specific repository.
+
+        Queries both org-scoped and platform registry tables using UNION ALL.
+        Since repository_id is unique, only one table will have matching results.
+
+        Returns list of RegistryActionRead objects with implementation from manifest.
+        """
+        # Org-scoped query - filter by org_id for security
+        org_statement = (
+            select(
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
+                RegistryVersion.manifest,
+                RegistryRepository.origin,
+                RegistryRepository.id.label("repo_id"),
+            )
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.id == repository_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                RegistryRepository.organization_id == self.organization_id,
+            )
+        )
+
+        # Platform query - no org_id filter (shared across all orgs)
+        platform_statement = (
+            select(
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
+                PlatformRegistryVersion.manifest,
+                PlatformRegistryRepository.origin,
+                PlatformRegistryRepository.id.label("repo_id"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                PlatformRegistryRepository.id == repository_id,
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+            )
+        )
+
+        # Single query combining both table sets
+        combined = union_all(org_statement, platform_statement)
+        result = await self.session.execute(combined)
+        rows = result.tuples().all()
+
+        actions: list[RegistryActionRead] = []
+        for (
+            id_,
+            namespace,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            manifest_data,
+            origin,
+            repo_id,
+        ) in rows:
+            manifest = RegistryVersionManifest.model_validate(manifest_data)
+            action_name = f"{namespace}.{name}"
+            manifest_action = manifest.actions.get(action_name)
+            if manifest_action:
+                # Create index-like object for from_index_and_manifest
+                index_entry = IndexEntry(
+                    id=id_,
+                    namespace=namespace,
+                    name=name,
+                    action_type=action_type,
+                    description=description,
+                    default_title=default_title,
+                    display_group=display_group,
+                    options=options or {},
+                    doc_url=doc_url,
+                    author=author,
+                    deprecated=deprecated,
+                )
+                actions.append(
+                    RegistryActionRead.from_index_and_manifest(
+                        index_entry,
+                        manifest_action,
+                        origin,
+                        repo_id,
+                    )
+                )
+        return actions
+
+    async def get_action_from_index(
+        self,
+        action_name: str,
+    ) -> IndexedActionResult | None:
+        """Get action from index with manifest from the version.
+
+        Searches both org-scoped and platform registries using a single UNION ALL query.
+        Org-scoped results take precedence over platform results.
+
+        Args:
+            action_name: Full action name (e.g., "core.http_request")
+
+        Returns:
+            IndexedActionResult or None if not found.
+        """
+        try:
+            namespace, name = action_name.rsplit(".", 1)
+        except ValueError:
+            return None
+
+        # Org-scoped query
+        org_statement = (
+            select(
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
+                RegistryVersion.manifest,
+                RegistryRepository.origin,
+                RegistryRepository.id.label("repo_id"),
+                literal("org").label("source"),
+            )
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                RegistryIndex.namespace == namespace,
+                RegistryIndex.name == name,
+            )
+        )
+
+        # Platform query
+        platform_statement = (
+            select(
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
+                PlatformRegistryVersion.manifest,
+                PlatformRegistryRepository.origin,
+                PlatformRegistryRepository.id.label("repo_id"),
+                literal("platform").label("source"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+                PlatformRegistryIndex.namespace == namespace,
+                PlatformRegistryIndex.name == name,
+            )
+        )
+
+        # Single query with UNION ALL, ordered so org results come first
+        combined = union_all(org_statement, platform_statement).order_by(
+            text("source")  # "org" < "platform" alphabetically
+        )
+        result = await self.session.execute(combined)
+        first_row = result.tuples().first()
+
+        if not first_row:
+            return None
+
+        (
+            id_,
+            namespace_,
+            name_,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            manifest_data,
+            origin,
+            repo_id,
+            _,  # source indicator
+        ) = first_row
+
+        manifest = RegistryVersionManifest.model_validate(manifest_data)
+        return IndexedActionResult(
+            index_entry=IndexEntry(
+                id=id_,
+                namespace=namespace_,
+                name=name_,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options or {},
+                doc_url=doc_url,
+                author=author,
+                deprecated=deprecated,
+            ),
+            manifest=manifest,
+            origin=origin,
+            repository_id=repo_id,
+        )
+
+    async def get_actions_from_index(
+        self,
+        action_names: list[str],
+    ) -> dict[str, IndexedActionResult]:
+        """Batch fetch actions from index + manifest.
+
+        Searches both org-scoped and platform registries for actions.
+
+        Args:
+            action_names: List of full action names (e.g., ["core.http_request", "tools.slack.post_message"])
+
+        Returns:
+            Dict mapping action_name -> IndexedActionResult.
+            Actions not found are omitted from the result.
+        """
+        if not action_names:
+            return {}
+
+        # Parse action names into (namespace, name) pairs for query
+        action_parts: list[tuple[str, str]] = []
+        for action_name in action_names:
+            try:
+                namespace, name = action_name.rsplit(".", 1)
+                action_parts.append((namespace, name))
+            except ValueError:
+                self.logger.warning(
+                    "Invalid action name format, skipping",
+                    action_name=action_name,
+                )
+                continue
+
+        if not action_parts:
+            return {}
+
+        # Build condition for matching any of the (namespace, name) pairs
+        org_conditions = tuple_(RegistryIndex.namespace, RegistryIndex.name).in_(
+            action_parts
+        )
+        platform_conditions = tuple_(
+            PlatformRegistryIndex.namespace, PlatformRegistryIndex.name
+        ).in_(action_parts)
+
+        # Org-scoped query
+        org_statement = (
+            select(
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
+                RegistryVersion.manifest,
+                RegistryRepository.origin,
+                RegistryRepository.id.label("repo_id"),
+            )
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                org_conditions,
+            )
+        )
+
+        # Platform query
+        platform_statement = (
+            select(
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
+                PlatformRegistryVersion.manifest,
+                PlatformRegistryRepository.origin,
+                PlatformRegistryRepository.id.label("repo_id"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+                platform_conditions,
+            )
+        )
+
+        # Combine with UNION ALL
+        combined = union_all(org_statement, platform_statement)
+        result = await self.session.execute(combined)
+        rows = result.tuples().all()
+
+        actions: dict[str, IndexedActionResult] = {}
+        for (
+            id_,
+            namespace,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            manifest_data,
+            origin,
+            repo_id,
+        ) in rows:
+            action_name = f"{namespace}.{name}"
+            # Skip if already found (org-scoped takes precedence)
+            if action_name in actions:
+                continue
+
+            index_entry = IndexEntry(
+                id=id_,
+                namespace=namespace,
+                name=name,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options or {},
+                doc_url=doc_url,
+                author=author,
+                deprecated=deprecated,
+            )
+            manifest = RegistryVersionManifest.model_validate(manifest_data)
+            actions[action_name] = IndexedActionResult(
+                index_entry=index_entry,
+                manifest=manifest,
+                origin=origin,
+                repository_id=repo_id,
+            )
+
+        return actions
+
+    async def search_actions_from_index(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+    ) -> list[tuple[IndexEntry, str]]:
+        """Search actions by name or description using ilike.
+
+        Searches both org-scoped and platform registries.
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results to return (None for no limit)
+
+        Returns:
+            List of (index_entry, origin) tuples matching the search.
+        """
+        if not query:
+            return []
+
+        search_pattern = f"%{query}%"
+
+        # Org-scoped query
+        org_statement = (
+            select(
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
+                RegistryRepository.origin,
+                literal("org").label("source"),
+            )
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                or_(
+                    func.concat(RegistryIndex.namespace, ".", RegistryIndex.name).ilike(
+                        search_pattern
+                    ),
+                    RegistryIndex.description.ilike(search_pattern),
+                ),
+            )
+        )
+
+        # Platform query
+        platform_statement = (
+            select(
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
+                PlatformRegistryRepository.origin,
+                literal("platform").label("source"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+                or_(
+                    func.concat(
+                        PlatformRegistryIndex.namespace, ".", PlatformRegistryIndex.name
+                    ).ilike(search_pattern),
+                    PlatformRegistryIndex.description.ilike(search_pattern),
+                ),
+            )
+        )
+
+        # Combine with UNION ALL and optionally apply limit
+        combined = union_all(org_statement, platform_statement)
+        if limit is not None:
+            combined = combined.limit(limit)
+        result = await self.session.execute(combined)
+        rows = result.tuples().all()
+
+        entries: list[tuple[IndexEntry, str]] = []
+        seen_actions: set[str] = set()
+
+        for (
+            id_,
+            namespace,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            origin,
+            _,  # source indicator
+        ) in rows:
+            action_name = f"{namespace}.{name}"
+            # Skip duplicates (org-scoped takes precedence in union order)
+            if action_name in seen_actions:
+                continue
+            seen_actions.add(action_name)
+
+            entry = IndexEntry(
+                id=id_,
+                namespace=namespace,
+                name=name,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options or {},
+                doc_url=doc_url,
+                author=author,
+                deprecated=deprecated,
+            )
+            entries.append((entry, origin))
+
+        return entries
+
+    async def get_aggregated_secrets(self) -> list[SecretDefinition]:
+        """Aggregate secrets from all actions in both org and platform registries.
+
+        Queries manifests from current versions in both registry tables using
+        UNION ALL for efficiency.
+        """
+        # Org-scoped query - get manifests from current versions
+        org_statement = (
+            select(RegistryVersion.manifest)
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+            )
+        )
+
+        # Platform query - get manifests from current versions
+        platform_statement = (
+            select(PlatformRegistryVersion.manifest).join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+        ).where(
+            PlatformRegistryRepository.current_version_id == PlatformRegistryVersion.id,
+        )
+
+        # Combine with UNION ALL
+        combined = union_all(org_statement, platform_statement)
+        result = await self.session.execute(combined)
+        manifest_rows = result.scalars().all()
 
         aggregated: dict[str, SecretAggregate] = {}
+        seen_actions: set[str] = set()
 
-        for action in actions:
-            if not action.secrets:
-                continue
-            action_name = action.action
-            for raw_secret in action.secrets:
-                try:
-                    secret = RegistrySecretTypeValidator.validate_python(raw_secret)
-                except ValidationError as exc:
-                    self.logger.warning(
-                        "Skipping invalid registry secret",
-                        action=action_name,
-                        error=str(exc),
+        for manifest_data in manifest_rows:
+            manifest = RegistryVersionManifest.model_validate(manifest_data)
+            for action_name, manifest_action in manifest.actions.items():
+                # Skip if already processed (org takes precedence)
+                if action_name in seen_actions:
+                    continue
+                seen_actions.add(action_name)
+
+                if not manifest_action.secrets:
+                    continue
+
+                for secret in manifest_action.secrets:
+                    if isinstance(secret, RegistryOAuthSecret) or secret.name.endswith(
+                        "_oauth"
+                    ):
+                        continue
+
+                    entry = aggregated.setdefault(
+                        secret.name,
+                        {
+                            "keys": set(),
+                            "optional_keys": set(),
+                            "optional": False,
+                            "actions": set(),
+                        },
                     )
-                    continue
-                if secret.type == "oauth" or secret.name.endswith("_oauth"):
-                    continue
-
-                entry = aggregated.setdefault(
-                    secret.name,
-                    {
-                        "keys": set(),
-                        "optional_keys": set(),
-                        "optional": False,
-                        "actions": set(),
-                    },
-                )
-                if secret.keys:
-                    entry["keys"].update(secret.keys)
-                if secret.optional_keys:
-                    entry["optional_keys"].update(secret.optional_keys)
-                entry["optional"] = entry["optional"] or secret.optional
-                entry["actions"].add(action_name)
+                    if secret.keys:
+                        entry["keys"].update(secret.keys)
+                    if secret.optional_keys:
+                        entry["optional_keys"].update(secret.optional_keys)
+                    entry["optional"] = entry["optional"] or secret.optional
+                    entry["actions"].add(action_name)
 
         definitions: list[SecretDefinition] = []
         for name, data in aggregated.items():
@@ -163,7 +949,7 @@ class RegistryActionsService(BaseService):
         )
 
     async def get_action(self, action_name: str) -> RegistryAction:
-        """Get an action by name."""
+        """Get action by name from RegistryAction table."""
         try:
             namespace, name = action_name.rsplit(".", maxsplit=1)
         except ValueError:
@@ -215,16 +1001,37 @@ class RegistryActionsService(BaseService):
             )
         return action
 
-    async def get_actions(self, action_names: list[str]) -> Sequence[RegistryAction]:
-        """Get actions by name."""
-        statement = select(RegistryAction).where(
+    async def get_actions(
+        self, action_names: list[str]
+    ) -> Sequence[RegistryAction | PlatformRegistryAction]:
+        """Get actions by name from both org-scoped and platform registries.
+
+        Searches both RegistryAction (org-scoped) and PlatformRegistryAction (platform)
+        tables using UNION ALL. Results from both tables are combined.
+        """
+        # Org-scoped actions
+        org_statement = select(RegistryAction).where(
             RegistryAction.organization_id == self.organization_id,
             func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
                 action_names
             ),
         )
-        result = await self.session.execute(statement)
-        return result.scalars().all()
+
+        # Platform actions
+        platform_statement = select(PlatformRegistryAction).where(
+            func.concat(
+                PlatformRegistryAction.namespace, ".", PlatformRegistryAction.name
+            ).in_(action_names),
+        )
+
+        # Execute both queries and combine results
+        org_result = await self.session.execute(org_statement)
+        platform_result = await self.session.execute(platform_statement)
+
+        org_actions = list(org_result.scalars().all())
+        platform_actions = list(platform_result.scalars().all())
+
+        return org_actions + platform_actions
 
     async def create_action(
         self,
@@ -428,38 +1235,33 @@ class RegistryActionsService(BaseService):
         *,
         target_version: str | None = None,
         target_commit_sha: str | None = None,
-        allow_delete_all: bool = False,
         ssh_env: SshEnv | None = None,
     ) -> tuple[str | None, str | None]:
         """Sync actions from a repository using the v2 versioned flow.
 
         This creates an immutable RegistryVersion snapshot with:
         - Frozen manifest stored in DB
-        - Wheel uploaded to S3 (mandatory - sync fails if wheel build fails)
+        - Tarball venv uploaded to S3 (mandatory - sync fails if build fails)
         - RegistryIndex entries for fast lookups
 
-        Also updates the mutable RegistryAction table for backward compatibility.
+        Note: RegistryAction table is populated by platform registry sync only.
+        Use RegistryIndex for UI queries and fetch implementation from manifest.
 
         Args:
             db_repo: The repository to sync.
             target_version: Version string (auto-generated if not provided).
             target_commit_sha: Optional commit SHA to sync to.
-            allow_delete_all: If True, allow deleting all actions if list is empty.
             ssh_env: SSH environment for git operations (required for git+ssh repos).
 
         Returns:
             Tuple of (commit_sha, version_string)
 
         Raises:
-            WheelBuildError: If wheel building fails (no version is created)
+            TarballBuildError: If tarball building fails (no version is created)
         """
         # Use the v2 sync service
         sync_service = RegistrySyncService(self.session, self.role)
 
-        # Both operations should be in the same transaction to ensure atomicity:
-        # - sync_repository_v2 creates RegistryVersion and RegistryIndex entries
-        # - upsert_actions_from_list updates the mutable RegistryAction table
-        # If either fails, both should be rolled back
         if self.session.in_transaction():
             async with self.session.begin_nested():
                 sync_result = await sync_service.sync_repository_v2(
@@ -468,14 +1270,6 @@ class RegistryActionsService(BaseService):
                     target_commit_sha=target_commit_sha,
                     ssh_env=ssh_env,
                     commit=False,
-                )
-                # Also update the mutable RegistryAction table for backward compatibility
-                # This ensures existing code that queries RegistryAction still works
-                await self.upsert_actions_from_list(
-                    sync_result.actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
                 )
         else:
             async with self.session.begin():
@@ -486,17 +1280,9 @@ class RegistryActionsService(BaseService):
                     ssh_env=ssh_env,
                     commit=False,
                 )
-                # Also update the mutable RegistryAction table for backward compatibility
-                # This ensures existing code that queries RegistryAction still works
-                await self.upsert_actions_from_list(
-                    sync_result.actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
-                )
 
         self.logger.info(
-            "V2 sync completed with backward compatible RegistryAction update",
+            "V2 sync completed",
             version=sync_result.version_string,
             commit_sha=sync_result.commit_sha,
             num_actions=sync_result.num_actions,
@@ -579,7 +1365,7 @@ class RegistryActionsService(BaseService):
 
         for action_name, create_params in incoming_actions_map.items():
             try:
-                registry_action = await self.get_action(action_name=action_name)
+                registry_action = await self.get_action(action_name)
             except RegistryError:
                 self.logger.debug(
                     "Action not found, creating",
@@ -663,7 +1449,7 @@ class RegistryActionsService(BaseService):
         """
         Load the implementation for a registry action.
         """
-        action = await self.get_action(action_name=action_name)
+        action = await self.get_action(action_name)
         bound_action = get_bound_action_impl(action, mode=mode)
         return bound_action
 
@@ -730,6 +1516,62 @@ class RegistryActionsService(BaseService):
             for step_ra in step_ras:
                 step_secrets = await self.fetch_all_action_secrets(step_ra)
                 secrets.update(step_secrets)
+        return secrets
+
+    @staticmethod
+    def aggregate_secrets_from_manifest(
+        manifest: RegistryVersionManifest,
+        action_name: str,
+        visited: set[str] | None = None,
+    ) -> list[RegistrySecretType]:
+        """Recursively aggregate secrets from an action and its template steps.
+
+        This method traverses template actions in the manifest to collect all
+        secrets required by the action and any nested template steps.
+
+        Args:
+            manifest: The registry version manifest containing all actions
+            action_name: The full action name (e.g., "core.http_request")
+            visited: Set of visited action names to prevent infinite recursion
+
+        Returns:
+            List of all secrets required by the action and its template steps
+        """
+        if visited is None:
+            visited = set()
+
+        # Prevent infinite recursion
+        if action_name in visited:
+            return []
+        visited.add(action_name)
+
+        manifest_action = manifest.actions.get(action_name)
+        if not manifest_action:
+            return []
+
+        secrets: list[RegistrySecretType] = []
+
+        # Add direct secrets from this action
+        if manifest_action.secrets:
+            secrets.extend(manifest_action.secrets)
+
+        # For template actions, recursively collect secrets from steps
+        if manifest_action.action_type == "template":
+            impl = manifest_action.implementation
+            template_action_data = impl.get("template_action")
+            if template_action_data:
+                definition = template_action_data.get("definition", {})
+                steps = definition.get("steps", [])
+                for step in steps:
+                    step_action_name = step.get("action")
+                    if step_action_name:
+                        step_secrets = (
+                            RegistryActionsService.aggregate_secrets_from_manifest(
+                                manifest, step_action_name, visited
+                            )
+                        )
+                        secrets.extend(step_secrets)
+
         return secrets
 
     def get_bound(

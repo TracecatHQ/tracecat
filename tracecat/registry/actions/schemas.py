@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypedDict
 
 import yaml
 from pydantic import (
@@ -15,7 +15,7 @@ from pydantic import (
     computed_field,
     model_validator,
 )
-from tracecat_registry import RegistrySecretType
+from tracecat_registry import RegistrySecret, RegistrySecretType
 
 from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.schemas import ExpectedField
@@ -27,7 +27,32 @@ from tracecat.validation.schemas import (
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    from tracecat.db.models import BaseRegistryIndex
     from tracecat.registry.actions.bound import BoundRegistryAction
+    from tracecat.registry.versions.schemas import RegistryVersionManifestAction
+
+
+class RegistryIndexLike(Protocol):
+    """Protocol for _IndexEntry dataclass from the service layer.
+
+    Note: SQLAlchemy models (RegistryIndex, PlatformRegistryIndex) should use
+    BaseRegistryIndex type directly due to Mapped[] type incompatibility with protocols.
+    """
+
+    id: UUID4
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    options: dict[str, Any]
+
 
 RegistryActionType = Literal["udf", "template"]
 
@@ -203,6 +228,27 @@ class RegistryActionReadMinimal(BaseModel):
         """The full action identifier."""
         return f"{self.namespace}.{self.name}"
 
+    @classmethod
+    def from_index(
+        cls, index: RegistryIndexLike, origin: str
+    ) -> RegistryActionReadMinimal:
+        """Create from any registry index-like object.
+
+        Accepts RegistryIndex, PlatformRegistryIndex, or _IndexEntry from service layer.
+        """
+        from typing import cast
+
+        return cls(
+            id=index.id,
+            name=index.name,
+            description=index.description,
+            namespace=index.namespace,
+            type=cast(RegistryActionType, index.action_type),
+            origin=origin,
+            default_title=index.default_title,
+            display_group=index.display_group,
+        )
+
 
 class RegistryActionRead(RegistryActionBase):
     """API read model for a registered action."""
@@ -220,6 +266,67 @@ class RegistryActionRead(RegistryActionBase):
     def is_template(self) -> bool:
         """Whether the action is a template."""
         return self.implementation.type == "template"
+
+    @classmethod
+    def from_index_and_manifest(
+        cls,
+        index: BaseRegistryIndex | RegistryIndexLike,
+        manifest_action: RegistryVersionManifestAction,
+        origin: str,
+        repository_id: UUID,
+        extra_secrets: list[RegistrySecretType] | None = None,
+    ) -> RegistryActionRead:
+        """Create from RegistryIndex or PlatformRegistryIndex + manifest action.
+
+        Args:
+            index: The registry index entry
+            manifest_action: The manifest action data
+            origin: The origin URL
+            repository_id: The repository ID
+            extra_secrets: Additional secrets to merge (e.g., from template steps)
+        """
+        from tracecat.registry.actions.schemas import RegistryActionImplValidator
+
+        # Merge direct secrets with extra secrets (e.g., from template steps)
+        all_secrets = list(manifest_action.secrets) if manifest_action.secrets else []
+        if extra_secrets:
+            # Use a set to dedupe by secret identity
+            seen = {
+                (s.name if isinstance(s, RegistrySecret) else s.provider_id)
+                for s in all_secrets
+            }
+            for secret in extra_secrets:
+                key = (
+                    secret.name
+                    if isinstance(secret, RegistrySecret)
+                    else secret.provider_id
+                )
+                if key not in seen:
+                    all_secrets.append(secret)
+                    seen.add(key)
+
+        return cls(
+            id=index.id,
+            name=index.name,
+            description=index.description,
+            namespace=index.namespace,
+            type=manifest_action.action_type,
+            origin=origin,
+            secrets=all_secrets if all_secrets else None,
+            interface=manifest_action.interface,
+            implementation=RegistryActionImplValidator.validate_python(
+                manifest_action.implementation
+            ),
+            default_title=index.default_title,
+            display_group=index.display_group,
+            doc_url=index.doc_url,
+            author=index.author,
+            deprecated=index.deprecated,
+            options=RegistryActionOptions(**index.options)
+            if index.options
+            else RegistryActionOptions(),
+            repository_id=repository_id,
+        )
 
 
 class RegistryActionCreate(RegistryActionBase):
