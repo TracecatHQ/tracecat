@@ -107,7 +107,7 @@ cd frontend && pnpm format:write  # Biome format
 cd frontend && pnpm check         # Biome comprehensive check (lint + format + organize imports)
 
 # Type checking
-just mypy <path>     # MyPy type checking for specific path
+just typecheck       # Run basedpyright type checking
 ```
 
 ### API and Code Generation
