@@ -238,7 +238,12 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
     """
     from sqlalchemy.orm import Session
 
-    from tracecat.db.models import RegistryRepository, RegistryVersion
+    from tracecat.db.models import (
+        PlatformRegistryRepository,
+        PlatformRegistryVersion,
+        RegistryRepository,
+        RegistryVersion,
+    )
 
     def _seed_registry_version(sync_db_uri: str) -> None:
         # Use sync engine to avoid event loop conflicts.
@@ -603,6 +608,112 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
 
             logger.info(
                 "Created registry version with manifest",
+                extra={
+                    "db_uri": sync_db_uri,
+                    "version": version,
+                    "num_actions": len(manifest_actions),
+                },
+            )
+
+            # Also seed platform registry tables for platform-scoped resolution
+            # The executor routes tracecat_registry origin to platform tables
+            platform_repo = session.scalar(
+                select(PlatformRegistryRepository).where(
+                    PlatformRegistryRepository.origin == origin,
+                )
+            )
+            if platform_repo is None:
+                platform_repo = PlatformRegistryRepository(origin=origin)
+                session.add(platform_repo)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    platform_repo = session.scalar(
+                        select(PlatformRegistryRepository).where(
+                            PlatformRegistryRepository.origin == origin,
+                        )
+                    )
+                    if platform_repo is None:
+                        raise
+                else:
+                    session.refresh(platform_repo)
+
+            platform_rv = session.scalar(
+                select(PlatformRegistryVersion).where(
+                    PlatformRegistryVersion.repository_id == platform_repo.id,
+                    PlatformRegistryVersion.version == version,
+                )
+            )
+            if platform_rv is None:
+                platform_rv = PlatformRegistryVersion(
+                    repository_id=platform_repo.id,
+                    version=version,
+                    manifest=manifest,
+                    tarball_uri="s3://test/test.tar.gz",
+                )
+                session.add(platform_rv)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    platform_rv = session.scalar(
+                        select(PlatformRegistryVersion).where(
+                            PlatformRegistryVersion.repository_id == platform_repo.id,
+                            PlatformRegistryVersion.version == version,
+                        )
+                    )
+                    if platform_rv is None:
+                        raise
+                else:
+                    session.refresh(platform_rv)
+            else:
+                platform_rv.manifest = manifest
+                platform_rv.tarball_uri = "s3://test/test.tar.gz"
+                session.commit()
+
+            platform_repo.current_version_id = platform_rv.id
+            session.commit()
+
+            # Create PlatformRegistryIndex entries for each action in the manifest
+            # This is required for get_actions_from_index to work in agent tools
+            from tracecat.db.models import PlatformRegistryIndex
+
+            for _action_name, action_data in manifest_actions.items():
+                existing_index = session.scalar(
+                    select(PlatformRegistryIndex).where(
+                        PlatformRegistryIndex.registry_version_id == platform_rv.id,
+                        PlatformRegistryIndex.namespace == action_data["namespace"],
+                        PlatformRegistryIndex.name == action_data["name"],
+                    )
+                )
+                if existing_index is None:
+                    index_entry = PlatformRegistryIndex(
+                        registry_version_id=platform_rv.id,
+                        namespace=action_data["namespace"],
+                        name=action_data["name"],
+                        action_type=action_data["action_type"],
+                        description=action_data.get("description", ""),
+                        default_title=action_data.get("default_title"),
+                        display_group=action_data.get("display_group"),
+                        doc_url=action_data.get("doc_url"),
+                        author=action_data.get("author"),
+                        deprecated=action_data.get("deprecated"),
+                        secrets=action_data.get("secrets"),
+                        interface=action_data.get("interface", {}),
+                        options=action_data.get("options", {}),
+                    )
+                    session.add(index_entry)
+                    # Commit each entry individually to handle race conditions
+                    # with pytest-xdist parallel workers
+                    try:
+                        session.commit()
+                    except IntegrityError:
+                        session.rollback()
+                        # Entry already exists from another worker, continue
+
+            logger.info(
+                "Created platform registry version with manifest and index",
                 extra={
                     "db_uri": sync_db_uri,
                     "version": version,
