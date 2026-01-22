@@ -64,6 +64,7 @@ from tracecat.identifiers import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.workspaces.schemas import WorkspaceSettings
 
@@ -75,6 +76,7 @@ CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
+INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
 
 
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -108,6 +110,29 @@ class TimestampMixin:
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+
+class InvitationMixin:
+    """Mixin for invitation columns shared between workspace and organization invitations."""
+
+    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
+    status: Mapped[InvitationStatus] = mapped_column(
+        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
+    )
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        doc="User who created the invitation",
+    )
+    token: Mapped[str] = mapped_column(
+        String(64), unique=True, doc="Unique token for magic link acceptance"
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), doc="When the invitation expires"
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
     )
 
 
@@ -2778,3 +2803,45 @@ class Tag(WorkspaceModel):
         secondary=WorkflowTag.__table__,
         back_populates="tags",
     )
+
+
+class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
+    """Invitation to join an organization."""
+
+    __tablename__ = "organization_invitation"
+    __table_args__ = (Index("ix_organization_invitation_email", "email"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[OrgRole] = mapped_column(
+        Enum(OrgRole, name="orgrole"),
+        default=OrgRole.MEMBER,
+        doc="Role to grant upon acceptance",
+    )
+
+    # Relationships
+    organization: Mapped[Organization] = relationship("Organization")
+    inviter: Mapped[User | None] = relationship("User")
+
+
+class Invitation(InvitationMixin, TimestampMixin, Base):
+    """Invitation to join a workspace."""
+
+    __tablename__ = "invitation"
+    __table_args__ = (Index("ix_invitation_email", "email"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[WorkspaceRole] = mapped_column(
+        Enum(WorkspaceRole, name="workspacerole"),
+        default=WorkspaceRole.EDITOR,
+        doc="Role to grant upon acceptance",
+    )
+
+    # Relationships
+    workspace: Mapped[Workspace] = relationship("Workspace")
+    inviter: Mapped[User | None] = relationship("User")
