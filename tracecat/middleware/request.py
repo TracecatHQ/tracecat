@@ -35,7 +35,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     pass  # Ignore parse errors for logging purposes
 
             # Log the incoming request with parameters
-            request.app.logger.debug(
+            request.app.state.logger.debug(
                 "Incoming request",
                 method=request.method,
                 scheme=request.url.scheme,
