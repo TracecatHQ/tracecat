@@ -1,13 +1,22 @@
-from fastapi import APIRouter, HTTPException, status
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import SessionID, UserID
-from tracecat.organization.schemas import OrgMemberRead, OrgRead
+from tracecat.invitations.enums import InvitationStatus
+from tracecat.organization.schemas import (
+    OrgInvitationAccept,
+    OrgInvitationCreate,
+    OrgInvitationRead,
+    OrgMemberRead,
+    OrgRead,
+)
 from tracecat.organization.service import OrgService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
@@ -151,3 +160,153 @@ async def delete_session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         ) from e
+
+
+# === Invitations ===
+
+
+@router.post(
+    "/invitations",
+    response_model=OrgInvitationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_invitation(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    params: OrgInvitationCreate,
+):
+    """Create an invitation to join the organization."""
+    service = OrgService(session, role=role)
+    invitation = await service.create_invitation(
+        email=params.email,
+        role=params.role,
+    )
+    return OrgInvitationRead(
+        id=invitation.id,
+        organization_id=invitation.organization_id,
+        email=invitation.email,
+        role=invitation.role,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+        accepted_at=invitation.accepted_at,
+    )
+
+
+@router.get("/invitations", response_model=list[OrgInvitationRead])
+async def list_invitations(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    invitation_status: InvitationStatus | None = Query(None, alias="status"),
+):
+    """List invitations for the organization."""
+    service = OrgService(session, role=role)
+    invitations = await service.list_invitations(status=invitation_status)
+    return [
+        OrgInvitationRead(
+            id=inv.id,
+            organization_id=inv.organization_id,
+            email=inv.email,
+            role=inv.role,
+            status=inv.status,
+            invited_by=inv.invited_by,
+            expires_at=inv.expires_at,
+            created_at=inv.created_at,
+            accepted_at=inv.accepted_at,
+        )
+        for inv in invitations
+    ]
+
+
+@router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invitation(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    invitation_id: UUID,
+):
+    """Revoke a pending invitation."""
+    service = OrgService(session, role=role)
+    try:
+        await service.revoke_invitation(invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.post("/invitations/accept")
+async def accept_invitation(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+    session: AsyncDBSession,
+    params: OrgInvitationAccept,
+):
+    """Accept an invitation and join the organization."""
+    service = OrgService(session, role=role)
+    try:
+        await service.accept_invitation(params.token)
+        return {"message": "Invitation accepted successfully"}
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.get("/invitations/token/{token}", response_model=OrgInvitationRead)
+async def get_invitation_by_token(
+    *,
+    session: AsyncDBSession,
+    token: str,
+):
+    """Get invitation details by token (public endpoint for UI)."""
+    # Create a minimal role for unauthenticated access
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        access_level=AccessLevel.BASIC,
+    )
+    service = OrgService(session, role=role)
+    try:
+        invitation = await service.get_invitation_by_token(token)
+        return OrgInvitationRead(
+            id=invitation.id,
+            organization_id=invitation.organization_id,
+            email=invitation.email,
+            role=invitation.role,
+            status=invitation.status,
+            invited_by=invitation.invited_by,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+            accepted_at=invitation.accepted_at,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

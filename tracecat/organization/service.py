@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import secrets
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy import and_, cast, select
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,9 +20,16 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import require_access_level
 from tracecat.authz.enums import OrgRole
-from tracecat.db.models import AccessToken, OrganizationMembership, User
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.db.models import (
+    AccessToken,
+    OrganizationInvitation,
+    OrganizationMembership,
+    User,
+)
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import OrganizationID, SessionID, UserID
+
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
 
 
@@ -226,3 +236,183 @@ class OrgService(BaseOrgService):
         db_token = result.scalar_one()
         await self.session.delete(db_token)
         await self.session.commit()
+
+    # === Manage invitations ===
+
+    @audit_log(resource_type="organization_invitation", action="create")
+    @require_access_level(AccessLevel.ADMIN)
+    async def create_invitation(
+        self,
+        *,
+        email: str,
+        role: OrgRole = OrgRole.MEMBER,
+    ) -> OrganizationInvitation:
+        """Create an invitation to join the organization.
+
+        Args:
+            email: Email address of the invitee.
+            role: Role to grant upon acceptance. Defaults to MEMBER.
+
+        Returns:
+            OrganizationInvitation: The created invitation record.
+        """
+        invitation = OrganizationInvitation(
+            organization_id=self.role.organization_id,
+            email=email,
+            role=role,
+            invited_by=self.role.user_id,
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+        )
+        self.session.add(invitation)
+        await self.session.commit()
+        await self.session.refresh(invitation)
+        return invitation
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def list_invitations(
+        self,
+        *,
+        status: InvitationStatus | None = None,
+    ) -> Sequence[OrganizationInvitation]:
+        """List invitations for the organization.
+
+        Args:
+            status: Optional filter by invitation status.
+
+        Returns:
+            Sequence[OrganizationInvitation]: List of invitations.
+        """
+        statement = select(OrganizationInvitation).where(
+            OrganizationInvitation.organization_id == self.role.organization_id
+        )
+        if status is not None:
+            statement = statement.where(OrganizationInvitation.status == status)
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def get_invitation(self, invitation_id: UUID) -> OrganizationInvitation:
+        """Get an invitation by ID (must belong to this organization).
+
+        Args:
+            invitation_id: The invitation UUID.
+
+        Returns:
+            OrganizationInvitation: The invitation record.
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+        """
+        statement = select(OrganizationInvitation).where(
+            and_(
+                OrganizationInvitation.id == invitation_id,
+                OrganizationInvitation.organization_id == self.role.organization_id,
+            )
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one()
+
+    async def get_invitation_by_token(self, token: str) -> OrganizationInvitation:
+        """Get an invitation by its unique token.
+
+        This method does not require access level checks as it is used
+        during the public invitation acceptance flow.
+
+        Args:
+            token: The unique invitation token.
+
+        Returns:
+            OrganizationInvitation: The invitation record.
+
+        Raises:
+            TracecatNotFoundError: If no invitation with the token exists.
+        """
+        statement = select(OrganizationInvitation).where(
+            OrganizationInvitation.token == token
+        )
+        result = await self.session.execute(statement)
+        invitation = result.scalar_one_or_none()
+        if invitation is None:
+            raise TracecatNotFoundError("Invitation not found")
+        return invitation
+
+    @audit_log(resource_type="organization_invitation", action="accept")
+    async def accept_invitation(self, token: str) -> OrganizationMembership:
+        """Accept an invitation and create organization membership.
+
+        This method validates the invitation token, checks expiry and status,
+        then creates the membership record.
+
+        Args:
+            token: The unique invitation token.
+
+        Returns:
+            OrganizationMembership: The created membership record.
+
+        Raises:
+            TracecatNotFoundError: If the invitation doesn't exist.
+            TracecatAuthorizationError: If the invitation is expired, revoked,
+                or already accepted, or if the user is not authenticated.
+        """
+        if self.role.user_id is None:
+            raise TracecatAuthorizationError(
+                "User must be authenticated to accept invitation"
+            )
+
+        invitation = await self.get_invitation_by_token(token)
+
+        # Validate invitation state
+        if invitation.status == InvitationStatus.ACCEPTED:
+            raise TracecatAuthorizationError("Invitation has already been accepted")
+        if invitation.status == InvitationStatus.REVOKED:
+            raise TracecatAuthorizationError("Invitation has been revoked")
+        if invitation.status == InvitationStatus.EXPIRED:
+            raise TracecatAuthorizationError("Invitation has expired")
+        if invitation.expires_at < datetime.now(UTC):
+            # Update status to expired
+            invitation.status = InvitationStatus.EXPIRED
+            await self.session.commit()
+            raise TracecatAuthorizationError("Invitation has expired")
+
+        # Create membership
+        membership = await self.add_member(
+            user_id=self.role.user_id,
+            organization_id=invitation.organization_id,
+            role=invitation.role,
+        )
+
+        # Mark invitation as accepted
+        invitation.status = InvitationStatus.ACCEPTED
+        invitation.accepted_at = datetime.now(UTC)
+        await self.session.commit()
+
+        return membership
+
+    @audit_log(resource_type="organization_invitation", action="revoke")
+    @require_access_level(AccessLevel.ADMIN)
+    async def revoke_invitation(self, invitation_id: UUID) -> OrganizationInvitation:
+        """Revoke a pending invitation.
+
+        Args:
+            invitation_id: The invitation UUID.
+
+        Returns:
+            OrganizationInvitation: The updated invitation record.
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+            TracecatAuthorizationError: If the invitation is not in pending status.
+        """
+        invitation = await self.get_invitation(invitation_id)
+
+        if invitation.status != InvitationStatus.PENDING:
+            raise TracecatAuthorizationError(
+                f"Cannot revoke invitation with status '{invitation.status}'"
+            )
+
+        invitation.status = InvitationStatus.REVOKED
+        await self.session.commit()
+        await self.session.refresh(invitation)
+        return invitation

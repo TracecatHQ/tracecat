@@ -6008,7 +6008,7 @@ export const $DSLEntrypoint = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField-Output",
+            $ref: "#/components/schemas/ExpectedField",
           },
           type: "object",
         },
@@ -6672,28 +6672,6 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
-export const $EntitlementsDict = {
-  properties: {
-    custom_registry: {
-      type: "boolean",
-      title: "Custom Registry",
-    },
-    sso: {
-      type: "boolean",
-      title: "Sso",
-    },
-    git_sync: {
-      type: "boolean",
-      title: "Git Sync",
-    },
-  },
-  type: "object",
-  title: "EntitlementsDict",
-  description: `TypedDict for tier entitlements stored in JSONB.
-
-All keys are optional (total=False) to support partial overrides.`,
-} as const
-
 export const $ErrorDetails = {
   properties: {
     type: {
@@ -7000,7 +6978,7 @@ export const $ExecutionType = {
 Distinguishes between draft (development) and published (production) executions.`,
 } as const
 
-export const $ExpectedField_Input = {
+export const $ExpectedField = {
   properties: {
     type: {
       type: "string",
@@ -7018,48 +6996,18 @@ export const $ExpectedField_Input = {
       title: "Description",
     },
     default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
       title: "Default",
     },
-    enum: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Enum",
-    },
-    optional: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Optional",
-    },
   },
-  additionalProperties: false,
   type: "object",
   required: ["type"],
   title: "ExpectedField",
-  description: `Schema for a field in a template action's expects definition.
-
-Note: The default field uses a sentinel to distinguish between
-"no default specified" (required field) and "default is explicitly None"
-(optional field).`,
-} as const
-
-export const $ExpectedField_Output = {
-  additionalProperties: true,
-  type: "object",
 } as const
 
 export const $ExprType = {
@@ -8694,6 +8642,13 @@ export const $InteractionType = {
   title: "InteractionType",
 } as const
 
+export const $InvitationStatus = {
+  type: "string",
+  enum: ["pending", "accepted", "expired", "revoked"],
+  title: "InvitationStatus",
+  description: "Invitation lifecycle status.",
+} as const
+
 export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
@@ -9144,6 +9099,112 @@ export const $OrgCreate = {
   required: ["name", "slug"],
   title: "OrgCreate",
   description: "Create organization request.",
+} as const
+
+export const $OrgInvitationAccept = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "OrgInvitationAccept",
+  description:
+    "Request body for accepting an organization invitation via token.",
+} as const
+
+export const $OrgInvitationCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+      default: "member",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "OrgInvitationCreate",
+  description: "Request body for creating an organization invitation.",
+} as const
+
+export const $OrgInvitationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    accepted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accepted At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "email",
+    "role",
+    "status",
+    "invited_by",
+    "expires_at",
+    "created_at",
+    "accepted_at",
+  ],
+  title: "OrgInvitationRead",
+  description: "Response model for organization invitation.",
 } as const
 
 export const $OrgMemberRead = {
@@ -9646,283 +9707,6 @@ export const $OrganizationSecretRead = {
   ],
   title: "OrganizationSecretRead",
   description: "Read schema for organization-scoped secrets.",
-} as const
-
-export const $OrganizationTierRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    tier_id: {
-      type: "string",
-      format: "uuid",
-      title: "Tier Id",
-    },
-    max_concurrent_workflows: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Workflows",
-    },
-    max_action_executions_per_workflow: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Action Executions Per Workflow",
-    },
-    max_concurrent_actions: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Actions",
-    },
-    api_rate_limit: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Rate Limit",
-    },
-    api_burst_capacity: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Burst Capacity",
-    },
-    entitlement_overrides: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/EntitlementsDict",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    stripe_customer_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stripe Customer Id",
-    },
-    stripe_subscription_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stripe Subscription Id",
-    },
-    expires_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Expires At",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    tier: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/TierRead",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "organization_id",
-    "tier_id",
-    "max_concurrent_workflows",
-    "max_action_executions_per_workflow",
-    "max_concurrent_actions",
-    "api_rate_limit",
-    "api_burst_capacity",
-    "entitlement_overrides",
-    "stripe_customer_id",
-    "stripe_subscription_id",
-    "expires_at",
-    "created_at",
-    "updated_at",
-  ],
-  title: "OrganizationTierRead",
-  description: "Organization tier assignment response.",
-} as const
-
-export const $OrganizationTierUpdate = {
-  properties: {
-    tier_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tier Id",
-    },
-    max_concurrent_workflows: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Workflows",
-    },
-    max_action_executions_per_workflow: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Action Executions Per Workflow",
-    },
-    max_concurrent_actions: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Actions",
-    },
-    api_rate_limit: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Rate Limit",
-    },
-    api_burst_capacity: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Burst Capacity",
-    },
-    entitlement_overrides: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/EntitlementsDict",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    stripe_customer_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stripe Customer Id",
-    },
-    stripe_subscription_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stripe Subscription Id",
-    },
-    expires_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Expires At",
-    },
-  },
-  type: "object",
-  title: "OrganizationTierUpdate",
-  description: "Update organization tier assignment request.",
 } as const
 
 export const $OutputType = {
@@ -10581,21 +10365,6 @@ export const $PullResult = {
     "message",
   ],
   title: "PullResult",
-} as const
-
-export const $ReadinessResponse = {
-  properties: {
-    status: {
-      type: "string",
-      title: "Status",
-    },
-    registry: {
-      $ref: "#/components/schemas/RegistryStatus",
-    },
-  },
-  type: "object",
-  required: ["status", "registry"],
-  title: "ReadinessResponse",
 } as const
 
 export const $ReasoningUIPart = {
@@ -11789,33 +11558,6 @@ export const $RegistrySecretType_Output = {
       oauth: "#/components/schemas/RegistryOAuthSecret-Output",
     },
   },
-} as const
-
-export const $RegistryStatus = {
-  properties: {
-    synced: {
-      type: "boolean",
-      title: "Synced",
-    },
-    expected_version: {
-      type: "string",
-      title: "Expected Version",
-    },
-    current_version: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Current Version",
-    },
-  },
-  type: "object",
-  required: ["synced", "expected_version", "current_version"],
-  title: "RegistryStatus",
 } as const
 
 export const $RegistryStatusResponse = {
@@ -14885,7 +14627,7 @@ export const $TemplateActionDefinition_Input = {
     },
     expects: {
       additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField-Input",
+        $ref: "#/components/schemas/ExpectedField",
       },
       type: "object",
       title: "Expects",
@@ -15013,7 +14755,7 @@ export const $TemplateActionDefinition_Output = {
     },
     expects: {
       additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField-Output",
+        $ref: "#/components/schemas/ExpectedField",
       },
       type: "object",
       title: "Expects",
@@ -15244,321 +14986,6 @@ export const $ThinkingBlock = {
   type: "object",
   required: ["thinking", "signature"],
   title: "ThinkingBlock",
-} as const
-
-export const $TierCreate = {
-  properties: {
-    display_name: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Display Name",
-    },
-    max_concurrent_workflows: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Workflows",
-    },
-    max_action_executions_per_workflow: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Action Executions Per Workflow",
-    },
-    max_concurrent_actions: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Actions",
-    },
-    api_rate_limit: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Rate Limit",
-    },
-    api_burst_capacity: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Burst Capacity",
-    },
-    entitlements: {
-      $ref: "#/components/schemas/EntitlementsDict",
-      default: {},
-    },
-    is_default: {
-      type: "boolean",
-      title: "Is Default",
-      default: false,
-    },
-    sort_order: {
-      type: "integer",
-      title: "Sort Order",
-      default: 0,
-    },
-  },
-  type: "object",
-  required: ["display_name"],
-  title: "TierCreate",
-  description: "Create tier request.",
-} as const
-
-export const $TierRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    display_name: {
-      type: "string",
-      title: "Display Name",
-    },
-    max_concurrent_workflows: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Workflows",
-    },
-    max_action_executions_per_workflow: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Action Executions Per Workflow",
-    },
-    max_concurrent_actions: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Actions",
-    },
-    api_rate_limit: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Rate Limit",
-    },
-    api_burst_capacity: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Burst Capacity",
-    },
-    entitlements: {
-      $ref: "#/components/schemas/EntitlementsDict",
-    },
-    is_default: {
-      type: "boolean",
-      title: "Is Default",
-    },
-    sort_order: {
-      type: "integer",
-      title: "Sort Order",
-    },
-    is_active: {
-      type: "boolean",
-      title: "Is Active",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "display_name",
-    "max_concurrent_workflows",
-    "max_action_executions_per_workflow",
-    "max_concurrent_actions",
-    "api_rate_limit",
-    "api_burst_capacity",
-    "entitlements",
-    "is_default",
-    "sort_order",
-    "is_active",
-    "created_at",
-    "updated_at",
-  ],
-  title: "TierRead",
-  description: "Tier response schema.",
-} as const
-
-export const $TierUpdate = {
-  properties: {
-    display_name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Display Name",
-    },
-    max_concurrent_workflows: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Workflows",
-    },
-    max_action_executions_per_workflow: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Action Executions Per Workflow",
-    },
-    max_concurrent_actions: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Max Concurrent Actions",
-    },
-    api_rate_limit: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Rate Limit",
-    },
-    api_burst_capacity: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Api Burst Capacity",
-    },
-    entitlements: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/EntitlementsDict",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    is_default: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Default",
-    },
-    sort_order: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Sort Order",
-    },
-    is_active: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Active",
-    },
-  },
-  type: "object",
-  title: "TierUpdate",
-  description: "Update tier request.",
 } as const
 
 export const $Toggle = {
@@ -17425,7 +16852,7 @@ export const $WorkflowEntrypointValidationRequest = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField-Input",
+            $ref: "#/components/schemas/ExpectedField",
           },
           type: "object",
         },
@@ -18373,7 +17800,7 @@ export const $WorkflowRead = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField-Output",
+            $ref: "#/components/schemas/ExpectedField",
           },
           type: "object",
         },
@@ -18733,7 +18160,7 @@ export const $WorkflowUpdate = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField-Input",
+            $ref: "#/components/schemas/ExpectedField",
           },
           type: "object",
         },

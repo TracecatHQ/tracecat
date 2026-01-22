@@ -1862,7 +1862,7 @@ export type DSLEntrypoint = {
    * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
    */
   expects?: {
-    [key: string]: ExpectedField_Output
+    [key: string]: ExpectedField
   } | null
 }
 
@@ -2075,17 +2075,6 @@ export type EditorParamRead = {
   optional: boolean
 }
 
-/**
- * TypedDict for tier entitlements stored in JSONB.
- *
- * All keys are optional (total=False) to support partial overrides.
- */
-export type EntitlementsDict = {
-  custom_registry?: boolean
-  sso?: boolean
-  git_sync?: boolean
-}
-
 export type ErrorDetails = {
   type: string
   loc: Array<number | string>
@@ -2165,23 +2154,10 @@ export type ExecutionContext = {
  */
 export type ExecutionType = "draft" | "published"
 
-/**
- * Schema for a field in a template action's expects definition.
- *
- * Note: The default field uses a sentinel to distinguish between
- * "no default specified" (required field) and "default is explicitly None"
- * (optional field).
- */
-export type ExpectedField_Input = {
+export type ExpectedField = {
   type: string
   description?: string | null
-  default?: unknown
-  enum?: Array<string> | null
-  optional?: boolean | null
-}
-
-export type ExpectedField_Output = {
-  [key: string]: unknown
+  default?: unknown | null
 }
 
 export type ExprType =
@@ -2832,6 +2808,11 @@ export type InteractionStatus =
 
 export type InteractionType = "approval" | "response"
 
+/**
+ * Invitation lifecycle status.
+ */
+export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked"
+
 export type JoinStrategy = "any" | "all"
 
 /**
@@ -3018,6 +2999,36 @@ export type OrgCreate = {
   slug: string
 }
 
+/**
+ * Request body for accepting an organization invitation via token.
+ */
+export type OrgInvitationAccept = {
+  token: string
+}
+
+/**
+ * Request body for creating an organization invitation.
+ */
+export type OrgInvitationCreate = {
+  email: string
+  role?: OrgRole
+}
+
+/**
+ * Response model for organization invitation.
+ */
+export type OrgInvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  role: OrgRole
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+}
+
 export type OrgMemberRead = {
   user_id: string
   first_name: string | null
@@ -3132,43 +3143,6 @@ export type OrganizationSecretRead = {
   created_at: string
   updated_at: string
   organization_id: string
-}
-
-/**
- * Organization tier assignment response.
- */
-export type OrganizationTierRead = {
-  id: string
-  organization_id: string
-  tier_id: string
-  max_concurrent_workflows: number | null
-  max_action_executions_per_workflow: number | null
-  max_concurrent_actions: number | null
-  api_rate_limit: number | null
-  api_burst_capacity: number | null
-  entitlement_overrides: EntitlementsDict | null
-  stripe_customer_id: string | null
-  stripe_subscription_id: string | null
-  expires_at: string | null
-  created_at: string
-  updated_at: string
-  tier?: TierRead | null
-}
-
-/**
- * Update organization tier assignment request.
- */
-export type OrganizationTierUpdate = {
-  tier_id?: string | null
-  max_concurrent_workflows?: number | null
-  max_action_executions_per_workflow?: number | null
-  max_concurrent_actions?: number | null
-  api_rate_limit?: number | null
-  api_burst_capacity?: number | null
-  entitlement_overrides?: EntitlementsDict | null
-  stripe_customer_id?: string | null
-  stripe_subscription_id?: string | null
-  expires_at?: string | null
 }
 
 export type OutputType =
@@ -3417,11 +3391,6 @@ export type PullResult = {
   workflows_imported: number
   diagnostics: Array<PullDiagnostic>
   message: string
-}
-
-export type ReadinessResponse = {
-  status: string
-  registry: RegistryStatus
 }
 
 /**
@@ -3846,12 +3815,6 @@ export type RegistrySecretType_Input =
 export type RegistrySecretType_Output =
   | RegistrySecret
   | RegistryOAuthSecret_Output
-
-export type RegistryStatus = {
-  synced: boolean
-  expected_version: string
-  current_version: string | null
-}
 
 /**
  * Registry health status.
@@ -4838,7 +4801,7 @@ export type TemplateActionDefinition_Input = {
    * The arguments to pass to the action
    */
   expects: {
-    [key: string]: ExpectedField_Input
+    [key: string]: ExpectedField
   }
   /**
    * The sequence of steps for the action
@@ -4896,7 +4859,7 @@ export type TemplateActionDefinition_Output = {
    * The arguments to pass to the action
    */
   expects: {
-    [key: string]: ExpectedField_Output
+    [key: string]: ExpectedField
   }
   /**
    * The sequence of steps for the action
@@ -4965,56 +4928,6 @@ export type TextUIPart = {
 export type ThinkingBlock = {
   thinking: string
   signature: string
-}
-
-/**
- * Create tier request.
- */
-export type TierCreate = {
-  display_name: string
-  max_concurrent_workflows?: number | null
-  max_action_executions_per_workflow?: number | null
-  max_concurrent_actions?: number | null
-  api_rate_limit?: number | null
-  api_burst_capacity?: number | null
-  entitlements?: EntitlementsDict
-  is_default?: boolean
-  sort_order?: number
-}
-
-/**
- * Tier response schema.
- */
-export type TierRead = {
-  id: string
-  display_name: string
-  max_concurrent_workflows: number | null
-  max_action_executions_per_workflow: number | null
-  max_concurrent_actions: number | null
-  api_rate_limit: number | null
-  api_burst_capacity: number | null
-  entitlements: EntitlementsDict
-  is_default: boolean
-  sort_order: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
-
-/**
- * Update tier request.
- */
-export type TierUpdate = {
-  display_name?: string | null
-  max_concurrent_workflows?: number | null
-  max_action_executions_per_workflow?: number | null
-  max_concurrent_actions?: number | null
-  api_rate_limit?: number | null
-  api_burst_capacity?: number | null
-  entitlements?: EntitlementsDict | null
-  is_default?: boolean | null
-  sort_order?: number | null
-  is_active?: boolean | null
 }
 
 export type Toggle = {
@@ -5477,7 +5390,7 @@ export type WorkflowDslPublish = {
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
-    [key: string]: ExpectedField_Input
+    [key: string]: ExpectedField
   } | null
 }
 
@@ -5787,7 +5700,7 @@ export type WorkflowRead = {
   schedules: Array<ScheduleRead>
   entrypoint: string | null
   expects?: {
-    [key: string]: ExpectedField_Output
+    [key: string]: ExpectedField
   } | null
   expects_schema?: {
     [key: string]: unknown
@@ -5870,7 +5783,7 @@ export type WorkflowUpdate = {
   entrypoint?: string | null
   icon_url?: string | null
   expects?: {
-    [key: string]: ExpectedField_Input
+    [key: string]: ExpectedField
   } | null
   returns?: unknown | null
   config?: DSLConfig_Input | null
@@ -6731,6 +6644,36 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
+export type OrganizationCreateInvitationData = {
+  requestBody: OrgInvitationCreate
+}
+
+export type OrganizationCreateInvitationResponse = OrgInvitationRead
+
+export type OrganizationListInvitationsData = {
+  status?: InvitationStatus | null
+}
+
+export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+
+export type OrganizationRevokeInvitationData = {
+  invitationId: string
+}
+
+export type OrganizationRevokeInvitationResponse = void
+
+export type OrganizationAcceptInvitationData = {
+  requestBody: OrgInvitationAccept
+}
+
+export type OrganizationAcceptInvitationResponse = unknown
+
+export type OrganizationGetInvitationByTokenData = {
+  token: string
+}
+
+export type OrganizationGetInvitationByTokenResponse = OrgInvitationRead
+
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
 }
@@ -7042,53 +6985,6 @@ export type AdminUpdateRegistrySettingsData = {
 }
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
-
-export type AdminListTiersData = {
-  /**
-   * Include inactive tiers in results
-   */
-  includeInactive?: boolean
-}
-
-export type AdminListTiersResponse = Array<TierRead>
-
-export type AdminCreateTierData = {
-  requestBody: TierCreate
-}
-
-export type AdminCreateTierResponse = TierRead
-
-export type AdminGetTierData = {
-  tierId: string
-}
-
-export type AdminGetTierResponse = TierRead
-
-export type AdminUpdateTierData = {
-  requestBody: TierUpdate
-  tierId: string
-}
-
-export type AdminUpdateTierResponse = TierRead
-
-export type AdminDeleteTierData = {
-  tierId: string
-}
-
-export type AdminDeleteTierResponse = void
-
-export type AdminGetOrgTierData = {
-  orgId: string
-}
-
-export type AdminGetOrgTierResponse = OrganizationTierRead
-
-export type AdminUpdateOrgTierData = {
-  orgId: string
-  requestBody: OrganizationTierUpdate
-}
-
-export type AdminUpdateOrgTierResponse = OrganizationTierRead
 
 export type AdminListUsersResponse = Array<AdminUserRead>
 
@@ -8194,7 +8090,7 @@ export type AuthSsoAcsResponse = unknown
 
 export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = ReadinessResponse
+export type PublicCheckReadyResponse = HealthResponse
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -9410,6 +9306,79 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/invitations": {
+    post: {
+      req: OrganizationCreateInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: OrgInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: OrganizationListInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgInvitationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/{invitation_id}": {
+    delete: {
+      req: OrganizationRevokeInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/accept": {
+    post: {
+      req: OrganizationAcceptInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/token/{token}": {
+    get: {
+      req: OrganizationGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/models": {
     get: {
       res: {
@@ -9998,103 +9967,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PlatformRegistrySettingsRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/tiers": {
-    get: {
-      req: AdminListTiersData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<TierRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: AdminCreateTierData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: TierRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/tiers/{tier_id}": {
-    get: {
-      req: AdminGetTierData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TierRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: AdminUpdateTierData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TierRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: AdminDeleteTierData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/tiers/organizations/{org_id}": {
-    get: {
-      req: AdminGetOrgTierData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OrganizationTierRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: AdminUpdateOrgTierData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OrganizationTierRead
         /**
          * Validation Error
          */
@@ -12191,7 +12063,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: ReadinessResponse
+        200: HealthResponse
       }
     }
   }
