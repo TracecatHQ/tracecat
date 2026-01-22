@@ -110,11 +110,11 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Start PostgreSQL and MinIO
+      - name: Start PostgreSQL, MinIO, and Redis
         env:
           COMPOSE_BAKE: "true"
         run: |
-          docker compose -f docker-compose.local.yml up -d postgres_db minio
+          docker compose -f docker-compose.local.yml up -d postgres_db minio redis
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
@@ -122,11 +122,12 @@ jobs:
             while true; do
               pg_health=$(docker compose -f docker-compose.local.yml ps postgres_db --format json | jq -r ".Health // empty")
               minio_health=$(docker compose -f docker-compose.local.yml ps minio --format json | jq -r ".Health // empty")
-              if [ "$pg_health" = "healthy" ] && [ "$minio_health" = "healthy" ]; then
+              redis_health=$(docker compose -f docker-compose.local.yml ps redis --format json | jq -r ".Health // empty")
+              if [ "$pg_health" = "healthy" ] && [ "$minio_health" = "healthy" ] && [ "$redis_health" = "healthy" ]; then
                 echo "All services are healthy"
                 break
               fi
-              echo "Waiting... (postgres: $pg_health, minio: $minio_health)"
+              echo "Waiting... (postgres: $pg_health, minio: $minio_health, redis: $redis_health)"
               sleep 3
             done
           '
@@ -137,7 +138,7 @@ jobs:
           TRACECAT__DISABLE_NSJAIL: "true"
           TRACECAT__POOL_WORKER_TEST_MODE: "true"
         run: |
-          uv run pytest tests/integration/test_pool_integration.py -ra -v
+          uv run pytest tests/integration/test_pool_integration.py -ra -v --timeout=600
 
       - name: Show Docker logs on failure
         if: failure()
@@ -147,6 +148,9 @@ jobs:
 
           echo "=== MinIO Logs ==="
           docker compose -f docker-compose.local.yml logs minio --tail=200
+
+          echo "=== Redis Logs ==="
+          docker compose -f docker-compose.local.yml logs redis --tail=200
 
       - name: Clean up
         if: always()
@@ -199,11 +203,12 @@ jobs:
               temporal_health=$(docker compose -f docker-compose.local.yml ps temporal --format json | jq -r ".Health // empty")
               pg_health=$(docker compose -f docker-compose.local.yml ps postgres_db --format json | jq -r ".Health // empty")
               minio_health=$(docker compose -f docker-compose.local.yml ps minio --format json | jq -r ".Health // empty")
-              if [ "$temporal_health" = "healthy" ] && [ "$pg_health" = "healthy" ] && [ "$minio_health" = "healthy" ]; then
+              redis_health=$(docker compose -f docker-compose.local.yml ps redis --format json | jq -r ".Health // empty")
+              if [ "$temporal_health" = "healthy" ] && [ "$pg_health" = "healthy" ] && [ "$minio_health" = "healthy" ] && [ "$redis_health" = "healthy" ]; then
                 echo "All services are healthy"
                 break
               fi
-              echo "Waiting... (temporal: $temporal_health, postgres: $pg_health, minio: $minio_health)"
+              echo "Waiting... (temporal: $temporal_health, postgres: $pg_health, minio: $minio_health, redis: $redis_health)"
               sleep 5
             done
           '
@@ -215,7 +220,7 @@ jobs:
         env:
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
-          uv run pytest tests/integration/test_agent_worker.py -ra -v
+          uv run pytest tests/integration/test_agent_worker.py -ra -v --timeout=600
 
       - name: Show Docker logs on failure
         if: failure()
