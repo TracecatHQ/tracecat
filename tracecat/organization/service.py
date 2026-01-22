@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.schemas import SessionRead, UserUpdate
@@ -14,7 +14,7 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_access_level
-from tracecat.db.models import AccessToken, User
+from tracecat.db.models import AccessToken, OrganizationMembership, User
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import SessionID, UserID
 from tracecat.service import BaseService
@@ -39,14 +39,19 @@ class OrgService(BaseService):
         Retrieve a list of all members in the organization.
 
         This method queries the database to obtain all user records
-        associated with the organization. It returns a sequence of
-        User objects representing each member.
+        associated with the organization via OrganizationMembership.
 
         Returns:
             Sequence[User]: A sequence containing User objects of all
             members in the organization.
         """
-        statement = select(User)
+        statement = select(User).join(
+            OrganizationMembership,
+            and_(
+                OrganizationMembership.user_id == User.id,
+                OrganizationMembership.organization_id == self.role.organization_id,
+            ),
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 
@@ -61,9 +66,19 @@ class OrgService(BaseService):
             User: The user object representing the member of the organization.
 
         Raises:
-            NoResultFound: If no user with the given ID exists.
+            NoResultFound: If no user with the given ID exists in this organization.
         """
-        statement = select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        statement = (
+            select(User)
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.role.organization_id,
+                ),
+            )
+            .where(User.id == user_id)
+        )
         result = await self.session.execute(statement)
         return result.scalar_one()
 
@@ -126,8 +141,19 @@ class OrgService(BaseService):
 
     @require_access_level(AccessLevel.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
-        """List all sessions."""
-        statement = select(AccessToken).options(selectinload(AccessToken.user))
+        """List all sessions for users in this organization."""
+        statement = (
+            select(AccessToken)
+            .join(User, AccessToken.user_id == User.id)
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.role.organization_id,
+                ),
+            )
+            .options(selectinload(AccessToken.user))
+        )
         result = await self.session.execute(statement)
         return [
             SessionRead(
@@ -141,8 +167,19 @@ class OrgService(BaseService):
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
-        """Delete a session by its ID."""
-        statement = select(AccessToken).where(AccessToken.id == session_id)
+        """Delete a session by its ID (must belong to a user in this organization)."""
+        statement = (
+            select(AccessToken)
+            .join(User, AccessToken.user_id == User.id)
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.role.organization_id,
+                ),
+            )
+            .where(AccessToken.id == session_id)
+        )
         result = await self.session.execute(statement)
         db_token = result.scalar_one()
         await self.session.delete(db_token)
