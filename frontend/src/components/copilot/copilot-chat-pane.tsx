@@ -97,6 +97,9 @@ export function CopilotChatPane({
       modelInfo,
     })
 
+  // Allow input when ready OR in error state (so user can retry after transient failures)
+  const canSubmit = status === "ready" || status === "error"
+
   const isWaitingForResponse = useMemo(() => {
     if (status === "submitted") return true
     if (status === "streaming") {
@@ -218,7 +221,7 @@ export function CopilotChatPane({
           }
           value={input}
           autoFocus={autoFocusInput && !isReadonly}
-          disabled={isReadonly}
+          disabled={isReadonly || !canSubmit}
         />
       </PromptInputBody>
       <PromptInputToolbar>
@@ -246,7 +249,7 @@ export function CopilotChatPane({
           </PromptInputTools>
         )}
         <PromptInputSubmit
-          disabled={isReadonly || (!input && !status)}
+          disabled={isReadonly || !canSubmit || !input}
           status={status}
           className="ml-auto text-muted-foreground/80"
         />
