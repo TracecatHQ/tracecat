@@ -77,179 +77,10 @@ jobs:
       #    python -c "import importlib, sys; print('import ok:', bool(importlib.import_module('internal_registry', package=None))); sys.exit(0)"
 
   # ──────────────────────────────────────────────────────────────────
-  # 2.  POOL INTEGRATION TESTS (minimal Docker - just PostgreSQL)
-  #     Workers run in test mode (TRACECAT__POOL_WORKER_TEST_MODE=true)
+  # 2.  FULL INTEGRATION TESTS (with pytest-xdist for parallelization)
+  #     Uses worker-specific task queues from conftest.py for isolation
   # ──────────────────────────────────────────────────────────────────
-  pool-tests:
-    runs-on: blacksmith-4vcpu-ubuntu-2204
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.git-ref }}
-
-      - name: Install uv
-        uses: useblacksmith/setup-uv@v4
-        with:
-          version: "0.9.7"
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Set up Python 3.12
-        uses: useblacksmith/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Run environment setup script
-        run: |
-          echo "y
-          localhost
-          n
-          test@tracecat.com" | bash env.sh
-
-      - name: Start PostgreSQL, MinIO, and Redis
-        env:
-          COMPOSE_BAKE: "true"
-        run: |
-          docker compose -f docker-compose.local.yml up -d postgres_db minio redis
-
-          # Wait for services to become healthy
-          echo "Waiting for services to become healthy..."
-          timeout 60 bash -c '
-            while true; do
-              pg_health=$(docker compose -f docker-compose.local.yml ps postgres_db --format json | jq -r ".Health // empty")
-              minio_health=$(docker compose -f docker-compose.local.yml ps minio --format json | jq -r ".Health // empty")
-              redis_health=$(docker compose -f docker-compose.local.yml ps redis --format json | jq -r ".Health // empty")
-              if [ "$pg_health" = "healthy" ] && [ "$minio_health" = "healthy" ] && [ "$redis_health" = "healthy" ]; then
-                echo "All services are healthy"
-                break
-              fi
-              echo "Waiting... (postgres: $pg_health, minio: $minio_health, redis: $redis_health)"
-              sleep 3
-            done
-          '
-
-      - name: Run pool integration tests
-        env:
-          # Enable test mode for pool workers (mock responses, no DB access)
-          TRACECAT__DISABLE_NSJAIL: "true"
-          TRACECAT__POOL_WORKER_TEST_MODE: "true"
-        run: |
-          uv run pytest tests/integration/test_pool_integration.py -ra -v
-
-      - name: Show Docker logs on failure
-        if: failure()
-        run: |
-          echo "=== PostgreSQL Logs ==="
-          docker compose -f docker-compose.local.yml logs postgres_db --tail=200
-
-          echo "=== MinIO Logs ==="
-          docker compose -f docker-compose.local.yml logs minio --tail=200
-
-          echo "=== Redis Logs ==="
-          docker compose -f docker-compose.local.yml logs redis --tail=200
-
-      - name: Clean up
-        if: always()
-        run: |
-          docker compose -f docker-compose.local.yml down -v
-
-  # ──────────────────────────────────────────────────────────────────
-  # 3.  TEMPORAL/AGENT INTEGRATION TESTS (needs Temporal + Redis + PostgreSQL + MinIO)
-  # ──────────────────────────────────────────────────────────────────
-  temporal-tests:
-    runs-on: blacksmith-4vcpu-ubuntu-2204
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.git-ref }}
-
-      - name: Install uv
-        uses: useblacksmith/setup-uv@v4
-        with:
-          version: "0.9.7"
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Set up Python 3.12
-        uses: useblacksmith/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Run environment setup script
-        run: |
-          echo "y
-          localhost
-          n
-          test@tracecat.com" | bash env.sh
-
-      - name: Start Temporal, Redis, PostgreSQL, and MinIO services
-        env:
-          COMPOSE_BAKE: "true"
-        run: |
-          docker compose -f docker-compose.local.yml up -d temporal redis postgres_db minio
-
-          # Wait for services to become healthy
-          echo "Waiting for services to become healthy..."
-          timeout 120 bash -c '
-            while true; do
-              temporal_health=$(docker compose -f docker-compose.local.yml ps temporal --format json | jq -r ".Health // empty")
-              pg_health=$(docker compose -f docker-compose.local.yml ps postgres_db --format json | jq -r ".Health // empty")
-              minio_health=$(docker compose -f docker-compose.local.yml ps minio --format json | jq -r ".Health // empty")
-              redis_health=$(docker compose -f docker-compose.local.yml ps redis --format json | jq -r ".Health // empty")
-              if [ "$temporal_health" = "healthy" ] && [ "$pg_health" = "healthy" ] && [ "$minio_health" = "healthy" ] && [ "$redis_health" = "healthy" ]; then
-                echo "All services are healthy"
-                break
-              fi
-              echo "Waiting... (temporal: $temporal_health, postgres: $pg_health, minio: $minio_health, redis: $redis_health)"
-              sleep 5
-            done
-          '
-
-          # Show final service status
-          docker compose -f docker-compose.local.yml ps
-
-      - name: Run temporal/agent integration tests
-        env:
-          TRACECAT__DISABLE_NSJAIL: "true"
-        run: |
-          uv run pytest tests/integration/test_agent_worker.py -ra -v
-
-      - name: Show Docker logs on failure
-        if: failure()
-        run: |
-          echo "=== Docker Service Status ==="
-          docker compose -f docker-compose.local.yml ps
-
-          echo "=== Temporal Logs ==="
-          docker compose -f docker-compose.local.yml logs temporal --tail=200
-
-          echo "=== Redis Logs ==="
-          docker compose -f docker-compose.local.yml logs redis --tail=200
-
-          echo "=== PostgreSQL Logs ==="
-          docker compose -f docker-compose.local.yml logs postgres_db --tail=200
-
-          echo "=== MinIO Logs ==="
-          docker compose -f docker-compose.local.yml logs minio --tail=200
-
-      - name: Clean up
-        if: always()
-        run: |
-          docker compose -f docker-compose.local.yml down -v
-
-  # ──────────────────────────────────────────────────────────────────
-  # 4.  E2E INTEGRATION TESTS (needs full Docker stack)
-  #     Includes registry sync, MinIO, and custom remote registry tests
-  # ──────────────────────────────────────────────────────────────────
-  e2e-tests:
+  test-integration:
     needs: ssh-sanity # only start if key check passed
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 30
@@ -327,14 +158,17 @@ jobs:
           timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready"
 
-      - name: Run E2E integration tests
+      - name: Run integration tests
         env:
           # Expect a base64 encoded key
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
           # Use local subprocess sync instead of Temporal workflow (faster, simpler for CI)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"
+          TRACECAT__DISABLE_NSJAIL: "true"
         run: |
-          uv run pytest tests/integration/test_syncv2_execv2_e2e.py tests/integration/test_install_and_run_custom_remote_registry_flow.py -ra -v
+          # Run with pytest-xdist for parallel execution
+          # Worker-specific task queues in conftest.py ensure isolation
+          uv run pytest tests/integration -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
         if: failure()
@@ -350,6 +184,12 @@ jobs:
 
           echo "=== Executor Logs ==="
           docker compose -f docker-compose.local.yml logs executor --tail=200
+
+          echo "=== Temporal Logs ==="
+          docker compose -f docker-compose.local.yml logs temporal --tail=200
+
+          echo "=== Redis Logs ==="
+          docker compose -f docker-compose.local.yml logs redis --tail=200
 
           echo "=== MinIO Logs ==="
           docker compose -f docker-compose.local.yml logs minio --tail=200
