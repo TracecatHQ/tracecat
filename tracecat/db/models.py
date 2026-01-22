@@ -64,6 +64,7 @@ from tracecat.identifiers import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.workspaces.schemas import WorkspaceSettings
 
@@ -75,6 +76,7 @@ CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
+INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
 
 
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -2778,3 +2780,139 @@ class Tag(WorkspaceModel):
         secondary=WorkflowTag.__table__,
         back_populates="tags",
     )
+
+
+class OrganizationInvitation(TimestampMixin, Base):
+    """Invitation to join an organization."""
+
+    __tablename__ = "organization_invitation"
+    __table_args__ = (
+        Index("ix_organization_invitation_token", "token"),
+        Index("ix_organization_invitation_email", "email"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Email address of the invitee",
+    )
+    role: Mapped[OrgRole] = mapped_column(
+        Enum(OrgRole, name="orgrole"),
+        nullable=False,
+        default=OrgRole.MEMBER,
+        doc="Role to grant upon acceptance",
+    )
+    status: Mapped[InvitationStatus] = mapped_column(
+        INVITATION_STATUS_ENUM,
+        nullable=False,
+        default=InvitationStatus.PENDING,
+        index=True,
+    )
+    invited_by: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who created the invitation",
+    )
+    token: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        doc="Unique token for magic link acceptance",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="When the invitation expires",
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the invitation was accepted",
+    )
+
+    # Relationships
+    organization: Mapped[Organization] = relationship("Organization")
+    inviter: Mapped[User | None] = relationship("User")
+
+
+class Invitation(TimestampMixin, Base):
+    """Invitation to join a workspace."""
+
+    __tablename__ = "invitation"
+    __table_args__ = (
+        Index("ix_invitation_token", "token"),
+        Index("ix_invitation_email", "email"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Email address of the invitee",
+    )
+    role: Mapped[WorkspaceRole] = mapped_column(
+        Enum(WorkspaceRole, name="workspacerole"),
+        nullable=False,
+        default=WorkspaceRole.EDITOR,
+        doc="Role to grant upon acceptance",
+    )
+    status: Mapped[InvitationStatus] = mapped_column(
+        INVITATION_STATUS_ENUM,
+        nullable=False,
+        default=InvitationStatus.PENDING,
+        index=True,
+    )
+    invited_by: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who created the invitation",
+    )
+    token: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        doc="Unique token for magic link acceptance",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="When the invitation expires",
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the invitation was accepted",
+    )
+
+    # Relationships
+    workspace: Mapped[Workspace] = relationship("Workspace")
+    inviter: Mapped[User | None] = relationship("User")
