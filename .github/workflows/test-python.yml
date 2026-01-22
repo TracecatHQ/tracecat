@@ -90,15 +90,20 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Build Docker images
+      - name: Pull and build Docker images
         env:
           COMPOSE_BAKE: "true"
-        run: docker compose -f docker-compose.dev.yml build temporal api postgres_db caddy minio
+        run: |
+          # Pull images for services without build configs
+          docker compose -f docker-compose.dev.yml pull temporal postgres_db caddy minio
+          # Build images for services with build configs
+          docker compose -f docker-compose.dev.yml build api
 
       - name: Save Docker images
         run: |
+          # Save all images needed for tests
           docker save \
-            $(docker compose -f docker-compose.dev.yml config --images | grep -E 'tracecat|temporal|postgres|caddy|minio' | head -10) \
+            $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'tracecat|temporalio|postgres|caddy|minio' | grep -v '<none>') \
             -o docker-images.tar
 
       - name: Upload Docker images
@@ -173,10 +178,11 @@ jobs:
           if [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
-            # Temporal tests run with compression enabled, without parallelization
+            # Temporal tests run with compression enabled and parallelization
+            # Worker-specific task queues in conftest.py enable safe parallel execution
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
-            uv run pytest tests/temporal -ra -o faulthandler_timeout=300
+            uv run pytest tests/temporal -n auto -ra -o faulthandler_timeout=300
           else
             uv run pytest tests/${{ matrix.test_group }} -n auto -ra -o faulthandler_timeout=300
           fi

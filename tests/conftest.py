@@ -64,6 +64,12 @@ MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 
+# Worker-specific task queues for pytest-xdist isolation
+# Each xdist worker uses different queues to avoid workflow conflicts
+TEMPORAL_TASK_QUEUE = f"tracecat-task-queue-{WORKER_ID}"
+EXECUTOR_TASK_QUEUE = f"shared-action-queue-{WORKER_ID}"
+AGENT_TASK_QUEUE = f"shared-agent-queue-{WORKER_ID}"
+
 # Detect if running inside Docker container by checking for /.dockerenv file
 # This is more reliable than checking env vars like REDIS_URL, which may be
 # loaded from .env by load_dotenv() even when running on the host
@@ -725,8 +731,13 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
-    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
-    monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")
+    # Use worker-specific task queues for pytest-xdist isolation
+    monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", TEMPORAL_TASK_QUEUE)
+    monkeysession.setattr(config, "TEMPORAL__CLUSTER_QUEUE", TEMPORAL_TASK_QUEUE)
+    monkeysession.setenv("TRACECAT__EXECUTOR_QUEUE", EXECUTOR_TASK_QUEUE)
+    monkeysession.setattr(config, "TRACECAT__EXECUTOR_QUEUE", EXECUTOR_TASK_QUEUE)
+    monkeysession.setenv("TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
+    monkeysession.setattr(config, "TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
 
     yield
     logger.info("Environment variables cleaned up")
