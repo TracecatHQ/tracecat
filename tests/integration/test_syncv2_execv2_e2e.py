@@ -51,8 +51,10 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.storage import blob
 
@@ -329,15 +331,28 @@ async def module_committing_session(db) -> AsyncGenerator[AsyncSession, None]:
 async def module_builtin_repo(
     db, module_committing_session: AsyncSession, module_test_role: Role
 ):
-    """Module-scoped builtin repository for shared sync."""
-    svc = RegistryReposService(module_committing_session, role=module_test_role)
-    repo = await svc.get_repository(DEFAULT_REGISTRY_ORIGIN)
-    if repo is None:
-        repo = await svc.create_repository(
+    """Module-scoped builtin repository for shared sync.
+
+    Creates BOTH org-scoped and platform-scoped repositories:
+    - Org repo: Used by RegistryActionsService for action upserts
+    - Platform repo: Used by executor for tarball lookups (via UNION ALL)
+    """
+    # Create org-scoped repo (for RegistryAction foreign key)
+    org_svc = RegistryReposService(module_committing_session, role=module_test_role)
+    org_repo = await org_svc.get_repository(DEFAULT_REGISTRY_ORIGIN)
+    if org_repo is None:
+        org_repo = await org_svc.create_repository(
             RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
         )
+
+    # Also create platform-scoped repo (for executor tarball lookups)
+    platform_svc = PlatformRegistryReposService(
+        module_committing_session, role=module_test_role
+    )
+    await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+
     await module_committing_session.commit()
-    yield repo
+    yield org_repo  # Return org repo for action upserts
 
 
 @pytest.fixture(scope="module")
@@ -355,20 +370,34 @@ async def shared_synced_registry(
     across all tests that need it. This saves ~15-30 seconds per test that
     would otherwise call sync_repository_v2.
 
+    Syncs to BOTH org and platform tables:
+    - Org sync: For RegistryAction upserts and org-scoped tests
+    - Platform sync: For executor tarball lookups (uses UNION ALL)
+
     Returns a dict with:
     - sync_result: The RegistrySyncResult from sync_repository_v2
     - version: The version string
     - tarball_uri: The S3 URI of the tarball
     """
-    from tracecat.registry.sync.service import RegistrySyncService
-
-    # Sync registry once
+    # Sync to org tables first (original behavior)
     async with RegistrySyncService.with_session(
         session=module_committing_session, role=module_test_role
-    ) as sync_service:
-        sync_result = await sync_service.sync_repository_v2(
+    ) as org_sync_service:
+        sync_result = await org_sync_service.sync_repository_v2(
             module_builtin_repo, target_version=module_unique_version
         )
+
+    # Also sync to platform tables (executor queries platform tables for tracecat_registry)
+    platform_svc = PlatformRegistryReposService(
+        module_committing_session, role=module_test_role
+    )
+    platform_repo = await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    platform_sync_service = PlatformRegistrySyncService(module_committing_session)
+    await platform_sync_service.sync_repository_v2(
+        platform_repo,
+        target_version=module_unique_version,
+        bypass_temporal=True,
+    )
 
     # Upsert actions to RegistryAction table (required for subprocess execution)
     async with RegistryActionsService.with_session(

@@ -8,7 +8,6 @@ This test suite validates:
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 from textwrap import dedent
 
@@ -635,70 +634,102 @@ async def test_get_aggregated_secrets_merges_skips_oauth_and_sorts(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
-    """Test secret aggregation across registry actions."""
-    other_org_id = uuid.uuid4()
-    actions = [
-        RegistryAction(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-            name="action_one",
-            namespace="tools.alpha",
-            description="Action one",
-            origin="test",
-            type="template",
-            interface={},
-            secrets=[
-                {
-                    "name": "alpha",
-                    "keys": ["KEY1"],
-                    "optional_keys": ["KEY2", "KEY1"],
+    """Test secret aggregation across registry manifests.
+
+    The get_aggregated_secrets method queries manifests from RegistryVersion
+    tables, not RegistryAction tables directly.
+    """
+    from tracecat.db.models import RegistryRepository, RegistryVersion
+
+    # Create a repository for the current organization
+    repo = RegistryRepository(
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        origin="test-secrets",
+    )
+    session.add(repo)
+    await session.flush()
+
+    # Create manifest with actions that have secrets
+    manifest = {
+        "schema_version": "1.0",
+        "actions": {
+            "tools.alpha.action_one": {
+                "namespace": "tools.alpha",
+                "name": "action_one",
+                "action_type": "template",
+                "description": "Action one",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": {
+                    "type": "udf",
+                    "url": "test",
+                    "module": "test",
+                    "name": "action_one",
                 },
-                {
-                    "type": "oauth",
-                    "provider_id": "github",
-                    "grant_type": "authorization_code",
+                "secrets": [
+                    {
+                        "name": "alpha",
+                        "keys": ["KEY1"],
+                        "optional_keys": ["KEY2", "KEY1"],
+                    },
+                    {
+                        "type": "oauth",
+                        "provider_id": "github",
+                        "grant_type": "authorization_code",
+                    },
+                ],
+            },
+            "tools.beta.action_two": {
+                "namespace": "tools.beta",
+                "name": "action_two",
+                "action_type": "template",
+                "description": "Action two",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": {
+                    "type": "udf",
+                    "url": "test",
+                    "module": "test",
+                    "name": "action_two",
                 },
-            ],
-        ),
-        RegistryAction(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-            name="action_two",
-            namespace="tools.beta",
-            description="Action two",
-            origin="test",
-            type="template",
-            interface={},
-            secrets=[
-                {
-                    "name": "alpha",
-                    "keys": ["KEY3"],
-                    "optional_keys": ["KEY4"],
-                    "optional": True,
+                "secrets": [
+                    {
+                        "name": "alpha",
+                        "keys": ["KEY3"],
+                        "optional_keys": ["KEY4"],
+                        "optional": True,
+                    },
+                    {"name": "beta", "keys": ["B1"]},
+                ],
+            },
+            "tools.delta.action_four": {
+                "namespace": "tools.delta",
+                "name": "action_four",
+                "action_type": "template",
+                "description": "Action four",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": {
+                    "type": "udf",
+                    "url": "test",
+                    "module": "test",
+                    "name": "action_four",
                 },
-                {"name": "beta", "keys": ["B1"]},
-            ],
-        ),
-        RegistryAction(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-            name="action_four",
-            namespace="tools.delta",
-            description="Action four",
-            origin="test",
-            type="template",
-            interface={},
-            secrets=None,
-        ),
-        RegistryAction(
-            organization_id=other_org_id,
-            name="action_three",
-            namespace="tools.gamma",
-            description="Action three",
-            origin="test",
-            type="template",
-            interface={},
-            secrets=[{"name": "gamma", "keys": ["G1"]}],
-        ),
-    ]
-    session.add_all(actions)
+                # No secrets
+            },
+        },
+    }
+
+    # Create version with manifest
+    version = RegistryVersion(
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        repository_id=repo.id,
+        version="test-version",
+        manifest=manifest,
+        tarball_uri="s3://test/test.tar.gz",
+    )
+    session.add(version)
+    await session.flush()
+
+    # Set current version on repository
+    repo.current_version_id = version.id
     await session.commit()
 
     service = RegistryActionsService(session, role=svc_role)

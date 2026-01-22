@@ -2,20 +2,24 @@ import os
 import sys
 import textwrap
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from importlib.machinery import ModuleSpec
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from uuid import UUID
 
 import pytest
 from pydantic import BaseModel, SecretStr, TypeAdapter
+from pytest import MonkeyPatch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import (
@@ -24,6 +28,7 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.exceptions import (
+    ExecutionError,
     RegistryValidationError,
     TracecatValidationError,
 )
@@ -122,7 +127,7 @@ async def create_manifest_for_actions(
     )
 
 
-async def run_action_test(input: RunActionInput, role) -> Any:
+async def run_action_test(input: RunActionInput, role: Role) -> Any:
     """Test helper: execute action using production code path."""
     from tracecat.contexts import ctx_role
 
@@ -132,7 +137,7 @@ async def run_action_test(input: RunActionInput, role) -> Any:
 
 
 @pytest.fixture
-def mock_package(tmp_path):
+def mock_package(tmp_path: Path) -> Iterator[ModuleType]:
     """Pytest fixture that creates a mock package with files and cleans up after the test."""
 
     # Create a new module
@@ -179,11 +184,11 @@ def mock_package(tmp_path):
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_template_action_fetches_nested_secrets(
-    test_role,
-    monkeypatch,
-    db_session_with_repo,
-    mock_package,
-):
+    test_role: Role,
+    monkeypatch: MonkeyPatch,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+    mock_package: ModuleType,
+) -> None:
     """Test template action with secrets.
 
     The test verifies:
@@ -554,6 +559,7 @@ def test_template_action_parses_from_dict():
     ]
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "test_args,expected,should_raise",
@@ -576,7 +582,15 @@ def test_template_action_parses_from_dict():
     ],
     ids=["valid", "with_defaults", "missing_required"],
 )
-async def test_template_action_runs(test_args, expected, should_raise):
+async def test_template_action_runs(
+    test_args: dict[str, Any],
+    expected: Any,
+    should_raise: bool,
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
+    session, db_repo_id = db_session_with_repo
+
     action = TemplateAction(
         **{
             "type": "action",
@@ -588,14 +602,13 @@ async def test_template_action_runs(test_args, expected, should_raise):
                 "display_group": "Testing",
                 "doc_url": "https://example.com/docs",
                 "author": "Tracecat",
-                "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
                 "expects": {
                     # Required field
                     "user_id": {
                         "type": "str",
                         "description": "The user ID",
                     },
-                    # Optional field with string defaultß
+                    # Optional field with string default
                     "service_source": {
                         "type": "str",
                         "description": "The service source",
@@ -636,7 +649,7 @@ async def test_template_action_runs(test_args, expected, should_raise):
         }
     )
 
-    # Register the action
+    # Register the action in-memory
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(action)
@@ -649,23 +662,40 @@ async def test_template_action_runs(test_args, expected, should_raise):
     # Get the registered action
     bound_action = repo.get(action.definition.action)
 
-    # Run the action
-    if should_raise:
-        with pytest.raises(RegistryValidationError):
-            await service.run_template_action(
-                action=bound_action,
-                args=test_args,
-                context=create_default_execution_context(),
-            )
-    else:
-        result = await service.run_template_action(
-            action=bound_action,
+    # Create manifest for the test action (enables production code path)
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action]
+    )
+
+    # Run the action using production code path
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test_template_action",
+            action="integrations.test.wrapper",
             args=test_args,
-            context=create_default_execution_context(),
-        )
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_runs"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=registry_lock,
+    )
+
+    if should_raise:
+        # Production path wraps RegistryValidationError in ExecutionError
+        with pytest.raises(ExecutionError) as exc_info:
+            await run_action_test(input=input, role=test_role)
+        assert isinstance(exc_info.value.__cause__, RegistryValidationError)
+    else:
+        result = await run_action_test(input=input, role=test_role)
         assert result == expected
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "test_args,expected,should_raise",
@@ -691,7 +721,13 @@ async def test_template_action_runs(test_args, expected, should_raise):
     ],
     ids=["valid_status", "default_status", "invalid_status"],
 )
-async def test_template_action_with_enums(test_args, expected, should_raise):
+async def test_template_action_with_enums(
+    test_args: dict[str, Any],
+    expected: Any,
+    should_raise: bool,
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     """Test template action with enums.
     This test verifies that:
     1. The action can be constructed with an enum status
@@ -699,6 +735,8 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     3. The action can be run with a default enum status
     4. Invalid enum values are properly rejected
     """
+    session, db_repo_id = db_session_with_repo
+
     data = {
         "type": "action",
         "definition": {
@@ -736,7 +774,7 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     # Parse and validate the action
     action = TemplateAction.model_validate(data)
 
-    # Register the action
+    # Register the action in-memory
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
     repo.register_template_action(action)
@@ -744,29 +782,45 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     # Get the registered action
     bound_action = repo.get(action.definition.action)
 
-    # Run the action
-    if should_raise:
-        with pytest.raises(RegistryValidationError):
-            await service.run_template_action(
-                action=bound_action,
-                args=test_args,
-                context=create_default_execution_context(),
-            )
-    else:
-        result = await service.run_template_action(
-            action=bound_action,
+    # Create manifest for the test action (enables production code path)
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [bound_action]
+    )
+
+    # Run the action using production code path
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test_template_action_enums",
+            action="integrations.test.alert",
             args=test_args,
-            context=create_default_execution_context(),
-        )
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=TEST_WF_ID,
+            wf_exec_id=generate_test_exec_id("test_template_action_with_enums"),
+            wf_run_id=uuid.uuid4(),
+            environment="default",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=registry_lock,
+    )
+
+    if should_raise:
+        # Production path wraps RegistryValidationError in ExecutionError
+        with pytest.raises(ExecutionError) as exc_info:
+            await run_action_test(input=input, role=test_role)
+        assert isinstance(exc_info.value.__cause__, RegistryValidationError)
+    else:
+        result = await run_action_test(input=input, role=test_role)
         assert result == expected
 
 
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_template_action_with_vars_expressions(
-    test_role,
-    db_session_with_repo,
-):
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     """Test template action with VARS expressions.
 
     The test verifies:
@@ -955,9 +1009,9 @@ async def test_template_action_with_vars_expressions(
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_template_action_with_multi_level_fallback_chain(
-    test_role,
-    db_session_with_repo,
-):
+    test_role: Role,
+    db_session_with_repo: tuple[AsyncSession, UUID],
+) -> None:
     """Test template action with multi-level fallback chain using || operator.
 
     The test verifies that the fallback chain correctly evaluates in order:
@@ -1096,3 +1150,140 @@ async def test_template_action_with_multi_level_fallback_chain(
     assert result3 == "http://default-url.com", (
         "Should use literal default when neither inputs.url nor VARS.config.url available (third in fallback chain)"
     )
+
+
+def test_aggregate_secrets_from_manifest_collects_nested_secrets():
+    """Test that aggregate_secrets_from_manifest correctly collects secrets from nested template steps.
+
+    This tests the API response path (not execution) to ensure the UI displays all required secrets.
+    """
+    from tracecat_registry import RegistrySecret
+
+    from tracecat.registry.actions.service import RegistryActionsService
+    from tracecat.registry.versions.schemas import (
+        RegistryVersionManifest,
+        RegistryVersionManifestAction,
+    )
+
+    # Create a manifest with:
+    # 1. A UDF action with its own secret
+    # 2. A template action that calls the UDF (should aggregate the UDF's secret)
+    # 3. A nested template that calls another template (should aggregate all secrets)
+
+    udf_secret = RegistrySecret(name="udf_secret", keys=["UDF_KEY"])
+    template_secret = RegistrySecret(name="template_secret", keys=["TEMPLATE_KEY"])
+    nested_template_secret = RegistrySecret(
+        name="nested_template_secret", keys=["NESTED_KEY"]
+    )
+
+    manifest = RegistryVersionManifest(
+        schema_version="1.0",
+        actions={
+            # UDF action with a secret
+            "testing.udf_with_secret": RegistryVersionManifestAction(
+                namespace="testing",
+                name="udf_with_secret",
+                action_type="udf",
+                description="UDF with secret",
+                secrets=[udf_secret],
+                interface={"expects": {}, "returns": None},
+                implementation={
+                    "type": "udf",
+                    "url": "http://test",
+                    "module": "test",
+                    "name": "test",
+                },
+            ),
+            # Template action that uses the UDF
+            "testing.template_with_udf": RegistryVersionManifestAction(
+                namespace="testing",
+                name="template_with_udf",
+                action_type="template",
+                description="Template that uses UDF",
+                secrets=[template_secret],
+                interface={"expects": {}, "returns": None},
+                implementation={
+                    "type": "template",
+                    "template_action": {
+                        "type": "action",
+                        "definition": {
+                            "name": "template_with_udf",
+                            "namespace": "testing",
+                            "title": "Template with UDF",
+                            "display_group": "Testing",
+                            "expects": {},
+                            "steps": [
+                                {
+                                    "ref": "step1",
+                                    "action": "testing.udf_with_secret",
+                                    "args": {},
+                                }
+                            ],
+                            "returns": "${{ steps.step1.result }}",
+                        },
+                    },
+                },
+            ),
+            # Nested template that uses another template
+            "testing.nested_template": RegistryVersionManifestAction(
+                namespace="testing",
+                name="nested_template",
+                action_type="template",
+                description="Nested template",
+                secrets=[nested_template_secret],
+                interface={"expects": {}, "returns": None},
+                implementation={
+                    "type": "template",
+                    "template_action": {
+                        "type": "action",
+                        "definition": {
+                            "name": "nested_template",
+                            "namespace": "testing",
+                            "title": "Nested Template",
+                            "display_group": "Testing",
+                            "expects": {},
+                            "steps": [
+                                {
+                                    "ref": "step1",
+                                    "action": "testing.template_with_udf",
+                                    "args": {},
+                                }
+                            ],
+                            "returns": "${{ steps.step1.result }}",
+                        },
+                    },
+                },
+            ),
+        },
+    )
+
+    # Test 1: UDF should only return its own secret
+    udf_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.udf_with_secret"
+    )
+    assert len(udf_secrets) == 1
+    assert udf_secrets[0].name == "udf_secret"
+
+    # Test 2: Template should return its own secret + UDF's secret
+    template_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.template_with_udf"
+    )
+    secret_names = {s.name for s in template_secrets}
+    assert secret_names == {"template_secret", "udf_secret"}
+
+    # Test 3: Nested template should return all secrets (nested + template + UDF)
+    nested_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.nested_template"
+    )
+    nested_secret_names = {s.name for s in nested_secrets}
+    assert nested_secret_names == {
+        "nested_template_secret",
+        "template_secret",
+        "udf_secret",
+    }
+
+    # Test 4: Non-existent action should return empty list
+    missing_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, "testing.nonexistent"
+    )
+    assert missing_secrets == []
