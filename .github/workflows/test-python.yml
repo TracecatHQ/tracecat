@@ -127,15 +127,14 @@ jobs:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__WORKFLOW_RETURN_STRATEGY: "context"
-          # Compression settings for temporal tests
-          TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${{ matrix.test_group == 'temporal' && 'true' || 'false' }}
-          TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${{ matrix.test_group == 'temporal' && '0' || '' }}
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: |
           if [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
-            # Temporal tests run without parallelization to avoid conflicts
+            # Temporal tests run with compression enabled, without parallelization
+            TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
+            TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
             uv run pytest tests/temporal -ra -o faulthandler_timeout=300
           else
             uv run pytest tests/${{ matrix.test_group }} -n auto -ra -o faulthandler_timeout=300
