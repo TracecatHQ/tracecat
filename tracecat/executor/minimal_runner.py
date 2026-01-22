@@ -244,11 +244,11 @@ def _run_udf(
 
     # Set secrets in registry secrets context (required when registry_client flag is set)
     secrets_token = None
-    registry_secrets_2: ModuleType | None = None
+    registry_secrets: ModuleType | None = None
     try:
-        from tracecat_registry._internal import secrets as registry_secrets_2
+        from tracecat_registry._internal import secrets as registry_secrets
 
-        secrets_token = registry_secrets_2.set_context(_flatten_secrets(secrets))
+        secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
     except ImportError:
         warnings.warn(
             "Could not import tracecat_registry._internal.secrets - "
@@ -272,8 +272,8 @@ def _run_udf(
             return fn(**args)
     finally:
         # Reset secrets context
-        if registry_secrets_2 is not None and secrets_token is not None:
-            registry_secrets_2.reset_context(secrets_token)
+        if registry_secrets is not None and secrets_token is not None:
+            registry_secrets.reset_context(secrets_token)
         # Clean up environment variables
         _clear_env_secrets(secrets)
 

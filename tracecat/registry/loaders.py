@@ -39,7 +39,7 @@ def get_bound_action_impl(
         RegistrySecretTypeValidator.validate_python(secret)
         for secret in action.secrets or []
     ]
-    if isinstance(impl, RegistryActionUDFImpl):
+    if impl.type == "udf":
         fn = load_udf_impl(impl)
         key = getattr(fn, "__tracecat_udf_key")
         kwargs = getattr(fn, "__tracecat_udf_kwargs")

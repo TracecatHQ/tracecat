@@ -18,11 +18,7 @@ from tracecat.exceptions import RegistryError
 from tracecat.executor.schemas import ActionImplementation
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import (
-    RegistryActionImplValidator,
-    RegistryActionTemplateImpl,
-    RegistryActionUDFImpl,
-)
+from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
@@ -42,7 +38,7 @@ def _build_impl_index(
             manifest_action.implementation
         )
 
-        if isinstance(impl, RegistryActionUDFImpl):
+        if impl.type == "udf":
             index[action_name] = ActionImplementation(
                 type="udf",
                 action_name=action_name,
@@ -50,7 +46,7 @@ def _build_impl_index(
                 name=impl.name,
                 origin=origin,
             )
-        elif isinstance(impl, RegistryActionTemplateImpl):
+        elif impl.type == "template":
             index[action_name] = ActionImplementation(
                 type="template",
                 action_name=action_name,
@@ -255,11 +251,11 @@ async def _collect_secrets_recursive(
     """Recursively collect secrets from an action and its template steps."""
     impl = RegistryActionImplValidator.validate_python(manifest_action.implementation)
 
-    if isinstance(impl, RegistryActionUDFImpl):
+    if impl.type == "udf":
         # UDF: collect declared secrets
         if manifest_action.secrets:
             secrets.update(manifest_action.secrets)
-    elif isinstance(impl, RegistryActionTemplateImpl):
+    elif impl.type == "template":
         # Template: collect from definition.secrets and recurse into steps
         if impl.template_action.definition.secrets:
             secrets.update(impl.template_action.definition.secrets)

@@ -8,11 +8,7 @@ from typing import cast as typing_cast
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean, cast, func, or_, select
-from tracecat_registry import (
-    RegistryOAuthSecret,
-    RegistrySecretType,
-    RegistrySecretTypeValidator,
-)
+from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat.db.models import RegistryAction, RegistryRepository
 from tracecat.exceptions import (
@@ -38,9 +34,7 @@ from tracecat.registry.actions.schemas import (
     RegistryActionInterface,
     RegistryActionOptions,
     RegistryActionRead,
-    RegistryActionTemplateImpl,
     RegistryActionType,
-    RegistryActionUDFImpl,
     RegistryActionUpdate,
     RegistryActionValidationErrorInfo,
     TemplateAction,
@@ -128,9 +122,7 @@ class RegistryActionsService(BaseService):
                         error=str(exc),
                     )
                     continue
-                if isinstance(secret, RegistryOAuthSecret) or secret.name.endswith(
-                    "_oauth"
-                ):
+                if secret.type == "oauth" or secret.name.endswith("_oauth"):
                     continue
 
                 entry = aggregated.setdefault(
@@ -704,9 +696,7 @@ class RegistryActionsService(BaseService):
             options=RegistryActionOptions(**action.options),
             secrets=sorted(
                 secrets,
-                key=lambda x: x.provider_id
-                if isinstance(x, RegistryOAuthSecret)
-                else x.name,
+                key=lambda x: x.provider_id if x.type == "oauth" else x.name,
             ),
         )
 
@@ -723,13 +713,13 @@ class RegistryActionsService(BaseService):
         """
         secrets: set[RegistrySecretType] = set()
         impl = RegistryActionImplValidator.validate_python(action.implementation)
-        if isinstance(impl, RegistryActionUDFImpl):
+        if impl.type == "udf":
             if action.secrets:
                 secrets.update(
                     RegistrySecretTypeValidator.validate_python(secret)
                     for secret in action.secrets
                 )
-        elif isinstance(impl, RegistryActionTemplateImpl):
+        elif impl.type == "template":
             ta = impl.template_action
             # Add secrets from the template action itself
             if template_secrets := ta.definition.secrets:
@@ -874,7 +864,7 @@ async def validate_action_template(
 def _implementation_to_interface(
     impl: AnnotatedRegistryActionImpl,
 ) -> RegistryActionInterface:
-    if isinstance(impl, RegistryActionTemplateImpl):
+    if impl.type == "template":
         expects = create_expectation_model(
             schema=impl.template_action.definition.expects,
             model_name=impl.template_action.definition.action.replace(".", "__"),

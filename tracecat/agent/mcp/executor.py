@@ -34,11 +34,7 @@ from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.identifiers import WorkflowUUID
 from tracecat.identifiers.workflow import generate_exec_id
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import (
-    RegistryActionImplValidator,
-    RegistryActionTemplateImpl,
-    RegistryActionUDFImpl,
-)
+from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
@@ -145,13 +141,13 @@ async def _resolve_context(
 
     # Build action implementation metadata
     impl = RegistryActionImplValidator.validate_python(reg_action.implementation)
-    if isinstance(impl, RegistryActionTemplateImpl):
+    if impl.type == "template":
         action_impl = ActionImplementation(
             type="template",
             action_name=action_name,
             template_definition=impl.template_action.definition.model_dump(mode="json"),
         )
-    elif isinstance(impl, RegistryActionUDFImpl):
+    elif impl.type == "udf":
         action_impl = ActionImplementation(
             type="udf",
             action_name=action_name,
