@@ -37,8 +37,8 @@ from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.service import SecretsService
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
@@ -77,7 +77,7 @@ async def validate_single_secret(
     secrets_service: SecretsService,
     checked_keys: set[str],
     environment: str,
-    action: RegistryAction,
+    action: RegistryAction | None,  # Not used, kept for backward compatibility
     registry_secret: RegistrySecret,
 ) -> list[SecretValidationResult]:
     """Validate a single secret against the secrets manager."""
@@ -174,6 +174,48 @@ async def check_action_secrets(
     return results
 
 
+async def check_action_secrets_from_manifest(
+    secrets_service: SecretsService,
+    checked_keys: set[str],
+    environment: str,
+    manifest: RegistryVersionManifest,
+    action_name: str,
+) -> list[SecretValidationResult]:
+    """Check all secrets for an action using manifest data.
+
+    This function uses the manifest to aggregate secrets recursively,
+    without needing to fetch RegistryAction from the database.
+    """
+    results: list[SecretValidationResult] = []
+
+    # Use the static method to aggregate all secrets from the manifest
+    secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+        manifest, action_name
+    )
+
+    for registry_secret in secrets:
+        if registry_secret.type == "oauth":
+            # Workspace integration
+            secret_results = await validate_workspace_integration(
+                secrets_service.session,
+                checked_keys,
+                environment,
+                registry_secret,
+            )
+        else:
+            # Workspace secret
+            secret_results = await validate_single_secret(
+                secrets_service,
+                checked_keys,
+                environment,
+                None,  # action parameter not used in this path
+                registry_secret,
+            )
+        results.extend(secret_results)
+
+    return results
+
+
 async def validate_workspace_integration(
     session: AsyncSession,
     checked_keys: set[str],
@@ -252,24 +294,26 @@ async def validate_actions_have_defined_secrets(
     async with get_async_session_context_manager() as session:
         secrets_service = SecretsService(session)
 
-        # Get all actions that need validation
+        # Get all actions that need validation from index/manifest
         registry_service = RegistryActionsService(session)
-        # For all actions, pull out all the secrets that are used
-        reg_actions = await registry_service.list_actions(
-            include_keys={a.action for a in dsl.actions}
-        )
-        act2ra = {a.action: a for a in reg_actions}
+        action_names = [a.action for a in dsl.actions]
+        actions_data = await registry_service.get_actions_from_index(action_names)
 
-        # Validate all actions concurrently
+        # Validate all actions concurrently using manifest-based lookup
         async with GatheringTaskGroup() as tg:
             for action_env_pair in action_env_pairs:
+                action_data = actions_data.get(action_env_pair.action)
+                if action_data is None:
+                    # Action not found in index - skip validation
+                    # (will be caught by other validation steps)
+                    continue
                 tg.create_task(
-                    check_action_secrets(
+                    check_action_secrets_from_manifest(
                         secrets_service,
-                        registry_service,
                         checked_keys,
                         action_env_pair.environment,
-                        act2ra[action_env_pair.action],
+                        action_data.manifest,
+                        action_env_pair.action,
                     )
                 )
 
@@ -284,7 +328,7 @@ async def validate_registry_action_args(
     args: Mapping[str, Any],
 ) -> ActionValidationResult:
     """Validate arguments against a UDF spec."""
-    # 1. read the schema from the db
+    # 1. read the schema from the index/manifest
     # 2. construct a pydantic model from the schema
     # 3. validate the args against the pydantic model
     try:
@@ -293,8 +337,13 @@ async def validate_registry_action_args(
                 validated = ExecuteSubflowArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
-                action = await service.get_action(action_name=action_name)
-                interface = RegistryActionInterface(**action.interface)
+                action_data = await service.get_action_from_index(action_name)
+                if action_data is None:
+                    raise KeyError(f"Action {action_name} not found in registry index")
+                manifest_action = action_data.manifest.actions.get(action_name)
+                if manifest_action is None:
+                    raise KeyError(f"Action {action_name} not found in manifest")
+                interface = manifest_action.interface
                 model = json_schema_to_pydantic(
                     interface["expects"], root_config=ConfigDict(extra="forbid")
                 )
@@ -314,6 +363,7 @@ async def validate_registry_action_args(
             raise RegistryValidationError(
                 f"Unexpected error when validating input arguments for action {action_name!r}. {e}",
                 key=action_name,
+                err=str(e),  # Pass the error message to preserve context
             ) from e
 
         return ActionValidationResult(
@@ -327,7 +377,9 @@ async def validate_registry_action_args(
         if isinstance(e.err, ValidationError):
             detail = ValidationDetail.list_from_pydantic(e.err)
         else:
-            detail = [ValidationDetail(type="general", msg=str(e.err))]
+            # Use the exception message when err is None (e.g., when a non-ValidationError occurred)
+            msg = str(e.err) if e.err is not None else str(e)
+            detail = [ValidationDetail(type="general", msg=msg)]
         logger.info(
             "Error validating action args",
             action_name=action_name,
