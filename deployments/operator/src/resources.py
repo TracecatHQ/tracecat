@@ -1,6 +1,19 @@
 """Resource builders for TracecatWorkerPool operator."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, Literal, TypedDict
+
+WorkerType = Literal["dsl", "executor", "agent"]
+
+
+class EnvVar(TypedDict, total=False):
+    """Kubernetes environment variable."""
+
+    name: str
+    value: str
+    valueFrom: dict[str, Any]
+
 
 # Worker type to command mapping
 WORKER_COMMANDS: dict[str, list[str]] = {
@@ -27,7 +40,7 @@ DEFAULT_RESOURCES: dict[str, dict[str, dict[str, str]]] = {
 
 
 def build_labels(
-    pool_name: str, worker_type: str, extra: dict[str, str] | None = None
+    pool_name: str, worker_type: str | WorkerType, extra: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Build standard labels for a worker deployment."""
     labels = {
@@ -43,9 +56,9 @@ def build_labels(
     return labels
 
 
-def build_common_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[dict[str, Any]]:
+def build_common_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[EnvVar]:
     """Build common environment variables for a worker."""
-    env: list[dict[str, Any]] = []
+    env: list[EnvVar] = []
 
     # Log level
     env.append({"name": "LOG_LEVEL", "value": "INFO"})
@@ -161,7 +174,7 @@ def build_common_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[
     return env
 
 
-def build_dsl_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[dict[str, Any]]:
+def build_dsl_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[EnvVar]:
     """Build DSL worker specific environment variables."""
     env = build_common_env(spec, worker_spec)
 
@@ -192,7 +205,7 @@ def build_dsl_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[dic
     return env
 
 
-def build_executor_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[dict[str, Any]]:
+def build_executor_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[EnvVar]:
     """Build executor worker specific environment variables."""
     env = build_common_env(spec, worker_spec)
 
@@ -253,7 +266,7 @@ def build_executor_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> lis
     return env
 
 
-def build_agent_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[dict[str, Any]]:
+def build_agent_env(spec: dict[str, Any], worker_spec: dict[str, Any]) -> list[EnvVar]:
     """Build agent worker specific environment variables."""
     env = build_common_env(spec, worker_spec)
 

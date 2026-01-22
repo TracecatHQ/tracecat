@@ -1,0 +1,11 @@
+{
+  "include": ["src"],
+  "exclude": [".venv"],
+  "reportMissingImports": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownArgumentType": "none",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard"
+}

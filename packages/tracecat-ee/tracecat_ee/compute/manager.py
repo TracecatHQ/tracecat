@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import ClassVar, TypedDict, Unpack
 
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -33,10 +33,33 @@ from tracecat.ee.compute.schemas import (
     WorkersSpec,
 )
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
+
+
+class WorkerPoolCR(TypedDict, total=False):
+    """TracecatWorkerPool custom resource structure."""
+
+    apiVersion: str
+    kind: str
+    metadata: dict[str, object]
+    spec: dict[str, object]
+    status: dict[str, object]
+
+
+class WorkerPoolConfigKwargs(TypedDict, total=False):
+    """Optional configuration for worker pool provisioning."""
+
+    image_tag: str
+    temporal_url: str
+    temporal_namespace: str
+    temporal_api_key_secret: str | None
+    database_host: str
+    database_port: int
+    database_name: str
+    database_credentials_secret: str
+    redis_url: str
+    core_secrets_name: str
+    service_account_name: str | None
 
 
 # Default resources by tier and worker type
@@ -90,9 +113,9 @@ class WorkerPoolManager:
     compute resources when organizations change tiers.
     """
 
-    GROUP = "compute.tracecat.io"
-    VERSION = "v1alpha1"
-    PLURAL = "tracecatworkerpools"
+    GROUP: ClassVar[str] = "compute.tracecat.io"
+    VERSION: ClassVar[str] = "v1alpha1"
+    PLURAL: ClassVar[str] = "tracecatworkerpools"
 
     def __init__(self, in_cluster: bool = True) -> None:
         """Initialize the WorkerPoolManager.
@@ -104,7 +127,7 @@ class WorkerPoolManager:
             config.load_incluster_config()
         else:
             config.load_kube_config()
-        self.api = client.CustomObjectsApi()
+        self.api: client.CustomObjectsApi = client.CustomObjectsApi()
 
     def get_pool_name(self, tier: Tier, org_id: str | None) -> str:
         """Get the pool name based on tier and org ID.
@@ -326,7 +349,7 @@ class WorkerPoolManager:
         namespace: str,
         tier: Tier,
         spec: WorkerPoolSpec,
-    ) -> dict[str, Any]:
+    ) -> WorkerPoolCR:
         """Build the CR body for a worker pool.
 
         Args:
@@ -357,8 +380,8 @@ class WorkerPoolManager:
         org_id: str,
         tier: Tier,
         namespace: str = "tracecat",
-        **config_kwargs: Any,
-    ) -> dict[str, Any]:
+        **config_kwargs: Unpack[WorkerPoolConfigKwargs],
+    ) -> WorkerPoolCR:
         """Create or update a worker pool for an organization.
 
         Args:
@@ -430,7 +453,7 @@ class WorkerPoolManager:
         self,
         name: str,
         namespace: str = "tracecat",
-    ) -> dict[str, Any] | None:
+    ) -> WorkerPoolCR | None:
         """Get a worker pool by name.
 
         Args:
@@ -458,7 +481,7 @@ class WorkerPoolManager:
         namespace: str = "tracecat",
         tier: Tier | None = None,
         tenant_type: TenantType | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[WorkerPoolCR]:
         """List worker pools with optional filters.
 
         Args:

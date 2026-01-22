@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TypedDict, cast
 
 import kopf
 from kubernetes import client
@@ -18,13 +18,28 @@ from .resources import (
 logger = logging.getLogger(__name__)
 
 
+class WorkerStatus(TypedDict, total=False):
+    """Status for a single worker type."""
+
+    deployment: str
+    scaledObject: str
+    readyReplicas: int
+
+
+class ReconcileResult(TypedDict):
+    """Result returned from reconciliation."""
+
+    workers: dict[str, WorkerStatus]
+
+
 def apply_deployment(
     api: client.AppsV1Api,
     namespace: str,
-    deployment: dict[str, Any],
+    deployment: dict[str, object],
 ) -> None:
     """Create or update a deployment."""
-    name = deployment["metadata"]["name"]
+    metadata = cast(dict[str, object], deployment["metadata"])
+    name = cast(str, metadata["name"])
     try:
         api.patch_namespaced_deployment(
             name=name,
@@ -66,10 +81,11 @@ def apply_custom_object(
     version: str,
     plural: str,
     namespace: str,
-    body: dict[str, Any],
+    body: dict[str, object],
 ) -> None:
     """Create or update a custom object."""
-    name = body["metadata"]["name"]
+    metadata = cast(dict[str, object], body["metadata"])
+    name = cast(str, metadata["name"])
     try:
         api.patch_namespaced_custom_object(
             group=group,
@@ -124,13 +140,13 @@ async def reconcile(
     name: str,
     namespace: str,
     body: kopf.Body,
-    **_: Any,
-) -> dict[str, Any]:
+    **_: object,
+) -> ReconcileResult:
     """Reconcile Deployments and ScaledObjects for a worker pool."""
     apps_api = client.AppsV1Api()
     custom_api = client.CustomObjectsApi()
 
-    workers_status: dict[str, dict[str, Any]] = {}
+    workers_status: dict[str, WorkerStatus] = {}
     workers_config = spec.get("workers", {})
     autoscaling_config = spec.get("autoscaling", {})
 
@@ -190,7 +206,7 @@ async def reconcile(
                     name, worker_type, dict(worker_spec), dict(autoscaling_config), dict(spec)
                 )
                 if result is not None:
-                    scaled_object: dict[str, Any] = result[0]
+                    scaled_object: dict[str, object] = result[0]
                     if scaled_object:
                         kopf.adopt(scaled_object, owner=body)
                         apply_custom_object(
@@ -201,9 +217,8 @@ async def reconcile(
                             namespace=namespace,
                             body=scaled_object,
                         )
-                        workers_status[worker_type]["scaledObject"] = scaled_object["metadata"][
-                            "name"
-                        ]
+                        so_metadata = cast(dict[str, object], scaled_object["metadata"])
+                        workers_status[worker_type]["scaledObject"] = cast(str, so_metadata["name"])
 
     logger.info(f"Reconciled worker pool {name}: {workers_status}")
 
@@ -214,7 +229,7 @@ async def reconcile(
 @kopf.on.delete("compute.tracecat.io", "v1alpha1", "tracecatworkerpools")  # pyright: ignore[reportArgumentType]
 async def cleanup(
     name: str,
-    **_: Any,
+    **_: object,
 ) -> None:
     """Clean up resources when a worker pool is deleted.
 
@@ -227,10 +242,10 @@ async def cleanup(
 
 @kopf.on.field("compute.tracecat.io", "v1alpha1", "tracecatworkerpools", field="spec.workers")  # pyright: ignore[reportArgumentType]
 async def workers_changed(
-    old: Any,
-    new: Any,
+    old: object,
+    new: object,
     name: str,
-    **_: Any,
+    **_: object,
 ) -> None:
     """Handle changes to worker specifications."""
     if old == new:
@@ -241,13 +256,13 @@ async def workers_changed(
 
 
 @kopf.on.startup()  # pyright: ignore[reportArgumentType]
-async def startup(**_: Any) -> None:
+async def startup(**_: object) -> None:
     """Initialize the operator on startup."""
     logger.info("Tracecat Worker Pool Operator starting up")
 
 
 @kopf.on.cleanup()  # pyright: ignore[reportArgumentType]
-async def shutdown(**_: Any) -> None:
+async def shutdown(**_: object) -> None:
     """Clean up on operator shutdown."""
     logger.info("Tracecat Worker Pool Operator shutting down")
 
@@ -258,15 +273,15 @@ async def status_update(
     name: str,
     namespace: str,
     status: kopf.Status,
-    **_: Any,
-) -> dict[str, Any] | None:
+    **_: object,
+) -> ReconcileResult | None:
     """Periodically update status with deployment ready replicas."""
     apps_api = client.AppsV1Api()
     workers_config = spec.get("workers", {})
     workers_status = status.get("workers", {})
 
     updated = False
-    new_status: dict[str, dict[str, Any]] = {}
+    new_status: dict[str, WorkerStatus] = {}
 
     for worker_type in ["dsl", "executor", "agent"]:
         worker_spec = workers_config.get(worker_type, {})

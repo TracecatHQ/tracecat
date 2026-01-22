@@ -22,7 +22,7 @@ from tracecat_ee.admin.organizations.schemas import (
 from tracecat_ee.admin.organizations.types import TierChangeResult
 
 if TYPE_CHECKING:
-    from tracecat.ee.compute.manager import WorkerPoolManager
+    from tracecat_ee.compute.manager import WorkerPoolManager
 
 
 class AdminOrgService(BaseService):
@@ -42,7 +42,7 @@ class AdminOrgService(BaseService):
         """
         if self._worker_pool_manager is None and config.ENTERPRISE_EDITION:
             try:
-                from tracecat.ee.compute.manager import WorkerPoolManager
+                from tracecat_ee.compute.manager import WorkerPoolManager
 
                 self._worker_pool_manager = WorkerPoolManager(
                     in_cluster=config.TRACECAT__K8S_IN_CLUSTER
