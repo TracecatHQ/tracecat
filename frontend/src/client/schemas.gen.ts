@@ -9464,6 +9464,13 @@ export const $OrgRegistryVersionRead = {
   description: "Organization registry version response.",
 } as const
 
+export const $OrgRole = {
+  type: "string",
+  enum: ["member", "admin", "owner"],
+  title: "OrgRole",
+  description: "Organization-level roles.",
+} as const
+
 export const $OrgUpdate = {
   properties: {
     name: {
@@ -11815,6 +11822,16 @@ export const $Role = {
       anyOf: [
         {
           $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    org_role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OrgRole",
         },
         {
           type: "null",
