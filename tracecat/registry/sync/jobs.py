@@ -17,6 +17,7 @@ from tracecat.db.locks import (
     pg_advisory_unlock,
     try_pg_advisory_lock,
 )
+from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
@@ -25,6 +26,15 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
+
+
+def _is_downgrade(
+    current_version: PlatformRegistryVersion | None, target: str
+) -> bool:
+    """Check if target version would be a downgrade from current."""
+    if current_version is None:
+        return False
+    return Version(target) < Version(current_version.version)
 
 
 async def sync_platform_registry_on_startup() -> None:
@@ -104,16 +114,13 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
         return
 
     # No-downgrade guard: check before attempting sync
-    if repo.current_version:
-        current_ver = Version(repo.current_version.version)
-        target_ver = Version(target_version)
-        if target_ver < current_ver:
-            logger.warning(
-                "Refusing to downgrade platform registry",
-                current=str(current_ver),
-                target=str(target_ver),
-            )
-            return
+    if _is_downgrade(repo.current_version, target_version):
+        logger.warning(
+            "Refusing to downgrade platform registry",
+            current=repo.current_version.version,
+            target=target_version,
+        )
+        return
 
     # Version doesn't exist - need to sync (with retries)
     sync_service = PlatformRegistrySyncService(session, role=None)
@@ -122,16 +129,13 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
         try:
             # Re-check downgrade guard in case another process updated during retries
             await session.refresh(repo, ["current_version"])
-            if repo.current_version:
-                current_ver = Version(repo.current_version.version)
-                target_ver = Version(target_version)
-                if target_ver < current_ver:
-                    logger.warning(
-                        "Refusing to downgrade platform registry (detected during retry)",
-                        current=str(current_ver),
-                        target=str(target_ver),
-                    )
-                    return
+            if _is_downgrade(repo.current_version, target_version):
+                logger.warning(
+                    "Refusing to downgrade platform registry (detected during retry)",
+                    current=repo.current_version.version,
+                    target=target_version,
+                )
+                return
 
             result = await sync_service.sync_repository_v2(
                 repo,

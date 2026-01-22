@@ -212,16 +212,14 @@ async def get_registry_artifacts_for_lock(
             origin_val, version_val, tarball_uri = row
             if tarball_uri is not None:
                 artifact = RegistryArtifactsContext(
-                    origin=str(origin_val),
-                    version=str(version_val),
-                    tarball_uri=str(tarball_uri),
+                    origin=origin_val,
+                    version=version_val,
+                    tarball_uri=tarball_uri,
                 )
                 fetched_artifacts.append(artifact)
-                found_keys.add((str(origin_val), str(version_val)))
+                found_keys.add((origin_val, version_val))
                 # Cache the artifact
-                key = _artifact_cache_key(
-                    str(origin_val), str(version_val), organization_id
-                )
+                key = _artifact_cache_key(origin_val, version_val, organization_id)
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(

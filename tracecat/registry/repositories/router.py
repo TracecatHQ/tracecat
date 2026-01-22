@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, union_all
 from sqlalchemy.exc import IntegrityError, NoResultFound
@@ -44,9 +42,6 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
-
-if TYPE_CHECKING:
-    pass
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
