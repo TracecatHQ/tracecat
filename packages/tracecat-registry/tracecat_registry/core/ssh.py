@@ -34,7 +34,7 @@ def _load_private_key(private_key: str) -> paramiko.PKey:
         paramiko.Ed25519Key,
         paramiko.RSAKey,
         paramiko.ECDSAKey,
-        paramiko.DSSKey,
+        paramiko.DSSKey,  # pyright: ignore[reportAttributeAccessIssue] - DSSKey exists but is missing from type stubs
     )
 
     last_error: Exception | None = None

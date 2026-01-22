@@ -57,6 +57,7 @@ class WorkflowsClient:
         workflow_id: str | None = None,
         workflow_alias: str | None = None,
         trigger_inputs: Any | Unset = UNSET,
+        environment: str | None = None,
         wait_strategy: Literal["wait", "detach"] = "detach",
         timeout: float | None = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
@@ -68,6 +69,7 @@ class WorkflowsClient:
             workflow_id: Workflow UUID (short or full format).
             workflow_alias: Workflow alias (alternative to ID).
             trigger_inputs: Inputs to pass to the workflow.
+            environment: Target execution environment for secrets isolation.
             wait_strategy: How to handle execution:
                 - "detach": Return immediately with execution info.
                 - "wait": Poll until completion and return the result.
@@ -100,6 +102,8 @@ class WorkflowsClient:
             data["workflow_alias"] = workflow_alias
         if is_set(trigger_inputs):
             data["trigger_inputs"] = trigger_inputs
+        if environment:
+            data["environment"] = environment
         if parent_workflow_execution_id:
             data["parent_workflow_execution_id"] = parent_workflow_execution_id
 
