@@ -198,9 +198,11 @@ async def sync_registry_repository(
         )
         logger.info("Updated repository", origin=repo.origin)
 
-        # Get action count for response
-        await session.refresh(repo, ["actions"])
-        actions_count = len(repo.actions)
+        # Get action count from registry index (v2 sync populates index, not RegistryAction)
+        index_actions = await actions_service.list_actions_from_index_by_repository(
+            repo.id
+        )
+        actions_count = len(index_actions)
 
         return RegistrySyncResponse(
             success=True,
@@ -287,17 +289,13 @@ async def _sync_platform_repository(
         )
         logger.info("Updated platform repository", origin=repo.origin)
 
-        # Get action count for response
-        await session.refresh(repo, ["actions"])
-        actions_count = len(repo.actions)
-
         return RegistrySyncResponse(
             success=True,
             repository_id=repo.id,
             origin=repo.origin,
             version=sync_result.version_string,
             commit_sha=sync_result.commit_sha,
-            actions_count=actions_count,
+            actions_count=sync_result.num_actions,
             forced=False,  # Platform sync doesn't support force yet
         )
 
