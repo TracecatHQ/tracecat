@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import and_, cast, select
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import contains_eager
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel
 from tracecat.auth.users import (
@@ -14,9 +16,10 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_access_level
-from tracecat.db.models import AccessToken, User
+from tracecat.authz.enums import OrgRole
+from tracecat.db.models import AccessToken, OrganizationMembership, User
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.identifiers import SessionID, UserID
+from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.service import BaseService
 
 
@@ -39,14 +42,19 @@ class OrgService(BaseService):
         Retrieve a list of all members in the organization.
 
         This method queries the database to obtain all user records
-        associated with the organization. It returns a sequence of
-        User objects representing each member.
+        associated with the organization via OrganizationMembership.
 
         Returns:
             Sequence[User]: A sequence containing User objects of all
             members in the organization.
         """
-        statement = select(User)
+        statement = select(User).join(
+            OrganizationMembership,
+            and_(
+                OrganizationMembership.user_id == User.id,
+                OrganizationMembership.organization_id == self.organization_id,
+            ),
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 
@@ -61,12 +69,23 @@ class OrgService(BaseService):
             User: The user object representing the member of the organization.
 
         Raises:
-            NoResultFound: If no user with the given ID exists.
+            NoResultFound: If no user with the given ID exists in this organization.
         """
-        statement = select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        statement = (
+            select(User)
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.organization_id,
+                ),
+            )
+            .where(cast(User.id, UUID) == user_id)
+        )
         result = await self.session.execute(statement)
         return result.scalar_one()
 
+    @audit_log(resource_type="organization_member", action="delete")
     @require_access_level(AccessLevel.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
         """
@@ -88,6 +107,7 @@ class OrgService(BaseService):
         async with self._manager() as user_manager:
             await user_manager.delete(user)
 
+    @audit_log(resource_type="organization_member", action="update")
     @require_access_level(AccessLevel.ADMIN)
     async def update_member(self, user_id: UserID, params: UserUpdate) -> User:
         """
@@ -115,6 +135,42 @@ class OrgService(BaseService):
             )
         return updated_user
 
+    @audit_log(resource_type="organization_member", action="create")
+    async def add_member(
+        self,
+        *,
+        user_id: UserID,
+        organization_id: OrganizationID,
+        role: OrgRole = OrgRole.MEMBER,
+    ) -> OrganizationMembership:
+        """Add a user to an organization.
+
+        This method creates an OrganizationMembership record linking a user
+        to an organization. It is typically called from the invitation flow
+        when a user accepts an invitation.
+
+        Note: This method does not require access level checks as it is
+        intended to be called by internal services (e.g., invitation service).
+
+        Args:
+            user_id: The unique identifier of the user to add.
+            organization_id: The unique identifier of the organization.
+            role: The role to assign to the user in the organization.
+                Defaults to OrgRole.MEMBER.
+
+        Returns:
+            OrganizationMembership: The created membership record.
+        """
+        membership = OrganizationMembership(
+            user_id=user_id,
+            organization_id=organization_id,
+            role=role,
+        )
+        self.session.add(membership)
+        await self.session.commit()
+        await self.session.refresh(membership)
+        return membership
+
     # === Manage settings ===
 
     @require_access_level(AccessLevel.ADMIN)
@@ -126,8 +182,19 @@ class OrgService(BaseService):
 
     @require_access_level(AccessLevel.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
-        """List all sessions."""
-        statement = select(AccessToken).options(selectinload(AccessToken.user))
+        """List all sessions for users in this organization."""
+        statement = (
+            select(AccessToken)
+            .join(User, cast(AccessToken.user_id, UUID) == User.id)
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.organization_id,
+                ),
+            )
+            .options(contains_eager(AccessToken.user))
+        )
         result = await self.session.execute(statement)
         return [
             SessionRead(
@@ -139,10 +206,22 @@ class OrgService(BaseService):
             for s in result.scalars().all()
         ]
 
+    @audit_log(resource_type="organization_session", action="delete")
     @require_access_level(AccessLevel.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
-        """Delete a session by its ID."""
-        statement = select(AccessToken).where(AccessToken.id == session_id)
+        """Delete a session by its ID (must belong to a user in this organization)."""
+        statement = (
+            select(AccessToken)
+            .join(User, cast(AccessToken.user_id, UUID) == User.id)
+            .join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == User.id,
+                    OrganizationMembership.organization_id == self.organization_id,
+                ),
+            )
+            .where(AccessToken.id == session_id)
+        )
         result = await self.session.execute(statement)
         db_token = result.scalar_one()
         await self.session.delete(db_token)
