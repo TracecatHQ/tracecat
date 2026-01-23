@@ -305,6 +305,11 @@ def _flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:
                         )
                     result[k] = str(v)
         elif secret_value is not None:
+            if secret_name in result:
+                raise ValueError(
+                    f"Key {secret_name!r} is duplicated! "
+                    "Please ensure only one secret with a given name is set."
+                )
             result[secret_name] = str(secret_value)
     return result
 
