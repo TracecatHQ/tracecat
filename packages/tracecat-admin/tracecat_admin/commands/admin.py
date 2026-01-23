@@ -12,6 +12,8 @@ import typer
 from tracecat_admin.client import AdminClient, AdminClientError
 from tracecat_admin.output import (
     print_error,
+    print_invitation_detail,
+    print_invitations_table,
     print_invite_result,
     print_success,
     print_user_detail,
@@ -279,6 +281,79 @@ async def invite_org(
             typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
         else:
             print_invite_result(result)
+    except AdminClientError as e:
+        print_error(str(e))
+        raise typer.Exit(1) from None
+
+
+@invite_app.command("list", no_args_is_help=True)
+@async_command
+async def list_invitations(
+    org_id: Annotated[
+        str, typer.Option("--org-id", "-o", help="Organization ID (UUID)")
+    ],
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help="Output as JSON")
+    ] = False,
+) -> None:
+    """List all invitations for an organization.
+
+    Examples:
+
+        tracecat admin invite list --org-id 123e4567-e89b-12d3-a456-426614174000
+    """
+    try:
+        async with AdminClient() as client:
+            invitations = await client.list_org_invitations(org_id)
+
+        if json_output:
+            import json
+
+            typer.echo(
+                json.dumps(
+                    [inv.model_dump(mode="json") for inv in invitations], indent=2
+                )
+            )
+        else:
+            if not invitations:
+                typer.echo("No invitations found.")
+            else:
+                print_invitations_table(invitations)
+    except AdminClientError as e:
+        print_error(str(e))
+        raise typer.Exit(1) from None
+
+
+@invite_app.command("revoke", no_args_is_help=True)
+@async_command
+async def revoke_invitation(
+    org_id: Annotated[
+        str, typer.Option("--org-id", "-o", help="Organization ID (UUID)")
+    ],
+    invitation_id: Annotated[
+        str, typer.Option("--invitation-id", "-i", help="Invitation ID (UUID)")
+    ],
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help="Output as JSON")
+    ] = False,
+) -> None:
+    """Revoke a pending invitation.
+
+    Examples:
+
+        tracecat admin invite revoke --org-id 123e4567-... --invitation-id 987f6543-...
+    """
+    try:
+        async with AdminClient() as client:
+            result = await client.revoke_org_invitation(org_id, invitation_id)
+
+        if json_output:
+            import json
+
+            typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
+        else:
+            print_success(f"Invitation for '{result.email}' has been revoked.")
+            print_invitation_detail(result)
     except AdminClientError as e:
         print_error(str(e))
         raise typer.Exit(1) from None

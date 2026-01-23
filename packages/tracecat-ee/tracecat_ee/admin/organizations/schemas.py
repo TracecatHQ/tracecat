@@ -9,6 +9,23 @@ from pydantic import EmailStr, Field
 
 from tracecat.authz.enums import OrgRole
 from tracecat.core.schemas import Schema
+from tracecat.invitations.enums import InvitationStatus
+
+
+class OrgInvitationRead(Schema):
+    """Organization invitation response."""
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    email: str
+    role: OrgRole
+    status: InvitationStatus
+    invited_by: uuid.UUID | None
+    expires_at: datetime
+    created_at: datetime
+    accepted_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class OrgInviteRequest(Schema):

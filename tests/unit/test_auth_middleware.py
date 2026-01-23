@@ -14,9 +14,15 @@ from tracecat import config
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
-from tracecat.db.models import Membership, Organization, User, Workspace
+from tracecat.db.models import (
+    Membership,
+    Organization,
+    OrganizationMembership,
+    User,
+    Workspace,
+)
 from tracecat.middleware import AuthorizationCacheMiddleware
 
 
@@ -146,10 +152,18 @@ async def test_auth_cache_reduces_database_queries(mocker):
     }
 
     # Mock session with proper execute() and scalar_one_or_none() chain
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none = MagicMock(return_value=None)
+    mock_ws_org_1 = MagicMock()
+    mock_ws_org_1.scalar_one_or_none = MagicMock(return_value=org_id_1)
+    mock_org_role_1 = MagicMock()
+    mock_org_role_1.scalar_one_or_none = MagicMock(return_value=None)
+    mock_ws_org_2 = MagicMock()
+    mock_ws_org_2.scalar_one_or_none = MagicMock(return_value=org_id_2)
+    mock_org_role_2 = MagicMock()
+    mock_org_role_2.scalar_one_or_none = MagicMock(return_value=None)
     mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.execute = AsyncMock(
+        side_effect=[mock_ws_org_1, mock_org_role_1, mock_ws_org_2, mock_org_role_2]
+    )
 
     # First workspace check - should trigger database query
     await _role_dependency(
@@ -390,10 +404,19 @@ async def test_cache_user_id_validation():
         ),
     ):
         # Mock session with proper execute() and scalar_one_or_none() chain
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        org_id = uuid.uuid4()
+        mock_ws_org_1 = MagicMock()
+        mock_ws_org_1.scalar_one_or_none = MagicMock(return_value=org_id)
+        mock_org_role_1 = MagicMock()
+        mock_org_role_1.scalar_one_or_none = MagicMock(return_value=None)
+        mock_ws_org_2 = MagicMock()
+        mock_ws_org_2.scalar_one_or_none = MagicMock(return_value=org_id)
+        mock_org_role_2 = MagicMock()
+        mock_org_role_2.scalar_one_or_none = MagicMock(return_value=None)
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.execute = AsyncMock(
+            side_effect=[mock_ws_org_1, mock_org_role_1, mock_ws_org_2, mock_org_role_2]
+        )
 
         # Common parameters for _role_dependency
         common_params = {
@@ -480,10 +503,18 @@ async def test_cache_size_limit():
         ),
     ):
         # Mock session with proper execute() and scalar_one_or_none() chain
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_ws_org = MagicMock()
+        mock_ws_org.scalar_one_or_none = MagicMock(return_value=org_id)
+        mock_org_role = MagicMock()
+        mock_org_role.scalar_one_or_none = MagicMock(return_value=None)
+        mock_membership_result = MagicMock()
+        mock_membership_result.scalar_one_or_none = MagicMock(
+            return_value=target_membership
+        )
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.execute = AsyncMock(
+            side_effect=[mock_ws_org, mock_org_role, mock_membership_result]
+        )
 
         # Check with excessive memberships
         role = await _role_dependency(
@@ -520,8 +551,11 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.ADMIN
 
-    # Mock session (not used for privileged users, but required parameter)
+    # Mock session (used for org membership lookup)
+    mock_org_memberships_result = MagicMock()
+    mock_org_memberships_result.all = MagicMock(return_value=[])
     mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_org_memberships_result)
 
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
@@ -696,3 +730,187 @@ async def test_role_dependency_requires_workspace_for_multi_org(
         )
 
     assert excinfo.value.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_org_admin_can_access_workspace_without_membership(session: AsyncSession):
+    org_id = uuid.uuid4()
+    org = Organization(
+        id=org_id,
+        name="Test Org",
+        slug=f"test-org-{org_id.hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Test Workspace",
+        organization_id=org.id,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4()}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+        role=UserRole.BASIC,
+    )
+    session.add_all([org, workspace, user])
+    await session.commit()
+
+    session.add(
+        OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+            role=OrgRole.ADMIN,
+        )
+    )
+    await session.commit()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    role = await _role_dependency(
+        request=request,
+        session=session,
+        workspace_id=workspace.id,
+        user=user,
+        api_key=None,
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+        min_access_level=None,
+        require_workspace_roles=None,
+    )
+
+    assert role.organization_id == org.id
+    assert role.workspace_id == workspace.id
+    assert role.workspace_role is None
+    assert role.org_role == OrgRole.ADMIN
+    assert role.access_level == AccessLevel.ADMIN
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_org_member_requires_workspace_membership(session: AsyncSession):
+    org_id = uuid.uuid4()
+    org = Organization(
+        id=org_id,
+        name="Test Org",
+        slug=f"test-org-{org_id.hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Test Workspace",
+        organization_id=org.id,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4()}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+        role=UserRole.BASIC,
+    )
+    session.add_all([org, workspace, user])
+    await session.commit()
+
+    session.add(
+        OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+            role=OrgRole.MEMBER,
+        )
+    )
+    await session.commit()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    with pytest.raises(HTTPException) as excinfo:
+        await _role_dependency(
+            request=request,
+            session=session,
+            workspace_id=workspace.id,
+            user=user,
+            api_key=None,
+            allow_user=True,
+            allow_service=False,
+            require_workspace="yes",
+            min_access_level=None,
+            require_workspace_roles=None,
+        )
+
+    assert excinfo.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_org_admin_cannot_access_other_org_workspace(session: AsyncSession):
+    org_a_id = uuid.uuid4()
+    org_b_id = uuid.uuid4()
+    org_a = Organization(
+        id=org_a_id,
+        name="Org A",
+        slug=f"org-a-{org_a_id.hex[:8]}",
+        is_active=True,
+    )
+    org_b = Organization(
+        id=org_b_id,
+        name="Org B",
+        slug=f"org-b-{org_b_id.hex[:8]}",
+        is_active=True,
+    )
+    workspace_b = Workspace(
+        id=uuid.uuid4(),
+        name="Workspace B",
+        organization_id=org_b.id,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4()}@example.com",
+        hashed_password="test_password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+        role=UserRole.BASIC,
+    )
+    session.add_all([org_a, org_b, workspace_b, user])
+    await session.commit()
+
+    session.add(
+        OrganizationMembership(
+            user_id=user.id,
+            organization_id=org_a.id,
+            role=OrgRole.ADMIN,
+        )
+    )
+    await session.commit()
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+
+    with pytest.raises(HTTPException) as excinfo:
+        await _role_dependency(
+            request=request,
+            session=session,
+            workspace_id=workspace_b.id,
+            user=user,
+            api_key=None,
+            allow_user=True,
+            allow_service=False,
+            require_workspace="yes",
+            min_access_level=None,
+            require_workspace_roles=None,
+        )
+
+    assert excinfo.value.status_code == status.HTTP_403_FORBIDDEN

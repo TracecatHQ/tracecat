@@ -431,7 +431,7 @@ class TestGetRoleFromUser:
         assert role.user_id == user.id
         assert role.org_role == OrgRole.ADMIN
         assert role.workspace_role == WorkspaceRole.EDITOR
-        assert role.access_level == AccessLevel.BASIC
+        assert role.access_level == AccessLevel.ADMIN
 
     @pytest.mark.anyio
     async def test_get_role_from_user_without_org_role(self, session: AsyncSession):

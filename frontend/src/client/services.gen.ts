@@ -31,6 +31,8 @@ import type {
   AdminInviteOrgUserData,
   AdminInviteOrgUserResponse,
   AdminListOrganizationsResponse,
+  AdminListOrgInvitationsData,
+  AdminListOrgInvitationsResponse,
   AdminListOrgRepositoriesData,
   AdminListOrgRepositoriesResponse,
   AdminListOrgRepositoryVersionsData,
@@ -44,6 +46,8 @@ import type {
   AdminPromoteRegistryVersionResponse,
   AdminPromoteToSuperuserData,
   AdminPromoteToSuperuserResponse,
+  AdminRevokeOrgInvitationData,
+  AdminRevokeOrgInvitationResponse,
   AdminSyncAllRepositoriesData,
   AdminSyncAllRepositoriesResponse,
   AdminSyncOrgRepositoryData,
@@ -2909,7 +2913,7 @@ export const organizationDeleteSession = (
  * Create an invitation to join the organization.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgInvitationRead Successful Response
+ * @returns tracecat__organization__schemas__OrgInvitationRead Successful Response
  * @throws ApiError
  */
 export const organizationCreateInvitation = (
@@ -2931,7 +2935,7 @@ export const organizationCreateInvitation = (
  * List invitations for the organization.
  * @param data The data for the request.
  * @param data.status
- * @returns OrgInvitationRead Successful Response
+ * @returns tracecat__organization__schemas__OrgInvitationRead Successful Response
  * @throws ApiError
  */
 export const organizationListInvitations = (
@@ -2999,7 +3003,7 @@ export const organizationAcceptInvitation = (
  * Get invitation details by token (public endpoint for UI).
  * @param data The data for the request.
  * @param data.token
- * @returns OrgInvitationRead Successful Response
+ * @returns tracecat__organization__schemas__OrgInvitationRead Successful Response
  * @throws ApiError
  */
 export const organizationGetInvitationByToken = (
@@ -3840,6 +3844,54 @@ export const adminInviteOrgUser = (
     url: "/admin/organizations/invitations",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Org Invitations
+ * List all invitations for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns tracecat_ee__admin__organizations__schemas__OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrgInvitations = (
+  data: AdminListOrgInvitationsData
+): CancelablePromise<AdminListOrgInvitationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/invitations",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Org Invitation
+ * Revoke a pending invitation.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.invitationId
+ * @returns tracecat_ee__admin__organizations__schemas__OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const adminRevokeOrgInvitation = (
+  data: AdminRevokeOrgInvitationData
+): CancelablePromise<AdminRevokeOrgInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/invitations/{invitation_id}/revoke",
+    path: {
+      org_id: data.orgId,
+      invitation_id: data.invitationId,
+    },
     errors: {
       422: "Validation Error",
     },

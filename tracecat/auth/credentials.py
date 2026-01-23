@@ -19,6 +19,7 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from pydantic import UUID4
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -31,10 +32,10 @@ from tracecat.auth.users import (
     optional_current_active_user,
 )
 from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.authz.service import MembershipService, MembershipWithOrg
+from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import User
+from tracecat.db.models import Membership, OrganizationMembership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -73,10 +74,11 @@ def get_role_from_user(
     org_role: OrgRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
-    # Superusers always get ADMIN access level
-    access_level = (
-        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
-    )
+    # Superusers and org admins/owners get ADMIN access level
+    if user.is_superuser or org_role in (OrgRole.ADMIN, OrgRole.OWNER):
+        access_level = AccessLevel.ADMIN
+    else:
+        access_level = USER_ROLE_TO_ACCESS_LEVEL[user.role]
     return Role(
         type="user",
         workspace_id=workspace_id,
@@ -97,6 +99,109 @@ def _get_bearer_token(request: Request) -> str | None:
     if scheme.lower() != "bearer" or not token:
         return None
     return token
+
+
+async def _get_organization_id_for_workspace(
+    *, session: AsyncSession, workspace_id: UUID4
+) -> UUID4 | None:
+    stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def _get_org_role_for_user(
+    *, session: AsyncSession, user_id: uuid.UUID, organization_id: UUID4
+) -> OrgRole | None:
+    stmt = select(OrganizationMembership.role).where(
+        OrganizationMembership.user_id == user_id,
+        OrganizationMembership.organization_id == organization_id,
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def _get_workspace_membership(
+    *,
+    request: Request,
+    session: AsyncSession,
+    workspace_id: UUID4,
+    user: User,
+) -> Membership | None:
+    """Resolve a user's Membership for a workspace, using request-scoped cache when available."""
+    auth_cache = getattr(request.state, "auth_cache", None)
+
+    async def _direct_query() -> Membership | None:
+        stmt = select(Membership).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == user.id,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    if not auth_cache:
+        logger.debug(
+            "No cache available, using direct query",
+            user_id=user.id,
+            workspace_id=workspace_id,
+        )
+        return await _direct_query()
+
+    cached_membership = auth_cache["memberships"].get(str(workspace_id))
+    if cached_membership is not None:
+        if cached_membership.user_id == user.id:
+            logger.debug(
+                "Using cached membership",
+                user_id=user.id,
+                workspace_id=workspace_id,
+                cached=True,
+            )
+            return cached_membership
+        logger.warning(
+            "Cache membership user mismatch, falling back to direct query",
+            cache_user_id=cached_membership.user_id,
+            request_user_id=user.id,
+            workspace_id=workspace_id,
+        )
+        return await _direct_query()
+
+    if auth_cache.get("membership_checked") and auth_cache.get("user_id") == user.id:
+        return None
+
+    if auth_cache.get("user_id") not in (None, user.id):
+        logger.warning(
+            "Cache user mismatch, falling back to direct query",
+            cache_user_id=auth_cache.get("user_id"),
+            request_user_id=user.id,
+            workspace_id=workspace_id,
+        )
+        return await _direct_query()
+
+    svc = MembershipService(session)
+    all_memberships = await svc.list_user_memberships(user_id=user.id)
+
+    if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
+        logger.warning(
+            "User has excessive memberships, caching disabled for security",
+            user_id=user.id,
+            membership_count=len(all_memberships),
+            max_allowed=MAX_CACHED_MEMBERSHIPS,
+        )
+        return await _direct_query()
+
+    auth_cache["user_id"] = user.id
+    auth_cache["memberships"] = {str(m.workspace_id): m for m in all_memberships}
+    auth_cache["membership_checked"] = True
+    auth_cache["all_memberships"] = all_memberships
+
+    membership = auth_cache["memberships"].get(str(workspace_id))
+    logger.debug(
+        "Loaded and cached all user memberships",
+        user_id=user.id,
+        workspace_count=len(all_memberships),
+        workspace_id=workspace_id,
+        found=membership is not None,
+    )
+    return membership
 
 
 async def _authenticate_service(
@@ -188,143 +293,102 @@ async def _role_dependency(
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Role:
     if user and allow_user:
-        if is_unprivileged(user) and workspace_id is not None:
-            # Unprivileged user trying to target a workspace
-            # Check if we have a cache available (from middleware)
-            auth_cache = getattr(request.state, "auth_cache", None)
+        workspace_role: WorkspaceRole | None = None
+        org_role: OrgRole | None = None
 
-            membership_with_org: MembershipWithOrg | None = None
-            if auth_cache:
-                # Try to get from cache first
-                cached_membership = auth_cache["memberships"].get(str(workspace_id))
-                # Validate cached membership belongs to requesting user
-                if (
-                    cached_membership is not None
-                    and cached_membership.user_id == user.id
-                ):
-                    # Convert cached Membership to MembershipWithOrg by fetching org_id
-                    svc = MembershipService(session)
-                    membership_with_org = await svc.get_membership(
-                        workspace_id=workspace_id, user_id=user.id
-                    )
-                    logger.debug(
-                        "Using cached membership",
-                        user_id=user.id,
-                        workspace_id=workspace_id,
-                        cached=True,
-                    )
-                elif not auth_cache["membership_checked"]:
-                    # Load all memberships once if not already done
-                    svc = MembershipService(session)
-                    all_memberships = await svc.list_user_memberships(user_id=user.id)
-
-                    # Check cache size limit to prevent memory exhaustion
-                    if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
-                        logger.warning(
-                            "User has excessive memberships, caching disabled for security",
-                            user_id=user.id,
-                            membership_count=len(all_memberships),
-                            max_allowed=MAX_CACHED_MEMBERSHIPS,
-                        )
-                        # Find membership without caching - fetch with org_id
-                        membership_with_org = await svc.get_membership(
-                            workspace_id=workspace_id, user_id=user.id
-                        )
-                    else:
-                        # Cache all memberships with user context
-                        auth_cache["user_id"] = user.id
-                        auth_cache["memberships"] = {
-                            str(m.workspace_id): m for m in all_memberships
-                        }
-                        auth_cache["membership_checked"] = True
-                        auth_cache["all_memberships"] = all_memberships
-
-                        # Get the specific membership with org_id
-                        membership_with_org = await svc.get_membership(
-                            workspace_id=workspace_id, user_id=user.id
-                        )
-
-                        logger.debug(
-                            "Loaded and cached all user memberships",
-                            user_id=user.id,
-                            workspace_count=len(all_memberships),
-                            workspace_id=workspace_id,
-                            found=membership_with_org is not None,
-                        )
-                elif auth_cache.get("user_id") != user.id:
-                    # Cache belongs to different user - security fallback
-                    logger.warning(
-                        "Cache user mismatch, falling back to direct query",
-                        cache_user_id=auth_cache.get("user_id"),
-                        request_user_id=user.id,
-                    )
-                    svc = MembershipService(session)
-                    membership_with_org = await svc.get_membership(
-                        workspace_id=workspace_id, user_id=user.id
-                    )
-            else:
-                # No cache available (e.g., in tests), fall back to direct query
-                svc = MembershipService(session)
-                membership_with_org = await svc.get_membership(
-                    workspace_id=workspace_id, user_id=user.id
-                )
+        if workspace_id is not None:
+            organization_id = await _get_organization_id_for_workspace(
+                session=session, workspace_id=workspace_id
+            )
+            if organization_id is None:
                 logger.debug(
-                    "No cache available, using direct query",
+                    "Workspace not found",
+                    workspace_id=workspace_id,
                     user_id=user.id,
-                    workspace_id=workspace_id,
-                )
-
-            if membership_with_org is None:
-                logger.debug(
-                    "User is not a member of this workspace",
-                    user=user,
-                    workspace_id=workspace_id,
                 )
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                 )
-            # 2. Check if they have the appropriate workspace role
-            if isinstance(require_workspace_roles, WorkspaceRole):
-                require_workspace_roles = [require_workspace_roles]
-            if (
-                require_workspace_roles
-                and membership_with_org.membership.role not in require_workspace_roles
-            ):
-                logger.debug(
-                    "User does not have the appropriate workspace role",
-                    user=user,
-                    workspace_id=workspace_id,
-                    role=require_workspace_roles,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You cannot perform this operation",
-                )
-            # User has appropriate workspace role
-            workspace_role = membership_with_org.membership.role
-            organization_id = membership_with_org.org_id
-        else:
-            # No workspace specified; infer org from memberships when possible.
-            workspace_role = None
-            organization_id = config.TRACECAT__DEFAULT_ORG_ID
-            svc = MembershipService(session)
-            memberships_with_org = await svc.list_user_memberships_with_org(
-                user_id=user.id
+            org_role = await _get_org_role_for_user(
+                session=session, user_id=user.id, organization_id=organization_id
             )
-            org_ids = {m.org_id for m in memberships_with_org}
-            if len(org_ids) == 1:
-                organization_id = next(iter(org_ids))
-            elif len(org_ids) > 1:
+
+            is_org_admin = org_role in (OrgRole.ADMIN, OrgRole.OWNER)
+            if is_unprivileged(user) and not is_org_admin:
+                membership = await _get_workspace_membership(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                )
+                if membership is None:
+                    logger.debug(
+                        "User is not a member of this workspace",
+                        user=user,
+                        workspace_id=workspace_id,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                    )
+                if isinstance(require_workspace_roles, WorkspaceRole):
+                    require_workspace_roles = [require_workspace_roles]
+                if (
+                    require_workspace_roles
+                    and membership.role not in require_workspace_roles
+                ):
+                    logger.debug(
+                        "User does not have the appropriate workspace role",
+                        user=user,
+                        workspace_id=workspace_id,
+                        role=require_workspace_roles,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You cannot perform this operation",
+                    )
+                workspace_role = membership.role
+        else:
+            organization_id = config.TRACECAT__DEFAULT_ORG_ID
+
+            org_memberships_stmt = select(
+                OrganizationMembership.organization_id, OrganizationMembership.role
+            ).where(OrganizationMembership.user_id == user.id)
+            org_memberships_result = await session.execute(org_memberships_stmt)
+            org_memberships = org_memberships_result.all()
+
+            if len(org_memberships) == 1:
+                organization_id, org_role = org_memberships[0]
+            elif len(org_memberships) > 1:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Multiple organizations found. Provide workspace_id to select an organization.",
                 )
+            else:
+                svc = MembershipService(session)
+                memberships_with_org = await svc.list_user_memberships_with_org(
+                    user_id=user.id
+                )
+                org_ids = {m.org_id for m in memberships_with_org}
+                if len(org_ids) == 1:
+                    organization_id = next(iter(org_ids))
+                elif len(org_ids) > 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Multiple organizations found. Provide workspace_id to select an organization.",
+                    )
+                if organization_id != config.TRACECAT__DEFAULT_ORG_ID:
+                    org_role = await _get_org_role_for_user(
+                        session=session,
+                        user_id=user.id,
+                        organization_id=organization_id,
+                    )
 
         role = get_role_from_user(
             user,
             workspace_id=workspace_id,
             workspace_role=workspace_role,
             organization_id=organization_id,
+            org_role=org_role,
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
@@ -346,8 +410,6 @@ async def _role_dependency(
         # Derive access_level from DB lookup on user_id (prevents privilege escalation)
         access_level = AccessLevel.BASIC  # Default for system/anonymous executions
         if token_payload.user_id is not None:
-            from sqlalchemy import select
-
             stmt = select(User.role).where(User.id == token_payload.user_id)  # pyright: ignore[reportArgumentType]
             result = await session.execute(stmt)
             user_role = result.scalar_one_or_none()

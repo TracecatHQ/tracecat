@@ -9,6 +9,7 @@ import httpx
 
 from tracecat_admin.config import Config, get_config, load_cookies
 from tracecat_admin.schemas import (
+    OrgInvitationRead,
     OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
@@ -99,7 +100,13 @@ class AdminClient:
         response = await client.request(method, path, **kwargs)
         if response.status_code >= 400:
             try:
-                detail = response.json().get("detail", response.text)
+                error_data = response.json()
+                # Try message first (Tracecat format), then detail (FastAPI format)
+                detail = (
+                    error_data.get("message")
+                    or error_data.get("detail")
+                    or response.text
+                )
             except Exception:
                 detail = response.text
             raise AdminClientError(
@@ -302,3 +309,20 @@ class AdminClient:
             json=data,
         )
         return OrgInviteResponse.model_validate(response.json())
+
+    async def list_org_invitations(self, org_id: str) -> list[OrgInvitationRead]:
+        """List all invitations for an organization."""
+        response = await self._request(
+            "GET", f"/admin/organizations/{org_id}/invitations"
+        )
+        return [OrgInvitationRead.model_validate(inv) for inv in response.json()]
+
+    async def revoke_org_invitation(
+        self, org_id: str, invitation_id: str
+    ) -> OrgInvitationRead:
+        """Revoke a pending invitation."""
+        response = await self._request(
+            "POST",
+            f"/admin/organizations/{org_id}/invitations/{invitation_id}/revoke",
+        )
+        return OrgInvitationRead.model_validate(response.json())

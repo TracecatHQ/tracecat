@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tracecat_admin.schemas import (
+    OrgInvitationRead,
     OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
@@ -343,11 +344,58 @@ def print_invite_result(result: OrgInviteResponse) -> None:
     )
     console.print()
     console.print(f"[bold]Magic link:[/bold] {result.magic_link}")
-    console.print()
 
-    if result.email_sent:
-        console.print("[green]Email sent successfully.[/green]")
-    else:
-        console.print("[yellow]Email not sent.[/yellow]")
-        if result.email_error:
-            console.print(f"  [dim]Error: {result.email_error}[/dim]")
+
+def print_invitations_table(invitations: list[OrgInvitationRead]) -> None:
+    """Print organization invitations in a table format."""
+    table = Table(title="Organization Invitations")
+    table.add_column("ID", style="dim")
+    table.add_column("Email", style="cyan")
+    table.add_column("Role", style="magenta")
+    table.add_column("Status")
+    table.add_column("Expires")
+    table.add_column("Created")
+
+    for inv in invitations:
+        status_style = {
+            "pending": "yellow",
+            "accepted": "green",
+            "revoked": "red",
+            "expired": "dim",
+        }.get(inv.status.lower(), "white")
+        table.add_row(
+            str(inv.id),
+            inv.email,
+            inv.role,
+            f"[{status_style}]{inv.status}[/{status_style}]",
+            format_datetime(inv.expires_at),
+            format_datetime(inv.created_at),
+        )
+
+    console.print(table)
+
+
+def print_invitation_detail(inv: OrgInvitationRead) -> None:
+    """Print invitation details."""
+    table = Table(title="Invitation Details", show_header=False)
+    table.add_column("Field", style="dim")
+    table.add_column("Value")
+
+    status_style = {
+        "pending": "yellow",
+        "accepted": "green",
+        "revoked": "red",
+        "expired": "dim",
+    }.get(inv.status.lower(), "white")
+
+    table.add_row("ID", str(inv.id))
+    table.add_row("Organization ID", str(inv.organization_id))
+    table.add_row("Email", inv.email)
+    table.add_row("Role", inv.role)
+    table.add_row("Status", f"[{status_style}]{inv.status}[/{status_style}]")
+    table.add_row("Invited By", str(inv.invited_by) if inv.invited_by else "-")
+    table.add_row("Expires", format_datetime(inv.expires_at))
+    table.add_row("Created", format_datetime(inv.created_at))
+    table.add_row("Accepted", format_datetime(inv.accepted_at))
+
+    console.print(table)

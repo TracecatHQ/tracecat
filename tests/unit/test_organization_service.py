@@ -665,19 +665,26 @@ class TestOrganizationServiceInvitations:
         service = OrgService(session, role=role)
 
         # Create first invitation
-        invitation = await service.create_invitation(email="expired@example.com")
-        old_id = invitation.id
+        result = await service.create_invitation(email="expired@example.com")
+        old_id = result.invitation.id
 
-        # Manually expire it
-        invitation.expires_at = datetime.now(UTC) - timedelta(days=1)
+        # Manually expire the DB record
+        from sqlalchemy import select
+
+        from tracecat.db.models import OrganizationInvitation
+
+        stmt = select(OrganizationInvitation).where(OrganizationInvitation.id == old_id)
+        db_result = await session.execute(stmt)
+        db_invitation = db_result.scalar_one()
+        db_invitation.expires_at = datetime.now(UTC) - timedelta(days=1)
         await session.commit()
 
         # Create new invitation for same email - should succeed
-        new_invitation = await service.create_invitation(email="expired@example.com")
+        new_result = await service.create_invitation(email="expired@example.com")
 
-        assert new_invitation.id != old_id
-        assert new_invitation.email == "expired@example.com"
-        assert new_invitation.expires_at > datetime.now(UTC)
+        assert new_result.invitation.id != old_id
+        assert new_result.invitation.email == "expired@example.com"
+        assert new_result.invitation.expires_at > datetime.now(UTC)
 
     @pytest.mark.anyio
     async def test_list_invitations_returns_org_invitations(
@@ -983,3 +990,66 @@ class TestOrganizationServiceInvitations:
 
         with pytest.raises(TracecatAuthorizationError, match="has been revoked"):
             await user_service.accept_invitation(db_invitation.token)
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_wrong_email_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ):
+        """Test accept_invitation raises error when user email doesn't match invitation."""
+        # Create invitation for a different email
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        result = await admin_service.create_invitation(
+            email="different@example.com",  # Different from user_in_org2.email
+            role=OrgRole.MEMBER,
+        )
+
+        # Get token from DB
+        db_invitation = await session.get(OrganizationInvitation, result.invitation.id)
+        assert db_invitation is not None
+
+        # Try to accept as user_in_org2 (wrong email)
+        user_role = Role(
+            type="user",
+            user_id=user_in_org2.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        user_service = OrgService(session, role=user_role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="This invitation was sent to a different email address",
+        ):
+            await user_service.accept_invitation(db_invitation.token)
+
+    @pytest.mark.anyio
+    async def test_create_invitation_replaces_revoked_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation replaces a revoked invitation."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        # Create first invitation
+        result = await service.create_invitation(email="revoked@example.com")
+        old_id = result.invitation.id
+
+        # Revoke it
+        await service.revoke_invitation(old_id)
+
+        # Create new invitation for same email - should succeed
+        new_result = await service.create_invitation(email="revoked@example.com")
+
+        assert new_result.invitation.id != old_id
+        assert new_result.invitation.email == "revoked@example.com"
+        assert new_result.invitation.status == InvitationStatus.PENDING

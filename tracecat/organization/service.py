@@ -269,7 +269,7 @@ class OrgService(BaseService):
         """
         if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
-                "User must be authenticated to create invitation"
+                f"User must be authenticated to create invitation {self.role}"
             )
 
         # Check for existing invitation
@@ -281,17 +281,17 @@ class OrgService(BaseService):
         existing = existing_result.scalar_one_or_none()
 
         if existing:
-            if existing.expires_at >= datetime.now(UTC):
+            # Allow new invitation if existing is expired or revoked
+            if (
+                existing.status == InvitationStatus.PENDING
+                and existing.expires_at >= datetime.now(UTC)
+            ):
                 raise TracecatValidationError(
                     f"An invitation already exists for {email} in this organization"
                 )
-            # Expired - delete it
+            # Expired or revoked - delete it to allow new invitation
             await self.session.delete(existing)
             await self.session.flush()
-        if self.role is None or self.role.user_id is None:
-            raise TracecatAuthorizationError(
-                "User must be authenticated to create invitation"
-            )
 
         # Use provided org_id or fall back to role's organization
         target_org_id = organization_id or self.organization_id
@@ -414,7 +414,8 @@ class OrgService(BaseService):
         """Accept an invitation and create organization membership.
 
         This method validates the invitation token, checks expiry and status,
-        then creates the membership record.
+        verifies the user's email matches the invitation, then creates the
+        membership record.
 
         Args:
             token: The unique invitation token.
@@ -425,7 +426,8 @@ class OrgService(BaseService):
         Raises:
             TracecatNotFoundError: If the invitation doesn't exist.
             TracecatAuthorizationError: If the invitation is expired, revoked,
-                or already accepted, or if the user is not authenticated.
+                already accepted, if the user is not authenticated, or if the
+                user's email does not match the invitation.
         """
         if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
@@ -441,6 +443,17 @@ class OrgService(BaseService):
             raise TracecatAuthorizationError("Invitation has been revoked")
         if invitation.expires_at < datetime.now(UTC):
             raise TracecatAuthorizationError("Invitation has expired")
+
+        # Validate the user's email matches the invitation
+        user_stmt = select(User).where(cast(User.id, UUID) == self.role.user_id)
+        user_result = await self.session.execute(user_stmt)
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            raise TracecatAuthorizationError("User not found")
+        if user.email.lower() != invitation.email.lower():
+            raise TracecatAuthorizationError(
+                "This invitation was sent to a different email address"
+            )
 
         # Create membership
         membership = await self.add_member(

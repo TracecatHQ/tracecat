@@ -18,6 +18,7 @@ from tracecat.db.models import (
 from tracecat.service import BaseService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgInvitationRead,
     OrgInviteRequest,
     OrgInviteResponse,
     OrgRead,
@@ -436,12 +437,13 @@ class AdminOrgService(BaseService):
                 org_slug=org.slug,
             )
 
-        # Create a service role for the organization
+        # Create a service role for the organization, preserving user_id for audit
         org_role = Role(
             type="service",
             access_level=AccessLevel.ADMIN,
             service_id="tracecat-api",
             organization_id=org.id,
+            user_id=self.role.user_id if self.role else None,
         )
 
         # Use OrgService to create the invitation (handles duplicate check + email)
@@ -467,3 +469,71 @@ class AdminOrgService(BaseService):
             org_created=org_created,
             magic_link=invitation_result.magic_link,
         )
+
+    async def list_org_invitations(
+        self, org_id: uuid.UUID
+    ) -> Sequence[OrgInvitationRead]:
+        """List all invitations for an organization.
+
+        Args:
+            org_id: Organization UUID.
+
+        Returns:
+            List of invitations for the organization.
+        """
+        from tracecat.db.models import OrganizationInvitation
+
+        # Verify org exists
+        await self.get_organization(org_id)
+
+        stmt = (
+            select(OrganizationInvitation)
+            .where(OrganizationInvitation.organization_id == org_id)
+            .order_by(OrganizationInvitation.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return [OrgInvitationRead.model_validate(inv) for inv in result.scalars().all()]
+
+    async def revoke_org_invitation(
+        self, org_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> OrgInvitationRead:
+        """Revoke an invitation.
+
+        Args:
+            org_id: Organization UUID.
+            invitation_id: Invitation UUID.
+
+        Returns:
+            The revoked invitation.
+
+        Raises:
+            ValueError: If the invitation is not found or not pending.
+        """
+        from tracecat.db.models import OrganizationInvitation
+        from tracecat.invitations.enums import InvitationStatus
+
+        # Verify org exists
+        await self.get_organization(org_id)
+
+        stmt = select(OrganizationInvitation).where(
+            OrganizationInvitation.id == invitation_id,
+            OrganizationInvitation.organization_id == org_id,
+        )
+        result = await self.session.execute(stmt)
+        invitation = result.scalar_one_or_none()
+
+        if invitation is None:
+            raise ValueError(
+                f"Invitation {invitation_id} not found in organization {org_id}"
+            )
+
+        if invitation.status != InvitationStatus.PENDING:
+            raise ValueError(
+                f"Cannot revoke invitation with status '{invitation.status}'"
+            )
+
+        invitation.status = InvitationStatus.REVOKED
+        await self.session.commit()
+        await self.session.refresh(invitation)
+
+        return OrgInvitationRead.model_validate(invitation)

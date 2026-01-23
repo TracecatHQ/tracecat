@@ -3015,21 +3015,6 @@ export type OrgInvitationCreate = {
 }
 
 /**
- * Response model for organization invitation.
- */
-export type OrgInvitationRead = {
-  id: string
-  organization_id: string
-  email: string
-  role: OrgRole
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  created_at: string
-  accepted_at: string | null
-}
-
-/**
  * Request to invite a user to an organization.
  */
 export type OrgInviteRequest = {
@@ -5916,6 +5901,21 @@ export type Yaml = {
 }
 
 /**
+ * Response model for organization invitation.
+ */
+export type tracecat__organization__schemas__OrgInvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  role: OrgRole
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+}
+
+/**
  * Response model for registry sync operation.
  */
 export type tracecat__registry__repositories__schemas__RegistrySyncResponse = {
@@ -5950,6 +5950,21 @@ export type tracecat__registry__repositories__schemas__RegistryVersionRead = {
   commit_sha: string | null
   tarball_uri: string | null
   created_at: string
+}
+
+/**
+ * Organization invitation response.
+ */
+export type tracecat_ee__admin__organizations__schemas__OrgInvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  role: OrgRole
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at?: string | null
 }
 
 /**
@@ -6678,13 +6693,15 @@ export type OrganizationCreateInvitationData = {
   requestBody: OrgInvitationCreate
 }
 
-export type OrganizationCreateInvitationResponse = OrgInvitationRead
+export type OrganizationCreateInvitationResponse =
+  tracecat__organization__schemas__OrgInvitationRead
 
 export type OrganizationListInvitationsData = {
   status?: InvitationStatus | null
 }
 
-export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+export type OrganizationListInvitationsResponse =
+  Array<tracecat__organization__schemas__OrgInvitationRead>
 
 export type OrganizationRevokeInvitationData = {
   invitationId: string
@@ -6702,7 +6719,8 @@ export type OrganizationGetInvitationByTokenData = {
   token: string
 }
 
-export type OrganizationGetInvitationByTokenResponse = OrgInvitationRead
+export type OrganizationGetInvitationByTokenResponse =
+  tracecat__organization__schemas__OrgInvitationRead
 
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
@@ -6943,6 +6961,21 @@ export type AdminInviteOrgUserData = {
 }
 
 export type AdminInviteOrgUserResponse = OrgInviteResponse
+
+export type AdminListOrgInvitationsData = {
+  orgId: string
+}
+
+export type AdminListOrgInvitationsResponse =
+  Array<tracecat_ee__admin__organizations__schemas__OrgInvitationRead>
+
+export type AdminRevokeOrgInvitationData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminRevokeOrgInvitationResponse =
+  tracecat_ee__admin__organizations__schemas__OrgInvitationRead
 
 export type AdminListOrgRepositoriesData = {
   orgId: string
@@ -9349,7 +9382,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: OrgInvitationRead
+        201: tracecat__organization__schemas__OrgInvitationRead
         /**
          * Validation Error
          */
@@ -9362,7 +9395,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgInvitationRead>
+        200: Array<tracecat__organization__schemas__OrgInvitationRead>
         /**
          * Validation Error
          */
@@ -9407,7 +9440,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgInvitationRead
+        200: tracecat__organization__schemas__OrgInvitationRead
         /**
          * Validation Error
          */
@@ -9865,6 +9898,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: OrgInviteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations": {
+    get: {
+      req: AdminListOrgInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat_ee__admin__organizations__schemas__OrgInvitationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}/revoke": {
+    post: {
+      req: AdminRevokeOrgInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat_ee__admin__organizations__schemas__OrgInvitationRead
         /**
          * Validation Error
          */

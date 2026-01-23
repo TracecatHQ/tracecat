@@ -10,6 +10,7 @@ from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgInvitationRead,
     OrgInviteRequest,
     OrgInviteResponse,
     OrgRead,
@@ -118,6 +119,45 @@ async def invite_org_user(
     try:
         return await service.invite_org_user(params)
     except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get(
+    "/{org_id}/invitations",
+    response_model=list[OrgInvitationRead],
+)
+async def list_org_invitations(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+) -> list[OrgInvitationRead]:
+    """List all invitations for an organization."""
+    service = AdminOrgService(session, role=role)
+    try:
+        return list(await service.list_org_invitations(org_id))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post(
+    "/{org_id}/invitations/{invitation_id}/revoke",
+    response_model=OrgInvitationRead,
+)
+async def revoke_org_invitation(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> OrgInvitationRead:
+    """Revoke a pending invitation."""
+    service = AdminOrgService(session, role=role)
+    try:
+        return await service.revoke_org_invitation(org_id, invitation_id)
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+            ) from e
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 

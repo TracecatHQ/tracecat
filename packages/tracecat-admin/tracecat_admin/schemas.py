@@ -150,5 +150,17 @@ class OrgInviteResponse(BaseModel):
     organization_slug: str
     org_created: bool
     magic_link: str
-    email_sent: bool
-    email_error: str | None = None
+
+
+class OrgInvitationRead(BaseModel):
+    """Organization invitation response."""
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    email: str
+    role: str
+    status: str
+    invited_by: uuid.UUID | None
+    expires_at: datetime
+    created_at: datetime
+    accepted_at: datetime | None = None
