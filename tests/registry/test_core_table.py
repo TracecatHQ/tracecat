@@ -1142,6 +1142,9 @@ async def ddl_workspace() -> AsyncGenerator[Workspace, None]:
 
     # Create the workspace in the real database using a clean session
     async with get_async_session_context_manager() as session:
+        # Set timeouts to avoid deadlocks with parallel workers
+        await session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await session.execute(text("SET LOCAL statement_timeout = '30s'"))
         session.add(workspace)
         await session.commit()
         # Refresh to get the committed state
@@ -1156,6 +1159,11 @@ async def ddl_workspace() -> AsyncGenerator[Workspace, None]:
         try:
             async with asyncio.timeout(30):  # 30 second timeout for cleanup
                 async with get_async_session_context_manager() as cleanup_session:
+                    # Set timeouts to avoid deadlocks with parallel workers
+                    await cleanup_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                    await cleanup_session.execute(
+                        text("SET LOCAL statement_timeout = '30s'")
+                    )
                     # Drop the schema if it exists (CASCADE drops all tables in schema)
                     await cleanup_session.execute(
                         text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')

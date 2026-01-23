@@ -972,6 +972,9 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     # so services that use `with_session()` (and thus `get_async_session_context_manager`)
     # can see the same workspace and satisfy foreign key constraints.
     async with get_async_session_context_manager() as global_session:
+        # Set timeouts to avoid deadlocks with parallel workers
+        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
         # Avoid duplicate insert if the workspace already exists
         result = await global_session.execute(
             select(Workspace).where(Workspace.id == workspace.id)
@@ -994,6 +997,13 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         # Clean up workspace from global session (postgres database) first
         try:
             async with get_async_session_context_manager() as global_cleanup_session:
+                # Set timeouts to avoid deadlocks with parallel workers
+                await global_cleanup_session.execute(
+                    text("SET LOCAL lock_timeout = '5s'")
+                )
+                await global_cleanup_session.execute(
+                    text("SET LOCAL statement_timeout = '30s'")
+                )
                 result = await global_cleanup_session.execute(
                     select(Workspace).where(Workspace.id == workspace.id)
                 )
@@ -1020,6 +1030,11 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
                     # If that fails, try with a completely new session
                     await session.close()
                     async with get_async_session_context_manager() as new_session:
+                        # Set timeouts to avoid deadlocks with parallel workers
+                        await new_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                        await new_session.execute(
+                            text("SET LOCAL statement_timeout = '30s'")
+                        )
                         # Fetch the workspace again in the new session by logical ID
                         result = await new_session.execute(
                             select(Workspace).where(Workspace.id == workspace.id)
