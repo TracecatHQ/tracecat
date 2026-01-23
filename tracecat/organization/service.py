@@ -48,13 +48,11 @@ class OrgService(BaseService):
             Sequence[User]: A sequence containing User objects of all
             members in the organization.
         """
-        if self.role is None:
-            raise ValueError("Role is required to list members")
         statement = select(User).join(
             OrganizationMembership,
             and_(
                 OrganizationMembership.user_id == User.id,
-                OrganizationMembership.organization_id == self.role.organization_id,
+                OrganizationMembership.organization_id == self.organization_id,
             ),
         )
         result = await self.session.execute(statement)
@@ -73,15 +71,13 @@ class OrgService(BaseService):
         Raises:
             NoResultFound: If no user with the given ID exists in this organization.
         """
-        if self.role is None:
-            raise ValueError("Role is required to get member")
         statement = (
             select(User)
             .join(
                 OrganizationMembership,
                 and_(
                     OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == self.role.organization_id,
+                    OrganizationMembership.organization_id == self.organization_id,
                 ),
             )
             .where(cast(User.id, UUID) == user_id)
@@ -187,8 +183,6 @@ class OrgService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
         """List all sessions for users in this organization."""
-        if self.role is None:
-            raise ValueError("Role is required to list sessions")
         statement = (
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
@@ -196,7 +190,7 @@ class OrgService(BaseService):
                 OrganizationMembership,
                 and_(
                     OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == self.role.organization_id,
+                    OrganizationMembership.organization_id == self.organization_id,
                 ),
             )
             .options(contains_eager(AccessToken.user))
@@ -216,8 +210,6 @@ class OrgService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID (must belong to a user in this organization)."""
-        if self.role is None:
-            raise ValueError("Role is required to delete session")
         statement = (
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
@@ -225,7 +217,7 @@ class OrgService(BaseService):
                 OrganizationMembership,
                 and_(
                     OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == self.role.organization_id,
+                    OrganizationMembership.organization_id == self.organization_id,
                 ),
             )
             .where(AccessToken.id == session_id)
