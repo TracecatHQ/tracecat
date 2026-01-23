@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import (
     Boolean,
+    Select,
     String,
     cast,
     func,
@@ -80,6 +81,21 @@ from tracecat.settings.service import get_setting_cached
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
+
+# Type alias for index query result tuple.
+# Explicit typing required because SQLAlchemy's select() type overloads cap at 10 args.
+type _IndexSelectRow = tuple[
+    uuid.UUID,  # id
+    str,  # namespace
+    str,  # name
+    str,  # action_type
+    str,  # description
+    str | None,  # default_title
+    str | None,  # display_group
+    dict,  # options
+    str,  # origin
+    str,  # source
+]
 
 
 class SecretAggregate(TypedDict):
@@ -170,10 +186,19 @@ class RegistryActionsService(BaseService):
         Returns tuples of (index_entry, origin) from both org-scoped and platform registries.
         Uses a single database call with UNION ALL for efficiency.
         """
-        # Org-scoped registry query - select whole model for simpler code
-        org_statement = (
+        # Org-scoped registry query - select explicit columns for UNION ALL compatibility
+        # (RegistryIndex has organization_id, PlatformRegistryIndex doesn't)
+        # Explicit typing required because SQLAlchemy's select() type overloads cap at 10 args
+        org_statement: Select[_IndexSelectRow] = (
             select(
-                RegistryIndex,
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
                 RegistryRepository.origin,
                 literal("org", type_=String).label("source"),
             )
@@ -191,10 +216,17 @@ class RegistryActionsService(BaseService):
             )
         )
 
-        # Platform registry query - select whole model for simpler code
-        platform_statement = (
+        # Platform registry query - select explicit columns for UNION ALL compatibility
+        platform_statement: Select[_IndexSelectRow] = (
             select(
-                PlatformRegistryIndex,
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
                 PlatformRegistryRepository.origin,
                 literal("platform", type_=String).label("source"),
             )
@@ -253,8 +285,19 @@ class RegistryActionsService(BaseService):
         # Convert to index entries, deduplicating (org-scoped takes precedence)
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
-        for index, origin, _ in rows:  # _ is source indicator (org/platform)
-            action_name = f"{index.namespace}.{index.name}"
+        for (
+            id_,
+            ns,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            origin,
+            _,  # source indicator (org/platform)
+        ) in rows:
+            action_name = f"{ns}.{name}"
             # Skip duplicates (org-scoped takes precedence due to ORDER BY)
             if action_name in seen_actions:
                 self.logger.warning(
@@ -264,7 +307,16 @@ class RegistryActionsService(BaseService):
                 continue
             seen_actions.add(action_name)
 
-            entry = IndexEntry.from_index(index, include_extended=False)
+            entry = IndexEntry(
+                id=id_,
+                namespace=ns,
+                name=name,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options or {},
+            )
             entries.append((entry, origin))
         return entries
 
