@@ -5,9 +5,45 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import Field
+from pydantic import EmailStr, Field
 
+from tracecat.authz.enums import OrgRole
 from tracecat.core.schemas import Schema
+
+
+class OrgInviteRequest(Schema):
+    """Request to invite a user to an organization."""
+
+    email: EmailStr
+    role: OrgRole = Field(default=OrgRole.MEMBER)
+    org_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Organization name. If org doesn't exist, creates it with this name.",
+    )
+    org_slug: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z0-9-]+$",
+        description="Organization slug. If not provided, uses 'default' or 'default-N'.",
+    )
+
+
+class OrgInviteResponse(Schema):
+    """Response from inviting a user to an organization."""
+
+    invitation_id: uuid.UUID
+    email: str
+    role: OrgRole
+    organization_id: uuid.UUID
+    organization_name: str
+    organization_slug: str
+    org_created: bool
+    magic_link: str
+    email_sent: bool
+    email_error: str | None = None
 
 
 class OrgCreate(Schema):

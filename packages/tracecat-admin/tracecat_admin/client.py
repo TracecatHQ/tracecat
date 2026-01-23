@@ -9,6 +9,7 @@ import httpx
 
 from tracecat_admin.config import Config, get_config, load_cookies
 from tracecat_admin.schemas import (
+    OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -277,3 +278,27 @@ class AdminClient:
             f"/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions/{version_id}/promote",
         )
         return OrgRegistryVersionPromoteResponse.model_validate(response.json())
+
+    # Invitation endpoints
+    async def invite_org_user(
+        self,
+        email: str,
+        role: str,
+        org_name: str | None = None,
+        org_slug: str | None = None,
+    ) -> OrgInviteResponse:
+        """Invite a user to an organization.
+
+        If the organization doesn't exist, creates it first.
+        """
+        data: dict[str, Any] = {"email": email, "role": role}
+        if org_name is not None:
+            data["org_name"] = org_name
+        if org_slug is not None:
+            data["org_slug"] = org_slug
+        response = await self._request(
+            "POST",
+            "/admin/organizations/invitations",
+            json=data,
+        )
+        return OrgInviteResponse.model_validate(response.json())

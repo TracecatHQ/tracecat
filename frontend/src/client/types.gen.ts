@@ -3029,6 +3029,38 @@ export type OrgInvitationRead = {
   accepted_at: string | null
 }
 
+/**
+ * Request to invite a user to an organization.
+ */
+export type OrgInviteRequest = {
+  email: string
+  role?: OrgRole
+  /**
+   * Organization name. If org doesn't exist, creates it with this name.
+   */
+  org_name?: string | null
+  /**
+   * Organization slug. If not provided, uses 'default' or 'default-N'.
+   */
+  org_slug?: string | null
+}
+
+/**
+ * Response from inviting a user to an organization.
+ */
+export type OrgInviteResponse = {
+  invitation_id: string
+  email: string
+  role: OrgRole
+  organization_id: string
+  organization_name: string
+  organization_slug: string
+  org_created: boolean
+  magic_link: string
+  email_sent: boolean
+  email_error?: string | null
+}
+
 export type OrgMemberRead = {
   user_id: string
   first_name: string | null
@@ -6908,6 +6940,12 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminInviteOrgUserData = {
+  requestBody: OrgInviteRequest
+}
+
+export type AdminInviteOrgUserResponse = OrgInviteResponse
+
 export type AdminListOrgRepositoriesData = {
   orgId: string
 }
@@ -9814,6 +9852,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/invitations": {
+    post: {
+      req: AdminInviteOrgUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: OrgInviteResponse
         /**
          * Validation Error
          */

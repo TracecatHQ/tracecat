@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useState } from "react"
@@ -56,11 +56,14 @@ function isEmailLoginValidationError(
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = searchParams?.get("redirect") || "/workspaces"
+
   useEffect(() => {
     if (user) {
-      router.push("/workspaces")
+      router.push(redirectUrl)
     }
-  }, [user, router])
+  }, [user, router, redirectUrl])
 
   return (
     <div
@@ -83,7 +86,14 @@ export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/sign-in" className="underline">
+            <Link
+              href={
+                redirectUrl !== "/workspaces"
+                  ? `/sign-in?redirect=${encodeURIComponent(redirectUrl)}`
+                  : "/sign-in"
+              }
+              className="underline"
+            >
               Sign in
             </Link>
           </div>

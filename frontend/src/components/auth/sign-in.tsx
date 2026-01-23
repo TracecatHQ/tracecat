@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useState } from "react"
@@ -39,8 +39,11 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = searchParams?.get("redirect") || "/workspaces"
+
   if (user) {
-    router.push("/workspaces")
+    router.push(redirectUrl)
   }
 
   if (appInfoIsLoading) {
@@ -94,7 +97,14 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
           <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
             <div className="mt-4 text-center">
               Don&apos;t have an account?{" "}
-              <Link href="/sign-up" className="underline">
+              <Link
+                href={
+                  redirectUrl !== "/workspaces"
+                    ? `/sign-up?redirect=${encodeURIComponent(redirectUrl)}`
+                    : "/sign-up"
+                }
+                className="underline"
+              >
                 Sign up
               </Link>
             </div>

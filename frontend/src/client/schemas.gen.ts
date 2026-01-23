@@ -9207,6 +9207,122 @@ export const $OrgInvitationRead = {
   description: "Response model for organization invitation.",
 } as const
 
+export const $OrgInviteRequest = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+      default: "member",
+    },
+    org_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Org Name",
+      description:
+        "Organization name. If org doesn't exist, creates it with this name.",
+    },
+    org_slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+          pattern: "^[a-z0-9-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Org Slug",
+      description:
+        "Organization slug. If not provided, uses 'default' or 'default-N'.",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "OrgInviteRequest",
+  description: "Request to invite a user to an organization.",
+} as const
+
+export const $OrgInviteResponse = {
+  properties: {
+    invitation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Invitation Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    organization_slug: {
+      type: "string",
+      title: "Organization Slug",
+    },
+    org_created: {
+      type: "boolean",
+      title: "Org Created",
+    },
+    magic_link: {
+      type: "string",
+      title: "Magic Link",
+    },
+    email_sent: {
+      type: "boolean",
+      title: "Email Sent",
+    },
+    email_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Error",
+    },
+  },
+  type: "object",
+  required: [
+    "invitation_id",
+    "email",
+    "role",
+    "organization_id",
+    "organization_name",
+    "organization_slug",
+    "org_created",
+    "magic_link",
+    "email_sent",
+  ],
+  title: "OrgInviteResponse",
+  description: "Response from inviting a user to an organization.",
+} as const
+
 export const $OrgMemberRead = {
   properties: {
     user_id: {

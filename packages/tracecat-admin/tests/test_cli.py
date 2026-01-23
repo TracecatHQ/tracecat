@@ -38,12 +38,78 @@ class TestAdminCommands:
         assert "promote-user" in result.stdout
         assert "demote-user" in result.stdout
         assert "create-superuser" in result.stdout
+        assert "invite" in result.stdout
 
     def test_list_users_requires_service_key(self) -> None:
         """Test list-users requires service key."""
         result = runner.invoke(app, ["admin", "list-users"])
         assert result.exit_code == 1
-        assert "TRACECAT__SERVICE_KEY" in result.stdout
+        assert (
+            "TRACECAT__SERVICE_KEY" in result.output
+            or "Not authenticated" in result.output
+        )
+
+
+class TestInviteCommands:
+    """Test invite command group."""
+
+    def test_invite_help(self) -> None:
+        """Test invite help."""
+        result = runner.invoke(app, ["admin", "invite", "--help"])
+        assert result.exit_code == 0
+        assert "org" in result.stdout
+
+    def test_invite_org_help(self) -> None:
+        """Test invite org help."""
+        result = runner.invoke(app, ["admin", "invite", "org", "--help"])
+        assert result.exit_code == 0
+        assert "--email" in result.stdout
+        assert "--role" in result.stdout
+        assert "--org-name" in result.stdout
+        assert "--org-slug" in result.stdout
+
+    def test_invite_org_requires_email(self) -> None:
+        """Test invite org requires email."""
+        result = runner.invoke(app, ["admin", "invite", "org"])
+        assert result.exit_code == 2
+        assert "Missing option" in result.output or "--email" in result.output
+
+    def test_invite_org_validates_role(self) -> None:
+        """Test invite org validates role."""
+        result = runner.invoke(
+            app,
+            [
+                "admin",
+                "invite",
+                "org",
+                "--email",
+                "test@example.com",
+                "--role",
+                "invalid",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Invalid role" in result.output
+
+    def test_invite_org_requires_auth(self) -> None:
+        """Test invite org requires authentication."""
+        result = runner.invoke(
+            app,
+            [
+                "admin",
+                "invite",
+                "org",
+                "--email",
+                "test@example.com",
+                "--role",
+                "admin",
+            ],
+        )
+        assert result.exit_code == 1
+        assert (
+            "TRACECAT__SERVICE_KEY" in result.output
+            or "Not authenticated" in result.output
+        )
 
 
 class TestOrgsCommands:

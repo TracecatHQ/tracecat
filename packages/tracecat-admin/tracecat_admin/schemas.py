@@ -137,3 +137,18 @@ class OrgRegistryVersionPromoteResponse(BaseModel):
     previous_version: str | None
     current_version_id: uuid.UUID
     current_version: str
+
+
+class OrgInviteResponse(BaseModel):
+    """Response from inviting a user to an organization."""
+
+    invitation_id: uuid.UUID
+    email: str
+    role: str
+    organization_id: uuid.UUID
+    organization_name: str
+    organization_slug: str
+    org_created: bool
+    magic_link: str
+    email_sent: bool
+    email_error: str | None = None

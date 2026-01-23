@@ -12,6 +12,7 @@ import typer
 from tracecat_admin.client import AdminClient, AdminClientError
 from tracecat_admin.output import (
     print_error,
+    print_invite_result,
     print_success,
     print_user_detail,
     print_users_table,
@@ -201,5 +202,83 @@ def create_superuser(
         else:
             print_success(f"Promoted existing user '{email}' to superuser")
     except Exception as e:
+        print_error(str(e))
+        raise typer.Exit(1) from None
+
+
+# Invite subcommand group
+invite_app = typer.Typer(no_args_is_help=True)
+app.add_typer(invite_app, name="invite", help="Invitation management.")
+
+
+@invite_app.command("org")
+@async_command
+async def invite_org(
+    email: Annotated[
+        str, typer.Option("--email", "-e", help="Email address to invite")
+    ],
+    role: Annotated[
+        str,
+        typer.Option(
+            "--role",
+            "-r",
+            help="Role to assign (owner, admin, member)",
+        ),
+    ] = "admin",
+    org_name: Annotated[
+        str | None,
+        typer.Option(
+            "--org-name",
+            "-n",
+            help="Organization name. Creates org if it doesn't exist.",
+        ),
+    ] = None,
+    org_slug: Annotated[
+        str | None,
+        typer.Option(
+            "--org-slug",
+            "-s",
+            help="Organization slug. If not provided, uses 'default' or 'default-N'.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help="Output as JSON")
+    ] = False,
+) -> None:
+    """Invite a user to an organization.
+
+    If the organization doesn't exist, creates it first.
+    Sends an invitation email with a magic link.
+
+    Examples:
+
+        # Invite to default organization
+        tracecat admin invite org --email admin@example.com --role admin
+
+        # Invite to a specific organization (creates if doesn't exist)
+        tracecat admin invite org --email admin@acme.com --role admin --org-name "Acme Corp" --org-slug acme
+    """
+    # Validate role
+    valid_roles = {"owner", "admin", "member"}
+    if role.lower() not in valid_roles:
+        print_error(f"Invalid role '{role}'. Must be one of: {', '.join(valid_roles)}")
+        raise typer.Exit(1)
+
+    try:
+        async with AdminClient() as client:
+            result = await client.invite_org_user(
+                email=email,
+                role=role.lower(),
+                org_name=org_name,
+                org_slug=org_slug,
+            )
+
+        if json_output:
+            import json
+
+            typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
+        else:
+            print_invite_result(result)
+    except AdminClientError as e:
         print_error(str(e))
         raise typer.Exit(1) from None

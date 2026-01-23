@@ -658,6 +658,30 @@ docutils==0.22.4 \
     --hash=sha256:4db53b1fde9abecbb74d91230d32ab626d94f6badfc575d6db9194a49df29968 \
     --hash=sha256:d0013f540772d1420576855455d050a2180186c91c15779301ac2ccb3eeb68de
     # via rich-rst
+duckdb==1.4.3 \
+    --hash=sha256:006aca6a6d6736c441b02ff5c7600b099bb8b7f4de094b8b062137efddce42df \
+    --hash=sha256:130c6760f6c573f9c9fe9aba56adba0fab48811a4871b7b8fd667318b4a3e8da \
+    --hash=sha256:16952ac05bd7e7b39946695452bf450db1ebbe387e1e7178e10f593f2ea7b9a8 \
+    --hash=sha256:1b35491db98ccd11d151165497c084a9d29d3dc42fc80abea2715a6c861ca43d \
+    --hash=sha256:1b9b445970fd18274d5ac07a0b24c032e228f967332fb5ebab3d7db27738c0e4 \
+    --hash=sha256:1e5457dda91b67258aae30fb1a0df84183a9f6cd27abac1d5536c0d876c6dfa1 \
+    --hash=sha256:20c88effaa557a11267706b01419c542fe42f893dee66e5a6daa5974ea2d4a46 \
+    --hash=sha256:23b12854032c1a58d0452e2b212afa908d4ce64171862f3792ba9a596ba7c765 \
+    --hash=sha256:274d4a31aba63115f23e7e7b401e3e3a937f3626dc9dea820a9c7d3073f450d2 \
+    --hash=sha256:316711a9e852bcfe1ed6241a5f654983f67e909e290495f3562cccdf43be8180 \
+    --hash=sha256:4f868a7e6d9b37274a1aa34849ea92aa964e9bd59a5237d6c17e8540533a1e4f \
+    --hash=sha256:5634e40e1e2d972e4f75bced1fbdd9e9e90faa26445c1052b27de97ee546944a \
+    --hash=sha256:6302452e57aef29aae3977063810ed7b2927967b97912947b9cca45c1c21955f \
+    --hash=sha256:6db124f53a3edcb32b0a896ad3519e37477f7e67bf4811cb41ab60c1ef74e4c8 \
+    --hash=sha256:90f241f25cffe7241bf9f376754a5845c74775e00e1c5731119dc88cd71e0cb2 \
+    --hash=sha256:9e625b2b4d52bafa1fd0ebdb0990c3961dac8bb00e30d327185de95b68202131 \
+    --hash=sha256:a2813f4635f4d6681cc3304020374c46aca82758c6740d7edbc237fe3aae2744 \
+    --hash=sha256:a8b0a8764e1b5dd043d168c8f749314f7a1252b5a260fa415adaa26fa3b958fd \
+    --hash=sha256:de984cd24a6cbefdd6d4a349f7b9a46e583ca3e58ce10d8def0b20a6e5fcbe78 \
+    --hash=sha256:deab351ac43b6282a3270e3d40e3d57b3b50f472d9fd8c30975d88a31be41231 \
+    --hash=sha256:ef7ef15347ce97201b1b5182a5697682679b04c3374d5a01ac10ba31cf791b95 \
+    --hash=sha256:fea43e03604c713e25a25211ada87d30cd2a044d8f27afab5deba26ac49e5268
+    # via tracecat-registry
 elementpath==4.8.0 \
     --hash=sha256:5393191f84969bcf8033b05ec4593ef940e58622ea13cefe60ecefbbf09d58d9 \
     --hash=sha256:5822a2560d99e2633d95f78694c7ff9646adaa187db520da200a8e9479dc46ae
@@ -2533,8 +2557,13 @@ requests==2.32.5 \
     #   msal
     #   pygithub
     #   pysaml2
+    #   resend
     #   tavily-python
     #   tiktoken
+resend==2.21.0 \
+    --hash=sha256:765288c2015c2c4dd0fb3c8596af4007709b790336eda2966593194377546d11 \
+    --hash=sha256:906d1916298e7b6b9a0f2a8e81a123f12cda5fd07683ecbfa53b54e8ec58f5f4
+    # via tracecat
 resolvelib==1.2.1 \
     --hash=sha256:7d08a2022f6e16ce405d60b68c390f054efcfd0477d4b9bd019cc941c28fad1c \
     --hash=sha256:fb06b66c8da04172d9e72a21d7d06186d8919e32ae5ab5cdf5b9d920be805ac2
@@ -3038,6 +3067,7 @@ typing-extensions==4.15.0 \
     #   pygithub
     #   pyopenssl
     #   referencing
+    #   resend
     #   rich-toolkit
     #   sqlalchemy
     #   starlette

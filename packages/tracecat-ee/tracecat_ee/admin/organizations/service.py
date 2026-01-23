@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.db.models import Organization, RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    Organization,
+    OrganizationInvitation,
+    RegistryRepository,
+    RegistryVersion,
+)
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgInviteRequest,
+    OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -352,4 +362,140 @@ class AdminOrgService(BaseService):
             previous_version=previous_version_str,
             current_version_id=version_id,
             current_version=version.version,
+        )
+
+    # Invitation Methods
+
+    async def invite_org_user(self, params: OrgInviteRequest) -> OrgInviteResponse:
+        """Invite a user to an organization.
+
+        If the organization doesn't exist, creates it first.
+        Sends an invitation email with a magic link.
+
+        Args:
+            params: Invitation request with email, role, and optional org details.
+
+        Returns:
+            OrgInviteResponse with invitation details and magic link.
+        """
+        org_created = False
+
+        # Determine slug to use
+        slug = params.org_slug or "default"
+
+        # Try to find existing org by slug
+        stmt = select(Organization).where(Organization.slug == slug)
+        result = await self.session.execute(stmt)
+        org = result.scalar_one_or_none()
+
+        if org is None:
+            # If slug is "default" and it exists, try default-1, default-2, etc.
+            if params.org_slug is None:
+                counter = 1
+                while True:
+                    candidate_slug = f"default-{counter}" if counter > 0 else "default"
+                    if counter == 1:
+                        candidate_slug = "default"
+                    else:
+                        candidate_slug = f"default-{counter - 1}"
+
+                    # First iteration: try "default", then "default-1", "default-2", etc.
+                    if counter == 1:
+                        candidate_slug = "default"
+                    else:
+                        candidate_slug = f"default-{counter - 1}"
+
+                    stmt = select(Organization).where(
+                        Organization.slug == candidate_slug
+                    )
+                    result = await self.session.execute(stmt)
+                    existing = result.scalar_one_or_none()
+
+                    if existing is None:
+                        slug = candidate_slug
+                        break
+                    counter += 1
+                    if counter > 100:
+                        raise ValueError("Too many default organizations")
+
+            # Create the organization
+            org_name = params.org_name or "Default Organization"
+            org = Organization(
+                id=uuid.uuid4(),
+                name=org_name,
+                slug=slug,
+            )
+            self.session.add(org)
+            try:
+                await self.session.flush()
+            except IntegrityError as e:
+                await self.session.rollback()
+                raise ValueError(
+                    f"Organization with slug '{slug}' already exists"
+                ) from e
+            org_created = True
+            self.logger.info(
+                "Created organization",
+                org_id=str(org.id),
+                org_name=org.name,
+                org_slug=org.slug,
+            )
+
+        # Create the invitation
+        token = secrets.token_urlsafe(32)
+        invitation = OrganizationInvitation(
+            organization_id=org.id,
+            email=params.email,
+            role=params.role,
+            invited_by=None,  # Admin CLI invitations don't have an inviter user
+            token=token,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+        )
+        self.session.add(invitation)
+        await self.session.commit()
+        await self.session.refresh(invitation)
+        await self.session.refresh(org)
+
+        self.logger.info(
+            "Created invitation",
+            invitation_id=str(invitation.id),
+            email=params.email,
+            org_id=str(org.id),
+            role=params.role.value,
+        )
+
+        # Build magic link
+        magic_link = f"{config.TRACECAT__PUBLIC_APP_URL}/invite/accept?token={token}"
+
+        # Send email
+        email_sent = False
+        email_error: str | None = None
+        try:
+            from tracecat.email import EmailService
+
+            email_service = EmailService()
+            result = email_service.send_org_invitation(
+                to_email=params.email,
+                org_name=org.name,
+                magic_link=magic_link,
+            )
+            email_sent = result.success
+            if not result.success:
+                email_error = result.error
+        except Exception as e:
+            self.logger.warning("Failed to send invitation email: %s", e)
+            email_error = str(e)
+
+        return OrgInviteResponse(
+            invitation_id=invitation.id,
+            email=params.email,
+            role=params.role,
+            organization_id=org.id,
+            organization_name=org.name,
+            organization_slug=org.slug,
+            org_created=org_created,
+            magic_link=magic_link,
+            email_sent=email_sent,
+            email_error=email_error,
         )
