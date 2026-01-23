@@ -77,8 +77,8 @@ lint: lint-ui lint-app
 lint-fix: lint-fix-ui lint-fix-app
 fix: lint-fix
 
-mypy path:
-	mypy --ignore-missing-imports {{path}}
+typecheck:
+	uv run basedpyright --warnings --threads 4
 gen-client:
 	pnpm -C frontend generate-client
 	just lint-fix
