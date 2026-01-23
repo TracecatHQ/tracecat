@@ -13,12 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
-    RegistrySecretTypeValidator,
 )
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
@@ -77,7 +75,6 @@ async def validate_single_secret(
     secrets_service: SecretsService,
     checked_keys: set[str],
     environment: str,
-    action: RegistryAction | None,  # Not used, kept for backward compatibility
     registry_secret: RegistrySecret,
 ) -> list[SecretValidationResult]:
     """Validate a single secret against the secrets manager."""
@@ -135,45 +132,6 @@ async def validate_single_secret(
     return results
 
 
-async def check_action_secrets(
-    secrets_service: SecretsService,
-    registry_service: RegistryActionsService,
-    checked_keys: set[str],
-    environment: str,
-    action: RegistryAction,
-) -> list[SecretValidationResult]:
-    """Check all secrets for a single action."""
-    results: list[SecretValidationResult] = []
-    secrets = [
-        RegistrySecretTypeValidator.validate_python(secret)
-        for secret in action.secrets or []
-    ]
-    implicit_secrets = await registry_service.fetch_all_action_secrets(action)
-    secrets.extend(implicit_secrets)
-
-    for registry_secret in secrets:
-        if registry_secret.type == "oauth":
-            # Workspace integration
-            secret_results = await validate_workspace_integration(
-                secrets_service.session,
-                checked_keys,
-                environment,
-                registry_secret,
-            )
-        else:
-            # Workspace secret
-            secret_results = await validate_single_secret(
-                secrets_service,
-                checked_keys,
-                environment,
-                action,
-                registry_secret,
-            )
-        results.extend(secret_results)
-
-    return results
-
-
 async def check_action_secrets_from_manifest(
     secrets_service: SecretsService,
     checked_keys: set[str],
@@ -208,7 +166,6 @@ async def check_action_secrets_from_manifest(
                 secrets_service,
                 checked_keys,
                 environment,
-                None,  # action parameter not used in this path
                 registry_secret,
             )
         results.extend(secret_results)
