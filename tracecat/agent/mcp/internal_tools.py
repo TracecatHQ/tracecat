@@ -123,8 +123,11 @@ async def list_available_tools(
     if len(query) > 100:
         raise InternalToolError("query parameter must be at most 100 characters")
 
+    role = _build_role(claims)
+    ctx_role.set(role)
+
     # Search using registry index instead of RegistryAction table
-    async with RegistryActionsService.with_session() as svc:
+    async with RegistryActionsService.with_session(role=role) as svc:
         entries = await svc.search_actions_from_index(query)
         logger.info(
             "Listed available actions from index",
