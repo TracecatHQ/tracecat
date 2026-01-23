@@ -140,8 +140,6 @@ async def get_registry_artifacts_for_lock(
     if not platform_misses and not org_misses:
         return sorted(cached_artifacts, key=lambda x: x.origin)
 
-    all_misses = platform_misses + org_misses
-
     # Fetch all misses with a single UNION ALL query
     fetched_artifacts: list[RegistryArtifactsContext] = []
     async with get_async_session_context_manager() as session:
@@ -229,7 +227,7 @@ async def get_registry_artifacts_for_lock(
                 )
 
         # Log warnings for any misses not found
-        for origin, version in all_misses:
+        for origin, version in platform_misses + org_misses:
             if (origin, version) not in found_keys:
                 logger.warning(
                     "Registry version not found for lock entry",

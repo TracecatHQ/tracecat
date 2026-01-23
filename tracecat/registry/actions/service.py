@@ -111,6 +111,34 @@ class IndexEntry:
     author: str | None = None
     deprecated: str | None = None
 
+    @classmethod
+    def from_index(
+        cls,
+        index: RegistryIndex | PlatformRegistryIndex,
+        *,
+        include_extended: bool = True,
+    ) -> IndexEntry:
+        """Create IndexEntry from a registry index model.
+
+        Args:
+            index: The registry index model (org-scoped or platform).
+            include_extended: If True, includes doc_url, author, and deprecated fields.
+                Set to False for minimal entries (e.g., list_actions_from_index).
+        """
+        return cls(
+            id=index.id,
+            namespace=index.namespace,
+            name=index.name,
+            action_type=index.action_type,
+            description=index.description,
+            default_title=index.default_title,
+            display_group=index.display_group,
+            options=index.options or {},
+            doc_url=index.doc_url if include_extended else None,
+            author=index.author if include_extended else None,
+            deprecated=index.deprecated if include_extended else None,
+        )
+
 
 @dataclass(slots=True)
 class IndexedActionResult:
@@ -154,10 +182,8 @@ class RegistryActionsService(BaseService):
 
         if include_keys:
             statement = statement.where(
-                or_(
-                    func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
-                        include_keys
-                    )
+                func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
+                    include_keys
                 )
             )
 
@@ -270,16 +296,7 @@ class RegistryActionsService(BaseService):
                 continue
             seen_actions.add(action_name)
 
-            entry = IndexEntry(
-                id=index.id,
-                namespace=index.namespace,
-                name=index.name,
-                action_type=index.action_type,
-                description=index.description,
-                default_title=index.default_title,
-                display_group=index.display_group,
-                options=index.options or {},
-            )
+            entry = IndexEntry.from_index(index, include_extended=False)
             entries.append((entry, origin))
         return entries
 
@@ -351,20 +368,7 @@ class RegistryActionsService(BaseService):
             action_name = f"{index.namespace}.{index.name}"
             manifest_action = manifest.actions.get(action_name)
             if manifest_action:
-                # Create index-like object for from_index_and_manifest
-                index_entry = IndexEntry(
-                    id=index.id,
-                    namespace=index.namespace,
-                    name=index.name,
-                    action_type=index.action_type,
-                    description=index.description,
-                    default_title=index.default_title,
-                    display_group=index.display_group,
-                    options=index.options or {},
-                    doc_url=index.doc_url,
-                    author=index.author,
-                    deprecated=index.deprecated,
-                )
+                index_entry = IndexEntry.from_index(index)
                 actions.append(
                     RegistryActionRead.from_index_and_manifest(
                         index_entry,
@@ -459,19 +463,7 @@ class RegistryActionsService(BaseService):
 
         manifest = RegistryVersionManifest.model_validate(manifest_data)
         return IndexedActionResult(
-            index_entry=IndexEntry(
-                id=index.id,
-                namespace=index.namespace,
-                name=index.name,
-                action_type=index.action_type,
-                description=index.description,
-                default_title=index.default_title,
-                display_group=index.display_group,
-                options=index.options or {},
-                doc_url=index.doc_url,
-                author=index.author,
-                deprecated=index.deprecated,
-            ),
+            index_entry=IndexEntry.from_index(index),
             manifest=manifest,
             origin=origin,
             repository_id=repo_id,
@@ -581,22 +573,9 @@ class RegistryActionsService(BaseService):
             if action_name in actions:
                 continue
 
-            index_entry = IndexEntry(
-                id=index.id,
-                namespace=index.namespace,
-                name=index.name,
-                action_type=index.action_type,
-                description=index.description,
-                default_title=index.default_title,
-                display_group=index.display_group,
-                options=index.options or {},
-                doc_url=index.doc_url,
-                author=index.author,
-                deprecated=index.deprecated,
-            )
             manifest = RegistryVersionManifest.model_validate(manifest_data)
             actions[action_name] = IndexedActionResult(
-                index_entry=index_entry,
+                index_entry=IndexEntry.from_index(index),
                 manifest=manifest,
                 origin=origin,
                 repository_id=repo_id,
@@ -697,20 +676,7 @@ class RegistryActionsService(BaseService):
                 continue
             seen_actions.add(action_name)
 
-            entry = IndexEntry(
-                id=index.id,
-                namespace=index.namespace,
-                name=index.name,
-                action_type=index.action_type,
-                description=index.description,
-                default_title=index.default_title,
-                display_group=index.display_group,
-                options=index.options or {},
-                doc_url=index.doc_url,
-                author=index.author,
-                deprecated=index.deprecated,
-            )
-            entries.append((entry, origin))
+            entries.append((IndexEntry.from_index(index), origin))
 
         return entries
 
