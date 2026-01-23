@@ -14,12 +14,12 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Membership, Ownership, User, Workspace
 from tracecat.exceptions import TracecatException, TracecatManagementError
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import WorkspaceSearch, WorkspaceUpdate
 
 
-class WorkspaceService(BaseService):
+class WorkspaceService(BaseOrgService):
     """Manage workspaces."""
 
     service_name = "workspace"

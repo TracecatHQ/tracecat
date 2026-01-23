@@ -21,10 +21,10 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService, BaseService
 
 
-class RegistryVersionsService(BaseService):
+class RegistryVersionsService(BaseOrgService):
     """Service for managing immutable registry versions."""
 
     service_name: ClassVar[str] = "registry_versions"

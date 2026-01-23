@@ -12,10 +12,10 @@ from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
     RegistryRepositoryUpdate,
 )
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 
 
-class RegistryReposService(BaseService):
+class RegistryReposService(BaseOrgService):
     """Registry repository service."""
 
     service_name = "registry_repositories"

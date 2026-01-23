@@ -20,10 +20,10 @@ from tracecat.authz.enums import OrgRole
 from tracecat.db.models import AccessToken, OrganizationMembership, User
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import OrganizationID, SessionID, UserID
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 
 
-class OrgService(BaseService):
+class OrgService(BaseOrgService):
     """Manage the organization."""
 
     service_name = "org"

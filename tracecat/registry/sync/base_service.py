@@ -279,7 +279,19 @@ class BaseRegistrySyncService[
         )
 
     def _get_storage_namespace(self) -> str:
-        return self._storage_namespace() or str(self.organization_id)
+        """Get storage namespace for blob storage.
+
+        Subclasses must either:
+        - Override `_storage_namespace()` to return a static namespace, OR
+        - Override this method to return a dynamic namespace
+        """
+        namespace = self._storage_namespace()
+        if namespace is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must override _storage_namespace() or "
+                "_get_storage_namespace() to provide a storage namespace"
+            )
+        return namespace
 
     async def _build_and_upload_artifacts(
         self,

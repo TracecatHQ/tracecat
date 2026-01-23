@@ -4,7 +4,6 @@ from typing import Any, ClassVar, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -22,12 +21,6 @@ class BaseService:
         self.session = session
         self.role = role or ctx_role.get()
         self.logger = logger.bind(service=self.service_name)
-
-    @property
-    def organization_id(self) -> OrganizationID:
-        if self.role is None:
-            return config.TRACECAT__DEFAULT_ORG_ID
-        return self.role.organization_id
 
     @classmethod
     @asynccontextmanager
@@ -60,15 +53,30 @@ class BaseService:
         ]
 
 
-class BaseWorkspaceService(BaseService):
+class BaseOrgService(BaseService):
+    """Base class for services that require organization context."""
+
+    role: Role  # Override parent - always non-None for org services
+    organization_id: OrganizationID  # Always non-None after __init__
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        if self.role is None:
+            raise TracecatAuthorizationError(
+                f"{self.service_name} service requires organization context"
+            )
+        self.organization_id = self.role.organization_id
+
+
+class BaseWorkspaceService(BaseOrgService):
     """Base class for services that require a workspace."""
 
-    role: Role  # Override parent - always non-None for workspace services
     workspace_id: WorkspaceID  # Always non-None after __init__
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        if self.role is None or self.role.workspace_id is None:
+        # Note: role None check is handled by BaseOrgService
+        if self.role.workspace_id is None:
             raise TracecatAuthorizationError(
                 f"{self.service_name} service requires workspace"
             )

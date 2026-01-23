@@ -36,7 +36,13 @@ from tracecat.settings.schemas import (
 
 
 class SettingsService(BaseService):
-    """Service for managing platform settings"""
+    """Service for managing platform settings.
+
+    Note: This service intentionally inherits from BaseService (not BaseOrgService)
+    because it supports role-less access to PUBLIC_SETTINGS_KEYS via the
+    get_setting() helper function. The organization_id property has a fallback
+    to TRACECAT__DEFAULT_ORG_ID when role is None.
+    """
 
     service_name = "settings"
     groups: list[type[BaseSettingsGroup]] = [
@@ -56,6 +62,13 @@ class SettingsService(BaseService):
         if not encryption_key:
             raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
         self._encryption_key = SecretStr(encryption_key)
+
+    @property
+    def organization_id(self) -> OrganizationID:
+        """Get organization ID with fallback for role-less access to public settings."""
+        if self.role is None:
+            return config.TRACECAT__DEFAULT_ORG_ID
+        return self.role.organization_id
 
     def _serialize_value_bytes(self, value: Any) -> bytes:
         return orjson.dumps(

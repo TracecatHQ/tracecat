@@ -44,7 +44,7 @@ from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.secrets.schemas import SecretDefinition
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting_cached
 
 if TYPE_CHECKING:
@@ -58,7 +58,7 @@ class SecretAggregate(TypedDict):
     actions: set[str]
 
 
-class RegistryActionsService(BaseService):
+class RegistryActionsService(BaseOrgService):
     """Registry actions service."""
 
     service_name = "registry_actions"
