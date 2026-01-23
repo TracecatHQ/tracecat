@@ -17,10 +17,10 @@ from tracecat.exceptions import RegistryError
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import RegistryVersionManifest
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 
 
-class RegistryLockService(BaseService):
+class RegistryLockService(BaseOrgService):
     """Service for resolving and managing registry version locks.
 
     Registry locks map repository origins to specific version strings,

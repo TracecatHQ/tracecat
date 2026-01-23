@@ -32,10 +32,10 @@ from tracecat.secrets.schemas import (
     validate_mtls_key_values,
     validate_ssh_key_values,
 )
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 
 
-class SecretsService(BaseService):
+class SecretsService(BaseOrgService):
     """Secrets manager service."""
 
     service_name = "secrets"
