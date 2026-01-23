@@ -6,11 +6,9 @@ the ExpectedField type is needed.
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_serializer
 
-# Sentinel value to distinguish "no default specified" from "default=None"
-# This value survives JSON serialization and can be checked after deserialization
-_UNSET_SENTINEL = "__TRACECAT_UNSET__"
+from tracecat.common import UNSET
 
 
 class ExpectedField(BaseModel):
@@ -25,7 +23,7 @@ class ExpectedField(BaseModel):
 
     type: str
     description: str | None = None
-    default: Any = _UNSET_SENTINEL
+    default: Any = UNSET
     enum: list[str] | None = None
     """Optional list of allowed values for this field."""
     optional: bool | None = None
@@ -33,4 +31,12 @@ class ExpectedField(BaseModel):
 
     def has_default(self) -> bool:
         """Check if a default value was explicitly specified."""
-        return self.default != _UNSET_SENTINEL
+        return self.default is not UNSET
+
+    @model_serializer(mode="plain")
+    def _serialize(self) -> dict[str, Any]:
+        """Serialize model, omitting 'default' field when it's UNSET."""
+        data = {k: getattr(self, k) for k in self.model_fields if k != "default"}
+        if self.has_default():
+            data["default"] = self.default
+        return data

@@ -1862,7 +1862,7 @@ export type DSLEntrypoint = {
    * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
    */
   expects?: {
-    [key: string]: ExpectedField
+    [key: string]: ExpectedField_Output
   } | null
 }
 
@@ -2161,12 +2161,16 @@ export type ExecutionType = "draft" | "published"
  * "no default specified" (required field) and "default is explicitly None"
  * (optional field).
  */
-export type ExpectedField = {
+export type ExpectedField_Input = {
   type: string
   description?: string | null
   default?: unknown
   enum?: Array<string> | null
   optional?: boolean | null
+}
+
+export type ExpectedField_Output = {
+  [key: string]: unknown
 }
 
 export type ExprType =
@@ -4786,7 +4790,7 @@ export type TemplateActionDefinition_Input = {
    * The arguments to pass to the action
    */
   expects: {
-    [key: string]: ExpectedField
+    [key: string]: ExpectedField_Input
   }
   /**
    * The sequence of steps for the action
@@ -4844,7 +4848,7 @@ export type TemplateActionDefinition_Output = {
    * The arguments to pass to the action
    */
   expects: {
-    [key: string]: ExpectedField
+    [key: string]: ExpectedField_Output
   }
   /**
    * The sequence of steps for the action
@@ -5375,7 +5379,7 @@ export type WorkflowDslPublish = {
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
-    [key: string]: ExpectedField
+    [key: string]: ExpectedField_Input
   } | null
 }
 
@@ -5685,7 +5689,7 @@ export type WorkflowRead = {
   schedules: Array<ScheduleRead>
   entrypoint: string | null
   expects?: {
-    [key: string]: ExpectedField
+    [key: string]: ExpectedField_Output
   } | null
   expects_schema?: {
     [key: string]: unknown
@@ -5768,7 +5772,7 @@ export type WorkflowUpdate = {
   entrypoint?: string | null
   icon_url?: string | null
   expects?: {
-    [key: string]: ExpectedField
+    [key: string]: ExpectedField_Input
   } | null
   returns?: unknown | null
   config?: DSLConfig_Input | null

@@ -6008,7 +6008,7 @@ export const $DSLEntrypoint = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Output",
           },
           type: "object",
         },
@@ -6978,7 +6978,7 @@ export const $ExecutionType = {
 Distinguishes between draft (development) and published (production) executions.`,
 } as const
 
-export const $ExpectedField = {
+export const $ExpectedField_Input = {
   properties: {
     type: {
       type: "string",
@@ -6997,7 +6997,6 @@ export const $ExpectedField = {
     },
     default: {
       title: "Default",
-      default: "__TRACECAT_UNSET__",
     },
     enum: {
       anyOf: [
@@ -7034,6 +7033,11 @@ export const $ExpectedField = {
 Note: The default field uses a sentinel to distinguish between
 "no default specified" (required field) and "default is explicitly None"
 (optional field).`,
+} as const
+
+export const $ExpectedField_Output = {
+  additionalProperties: true,
+  type: "object",
 } as const
 
 export const $ExprType = {
@@ -14582,7 +14586,7 @@ export const $TemplateActionDefinition_Input = {
     },
     expects: {
       additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField",
+        $ref: "#/components/schemas/ExpectedField-Input",
       },
       type: "object",
       title: "Expects",
@@ -14710,7 +14714,7 @@ export const $TemplateActionDefinition_Output = {
     },
     expects: {
       additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField",
+        $ref: "#/components/schemas/ExpectedField-Output",
       },
       type: "object",
       title: "Expects",
@@ -16807,7 +16811,7 @@ export const $WorkflowEntrypointValidationRequest = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Input",
           },
           type: "object",
         },
@@ -17755,7 +17759,7 @@ export const $WorkflowRead = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Output",
           },
           type: "object",
         },
@@ -18115,7 +18119,7 @@ export const $WorkflowUpdate = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Input",
           },
           type: "object",
         },
