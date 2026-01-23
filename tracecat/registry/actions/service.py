@@ -807,7 +807,13 @@ class RegistryActionsService(BaseService):
         )
 
     async def get_action(self, action_name: str) -> RegistryAction:
-        """Get action by name from RegistryAction table."""
+        """Get action by name from RegistryAction table.
+
+        Note: This method queries RegistryAction directly rather than the index tables
+        used by other methods (e.g., get_action_from_index). This inconsistency is
+        intentional as the RegistryAction table will be repurposed for other uses
+        in the future.
+        """
         try:
             namespace, name = action_name.rsplit(".", maxsplit=1)
         except ValueError:
