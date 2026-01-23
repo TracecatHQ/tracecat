@@ -94,22 +94,45 @@ cd frontend && pnpm test
 
 ### Linting and Formatting
 ```bash
-# Lint and format everything
-just lint-fix
+# Lint and format everything (run before committing)
+just fix             # Short alias
+just lint-fix        # Same as above
 
 # Individual components
-just lint-fix-app    # Python: ruff check . && ruff format .
-just lint-fix-ui     # Frontend: pnpm check (Biome lint, format, and organize imports)
+just lint-fix-app    # Python: ruff check --fix . && ruff format .
+just lint-fix-ui     # Frontend: pnpm check --write (Biome lint, format, and organize imports)
+
+# Check only (no auto-fix) - useful for CI or verifying changes
+uv run ruff check .              # Python lint check only
+uv run ruff format --check .     # Python format check only
+cd frontend && pnpm check        # Frontend check only
 
 # Frontend-specific Biome commands
 cd frontend && pnpm lint          # Biome lint
 cd frontend && pnpm format:write  # Biome format
 cd frontend && pnpm check         # Biome comprehensive check (lint + format + organize imports)
-
-# Type checking
-just typecheck       # Run basedpyright type checking
-uv run basedpyright --warnings --threads 4 # Use a reasonable number of threads
 ```
+
+### Type Checking
+```bash
+# Run basedpyright type checking (required before merging)
+just typecheck
+
+# Or run directly with options
+uv run basedpyright --warnings --threads 4
+
+# Check specific files or directories
+uv run basedpyright tracecat/api/
+
+# Common type errors to avoid:
+# - Using `type: ignore` comments (find alternative solutions)
+# - Missing return type annotations on public functions
+# - Using `Any` when a more specific type is possible
+```
+
+**Pre-commit hooks**: Runs automatically on commit (Ruff, Gitleaks secret detection, YAML/TOML validation).
+
+**CI Requirements**: Both linting (`just fix`) and type checking (`just typecheck`) must pass in CI before merging.
 
 ### API and Code Generation
 ```bash
@@ -192,7 +215,7 @@ When adding new types, follow this pattern:
 - **Database tables**: Add to `tracecat/db/models.py` (SQLAlchemy classes)
 - **API schemas**: Add to module-specific `schemas.py` files (Pydantic models for request/response)
 - **Domain types**: Add to module-specific `types.py` files (protocols, dataclasses, type aliases)
-- **Avoiding circular imports**: Use `if TYPE_CHECKING:` for type-only imports, move shared types to `types.py`
+- **Avoiding circular imports and improving import performance**: Use `if TYPE_CHECKING:` for type-only imports, move shared types to `types.py`
 - **Import order**: `models` → `types` → `schemas` → `service` → `router` (to minimize circular dependencies)
 
 Example structure for a module like `tracecat/agent/`:
@@ -219,7 +242,6 @@ tracecat/agent/
 
 ### Code Quality
 - **Ruff**: Line length 88, comprehensive linting rules
-- **MyPy**: Strict type checking mode
 - **Pre-commit**: Automated hooks for Ruff, Gitleaks, YAML/TOML validation
 - All tests must pass before commits
 
