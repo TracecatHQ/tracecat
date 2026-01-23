@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
 import contextlib
-from builtins import set as Set  # Avoid clashing with set() function
 from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any, overload
 
@@ -14,6 +14,7 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 if TYPE_CHECKING:
@@ -102,14 +103,14 @@ def _infer_grant_type_from_token_name(token_name: str) -> OAuthGrantType | None:
 
 
 async def get_action_secrets(
-    secret_exprs: Set[str],
-    action_secrets: Set[RegistrySecretType],
+    secret_exprs: builtins.set[str],
+    action_secrets: builtins.set[RegistrySecretType],
 ) -> dict[str, Any]:
     # Handle secrets from the task args
     args_secrets = secret_exprs
     # Get oauth integrations from the action secrets
-    args_oauth_secrets: Set[str] = Set()
-    args_basic_secrets: Set[str] = Set()
+    args_oauth_secrets: builtins.set[str] = builtins.set()
+    args_basic_secrets: builtins.set[str] = builtins.set()
     for secret in args_secrets:
         if "." in secret:
             name, _ = secret.split(".", 1)
@@ -119,8 +120,8 @@ async def get_action_secrets(
         args_basic_secrets.add(secret)
 
     # Handle secrets from the action
-    required_basic_secrets: Set[str] = Set()
-    optional_basic_secrets: Set[str] = Set()
+    required_basic_secrets: builtins.set[str] = builtins.set()
+    optional_basic_secrets: builtins.set[str] = builtins.set()
     oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
     for secret in action_secrets:
         if secret.type == "oauth":
@@ -175,7 +176,7 @@ async def get_action_secrets(
         secrets |= sandbox.secrets.copy()
 
     # Get oauth integrations (from both action-declared secrets and expression-based secrets)
-    all_oauth_provider_keys = Set(oauth_secrets.keys()) | Set(
+    all_oauth_provider_keys = builtins.set(oauth_secrets.keys()) | builtins.set(
         args_oauth_token_names.keys()
     )
     if all_oauth_provider_keys:
@@ -184,7 +185,7 @@ async def get_action_secrets(
                 oauth_integrations = await service.list_integrations(
                     provider_keys=all_oauth_provider_keys
                 )
-                fetched_keys: Set[ProviderKey] = Set()
+                fetched_keys: builtins.set[ProviderKey] = builtins.set()
                 for integration in oauth_integrations:
                     provider_key = ProviderKey(
                         id=integration.provider_id,
@@ -216,14 +217,16 @@ async def get_action_secrets(
                         )
                 # Only check for missing required secrets from action-declared secrets
                 # Expression-based secrets are user-provided and we don't enforce requirements on them
-                missing_action_keys = Set(oauth_secrets.keys()) - fetched_keys
+                missing_action_keys = builtins.set(oauth_secrets.keys()) - fetched_keys
                 if missing_action_keys:
                     missing_required = [
                         key
                         for key in missing_action_keys
                         if not oauth_secrets[key].optional
                     ]
-                    optional_missing = Set(missing_action_keys) - Set(missing_required)
+                    optional_missing = builtins.set(missing_action_keys) - builtins.set(
+                        missing_required
+                    )
                     if optional_missing:
                         logger.info(
                             "Optional OAuth integrations not configured",
@@ -247,7 +250,9 @@ async def get_action_secrets(
                             ],
                         )
                 # Log if expression-based OAuth secrets were not found
-                missing_expr_keys = Set(args_oauth_token_names.keys()) - fetched_keys
+                missing_expr_keys = (
+                    builtins.set(args_oauth_token_names.keys()) - fetched_keys
+                )
                 if missing_expr_keys:
                     logger.warning(
                         "OAuth integrations from expressions not found",
@@ -293,14 +298,22 @@ def flatten_secrets(secrets: dict[str, dict[str, str]]) -> dict[str, str]:
 
 @contextlib.asynccontextmanager
 async def load_secrets(action_type: str) -> AsyncIterator[dict[str, Any]]:
-    from tracecat.registry.actions.service import RegistryActionsService
-
+    # Load action from index + manifest (not RegistryAction table)
     async with RegistryActionsService.with_session() as svc:
-        reg_action = await svc.get_action(action_type)
-        action_secrets = await svc.fetch_all_action_secrets(reg_action)
+        indexed_result = await svc.get_action_from_index(action_type)
+        if indexed_result is None:
+            raise ValueError(f"Action '{action_type}' not found in registry")
+
+        # Aggregate secrets from manifest
+        manifest = indexed_result.manifest
+        action_secrets = builtins.set(
+            RegistryActionsService.aggregate_secrets_from_manifest(
+                manifest, action_type
+            )
+        )
 
     secrets = await get_action_secrets(
-        secret_exprs=Set(), action_secrets=action_secrets
+        secret_exprs=builtins.set(), action_secrets=action_secrets
     )
     flat_secrets = flatten_secrets(secrets)
     with env_sandbox(flat_secrets):

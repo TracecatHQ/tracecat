@@ -40,6 +40,10 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 
 
+class ActionNotFoundError(Exception):
+    """Raised when an action is not found in the registry."""
+
+
 class ActionNotAllowedError(Exception):
     """Raised when an action is not in the allowed actions list."""
 
@@ -134,13 +138,25 @@ async def _resolve_context(
         user_id=claims.user_id,
     )
 
-    # Get action implementation from DB
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        action_secrets = await service.fetch_all_action_secrets(reg_action)
+    # Get action from index + manifest (not RegistryAction table)
+    async with RegistryActionsService.with_session(role=role) as service:
+        indexed_result = await service.get_action_from_index(action_name)
+        if indexed_result is None:
+            raise ActionNotFoundError(f"Action '{action_name}' not found in registry")
 
-    # Build action implementation metadata
-    impl = RegistryActionImplValidator.validate_python(reg_action.implementation)
+    # Get manifest action and aggregate secrets from manifest
+    manifest_action = indexed_result.manifest.actions.get(action_name)
+    if manifest_action is None:
+        raise ActionNotFoundError(f"Action '{action_name}' not found in manifest")
+
+    action_secrets = set(
+        RegistryActionsService.aggregate_secrets_from_manifest(
+            indexed_result.manifest, action_name
+        )
+    )
+
+    # Build action implementation metadata from manifest
+    impl = RegistryActionImplValidator.validate_python(manifest_action.implementation)
     if impl.type == "template":
         action_impl = ActionImplementation(
             type="template",

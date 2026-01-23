@@ -65,7 +65,11 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
 )
-from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
+from tracecat.registry.loaders import (
+    LoaderMode,
+    get_bound_action_from_manifest,
+    get_bound_action_impl,
+)
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
@@ -1310,12 +1314,18 @@ class RegistryActionsService(BaseService):
     async def load_action_impl(
         self, action_name: str, mode: LoaderMode = "validation"
     ) -> BoundRegistryAction:
-        """
-        Load the implementation for a registry action.
-        """
-        action = await self.get_action(action_name)
-        bound_action = get_bound_action_impl(action, mode=mode)
-        return bound_action
+        """Load the implementation for a registry action from index + manifest."""
+        indexed_result = await self.get_action_from_index(action_name)
+        if indexed_result is None:
+            raise RegistryError(f"Action '{action_name}' not found in registry")
+
+        manifest_action = indexed_result.manifest.actions.get(action_name)
+        if manifest_action is None:
+            raise RegistryError(f"Action '{action_name}' not found in manifest")
+
+        return get_bound_action_from_manifest(
+            manifest_action, indexed_result.origin, mode=mode
+        )
 
     async def read_action_with_implicit_secrets(
         self, action: RegistryAction
