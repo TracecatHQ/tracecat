@@ -132,6 +132,7 @@ jobs:
 
   build-and-push-ui:
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
