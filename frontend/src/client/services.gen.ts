@@ -4262,6 +4262,13 @@ export const registryRepositoriesListRepositoryVersions = (
 /**
  * List Registry Repositories
  * List all registry repositories.
+ *
+ * Returns both platform (base) and org-scoped repositories merged into a single list
+ * using UNION ALL. Platform repositories (like tracecat-registry) are shared across
+ * all organizations.
+ *
+ * Both table hierarchies share the same column structure via BaseRegistryRepository,
+ * so we select only the common columns and union the results.
  * @returns RegistryRepositoryReadMinimal Successful Response
  * @throws ApiError
  */
@@ -4297,7 +4304,9 @@ export const registryRepositoriesCreateRegistryRepository = (
 
 /**
  * Get Registry Repository
- * Get a specific registry repository by origin.
+ * Get a specific registry repository by ID.
+ *
+ * Handles both platform (base) and org-scoped repositories.
  * @param data The data for the request.
  * @param data.repositoryId
  * @returns RegistryRepositoryRead Successful Response
@@ -4403,6 +4412,8 @@ export const registryRepositoriesListRepositoryCommits = (
  * This endpoint allows administrators to manually promote or rollback to a
  * specific registry version, overriding the auto-promotion that happens during sync.
  *
+ * Handles both platform (base) and org-scoped repositories.
+ *
  * Args:
  * repository_id: The ID of the repository
  * version_id: The ID of the version to promote
@@ -4437,7 +4448,7 @@ export const registryRepositoriesPromoteRegistryVersion = (
 
 /**
  * List Registry Actions
- * List all actions in a registry.
+ * List all actions from registry index.
  * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -7646,11 +7657,13 @@ export const publicCheckHealth =
 
 /**
  * Check Ready
- * Readiness check - returns 200 only after startup is complete.
+ * Readiness check - returns 200 only after startup and registry sync complete.
  *
  * Use this endpoint for Docker healthchecks to ensure the API has finished
- * initializing (including registry sync) before accepting traffic.
- * @returns HealthResponse Successful Response
+ * initializing and the platform registry is synced before accepting traffic.
+ *
+ * Returns a detailed response including registry sync status.
+ * @returns ReadinessResponse Successful Response
  * @throws ApiError
  */
 export const publicCheckReady =

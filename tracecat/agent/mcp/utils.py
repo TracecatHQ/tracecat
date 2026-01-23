@@ -92,7 +92,7 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 async def fetch_tool_definitions(
     action_names: list[str],
 ) -> dict[str, MCPToolDefinition]:
-    """Fetch tool definitions from registry for given action names.
+    """Fetch tool definitions from registry index/manifest for given action names.
 
     Called by the job creator (who has DB access) before launching proxy.
     Returns dict mapping action names to their full definitions.
@@ -109,41 +109,44 @@ async def fetch_tool_definitions(
     # Lazy imports - only orchestrator calls this function
     from tracecat.agent.common.types import MCPToolDefinition
     from tracecat.logger import logger
-    from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
     from tracecat.registry.actions.service import RegistryActionsService
 
     definitions: dict[str, MCPToolDefinition] = {}
 
     async with RegistryActionsService.with_session() as svc:
-        # Batch fetch all actions in a single query
-        registry_actions = await svc.get_actions(action_names)
+        # Batch fetch all actions from index/manifest
+        actions_data = await svc.get_actions_from_index(action_names)
 
-        # Build a lookup map by full action name
-        action_map = {f"{ra.namespace}.{ra.name}": ra for ra in registry_actions}
         for action_name in action_names:
             try:
-                ra = action_map.get(action_name)
-                if ra is None:
+                action_data = actions_data.get(action_name)
+                if action_data is None:
                     logger.warning(
-                        "Action not found in registry",
+                        "Action not found in registry index",
                         action_name=action_name,
                     )
                     continue
 
-                # Use pre-computed interface from RegistryAction
-                interface = RegistryActionInterfaceValidator.validate_python(
-                    ra.interface
-                )
-                json_schema = interface["expects"]
+                manifest_action = action_data.manifest.actions.get(action_name)
+                if manifest_action is None:
+                    logger.warning(
+                        "Action not found in manifest",
+                        action_name=action_name,
+                    )
+                    continue
+
+                # Use interface from manifest
+                json_schema = manifest_action.interface["expects"]
 
                 definitions[action_name] = MCPToolDefinition(
                     name=action_name,
-                    description=ra.description or f"Execute {action_name}",
+                    description=action_data.index_entry.description
+                    or f"Execute {action_name}",
                     parameters_json_schema=json_schema,
                 )
 
                 logger.debug(
-                    "Fetched tool definition",
+                    "Fetched tool definition from index/manifest",
                     action_name=action_name,
                 )
 

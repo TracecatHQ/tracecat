@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from slugify import slugify
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
@@ -17,12 +17,12 @@ from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     AgentPreset,
     OAuthIntegration,
-    RegistryAction,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService
 
@@ -78,16 +78,15 @@ class AgentPresetService(BaseWorkspaceService):
         return preset
 
     async def _validate_actions(self, actions: list[str]) -> None:
-        """Validate that all actions are in the registry."""
+        """Validate that all actions are in the registry index."""
         actions_set = set(actions)
-        stmt = select(RegistryAction).where(
-            func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
-                actions_set
-            )
+        registry_service = RegistryActionsService(self.session, role=self.role)
+        index_entries = await registry_service.list_actions_from_index(
+            include_keys=actions_set
         )
-        result = await self.session.execute(stmt)
-        registry_actions = result.scalars().all()
-        available_identifiers = {a.action for a in registry_actions}
+        available_identifiers = {
+            f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
+        }
         if missing_actions := actions_set - available_identifiers:
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"

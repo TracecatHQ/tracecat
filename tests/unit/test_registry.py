@@ -19,14 +19,15 @@ from tracecat.registry.repository import Repository
 
 @pytest.mark.anyio
 async def test_list_registry_actions(test_role):
-    """Test that the list_registry_actions endpoint returns the correct number of actions."""
+    """Test that list_actions_from_index returns actions."""
     async with RegistryActionsService.with_session(test_role) as service:
-        actions = await service.list_actions()
-        results = []
-        # Call serially instead of calling in parallel to avoid hiding exceptions
-        for action in actions:
-            results.append(await service.read_action_with_implicit_secrets(action))
-        assert len(results) == len(actions)
+        entries = await service.list_actions_from_index()
+        assert len(entries) > 0
+        # Verify each entry is a tuple of (IndexEntry, origin)
+        for entry, origin in entries:
+            assert entry.namespace
+            assert entry.name
+            assert isinstance(origin, str)
 
 
 @pytest.fixture

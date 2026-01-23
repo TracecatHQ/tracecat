@@ -25,6 +25,7 @@ from tracecat.registry.repository import (
     get_signature_docs,
     import_and_reload,
 )
+from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 
 F = Callable[..., Any]
 
@@ -99,6 +100,96 @@ def get_bound_action_impl(
             include_in_schema=True,
             template_action=impl.template_action,
             origin=action.origin,
+        )
+
+
+def get_bound_action_from_manifest(
+    manifest_action: RegistryVersionManifestAction,
+    origin: str,
+    *,
+    mode: LoaderMode = "validation",
+) -> BoundRegistryAction:
+    """Build BoundRegistryAction from manifest data instead of RegistryAction.
+
+    This function mirrors get_bound_action_impl but takes manifest data from
+    RegistryVersionManifest.actions rather than querying the RegistryAction table.
+
+    Args:
+        manifest_action: The manifest action containing implementation details.
+        origin: The origin URL of the repository.
+        mode: Loading mode - "validation" adds template validators, "execution" does not.
+
+    Returns:
+        A BoundRegistryAction ready for execution.
+    """
+    impl = RegistryActionImplValidator.validate_python(manifest_action.implementation)
+    secrets = manifest_action.secrets or []
+
+    if impl.type == "udf":
+        fn = load_udf_impl(impl)
+        key = getattr(fn, "__tracecat_udf_key")
+        kwargs = getattr(fn, "__tracecat_udf_kwargs")
+        logger.trace(
+            "Binding UDF from manifest",
+            key=key,
+            name=manifest_action.name,
+            kwargs=kwargs,
+        )
+        # Add validators to the function
+        validated_kwargs = RegisterKwargs.model_validate(kwargs)
+        if mode == "validation":
+            attach_validators(fn, TemplateValidator())
+        args_docs = get_signature_docs(fn)
+        # Generate the model from the function signature
+        args_cls, rtype, rtype_adapter = generate_model_from_function(
+            func=fn, udf_kwargs=validated_kwargs
+        )
+        return BoundRegistryAction(
+            fn=fn,
+            type=impl.type,
+            name=manifest_action.name,
+            namespace=manifest_action.namespace,
+            description=manifest_action.description,
+            secrets=secrets,
+            args_cls=args_cls,
+            args_docs=args_docs,
+            rtype_cls=rtype,
+            rtype_adapter=rtype_adapter,
+            default_title=manifest_action.default_title,
+            display_group=manifest_action.display_group,
+            doc_url=manifest_action.doc_url,
+            author=manifest_action.author,
+            deprecated=manifest_action.deprecated,
+            origin=origin,
+        )
+    else:
+        logger.trace("Binding template action from manifest", name=manifest_action.name)
+        defn = impl.template_action.definition
+        return BoundRegistryAction(
+            fn=_not_implemented,
+            type=impl.type,
+            name=manifest_action.name,
+            namespace=manifest_action.namespace,
+            description=manifest_action.description,
+            secrets=secrets,
+            args_cls=create_expectation_model(
+                defn.expects, defn.action.replace(".", "__")
+            )
+            if defn.expects
+            else BaseModel,
+            args_docs={
+                key: schema.description or "-" for key, schema in defn.expects.items()
+            },
+            rtype_cls=Any,
+            rtype_adapter=TypeAdapter(Any),
+            default_title=manifest_action.default_title,
+            display_group=manifest_action.display_group,
+            doc_url=manifest_action.doc_url,
+            author=manifest_action.author,
+            deprecated=manifest_action.deprecated,
+            include_in_schema=True,
+            template_action=impl.template_action,
+            origin=origin,
         )
 
 

@@ -186,7 +186,7 @@ def test_dynamic_model_with_bare_dict_type():
 
 
 def test_validate_schema_success():
-    schema = {
+    schema: dict[str, Any] = {
         "start_time": {
             "type": "datetime",
             "description": "The start time",
@@ -250,7 +250,7 @@ def test_validate_schema_success():
 
 
 def test_validate_schema_failure():
-    schema = {
+    schema: dict[str, Any] = {
         "start_time": {"type": "datetime", "description": "The start time"},
         "end_time": {"type": "datetime", "description": "The end time"},
     }
@@ -278,7 +278,7 @@ def test_validate_schema_failure():
     ],
 )
 def test_validate_schema_with_enum(status, priority):
-    schema = {
+    schema: dict[str, Any] = {
         "status": {
             "type": 'enum["PENDING", "running", "Completed"]',
             "description": "The status of the job",
@@ -342,7 +342,7 @@ def test_validate_schema_with_invalid_enum_definition(
     ],
 )
 def test_validate_schema_with_invalid_enum_values(invalid_value):
-    schema = {
+    schema: dict[str, Any] = {
         "status": {
             "type": 'enum["PENDING", "running", "Completed"]',
             "description": "The status of the job",

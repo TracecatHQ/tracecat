@@ -1,26 +1,32 @@
+from __future__ import annotations
+
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select, union_all
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import (
+    PlatformRegistryRepository,
+    RegistryRepository,
+)
 from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import (
     GitCommitInfo,
     RegistryRepositoryCreate,
@@ -34,6 +40,11 @@ from tracecat.registry.repositories.schemas import (
     RegistryVersionRead,
 )
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.registry.versions.service import (
+    PlatformRegistryVersionsService,
+    RegistryVersionsService,
+)
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
 
@@ -92,6 +103,21 @@ async def sync_registry_repository(
         404: If the repository is not found
         400: If there is an error syncing the repository
     """
+    # First, check if this is a platform registry repository (base registry)
+    platform_repos_service = PlatformRegistryReposService(session, role)
+    platform_repo = await platform_repos_service.get_repository_by_id(repository_id)
+
+    if platform_repo is not None:
+        # This is a platform registry (base registry) - use platform services
+        return await _sync_platform_repository(
+            session=session,
+            role=role,
+            platform_repos_service=platform_repos_service,
+            repo=platform_repo,
+            sync_params=sync_params,
+        )
+
+    # Otherwise, it's an org-scoped repository
     repos_service = RegistryReposService(session, role)
     try:
         repo = await repos_service.get_repository_by_id(repository_id)
@@ -106,16 +132,11 @@ async def sync_registry_repository(
     target_commit_sha = sync_params.target_commit_sha if sync_params else None
     force = sync_params.force if sync_params else False
 
-    # Check if v2 sync is enabled via feature flag
-    use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
-
-    # For git+ssh repos, we need SSH context for wheel building
+    # For git+ssh repos, we need SSH context for tarball building
     is_git_ssh = repo.origin.startswith("git+ssh://")
 
     # If force=True, delete the current version before syncing
     if force and repo.current_version_id is not None:
-        from tracecat.registry.versions.service import RegistryVersionsService
-
         versions_service = RegistryVersionsService(session, role)
         current_version = await versions_service.get_version(repo.current_version_id)
         if current_version:
@@ -133,55 +154,41 @@ async def sync_registry_repository(
     actions_count: int | None = None
 
     try:
-        if use_v2_sync:
-            if is_git_ssh:
-                # Get SSH context for git operations
-                allowed_domains_setting = await get_setting(
-                    "git_allowed_domains", role=role
-                )
-                allowed_domains = allowed_domains_setting or {"github.com"}
-                git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+        if is_git_ssh:
+            # Get SSH context for git operations
+            allowed_domains_setting = await get_setting(
+                "git_allowed_domains", role=role
+            )
+            allowed_domains = allowed_domains_setting or {"github.com"}
+            git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
 
-                async with ssh_context(
-                    role=role, git_url=git_url, session=session
-                ) as ssh_env:
-                    # V2 sync with SSH env for wheel building
-                    (
-                        commit_sha,
-                        version,
-                    ) = await actions_service.sync_actions_from_repository_v2(
-                        repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
-                    )
-            else:
-                # V2 sync without SSH (built-in registry)
+            async with ssh_context(
+                role=role, git_url=git_url, session=session
+            ) as ssh_env:
+                # Sync with SSH env for tarball building
                 (
                     commit_sha,
                     version,
-                ) = await actions_service.sync_actions_from_repository_v2(
-                    repo, target_commit_sha=target_commit_sha
+                ) = await actions_service.sync_actions_from_repository(
+                    repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
                 )
-            logger.info(
-                "Synced repository (v2)",
-                origin=repo.origin,
-                commit_sha=commit_sha,
-                version=version,
-                target_commit_sha=target_commit_sha,
-                last_synced_at=last_synced_at,
-                force=force,
-            )
         else:
-            # V1 sync: updates RegistryAction table only
-            commit_sha = await actions_service.sync_actions_from_repository(
+            # Sync without SSH (built-in registry)
+            (
+                commit_sha,
+                version,
+            ) = await actions_service.sync_actions_from_repository(
                 repo, target_commit_sha=target_commit_sha
             )
-            logger.info(
-                "Synced repository",
-                origin=repo.origin,
-                commit_sha=commit_sha,
-                target_commit_sha=target_commit_sha,
-                last_synced_at=last_synced_at,
-                force=force,
-            )
+        logger.info(
+            "Synced repository",
+            origin=repo.origin,
+            commit_sha=commit_sha,
+            version=version,
+            target_commit_sha=target_commit_sha,
+            last_synced_at=last_synced_at,
+            force=force,
+        )
 
         session.expire(repo)
         # Update the registry repository table
@@ -193,9 +200,11 @@ async def sync_registry_repository(
         )
         logger.info("Updated repository", origin=repo.origin)
 
-        # Get action count for response
-        await session.refresh(repo, ["actions"])
-        actions_count = len(repo.actions)
+        # Get action count from registry index (v2 sync populates index, not RegistryAction)
+        index_actions = await actions_service.list_actions_from_index_by_repository(
+            repo.id
+        )
+        actions_count = len(index_actions)
 
         return RegistrySyncResponse(
             success=True,
@@ -232,8 +241,88 @@ async def sync_registry_repository(
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
+        ) from e
+
+
+async def _sync_platform_repository(
+    *,
+    session: AsyncDBSession,
+    role: Role,
+    platform_repos_service: PlatformRegistryReposService,
+    repo: PlatformRegistryRepository,
+    sync_params: RegistryRepositorySync | None,
+) -> RegistrySyncResponse:
+    """Sync a platform registry repository using platform services.
+
+    Platform registries (like the base tracecat-registry) are shared across all
+    organizations and are stored in platform_registry_* tables.
+
+    Returns:
+        RegistrySyncResponse with sync result details.
+    """
+    last_synced_at = datetime.now(UTC)
+    target_commit_sha = sync_params.target_commit_sha if sync_params else None
+
+    platform_sync_service = PlatformRegistrySyncService(session, role)
+
+    try:
+        sync_result = await platform_sync_service.sync_repository_v2(
+            db_repo=repo,
+            target_commit_sha=target_commit_sha,
+            bypass_temporal=True,  # Platform syncs always bypass Temporal
+        )
+        logger.info(
+            "Synced platform repository",
+            origin=repo.origin,
+            commit_sha=sync_result.commit_sha,
+            version=sync_result.version_string,
+            target_commit_sha=target_commit_sha,
+            last_synced_at=last_synced_at,
+        )
+
+        session.expire(repo)
+        # Update the platform registry repository table
+        await platform_repos_service.update_repository(
+            repo,
+            RegistryRepositoryUpdate(
+                last_synced_at=last_synced_at, commit_sha=sync_result.commit_sha
+            ),
+        )
+        logger.info("Updated platform repository", origin=repo.origin)
+
+        return RegistrySyncResponse(
+            success=True,
+            repository_id=repo.id,
+            origin=repo.origin,
+            version=sync_result.version_string,
+            commit_sha=sync_result.commit_sha,
+            actions_count=sync_result.num_actions,
+            forced=False,  # Platform sync doesn't support force yet
+        )
+
+    except RegistryError as e:
+        logger.warning("Cannot sync platform repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except RegistryActionValidationError as e:
+        logger.warning("Validation errors while syncing platform repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=RegistryRepositoryErrorDetail(
+                id=str(repo.id),
+                origin=repo.origin,
+                message=str(e),
+                errors=e.detail,
+            ).model_dump(),
+        ) from e
+    except Exception as e:
+        logger.error("Unexpected error while syncing platform repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error while syncing platform repository {repo.origin!r}: {e}",
         ) from e
 
 
@@ -249,11 +338,19 @@ async def list_repository_versions(
     repository_id: uuid.UUID,
 ) -> list[RegistryVersionRead]:
     """List all versions for a specific registry repository."""
-    from tracecat.registry.versions.service import RegistryVersionsService
+    # First, check if this is a platform registry repository
+    platform_repos_service = PlatformRegistryReposService(session, role)
+    platform_repo = await platform_repos_service.get_repository_by_id(repository_id)
 
+    if platform_repo is not None:
+        # This is a platform registry - use platform versions service
+        versions_service = PlatformRegistryVersionsService(session, role)
+        versions = await versions_service.list_versions(repository_id=repository_id)
+        return [RegistryVersionRead.model_validate(v) for v in versions]
+
+    # Otherwise, check org-scoped repositories
     repos_service = RegistryReposService(session, role)
     try:
-        # Verify repository exists
         await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Registry repository not found", repository_id=repository_id)
@@ -277,23 +374,54 @@ async def list_registry_repositories(
     ),
     session: AsyncDBSession,
 ) -> list[RegistryRepositoryReadMinimal]:
-    """List all registry repositories."""
-    service = RegistryReposService(session, role)
-    repositories = await service.list_repositories()
+    """List all registry repositories.
+
+    Returns both platform (base) and org-scoped repositories merged into a single list
+    using UNION ALL. Platform repositories (like tracecat-registry) are shared across
+    all organizations.
+
+    Both table hierarchies share the same column structure via BaseRegistryRepository,
+    so we select only the common columns and union the results.
+    """
+    # Common columns from BaseRegistryRepository (no organization_id in result)
+    platform_stmt = select(
+        PlatformRegistryRepository.id,
+        PlatformRegistryRepository.origin,
+        PlatformRegistryRepository.last_synced_at,
+        PlatformRegistryRepository.commit_sha,
+        PlatformRegistryRepository.current_version_id,
+    )
+
+    org_stmt = select(
+        RegistryRepository.id,
+        RegistryRepository.origin,
+        RegistryRepository.last_synced_at,
+        RegistryRepository.commit_sha,
+        RegistryRepository.current_version_id,
+    ).where(RegistryRepository.organization_id == role.organization_id)
+
+    # Single query combining both table sets
+    combined = union_all(platform_stmt, org_stmt)
+    result = await session.execute(combined)
+    rows = result.tuples().all()
+
+    repositories = [
+        RegistryRepositoryReadMinimal(
+            id=id,
+            origin=origin,
+            last_synced_at=last_synced_at,
+            commit_sha=commit_sha,
+            current_version_id=current_version_id,
+        )
+        for id, origin, last_synced_at, commit_sha, current_version_id in rows
+    ]
+
     logger.info(
         "Listing registry repositories",
         repositories=[repo.origin for repo in repositories],
+        count=len(repositories),
     )
-    return [
-        RegistryRepositoryReadMinimal(
-            id=repo.id,
-            origin=repo.origin,
-            last_synced_at=repo.last_synced_at,
-            commit_sha=repo.commit_sha,
-            current_version_id=repo.current_version_id,
-        )
-        for repo in repositories
-    ]
+    return repositories
 
 
 @router.get("/{repository_id}", response_model=RegistryRepositoryRead)
@@ -307,26 +435,48 @@ async def get_registry_repository(
     session: AsyncDBSession,
     repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:
-    """Get a specific registry repository by origin."""
-    service = RegistryReposService(session, role)
+    """Get a specific registry repository by ID.
+
+    Handles both platform (base) and org-scoped repositories.
+    """
+    # First check if it's a platform repository
+    platform_service = PlatformRegistryReposService(session, role)
+    platform_repo = await platform_service.get_repository_by_id(repository_id)
+
+    if platform_repo is not None:
+        # This is a platform repository
+        actions_service = RegistryActionsService(session, role)
+        actions = await actions_service.list_actions_from_index_by_repository(
+            repository_id
+        )
+        return RegistryRepositoryRead(
+            id=platform_repo.id,
+            origin=platform_repo.origin,
+            last_synced_at=platform_repo.last_synced_at,
+            commit_sha=platform_repo.commit_sha,
+            current_version_id=platform_repo.current_version_id,
+            actions=actions,
+        )
+
+    # Otherwise, check org-scoped repositories
+    repos_service = RegistryReposService(session, role)
+    actions_service = RegistryActionsService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        repository = await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Error getting registry repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
+    actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=repository.id,
         origin=repository.origin,
         last_synced_at=repository.last_synced_at,
         commit_sha=repository.commit_sha,
         current_version_id=repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in repository.actions
-        ],
+        actions=actions,
     )
 
 
@@ -449,16 +599,14 @@ async def create_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    # New repository has no synced actions yet
     return RegistryRepositoryRead(
         id=created_repository.id,
         origin=created_repository.origin,
         last_synced_at=created_repository.last_synced_at,
         commit_sha=created_repository.commit_sha,
         current_version_id=created_repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in created_repository.actions
-        ],
+        actions=[],
     )
 
 
@@ -476,26 +624,25 @@ async def update_registry_repository(
     params: RegistryRepositoryUpdate,
 ) -> RegistryRepositoryRead:
     """Update an existing registry repository."""
-    service = RegistryReposService(session, role)
+    repos_service = RegistryReposService(session, role)
+    actions_service = RegistryActionsService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        repository = await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Registry repository not found", repository_id=repository_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
-    updated_repository = await service.update_repository(repository, params)
+    updated_repository = await repos_service.update_repository(repository, params)
+    actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=updated_repository.id,
         origin=updated_repository.origin,
         last_synced_at=updated_repository.last_synced_at,
         commit_sha=updated_repository.commit_sha,
         current_version_id=updated_repository.current_version_id,
-        actions=[
-            RegistryActionRead.model_validate(action, from_attributes=True)
-            for action in updated_repository.actions
-        ],
+        actions=actions,
     )
 
 
@@ -510,7 +657,7 @@ async def delete_registry_repository(
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
-):
+) -> None:
     """Delete a registry repository."""
     service = RegistryReposService(session, role)
     try:
@@ -551,6 +698,8 @@ async def promote_registry_version(
     This endpoint allows administrators to manually promote or rollback to a
     specific registry version, overriding the auto-promotion that happens during sync.
 
+    Handles both platform (base) and org-scoped repositories.
+
     Args:
         repository_id: The ID of the repository
         version_id: The ID of the version to promote
@@ -562,9 +711,44 @@ async def promote_registry_version(
         404: If repository or version not found
         400: If version doesn't belong to repository or has no tarball
     """
-    service = RegistryReposService(session, role)
+    # First check if it's a platform repository
+    platform_service = PlatformRegistryReposService(session, role)
+    platform_repo = await platform_service.get_repository_by_id(repository_id)
+
+    if platform_repo is not None:
+        # This is a platform repository
+        previous_version_id = platform_repo.current_version_id
+
+        try:
+            updated_platform_repo = await platform_service.promote_version(
+                platform_repo, version_id
+            )
+        except RegistryError as e:
+            logger.warning("Cannot promote platform version", exc=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
+
+        # Get the version string from platform versions service
+        platform_versions_service = PlatformRegistryVersionsService(session, role)
+        platform_version = await platform_versions_service.get_version(version_id)
+        version_string = (
+            platform_version.version if platform_version else str(version_id)
+        )
+
+        return RegistryVersionPromoteResponse(
+            repository_id=updated_platform_repo.id,
+            origin=updated_platform_repo.origin,
+            previous_version_id=previous_version_id,
+            current_version_id=version_id,
+            version=version_string,
+        )
+
+    # Otherwise, check org-scoped repositories
+    org_service = RegistryReposService(session, role)
     try:
-        repository = await service.get_repository_by_id(repository_id)
+        org_repository = await org_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Registry repository not found", repository_id=repository_id)
         raise HTTPException(
@@ -572,10 +756,10 @@ async def promote_registry_version(
             detail="Registry repository not found",
         ) from e
 
-    previous_version_id = repository.current_version_id
+    previous_version_id = org_repository.current_version_id
 
     try:
-        updated_repository = await service.promote_version(repository, version_id)
+        updated_org_repo = await org_service.promote_version(org_repository, version_id)
     except RegistryError as e:
         logger.warning("Cannot promote version", exc=e)
         raise HTTPException(
@@ -584,15 +768,13 @@ async def promote_registry_version(
         ) from e
 
     # Get the version string for the response
-    from tracecat.registry.versions.service import RegistryVersionsService
-
-    versions_service = RegistryVersionsService(session, role)
-    version = await versions_service.get_version(version_id)
-    version_string = version.version if version else str(version_id)
+    org_versions_service = RegistryVersionsService(session, role)
+    org_version = await org_versions_service.get_version(version_id)
+    version_string = org_version.version if org_version else str(version_id)
 
     return RegistryVersionPromoteResponse(
-        repository_id=updated_repository.id,
-        origin=updated_repository.origin,
+        repository_id=updated_org_repo.id,
+        origin=updated_org_repo.origin,
         previous_version_id=previous_version_id,
         current_version_id=version_id,
         version=version_string,
