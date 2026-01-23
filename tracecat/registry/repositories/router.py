@@ -41,6 +41,10 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.registry.versions.service import (
+    PlatformRegistryVersionsService,
+    RegistryVersionsService,
+)
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
 
@@ -133,8 +137,6 @@ async def sync_registry_repository(
 
     # If force=True, delete the current version before syncing
     if force and repo.current_version_id is not None:
-        from tracecat.registry.versions.service import RegistryVersionsService
-
         versions_service = RegistryVersionsService(session, role)
         current_version = await versions_service.get_version(repo.current_version_id)
         if current_version:
@@ -335,11 +337,6 @@ async def list_repository_versions(
     repository_id: uuid.UUID,
 ) -> list[RegistryVersionRead]:
     """List all versions for a specific registry repository."""
-    from tracecat.registry.versions.service import (
-        PlatformRegistryVersionsService,
-        RegistryVersionsService,
-    )
-
     # First, check if this is a platform registry repository
     platform_repos_service = PlatformRegistryReposService(session, role)
     platform_repo = await platform_repos_service.get_repository_by_id(repository_id)
@@ -713,11 +710,6 @@ async def promote_registry_version(
         404: If repository or version not found
         400: If version doesn't belong to repository or has no tarball
     """
-    from tracecat.registry.versions.service import (
-        PlatformRegistryVersionsService,
-        RegistryVersionsService,
-    )
-
     # First check if it's a platform repository
     platform_service = PlatformRegistryReposService(session, role)
     platform_repo = await platform_service.get_repository_by_id(repository_id)
