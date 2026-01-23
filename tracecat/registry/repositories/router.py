@@ -271,6 +271,7 @@ async def _sync_platform_repository(
         sync_result = await platform_sync_service.sync_repository_v2(
             db_repo=repo,
             target_commit_sha=target_commit_sha,
+            bypass_temporal=True,  # Platform syncs always bypass Temporal
         )
         logger.info(
             "Synced platform repository",
