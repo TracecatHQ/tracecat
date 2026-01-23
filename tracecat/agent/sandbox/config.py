@@ -252,6 +252,7 @@ def build_agent_nsjail_config(
     # When internet access is enabled, we disable network namespacing to allow
     # direct network access (required for MCP command servers calling external APIs)
     clone_newnet = "false" if enable_internet_access else "true"
+
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
