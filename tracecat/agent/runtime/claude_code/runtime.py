@@ -471,6 +471,26 @@ class ClaudeAgentRuntime:
             # (The sandbox has no network access, so direct HTTP connections don't work)
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
+            # Add command-based MCP servers (stdio)
+            # These run as subprocesses inside the sandbox and require internet access
+            if payload.mcp_command_servers:
+                for cmd_server in payload.mcp_command_servers:
+                    server_name = cmd_server["name"]
+                    server_config: dict[str, Any] = {
+                        "command": cmd_server["command"],
+                    }
+                    if args := cmd_server.get("args"):
+                        server_config["args"] = args
+                    if env := cmd_server.get("env"):
+                        server_config["env"] = env
+                    if timeout := cmd_server.get("timeout"):
+                        server_config["timeout"] = timeout
+                    mcp_servers[server_name] = server_config
+                    logger.debug(
+                        "Added command MCP server",
+                        server_name=server_name,
+                        command=cmd_server["command"],
+                    )
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
@@ -526,10 +546,20 @@ class ClaudeAgentRuntime:
             )
 
             async def drain_stderr() -> None:
-                """Background task to drain stderr queue to loopback."""
+                """Background task to drain stderr queue to loopback.
+
+                Surfaces all stderr as user-visible stream events so users can
+                diagnose issues with MCP servers and other subprocess errors.
+                """
                 while True:
                     line = await stderr_queue.get()
-                    await self._socket_writer.send_log("warning", f"[stderr] {line}")
+                    # Surface as user-visible error in the stream
+                    await self._socket_writer.send_stream_event(
+                        UnifiedStreamEvent(
+                            type=StreamEventType.ERROR,
+                            error=line,
+                        )
+                    )
 
             logger.debug(
                 "Creating ClaudeSDKClient",

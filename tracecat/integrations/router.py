@@ -21,7 +21,7 @@ from tracecat.integrations.dependencies import (
     CCProviderInfoDep,
     ProviderInfoDep,
 )
-from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, MCPServerType, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -835,6 +835,11 @@ async def create_mcp_integration(
         oauth_integration_id=mcp_integration.oauth_integration_id,
         created_at=mcp_integration.created_at,
         updated_at=mcp_integration.updated_at,
+        server_type=MCPServerType(mcp_integration.server_type),
+        command=mcp_integration.command,
+        command_args=mcp_integration.command_args,
+        has_command_env=bool(mcp_integration.command_env),
+        timeout=mcp_integration.timeout,
     )
 
 
@@ -866,6 +871,11 @@ async def list_mcp_integrations(
             oauth_integration_id=integration.oauth_integration_id,
             created_at=integration.created_at,
             updated_at=integration.updated_at,
+            server_type=MCPServerType(integration.server_type),
+            command=integration.command,
+            command_args=integration.command_args,
+            has_command_env=bool(integration.command_env),
+            timeout=integration.timeout,
         )
         for integration in integrations
     ]
@@ -904,6 +914,11 @@ async def get_mcp_integration(
         oauth_integration_id=integration.oauth_integration_id,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
+        server_type=MCPServerType(integration.server_type),
+        command=integration.command,
+        command_args=integration.command_args,
+        has_command_env=bool(integration.command_env),
+        timeout=integration.timeout,
     )
 
 
@@ -949,6 +964,11 @@ async def update_mcp_integration(
         oauth_integration_id=integration.oauth_integration_id,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
+        server_type=MCPServerType(integration.server_type),
+        command=integration.command,
+        command_args=integration.command_args,
+        has_command_env=bool(integration.command_env),
+        timeout=integration.timeout,
     )
 
 
