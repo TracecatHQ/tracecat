@@ -106,8 +106,8 @@ async def _fetch_manifest(
     # Add org filter only for org-scoped tables
     if not is_platform:
         statement = statement.where(
-            repo_model.organization_id == organization_id,
-            version_model.organization_id == organization_id,
+            RegistryRepository.organization_id == organization_id,
+            RegistryVersion.organization_id == organization_id,
         )
 
     result = await session.execute(statement)

@@ -1,6 +1,7 @@
 """Tests for AgentPresetService."""
 
 import uuid
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.registry.actions.schemas import RegistryActionType
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
     RegistryVersionManifestAction,
@@ -108,7 +110,7 @@ async def registry_actions(
         manifest_actions[action_name] = RegistryVersionManifestAction(
             namespace=action_data["namespace"],
             name=action_data["name"],
-            action_type=action_data["type"],
+            action_type=cast(RegistryActionType, action_data["type"]),
             description=action_data["description"],
             interface={"expects": {}, "returns": {}},
             implementation={"type": action_data["type"]},
