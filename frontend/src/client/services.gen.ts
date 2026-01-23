@@ -28,6 +28,8 @@ import type {
   AdminGetRegistryStatusResponse,
   AdminGetUserData,
   AdminGetUserResponse,
+  AdminInviteOrgUserData,
+  AdminInviteOrgUserResponse,
   AdminListOrganizationsResponse,
   AdminListOrgRepositoriesData,
   AdminListOrgRepositoriesResponse,
@@ -3813,6 +3815,31 @@ export const adminDeleteOrganization = (
     path: {
       org_id: data.orgId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Invite Org User
+ * Invite a user to an organization.
+ *
+ * If the organization doesn't exist, creates it first.
+ * Optionally sends an invitation email with a magic link.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns OrgInviteResponse Successful Response
+ * @throws ApiError
+ */
+export const adminInviteOrgUser = (
+  data: AdminInviteOrgUserData
+): CancelablePromise<AdminInviteOrgUserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/invitations",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

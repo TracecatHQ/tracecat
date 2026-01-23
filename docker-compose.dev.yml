@@ -63,7 +63,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Agent
       TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED: ${TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED}
-
+      # Email
+      RESEND_API_KEY: ${RESEND_API_KEY}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages

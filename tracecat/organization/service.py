@@ -22,6 +22,7 @@ from tracecat.authz.controls import require_access_level
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
+    Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
@@ -32,7 +33,9 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
+from tracecat.invitations.email import send_invitation_email
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.organization.schemas import OrgInvitationRead, OrgInvitationResult
 from tracecat.service import BaseService
 
 
@@ -249,15 +252,20 @@ class OrgService(BaseService):
         *,
         email: str,
         role: OrgRole = OrgRole.MEMBER,
-    ) -> OrganizationInvitation:
-        """Create an invitation to join the organization.
+        organization_id: OrganizationID | None = None,
+    ) -> OrgInvitationResult:
+        """Create an invitation to join the organization and send email.
 
         Args:
             email: Email address of the invitee.
             role: Role to grant upon acceptance. Defaults to MEMBER.
+            organization_id: Optional org ID to invite to. Defaults to role's org.
 
         Returns:
-            OrganizationInvitation: The created invitation record.
+            OrgInvitationResult: The invitation with magic link.
+
+        Raises:
+            TracecatValidationError: If an invitation already exists for this email.
         """
         if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
@@ -280,9 +288,16 @@ class OrgService(BaseService):
             # Expired - delete it
             await self.session.delete(existing)
             await self.session.flush()
+        if self.role is None or self.role.user_id is None:
+            raise TracecatAuthorizationError(
+                "User must be authenticated to create invitation"
+            )
+
+        # Use provided org_id or fall back to role's organization
+        target_org_id = organization_id or self.organization_id
 
         invitation = OrganizationInvitation(
-            organization_id=self.organization_id,
+            organization_id=target_org_id,
             email=email,
             role=role,
             invited_by=self.role.user_id,
@@ -291,9 +306,40 @@ class OrgService(BaseService):
             status=InvitationStatus.PENDING,
         )
         self.session.add(invitation)
+
+        # Get org name for email
+        org_stmt = select(Organization).where(Organization.id == target_org_id)
+        org_result = await self.session.execute(org_stmt)
+        org = org_result.scalar_one()
+
+        # Send email before committing - if email fails, rollback
+        magic_link = send_invitation_email(
+            to_email=email,
+            org_name=org.name,
+            token=invitation.token,
+        )
+        self.logger.info("Invitation email sent", to_email=email)
+
+        # Commit only after email succeeds
         await self.session.commit()
         await self.session.refresh(invitation)
-        return invitation
+
+        invitation_read = OrgInvitationRead(
+            id=invitation.id,
+            organization_id=invitation.organization_id,
+            email=invitation.email,
+            role=invitation.role,
+            status=invitation.status,
+            invited_by=invitation.invited_by,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+            accepted_at=invitation.accepted_at,
+        )
+
+        return OrgInvitationResult(
+            invitation=invitation_read,
+            magic_link=magic_link,
+        )
 
     @require_access_level(AccessLevel.ADMIN)
     async def list_invitations(

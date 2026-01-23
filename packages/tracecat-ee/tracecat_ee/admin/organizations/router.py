@@ -10,6 +10,8 @@ from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgInviteRequest,
+    OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncRequest,
@@ -92,6 +94,31 @@ async def delete_organization(
         await service.delete_organization(org_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+# Invitation Endpoints
+
+
+@router.post(
+    "/invitations",
+    response_model=OrgInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def invite_org_user(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    params: OrgInviteRequest,
+) -> OrgInviteResponse:
+    """Invite a user to an organization.
+
+    If the organization doesn't exist, creates it first.
+    Optionally sends an invitation email with a magic link.
+    """
+    service = AdminOrgService(session, role=role)
+    try:
+        return await service.invite_org_user(params)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 # Org Registry Endpoints

@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tracecat_admin.schemas import (
+    OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -325,3 +326,28 @@ def print_org_version_promote_result(result: OrgRegistryVersionPromoteResponse) 
     else:
         console.print("  Previous version: [dim]None[/dim]")
     console.print(f"  Current version: {result.current_version}")
+
+
+def print_invite_result(result: OrgInviteResponse) -> None:
+    """Print the result of inviting a user to an organization."""
+    if result.org_created:
+        console.print(
+            f'[green]Organization "{result.organization_name}" ({result.organization_slug}) created.[/green]'
+        )
+
+    console.print("[green]Invitation created.[/green]")
+    console.print(f"  Email: {result.email}")
+    console.print(f"  Role: {result.role}")
+    console.print(
+        f"  Organization: {result.organization_name} ({result.organization_slug})"
+    )
+    console.print()
+    console.print(f"[bold]Magic link:[/bold] {result.magic_link}")
+    console.print()
+
+    if result.email_sent:
+        console.print("[green]Email sent successfully.[/green]")
+    else:
+        console.print("[yellow]Email not sent.[/yellow]")
+        if result.email_error:
+            console.print(f"  [dim]Error: {result.email_error}[/dim]")

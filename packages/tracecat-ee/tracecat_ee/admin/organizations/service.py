@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.db.models import Organization, RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    Organization,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.service import BaseService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgInviteRequest,
+    OrgInviteResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -147,6 +152,8 @@ class AdminOrgService(BaseService):
         self, org_id: uuid.UUID, repository_id: uuid.UUID, force: bool = False
     ) -> OrgRegistrySyncResponse:
         """Sync a registry repository for an organization."""
+        from datetime import UTC, datetime
+
         from tracecat.feature_flags import FeatureFlag, is_feature_enabled
         from tracecat.git.utils import parse_git_url
         from tracecat.registry.actions.service import RegistryActionsService
@@ -352,4 +359,111 @@ class AdminOrgService(BaseService):
             previous_version=previous_version_str,
             current_version_id=version_id,
             current_version=version.version,
+        )
+
+    # Invitation Methods
+
+    async def invite_org_user(self, params: OrgInviteRequest) -> OrgInviteResponse:
+        """Invite a user to an organization.
+
+        If the organization doesn't exist, creates it first.
+        Sends an invitation email with a magic link.
+
+        Args:
+            params: Invitation request with email, role, and optional org details.
+
+        Returns:
+            OrgInviteResponse with invitation details and magic link.
+
+        Raises:
+            TracecatAuthorizationError: If a pending invitation already exists.
+        """
+        from tracecat.organization.service import OrgService
+
+        org_created = False
+
+        # Determine slug to use
+        slug = params.org_slug or "default"
+
+        # Try to find existing org by slug
+        stmt = select(Organization).where(Organization.slug == slug)
+        result = await self.session.execute(stmt)
+        org = result.scalar_one_or_none()
+
+        if org is None:
+            # If slug is "default" and it exists, try default-1, default-2, etc.
+            if params.org_slug is None:
+                counter = 1
+                while True:
+                    if counter == 1:
+                        candidate_slug = "default"
+                    else:
+                        candidate_slug = f"default-{counter - 1}"
+
+                    stmt = select(Organization).where(
+                        Organization.slug == candidate_slug
+                    )
+                    result = await self.session.execute(stmt)
+                    existing = result.scalar_one_or_none()
+
+                    if existing is None:
+                        slug = candidate_slug
+                        break
+                    counter += 1
+                    if counter > 100:
+                        raise ValueError("Too many default organizations")
+
+            # Create the organization
+            org_name = params.org_name or "Default Organization"
+            org = Organization(
+                id=uuid.uuid4(),
+                name=org_name,
+                slug=slug,
+            )
+            self.session.add(org)
+            try:
+                await self.session.flush()
+            except IntegrityError as e:
+                await self.session.rollback()
+                raise ValueError(
+                    f"Organization with slug '{slug}' already exists"
+                ) from e
+            org_created = True
+            self.logger.info(
+                "Created organization",
+                org_id=str(org.id),
+                org_name=org.name,
+                org_slug=org.slug,
+            )
+
+        # Create a service role for the organization
+        org_role = Role(
+            type="service",
+            access_level=AccessLevel.ADMIN,
+            service_id="tracecat-api",
+            organization_id=org.id,
+        )
+
+        # Use OrgService to create the invitation (handles duplicate check + email)
+        org_service = OrgService(self.session, role=org_role)
+        invitation_result = await org_service.create_invitation(
+            email=params.email,
+            role=params.role,
+            organization_id=org.id,
+        )
+
+        # Commit the org creation if it was new
+        if org_created:
+            await self.session.commit()
+            await self.session.refresh(org)
+
+        return OrgInviteResponse(
+            invitation_id=invitation_result.invitation.id,
+            email=params.email,
+            role=params.role,
+            organization_id=org.id,
+            organization_name=org.name,
+            organization_slug=org.slug,
+            org_created=org_created,
+            magic_link=invitation_result.magic_link,
         )

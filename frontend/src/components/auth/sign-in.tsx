@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useState } from "react"
@@ -35,12 +35,30 @@ import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
+/**
+ * Validate that a redirect URL is internal (same-origin).
+ * Prevents open redirect attacks by ensuring the URL starts with /
+ * and doesn't contain protocol indicators.
+ */
+function getSafeRedirectUrl(url: string | null | undefined): string {
+  const fallback = "/workspaces"
+  if (!url) return fallback
+  // Must start with / and not contain protocol indicators
+  if (!url.startsWith("/") || url.startsWith("//") || url.includes("://")) {
+    return fallback
+  }
+  return url
+}
+
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = getSafeRedirectUrl(searchParams?.get("redirect"))
+
   if (user) {
-    router.push("/workspaces")
+    router.push(redirectUrl)
   }
 
   if (appInfoIsLoading) {
@@ -94,7 +112,14 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
           <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
             <div className="mt-4 text-center">
               Don&apos;t have an account?{" "}
-              <Link href="/sign-up" className="underline">
+              <Link
+                href={
+                  redirectUrl !== "/workspaces"
+                    ? `/sign-up?redirect=${encodeURIComponent(redirectUrl)}`
+                    : "/sign-up"
+                }
+                className="underline"
+              >
                 Sign up
               </Link>
             </div>

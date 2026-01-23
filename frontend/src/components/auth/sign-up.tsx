@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useState } from "react"
@@ -53,14 +53,32 @@ function isEmailLoginValidationError(
   )
 }
 
+/**
+ * Validate that a redirect URL is internal (same-origin).
+ * Prevents open redirect attacks by ensuring the URL starts with /
+ * and doesn't contain protocol indicators.
+ */
+function getSafeRedirectUrl(url: string | null | undefined): string {
+  const fallback = "/workspaces"
+  if (!url) return fallback
+  // Must start with / and not contain protocol indicators
+  if (!url.startsWith("/") || url.startsWith("//") || url.includes("://")) {
+    return fallback
+  }
+  return url
+}
+
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = getSafeRedirectUrl(searchParams?.get("redirect"))
+
   useEffect(() => {
     if (user) {
-      router.push("/workspaces")
+      router.push(redirectUrl)
     }
-  }, [user, router])
+  }, [user, router, redirectUrl])
 
   return (
     <div
@@ -83,7 +101,14 @@ export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/sign-in" className="underline">
+            <Link
+              href={
+                redirectUrl !== "/workspaces"
+                  ? `/sign-in?redirect=${encodeURIComponent(redirectUrl)}`
+                  : "/sign-in"
+              }
+              className="underline"
+            >
               Sign in
             </Link>
           </div>
