@@ -688,6 +688,9 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     )
                 )
                 if existing_index is None:
+                    # Ensure include_in_schema is True so actions appear in list queries
+                    options = action_data.get("options", {})
+                    options.setdefault("include_in_schema", True)
                     index_entry = PlatformRegistryIndex(
                         registry_version_id=platform_rv.id,
                         namespace=action_data["namespace"],
@@ -701,7 +704,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                         deprecated=action_data.get("deprecated"),
                         secrets=action_data.get("secrets"),
                         interface=action_data.get("interface", {}),
-                        options=action_data.get("options", {}),
+                        options=options,
                     )
                     session.add(index_entry)
                     # Commit each entry individually to handle race conditions
