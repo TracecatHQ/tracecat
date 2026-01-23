@@ -165,19 +165,19 @@ async def sync_registry_repository(
             async with ssh_context(
                 role=role, git_url=git_url, session=session
             ) as ssh_env:
-                # V2 sync with SSH env for tarball building
+                # Sync with SSH env for tarball building
                 (
                     commit_sha,
                     version,
-                ) = await actions_service.sync_actions_from_repository_v2(
+                ) = await actions_service.sync_actions_from_repository(
                     repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
                 )
         else:
-            # V2 sync without SSH (built-in registry)
+            # Sync without SSH (built-in registry)
             (
                 commit_sha,
                 version,
-            ) = await actions_service.sync_actions_from_repository_v2(
+            ) = await actions_service.sync_actions_from_repository(
                 repo, target_commit_sha=target_commit_sha
             )
         logger.info(

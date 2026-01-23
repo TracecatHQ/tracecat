@@ -1158,7 +1158,7 @@ class RegistryActionsService(BaseService):
             await self.session.flush()
         return action
 
-    async def sync_actions_from_repository_v2(
+    async def sync_actions_from_repository(
         self,
         db_repo: RegistryRepository,
         *,
@@ -1166,7 +1166,7 @@ class RegistryActionsService(BaseService):
         target_commit_sha: str | None = None,
         ssh_env: SshEnv | None = None,
     ) -> tuple[str | None, str | None]:
-        """Sync actions from a repository using the v2 versioned flow.
+        """Sync actions from a repository using the versioned flow.
 
         This creates an immutable RegistryVersion snapshot with:
         - Frozen manifest stored in DB

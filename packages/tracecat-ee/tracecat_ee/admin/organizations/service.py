@@ -247,14 +247,14 @@ class AdminOrgService(BaseService):
                 (
                     commit_sha,
                     version,
-                ) = await actions_service.sync_actions_from_repository_v2(
+                ) = await actions_service.sync_actions_from_repository(
                     repo, ssh_env=ssh_env
                 )
         else:
             (
                 commit_sha,
                 version,
-            ) = await actions_service.sync_actions_from_repository_v2(repo)
+            ) = await actions_service.sync_actions_from_repository(repo)
 
         # Update repository
         self.session.expire(repo)
