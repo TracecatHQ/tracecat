@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
@@ -11,6 +10,7 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import (
     Boolean,
+    Select,
     String,
     cast,
     func,
@@ -38,7 +38,6 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.exceptions import (
-    RegistryActionValidationError,
     RegistryError,
     RegistryValidationError,
 )
@@ -72,14 +71,27 @@ from tracecat.registry.loaders import (
 )
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
-from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseService
-from tracecat.settings.service import get_setting_cached
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
+
+# Type alias for index query result tuple.
+# Explicit typing required because SQLAlchemy's select() type overloads cap at 10 args.
+type _IndexSelectRow = tuple[
+    uuid.UUID,  # id
+    str,  # namespace
+    str,  # name
+    str,  # action_type
+    str,  # description
+    str | None,  # default_title
+    str | None,  # display_group
+    dict,  # options
+    str,  # origin
+    str,  # source
+]
 
 
 class SecretAggregate(TypedDict):
@@ -170,10 +182,19 @@ class RegistryActionsService(BaseService):
         Returns tuples of (index_entry, origin) from both org-scoped and platform registries.
         Uses a single database call with UNION ALL for efficiency.
         """
-        # Org-scoped registry query - select whole model for simpler code
-        org_statement = (
+        # Org-scoped registry query - select explicit columns for UNION ALL compatibility
+        # (RegistryIndex has organization_id, PlatformRegistryIndex doesn't)
+        # Explicit typing required because SQLAlchemy's select() type overloads cap at 10 args
+        org_statement: Select[_IndexSelectRow] = (
             select(
-                RegistryIndex,
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
                 RegistryRepository.origin,
                 literal("org", type_=String).label("source"),
             )
@@ -191,10 +212,17 @@ class RegistryActionsService(BaseService):
             )
         )
 
-        # Platform registry query - select whole model for simpler code
-        platform_statement = (
+        # Platform registry query - select explicit columns for UNION ALL compatibility
+        platform_statement: Select[_IndexSelectRow] = (
             select(
-                PlatformRegistryIndex,
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
                 PlatformRegistryRepository.origin,
                 literal("platform", type_=String).label("source"),
             )
@@ -253,8 +281,19 @@ class RegistryActionsService(BaseService):
         # Convert to index entries, deduplicating (org-scoped takes precedence)
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
-        for index, origin, _ in rows:  # _ is source indicator (org/platform)
-            action_name = f"{index.namespace}.{index.name}"
+        for (
+            id_,
+            ns,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            origin,
+            _,  # source indicator (org/platform)
+        ) in rows:
+            action_name = f"{ns}.{name}"
             # Skip duplicates (org-scoped takes precedence due to ORDER BY)
             if action_name in seen_actions:
                 self.logger.warning(
@@ -264,7 +303,16 @@ class RegistryActionsService(BaseService):
                 continue
             seen_actions.add(action_name)
 
-            entry = IndexEntry.from_index(index, include_extended=False)
+            entry = IndexEntry(
+                id=id_,
+                namespace=ns,
+                name=name,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options or {},
+            )
             entries.append((entry, origin))
         return entries
 
@@ -888,121 +936,6 @@ class RegistryActionsService(BaseService):
             await self.session.flush()
         return action
 
-    async def sync_actions_from_repository(
-        self,
-        db_repo: RegistryRepository,
-        pull_remote: bool = True,
-        target_commit_sha: str | None = None,
-        *,
-        allow_delete_all: bool = False,
-        use_subprocess: bool = True,
-    ) -> str | None:
-        """Sync actions from a repository.
-
-        By default, this method runs the repository loading in a subprocess to isolate
-        the uv install and importlib.reload operations from the main API process.
-
-        Args:
-            db_repo: The repository to sync.
-            pull_remote: Whether to pull the latest changes from the remote.
-            target_commit_sha: Optional commit SHA to sync to.
-            allow_delete_all: If True, allow deleting all actions if the list is empty.
-            use_subprocess: If True (default), run the sync in a subprocess.
-                Set to False for testing purposes when environment can't be
-                passed to subprocess (e.g., monkeypatched config).
-
-        To sync actions from the db repositories:
-        - Run a subprocess to reimport packages and serialize action metadata
-        - Update the DB with the serialized actions
-        """
-        # Determine which commit SHA to use:
-        # 1. If target_commit_sha is provided, use it
-        # 2. If pull_remote is False, use the stored commit SHA
-        # 3. Otherwise use None (HEAD)
-        if target_commit_sha is not None:
-            sha = target_commit_sha
-        elif not pull_remote:
-            sha = db_repo.commit_sha
-        else:
-            sha = None
-
-        # Check if validation is enabled
-        should_validate: bool = (
-            await get_setting_cached(
-                "app_registry_validation_enabled",
-                default=False,
-            )
-            or False
-        )
-        self.logger.info("Registry validation enabled", enabled=should_validate)
-
-        if use_subprocess:
-            # Run the sync subprocess to load the repository and serialize actions
-            # This isolates uv install / importlib.reload from the main process
-            sync_result = await fetch_actions_from_subprocess(
-                origin=db_repo.origin,
-                repository_id=db_repo.id,
-                commit_sha=sha,
-                validate=should_validate,
-            )
-
-            # Check for validation errors
-            if sync_result.validation_errors:
-                raise RegistryActionValidationError(
-                    f"Found {sum(len(v) for v in sync_result.validation_errors.values())} validation error(s)",
-                    detail=sync_result.validation_errors,
-                )
-
-            actions = sync_result.actions
-            commit_sha = sync_result.commit_sha
-        else:
-            # In-process sync (for testing or when subprocess is not suitable)
-            repo = Repository(origin=db_repo.origin, role=self.role)
-            commit_sha = await repo.load_from_origin(commit_sha=sha)
-
-            # Validate if enabled
-            if should_validate:
-                self.logger.info("Validating actions", all_actions=repo.store.keys())
-                val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = (
-                    defaultdict(list)
-                )
-                for action in repo.store.values():
-                    if not action.is_template:
-                        continue
-                    if errs := await self.validate_action_template(action, repo):
-                        val_errs[action.action].extend(errs)
-                if val_errs:
-                    raise RegistryActionValidationError(
-                        f"Found {sum(len(v) for v in val_errs.values())} validation error(s)",
-                        detail=val_errs,
-                    )
-
-            # Convert to RegistryActionCreate DTOs
-            actions = [
-                RegistryActionCreate.from_bound(bound_action, db_repo.id)
-                for bound_action in repo.store.values()
-            ]
-
-        # Perform DB mutations in a single transaction to avoid partial writes
-        if self.session.in_transaction():
-            async with self.session.begin_nested():
-                await self.upsert_actions_from_list(
-                    actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
-                )
-        else:
-            async with self.session.begin():
-                await self.upsert_actions_from_list(
-                    actions,
-                    db_repo,
-                    commit=False,
-                    allow_delete_all=allow_delete_all,
-                )
-
-        return commit_sha
-
     async def sync_actions_from_repository_v2(
         self,
         db_repo: RegistryRepository,
@@ -1077,121 +1010,6 @@ class RegistryActionsService(BaseService):
         """Validate that a template action is correctly formatted."""
         return await validate_action_template(
             action, repo, check_db=True, ra_service=self
-        )
-
-    async def upsert_actions_from_list(
-        self,
-        actions: list[RegistryActionCreate],
-        db_repo: RegistryRepository,
-        *,
-        commit: bool = True,
-        allow_delete_all: bool = False,
-    ) -> None:
-        """Upsert a list of actions from pre-serialized RegistryActionCreate objects.
-
-        This method is used by the subprocess-based sync flow where actions
-        are already serialized to DTOs.
-
-        Args:
-            actions: List of RegistryActionCreate DTOs to upsert.
-            db_repo: The database repository record.
-            commit: Whether to commit after each operation.
-            allow_delete_all: If True, allow deleting all actions if the list is empty.
-        """
-        # Build a map of incoming actions by their full action name
-        incoming_actions_map = {
-            f"{action.namespace}.{action.name}": action for action in actions
-        }
-
-        # Get existing actions from the DB
-        await self.session.refresh(db_repo)
-        db_actions = db_repo.actions
-        db_actions_map = {db_action.action: db_action for db_action in db_actions}
-
-        self.logger.info(
-            "Syncing actions from list",
-            repository=db_repo.origin,
-            incoming_actions=len(incoming_actions_map),
-            existing_actions=len(db_actions_map),
-        )
-
-        if not incoming_actions_map:
-            if db_actions_map and not allow_delete_all:
-                self.logger.error(
-                    "Empty registry snapshot; refusing to delete existing actions",
-                    repository=db_repo.origin,
-                    existing_actions=len(db_actions_map),
-                )
-                raise RegistryError(
-                    "Sync aborted: repository produced no actions; existing actions were preserved."
-                )
-
-            if not db_actions_map:
-                self.logger.info(
-                    "No actions found in repository and none in database; nothing to sync",
-                    repository=db_repo.origin,
-                )
-                return
-
-        n_created = 0
-        n_updated = 0
-        n_deleted = 0
-
-        for action_name, create_params in incoming_actions_map.items():
-            try:
-                registry_action = await self.get_action(action_name)
-            except RegistryError:
-                self.logger.debug(
-                    "Action not found, creating",
-                    namespace=create_params.namespace,
-                    origin=create_params.origin,
-                    repository_id=db_repo.id,
-                )
-                await self.create_action(create_params, commit=commit)
-                n_created += 1
-            else:
-                self.logger.debug(
-                    "Action found, updating",
-                    namespace=create_params.namespace,
-                    origin=create_params.origin,
-                    repository_id=db_repo.id,
-                )
-                # Convert RegistryActionCreate to RegistryActionUpdate
-                update_params = RegistryActionUpdate(
-                    name=create_params.name,
-                    description=create_params.description,
-                    interface=create_params.interface,
-                    implementation=create_params.implementation,
-                    default_title=create_params.default_title,
-                    display_group=create_params.display_group,
-                    doc_url=create_params.doc_url,
-                    author=create_params.author,
-                    deprecated=create_params.deprecated,
-                    options=create_params.options,
-                    secrets=create_params.secrets,
-                )
-                await self.update_action(registry_action, update_params, commit=commit)
-                n_updated += 1
-            finally:
-                # Mark action as not to delete
-                db_actions_map.pop(action_name, None)
-
-        # Remove actions that are marked for deletion
-        if db_actions_map:
-            self.logger.warning(
-                "Removing actions that are no longer in the repository",
-                actions=db_actions_map.keys(),
-            )
-            for action_to_remove in db_actions_map.values():
-                await self.delete_action(action_to_remove, commit=commit)
-                n_deleted += 1
-
-        self.logger.info(
-            "Synced actions from repository",
-            repository=db_repo.origin,
-            created=n_created,
-            updated=n_updated,
-            deleted=n_deleted,
         )
 
     async def load_action_impl(
