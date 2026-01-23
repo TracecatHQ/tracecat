@@ -335,11 +335,24 @@ async def list_repository_versions(
     repository_id: uuid.UUID,
 ) -> list[RegistryVersionRead]:
     """List all versions for a specific registry repository."""
-    from tracecat.registry.versions.service import RegistryVersionsService
+    from tracecat.registry.versions.service import (
+        PlatformRegistryVersionsService,
+        RegistryVersionsService,
+    )
 
+    # First, check if this is a platform registry repository
+    platform_repos_service = PlatformRegistryReposService(session, role)
+    platform_repo = await platform_repos_service.get_repository_by_id(repository_id)
+
+    if platform_repo is not None:
+        # This is a platform registry - use platform versions service
+        versions_service = PlatformRegistryVersionsService(session, role)
+        versions = await versions_service.list_versions(repository_id=repository_id)
+        return [RegistryVersionRead.model_validate(v) for v in versions]
+
+    # Otherwise, check org-scoped repositories
     repos_service = RegistryReposService(session, role)
     try:
-        # Verify repository exists
         await repos_service.get_repository_by_id(repository_id)
     except NoResultFound as e:
         logger.error("Registry repository not found", repository_id=repository_id)
