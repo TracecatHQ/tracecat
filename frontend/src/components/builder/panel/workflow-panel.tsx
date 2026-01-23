@@ -11,7 +11,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
-  type ExpectedField,
+  type ExpectedField_Input,
   type WorkflowRead,
   type WorkflowUpdate,
   workflowsValidateWorkflowEntrypoint,
@@ -75,7 +75,7 @@ const createWorkflowUpdateFormSchema = (workspaceId: string) =>
               description: z.string().nullable().optional(),
               default: z.unknown().nullable().optional(),
             })
-            .refine((val): val is ExpectedField => true)
+            .refine((val): val is ExpectedField_Input => true)
         )
         .nullish(),
       returns: z.unknown().nullish(),
