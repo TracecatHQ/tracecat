@@ -645,12 +645,15 @@ fi
 # Function to seed test user after cluster starts
 seed_test_user() {
     local api_url="http://localhost:${PUBLIC_APP_PORT}/api"
-    local max_attempts=30
+    local max_attempts=60
     local attempt=1
 
     echo "Waiting for API to be ready..."
     while [[ $attempt -le $max_attempts ]]; do
-        if curl -s "${api_url}/health" > /dev/null 2>&1; then
+        # Use /ready endpoint which checks full startup completion (not /health which returns immediately)
+        local status_code
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/ready" 2>/dev/null || echo "000")
+        if [[ "$status_code" == "200" ]]; then
             echo "API is ready"
             break
         fi
