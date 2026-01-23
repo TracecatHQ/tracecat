@@ -119,8 +119,12 @@ override-dependencies = [
 
 [dependency-groups]
 admin = ["tracecat-admin"]
+lint = [
+    "basedpyright==1.37.1",
+    "types-aioboto3[sts,s3]==15.5.0",
+    "types-boto3[sts,s3]==1.42.25",
+]
 dev = [
-    "mypy==1.15.0",
     "pre-commit==4.1.0",
     "psycopg==3.1.19",
     "pytest-benchmark==5.2.3",
@@ -131,8 +135,7 @@ dev = [
     "python-dotenv==1.1.1",
     "respx==0.22.0",
     "ruff==0.13.0",
-    "types-aioboto3[sts,s3]==15.5.0",
-    "types-boto3[sts,s3]==1.42.25",
+    {include-group = "lint"},
 ]
 
 [tool.hatch.version]
@@ -140,10 +143,6 @@ path = "tracecat/__init__.py"
 
 [tool.hatch.metadata]
 allow-direct-references = true
-
-[tool.mypy]
-strict = true
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
