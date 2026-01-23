@@ -183,7 +183,7 @@ function McpIntegrationDetailContent({
     defaultValues: {
       name: mcpIntegration.name,
       description: mcpIntegration.description || "",
-      server_uri: mcpIntegration.server_uri,
+      server_uri: mcpIntegration.server_uri || "",
       auth_type: mcpIntegration.auth_type,
       oauth_integration_id: mcpIntegration.oauth_integration_id || "",
       custom_credentials: "",
