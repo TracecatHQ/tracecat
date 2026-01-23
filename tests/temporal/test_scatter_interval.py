@@ -12,7 +12,10 @@ from typing import Any
 
 import pytest
 
-pytestmark = pytest.mark.temporal
+pytestmark = [
+    pytest.mark.temporal,
+    pytest.mark.usefixtures("registry_version_with_manifest"),
+]
 
 from temporalio.client import Client
 from temporalio.worker import Worker
