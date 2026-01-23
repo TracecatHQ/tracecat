@@ -78,8 +78,10 @@ from tracecat.service import BaseService
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
 
-# Type alias for index query result tuple.
-# Explicit typing required because SQLAlchemy's select() type overloads cap at 10 args.
+# Type aliases for UNION ALL query results.
+# Explicit typing needed because SQLAlchemy's select() overloads cap at 10 args.
+
+# Minimal index row: list_actions_from_index
 type _IndexSelectRow = tuple[
     uuid.UUID,  # id
     str,  # namespace
@@ -89,6 +91,60 @@ type _IndexSelectRow = tuple[
     str | None,  # default_title
     str | None,  # display_group
     dict,  # options
+    str,  # origin
+    str,  # source
+]
+
+# Action index row with manifest: get_action_from_index, get_actions_from_index
+type _ActionIndexRow = tuple[
+    uuid.UUID,  # id
+    str,  # namespace
+    str,  # name
+    str,  # action_type
+    str,  # description
+    str | None,  # default_title
+    str | None,  # display_group
+    dict,  # options
+    str | None,  # doc_url
+    str | None,  # author
+    str | None,  # deprecated
+    dict,  # manifest
+    str,  # origin
+    uuid.UUID,  # repo_id
+    str,  # source
+]
+
+# Repository index row: list_actions_from_index_by_repository (no source)
+type _RepoIndexRow = tuple[
+    uuid.UUID,  # id
+    str,  # namespace
+    str,  # name
+    str,  # action_type
+    str,  # description
+    str | None,  # default_title
+    str | None,  # display_group
+    dict,  # options
+    str | None,  # doc_url
+    str | None,  # author
+    str | None,  # deprecated
+    dict,  # manifest
+    str,  # origin
+    uuid.UUID,  # repo_id
+]
+
+# Search index row: search_actions_from_index (no manifest)
+type _SearchIndexRow = tuple[
+    uuid.UUID,  # id
+    str,  # namespace
+    str,  # name
+    str,  # action_type
+    str,  # description
+    str | None,  # default_title
+    str | None,  # display_group
+    dict,  # options
+    str | None,  # doc_url
+    str | None,  # author
+    str | None,  # deprecated
     str,  # origin
     str,  # source
 ]
@@ -103,9 +159,9 @@ class SecretAggregate(TypedDict):
 
 @dataclass(slots=True)
 class IndexEntry:
-    """Simple data holder that mimics BaseRegistryIndex for list_actions_from_index results.
+    """Data holder for registry index entries from UNION ALL query results.
 
-    Used to convert raw UNION ALL query results into objects compatible with
+    Used to convert raw query results into objects compatible with
     RegistryActionReadMinimal.from_index() and RegistryActionRead.from_index_and_manifest().
 
     Implements RegistryIndexLike protocol.
@@ -122,34 +178,6 @@ class IndexEntry:
     doc_url: str | None = None
     author: str | None = None
     deprecated: str | None = None
-
-    @classmethod
-    def from_index(
-        cls,
-        index: RegistryIndex | PlatformRegistryIndex,
-        *,
-        include_extended: bool = True,
-    ) -> IndexEntry:
-        """Create IndexEntry from a registry index model.
-
-        Args:
-            index: The registry index model (org-scoped or platform).
-            include_extended: If True, includes doc_url, author, and deprecated fields.
-                Set to False for minimal entries (e.g., list_actions_from_index).
-        """
-        return cls(
-            id=index.id,
-            namespace=index.namespace,
-            name=index.name,
-            action_type=index.action_type,
-            description=index.description,
-            default_title=index.default_title,
-            display_group=index.display_group,
-            options=index.options or {},
-            doc_url=index.doc_url if include_extended else None,
-            author=index.author if include_extended else None,
-            deprecated=index.deprecated if include_extended else None,
-        )
 
 
 @dataclass(slots=True)
@@ -328,9 +356,19 @@ class RegistryActionsService(BaseService):
         Returns list of RegistryActionRead objects with implementation from manifest.
         """
         # Org-scoped query - filter by org_id for security
-        org_statement = (
+        org_statement: Select[_RepoIndexRow] = (
             select(
-                RegistryIndex,
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
                 RegistryVersion.manifest,
                 RegistryRepository.origin,
                 RegistryRepository.id.label("repo_id"),
@@ -351,9 +389,19 @@ class RegistryActionsService(BaseService):
         )
 
         # Platform query - no org_id filter (shared across all orgs)
-        platform_statement = (
+        platform_statement: Select[_RepoIndexRow] = (
             select(
-                PlatformRegistryIndex,
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
                 PlatformRegistryVersion.manifest,
                 PlatformRegistryRepository.origin,
                 PlatformRegistryRepository.id.label("repo_id"),
@@ -379,12 +427,39 @@ class RegistryActionsService(BaseService):
         rows = result.tuples().all()
 
         actions: list[RegistryActionRead] = []
-        for index, manifest_data, origin, repo_id in rows:
+        for (
+            id_,
+            namespace,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            manifest_data,
+            origin,
+            repo_id,
+        ) in rows:
             manifest = RegistryVersionManifest.model_validate(manifest_data)
-            action_name = f"{index.namespace}.{index.name}"
+            action_name = f"{namespace}.{name}"
             manifest_action = manifest.actions.get(action_name)
             if manifest_action:
-                index_entry = IndexEntry.from_index(index)
+                index_entry = IndexEntry(
+                    id=id_,
+                    namespace=namespace,
+                    name=name,
+                    action_type=action_type,
+                    description=description,
+                    default_title=default_title,
+                    display_group=display_group,
+                    options=options or {},
+                    doc_url=doc_url,
+                    author=author,
+                    deprecated=deprecated,
+                )
                 actions.append(
                     RegistryActionRead.from_index_and_manifest(
                         index_entry,
@@ -415,10 +490,20 @@ class RegistryActionsService(BaseService):
         except ValueError:
             return None
 
-        # Org-scoped query - select whole model for simpler code
-        org_statement = (
+        # Org-scoped query - select explicit columns for UNION ALL compatibility
+        org_statement: Select[_ActionIndexRow] = (
             select(
-                RegistryIndex,
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
                 RegistryVersion.manifest,
                 RegistryRepository.origin,
                 RegistryRepository.id.label("repo_id"),
@@ -440,14 +525,24 @@ class RegistryActionsService(BaseService):
             )
         )
 
-        # Platform query - select whole model for simpler code
-        platform_statement = (
+        # Platform query - select explicit columns for UNION ALL compatibility
+        platform_statement: Select[_ActionIndexRow] = (
             select(
-                PlatformRegistryIndex,
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
                 PlatformRegistryVersion.manifest,
                 PlatformRegistryRepository.origin,
                 PlatformRegistryRepository.id.label("repo_id"),
-                literal("platform").label("source"),
+                literal("platform", type_=String).label("source"),
             )
             .join(
                 PlatformRegistryVersion,
@@ -475,11 +570,39 @@ class RegistryActionsService(BaseService):
         if not first_row:
             return None
 
-        index, manifest_data, origin, repo_id, _ = first_row  # _ is source indicator
+        (
+            id_,
+            ns,
+            nm,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            manifest_data,
+            origin,
+            repo_id,
+            _,  # source indicator
+        ) = first_row
 
         manifest = RegistryVersionManifest.model_validate(manifest_data)
         return IndexedActionResult(
-            index_entry=IndexEntry.from_index(index),
+            index_entry=IndexEntry(
+                id=id_,
+                namespace=ns,
+                name=nm,
+                action_type=action_type,
+                description=description,
+                default_title=default_title,
+                display_group=display_group,
+                options=options or {},
+                doc_url=doc_url,
+                author=author,
+                deprecated=deprecated,
+            ),
             manifest=manifest,
             origin=origin,
             repository_id=repo_id,
@@ -527,14 +650,24 @@ class RegistryActionsService(BaseService):
             PlatformRegistryIndex.namespace, PlatformRegistryIndex.name
         ).in_(action_parts)
 
-        # Org-scoped query - select whole model for simpler code
-        org_statement = (
+        # Org-scoped query - select explicit columns for UNION ALL compatibility
+        org_statement: Select[_ActionIndexRow] = (
             select(
-                RegistryIndex,
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
                 RegistryVersion.manifest,
                 RegistryRepository.origin,
                 RegistryRepository.id.label("repo_id"),
-                literal("org").label("source"),
+                literal("org", type_=String).label("source"),
             )
             .join(
                 RegistryVersion,
@@ -551,14 +684,24 @@ class RegistryActionsService(BaseService):
             )
         )
 
-        # Platform query - select whole model for simpler code
-        platform_statement = (
+        # Platform query - select explicit columns for UNION ALL compatibility
+        platform_statement: Select[_ActionIndexRow] = (
             select(
-                PlatformRegistryIndex,
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
                 PlatformRegistryVersion.manifest,
                 PlatformRegistryRepository.origin,
                 PlatformRegistryRepository.id.label("repo_id"),
-                literal("platform").label("source"),
+                literal("platform", type_=String).label("source"),
             )
             .join(
                 PlatformRegistryVersion,
@@ -583,15 +726,43 @@ class RegistryActionsService(BaseService):
         rows = result.tuples().all()
 
         actions: dict[str, IndexedActionResult] = {}
-        for index, manifest_data, origin, repo_id, _ in rows:  # _ is source indicator
-            action_name = f"{index.namespace}.{index.name}"
+        for (
+            id_,
+            ns,
+            nm,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            manifest_data,
+            origin,
+            repo_id,
+            _,  # source indicator
+        ) in rows:
+            action_name = f"{ns}.{nm}"
             # Skip if already found (org-scoped takes precedence)
             if action_name in actions:
                 continue
 
             manifest = RegistryVersionManifest.model_validate(manifest_data)
             actions[action_name] = IndexedActionResult(
-                index_entry=IndexEntry.from_index(index),
+                index_entry=IndexEntry(
+                    id=id_,
+                    namespace=ns,
+                    name=nm,
+                    action_type=action_type,
+                    description=description,
+                    default_title=default_title,
+                    display_group=display_group,
+                    options=options or {},
+                    doc_url=doc_url,
+                    author=author,
+                    deprecated=deprecated,
+                ),
                 manifest=manifest,
                 origin=origin,
                 repository_id=repo_id,
@@ -621,12 +792,22 @@ class RegistryActionsService(BaseService):
 
         search_pattern = f"%{query}%"
 
-        # Org-scoped query - select whole model for simpler code
-        org_statement = (
+        # Org-scoped query - select explicit columns for UNION ALL compatibility
+        org_statement: Select[_SearchIndexRow] = (
             select(
-                RegistryIndex,
+                RegistryIndex.id,
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.action_type,
+                RegistryIndex.description,
+                RegistryIndex.default_title,
+                RegistryIndex.display_group,
+                RegistryIndex.options,
+                RegistryIndex.doc_url,
+                RegistryIndex.author,
+                RegistryIndex.deprecated,
                 RegistryRepository.origin,
-                literal("org").label("source"),
+                literal("org", type_=String).label("source"),
             )
             .join(
                 RegistryVersion,
@@ -648,12 +829,22 @@ class RegistryActionsService(BaseService):
             )
         )
 
-        # Platform query - select whole model for simpler code
-        platform_statement = (
+        # Platform query - select explicit columns for UNION ALL compatibility
+        platform_statement: Select[_SearchIndexRow] = (
             select(
-                PlatformRegistryIndex,
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
                 PlatformRegistryRepository.origin,
-                literal("platform").label("source"),
+                literal("platform", type_=String).label("source"),
             )
             .join(
                 PlatformRegistryVersion,
@@ -685,14 +876,45 @@ class RegistryActionsService(BaseService):
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
 
-        for index, origin, _ in rows:  # _ is source indicator
-            action_name = f"{index.namespace}.{index.name}"
+        for (
+            id_,
+            namespace,
+            name,
+            action_type,
+            description,
+            default_title,
+            display_group,
+            options,
+            doc_url,
+            author,
+            deprecated,
+            origin,
+            _,  # source indicator
+        ) in rows:
+            action_name = f"{namespace}.{name}"
             # Skip duplicates (org-scoped takes precedence in union order)
             if action_name in seen_actions:
                 continue
             seen_actions.add(action_name)
 
-            entries.append((IndexEntry.from_index(index), origin))
+            entries.append(
+                (
+                    IndexEntry(
+                        id=id_,
+                        namespace=namespace,
+                        name=name,
+                        action_type=action_type,
+                        description=description,
+                        default_title=default_title,
+                        display_group=display_group,
+                        options=options or {},
+                        doc_url=doc_url,
+                        author=author,
+                        deprecated=deprecated,
+                    ),
+                    origin,
+                )
+            )
 
         return entries
 
