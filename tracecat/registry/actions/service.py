@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import (
     Boolean,
-    Select,
     String,
     cast,
     func,
@@ -78,76 +77,80 @@ from tracecat.service import BaseService
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
 
-# Type aliases for UNION ALL query results.
-# Explicit typing needed because SQLAlchemy's select() overloads cap at 10 args.
+# NamedTuple types for UNION ALL query results.
+# Used with typing_cast since SQLAlchemy's Row objects support attribute access.
 
-# Minimal index row: list_actions_from_index
-type _IndexSelectRow = tuple[
-    uuid.UUID,  # id
-    str,  # namespace
-    str,  # name
-    str,  # action_type
-    str,  # description
-    str | None,  # default_title
-    str | None,  # display_group
-    dict,  # options
-    str,  # origin
-    str,  # source
-]
 
-# Action index row with manifest: get_action_from_index, get_actions_from_index
-type _ActionIndexRow = tuple[
-    uuid.UUID,  # id
-    str,  # namespace
-    str,  # name
-    str,  # action_type
-    str,  # description
-    str | None,  # default_title
-    str | None,  # display_group
-    dict,  # options
-    str | None,  # doc_url
-    str | None,  # author
-    str | None,  # deprecated
-    dict,  # manifest
-    str,  # origin
-    uuid.UUID,  # repo_id
-    str,  # source
-]
+class _IndexSelectRow(NamedTuple):
+    """Minimal index row: list_actions_from_index."""
 
-# Repository index row: list_actions_from_index_by_repository (no source)
-type _RepoIndexRow = tuple[
-    uuid.UUID,  # id
-    str,  # namespace
-    str,  # name
-    str,  # action_type
-    str,  # description
-    str | None,  # default_title
-    str | None,  # display_group
-    dict,  # options
-    str | None,  # doc_url
-    str | None,  # author
-    str | None,  # deprecated
-    dict,  # manifest
-    str,  # origin
-    uuid.UUID,  # repo_id
-]
+    id: uuid.UUID
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    options: dict
+    origin: str
+    source: str
 
-# Search index row: search_actions_from_index (no manifest)
-type _SearchIndexRow = tuple[
-    uuid.UUID,  # id
-    str,  # namespace
-    str,  # name
-    str,  # action_type
-    str,  # description
-    str | None,  # default_title
-    str | None,  # display_group
-    dict,  # options
-    str | None,  # doc_url
-    str | None,  # author
-    str | None,  # deprecated
-    str,  # origin
-    str,  # source
-]
+
+class _ActionIndexRow(NamedTuple):
+    """Action index row with manifest: get_action_from_index, get_actions_from_index."""
+
+    id: uuid.UUID
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    options: dict
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    manifest: dict
+    origin: str
+    repo_id: uuid.UUID
+    source: str
+
+
+class _RepoIndexRow(NamedTuple):
+    """Repository index row: list_actions_from_index_by_repository (no source)."""
+
+    id: uuid.UUID
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    options: dict
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    manifest: dict
+    origin: str
+    repo_id: uuid.UUID
+
+
+class _SearchIndexRow(NamedTuple):
+    """Search index row: search_actions_from_index (no manifest)."""
+
+    id: uuid.UUID
+    namespace: str
+    name: str
+    action_type: str
+    description: str
+    default_title: str | None
+    display_group: str | None
+    options: dict
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    origin: str
+    source: str
 
 
 class SecretAggregate(TypedDict):
@@ -176,8 +179,7 @@ class RegistryActionsService(BaseService):
         """
         # Org-scoped registry query - select explicit columns for UNION ALL compatibility
         # (RegistryIndex has organization_id, PlatformRegistryIndex doesn't)
-        # Explicit typing required because SQLAlchemy's select() type overloads cap at 10 args
-        org_statement: Select[_IndexSelectRow] = (
+        org_statement = (
             select(
                 RegistryIndex.id,
                 RegistryIndex.namespace,
@@ -205,7 +207,7 @@ class RegistryActionsService(BaseService):
         )
 
         # Platform registry query - select explicit columns for UNION ALL compatibility
-        platform_statement: Select[_IndexSelectRow] = (
+        platform_statement = (
             select(
                 PlatformRegistryIndex.id,
                 PlatformRegistryIndex.namespace,
@@ -268,24 +270,13 @@ class RegistryActionsService(BaseService):
             text("source")  # "org" < "platform" alphabetically
         )
         result = await self.session.execute(combined)
-        rows = result.tuples().all()
+        rows = typing_cast(list[_IndexSelectRow], result.all())
 
         # Convert to index entries, deduplicating (org-scoped takes precedence)
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
-        for (
-            id_,
-            ns,
-            name,
-            action_type,
-            description,
-            default_title,
-            display_group,
-            options,
-            origin,
-            _,  # source indicator (org/platform)
-        ) in rows:
-            action_name = f"{ns}.{name}"
+        for row in rows:
+            action_name = f"{row.namespace}.{row.name}"
             # Skip duplicates (org-scoped takes precedence due to ORDER BY)
             if action_name in seen_actions:
                 self.logger.warning(
@@ -296,16 +287,16 @@ class RegistryActionsService(BaseService):
             seen_actions.add(action_name)
 
             entry = IndexEntry(
-                id=id_,
-                namespace=ns,
-                name=name,
-                action_type=action_type,
-                description=description,
-                default_title=default_title,
-                display_group=display_group,
-                options=options or {},
+                id=row.id,
+                namespace=row.namespace,
+                name=row.name,
+                action_type=row.action_type,
+                description=row.description,
+                default_title=row.default_title,
+                display_group=row.display_group,
+                options=row.options or {},
             )
-            entries.append((entry, origin))
+            entries.append((entry, row.origin))
         return entries
 
     async def list_actions_from_index_by_repository(
@@ -320,7 +311,7 @@ class RegistryActionsService(BaseService):
         Returns list of RegistryActionRead objects with implementation from manifest.
         """
         # Org-scoped query - filter by org_id for security
-        org_statement: Select[_RepoIndexRow] = (
+        org_statement = (
             select(
                 RegistryIndex.id,
                 RegistryIndex.namespace,
@@ -353,7 +344,7 @@ class RegistryActionsService(BaseService):
         )
 
         # Platform query - no org_id filter (shared across all orgs)
-        platform_statement: Select[_RepoIndexRow] = (
+        platform_statement = (
             select(
                 PlatformRegistryIndex.id,
                 PlatformRegistryIndex.namespace,
@@ -388,48 +379,33 @@ class RegistryActionsService(BaseService):
         # Single query combining both table sets
         combined = union_all(org_statement, platform_statement)
         result = await self.session.execute(combined)
-        rows = result.tuples().all()
+        rows = typing_cast(list[_RepoIndexRow], result.all())
 
         actions: list[RegistryActionRead] = []
-        for (
-            id_,
-            namespace,
-            name,
-            action_type,
-            description,
-            default_title,
-            display_group,
-            options,
-            doc_url,
-            author,
-            deprecated,
-            manifest_data,
-            origin,
-            repo_id,
-        ) in rows:
-            manifest = RegistryVersionManifest.model_validate(manifest_data)
-            action_name = f"{namespace}.{name}"
+        for row in rows:
+            manifest = RegistryVersionManifest.model_validate(row.manifest)
+            action_name = f"{row.namespace}.{row.name}"
             manifest_action = manifest.actions.get(action_name)
             if manifest_action:
                 index_entry = IndexEntry(
-                    id=id_,
-                    namespace=namespace,
-                    name=name,
-                    action_type=action_type,
-                    description=description,
-                    default_title=default_title,
-                    display_group=display_group,
-                    options=options or {},
-                    doc_url=doc_url,
-                    author=author,
-                    deprecated=deprecated,
+                    id=row.id,
+                    namespace=row.namespace,
+                    name=row.name,
+                    action_type=row.action_type,
+                    description=row.description,
+                    default_title=row.default_title,
+                    display_group=row.display_group,
+                    options=row.options or {},
+                    doc_url=row.doc_url,
+                    author=row.author,
+                    deprecated=row.deprecated,
                 )
                 actions.append(
                     RegistryActionRead.from_index_and_manifest(
                         index_entry,
                         manifest_action,
-                        origin,
-                        repo_id,
+                        row.origin,
+                        row.repo_id,
                     )
                 )
         return actions
@@ -455,7 +431,7 @@ class RegistryActionsService(BaseService):
             return None
 
         # Org-scoped query - select explicit columns for UNION ALL compatibility
-        org_statement: Select[_ActionIndexRow] = (
+        org_statement = (
             select(
                 RegistryIndex.id,
                 RegistryIndex.namespace,
@@ -490,7 +466,7 @@ class RegistryActionsService(BaseService):
         )
 
         # Platform query - select explicit columns for UNION ALL compatibility
-        platform_statement: Select[_ActionIndexRow] = (
+        platform_statement = (
             select(
                 PlatformRegistryIndex.id,
                 PlatformRegistryIndex.namespace,
@@ -529,47 +505,30 @@ class RegistryActionsService(BaseService):
             text("source")  # "org" < "platform" alphabetically
         )
         result = await self.session.execute(combined)
-        first_row = result.tuples().first()
+        first_row = result.first()
 
         if not first_row:
             return None
 
-        (
-            id_,
-            ns,
-            nm,
-            action_type,
-            description,
-            default_title,
-            display_group,
-            options,
-            doc_url,
-            author,
-            deprecated,
-            manifest_data,
-            origin,
-            repo_id,
-            _,  # source indicator
-        ) = first_row
-
-        manifest = RegistryVersionManifest.model_validate(manifest_data)
+        row = typing_cast(_ActionIndexRow, first_row)
+        manifest = RegistryVersionManifest.model_validate(row.manifest)
         return IndexedActionResult(
             index_entry=IndexEntry(
-                id=id_,
-                namespace=ns,
-                name=nm,
-                action_type=action_type,
-                description=description,
-                default_title=default_title,
-                display_group=display_group,
-                options=options or {},
-                doc_url=doc_url,
-                author=author,
-                deprecated=deprecated,
+                id=row.id,
+                namespace=row.namespace,
+                name=row.name,
+                action_type=row.action_type,
+                description=row.description,
+                default_title=row.default_title,
+                display_group=row.display_group,
+                options=row.options or {},
+                doc_url=row.doc_url,
+                author=row.author,
+                deprecated=row.deprecated,
             ),
             manifest=manifest,
-            origin=origin,
-            repository_id=repo_id,
+            origin=row.origin,
+            repository_id=row.repo_id,
         )
 
     async def get_actions_from_index(
@@ -615,7 +574,7 @@ class RegistryActionsService(BaseService):
         ).in_(action_parts)
 
         # Org-scoped query - select explicit columns for UNION ALL compatibility
-        org_statement: Select[_ActionIndexRow] = (
+        org_statement = (
             select(
                 RegistryIndex.id,
                 RegistryIndex.namespace,
@@ -649,7 +608,7 @@ class RegistryActionsService(BaseService):
         )
 
         # Platform query - select explicit columns for UNION ALL compatibility
-        platform_statement: Select[_ActionIndexRow] = (
+        platform_statement = (
             select(
                 PlatformRegistryIndex.id,
                 PlatformRegistryIndex.namespace,
@@ -687,49 +646,33 @@ class RegistryActionsService(BaseService):
             text("source")  # "org" < "platform" alphabetically
         )
         result = await self.session.execute(combined)
-        rows = result.tuples().all()
+        rows = typing_cast(list[_ActionIndexRow], result.all())
 
         actions: dict[str, IndexedActionResult] = {}
-        for (
-            id_,
-            ns,
-            nm,
-            action_type,
-            description,
-            default_title,
-            display_group,
-            options,
-            doc_url,
-            author,
-            deprecated,
-            manifest_data,
-            origin,
-            repo_id,
-            _,  # source indicator
-        ) in rows:
-            action_name = f"{ns}.{nm}"
+        for row in rows:
+            action_name = f"{row.namespace}.{row.name}"
             # Skip if already found (org-scoped takes precedence)
             if action_name in actions:
                 continue
 
-            manifest = RegistryVersionManifest.model_validate(manifest_data)
+            manifest = RegistryVersionManifest.model_validate(row.manifest)
             actions[action_name] = IndexedActionResult(
                 index_entry=IndexEntry(
-                    id=id_,
-                    namespace=ns,
-                    name=nm,
-                    action_type=action_type,
-                    description=description,
-                    default_title=default_title,
-                    display_group=display_group,
-                    options=options or {},
-                    doc_url=doc_url,
-                    author=author,
-                    deprecated=deprecated,
+                    id=row.id,
+                    namespace=row.namespace,
+                    name=row.name,
+                    action_type=row.action_type,
+                    description=row.description,
+                    default_title=row.default_title,
+                    display_group=row.display_group,
+                    options=row.options or {},
+                    doc_url=row.doc_url,
+                    author=row.author,
+                    deprecated=row.deprecated,
                 ),
                 manifest=manifest,
-                origin=origin,
-                repository_id=repo_id,
+                origin=row.origin,
+                repository_id=row.repo_id,
             )
 
         return actions
@@ -757,7 +700,7 @@ class RegistryActionsService(BaseService):
         search_pattern = f"%{query}%"
 
         # Org-scoped query - select explicit columns for UNION ALL compatibility
-        org_statement: Select[_SearchIndexRow] = (
+        org_statement = (
             select(
                 RegistryIndex.id,
                 RegistryIndex.namespace,
@@ -794,7 +737,7 @@ class RegistryActionsService(BaseService):
         )
 
         # Platform query - select explicit columns for UNION ALL compatibility
-        platform_statement: Select[_SearchIndexRow] = (
+        platform_statement = (
             select(
                 PlatformRegistryIndex.id,
                 PlatformRegistryIndex.namespace,
@@ -835,27 +778,13 @@ class RegistryActionsService(BaseService):
         if limit is not None:
             combined = combined.limit(limit)
         result = await self.session.execute(combined)
-        rows = result.tuples().all()
+        rows = typing_cast(list[_SearchIndexRow], result.all())
 
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
 
-        for (
-            id_,
-            namespace,
-            name,
-            action_type,
-            description,
-            default_title,
-            display_group,
-            options,
-            doc_url,
-            author,
-            deprecated,
-            origin,
-            _,  # source indicator
-        ) in rows:
-            action_name = f"{namespace}.{name}"
+        for row in rows:
+            action_name = f"{row.namespace}.{row.name}"
             # Skip duplicates (org-scoped takes precedence in union order)
             if action_name in seen_actions:
                 continue
@@ -864,19 +793,19 @@ class RegistryActionsService(BaseService):
             entries.append(
                 (
                     IndexEntry(
-                        id=id_,
-                        namespace=namespace,
-                        name=name,
-                        action_type=action_type,
-                        description=description,
-                        default_title=default_title,
-                        display_group=display_group,
-                        options=options or {},
-                        doc_url=doc_url,
-                        author=author,
-                        deprecated=deprecated,
+                        id=row.id,
+                        namespace=row.namespace,
+                        name=row.name,
+                        action_type=row.action_type,
+                        description=row.description,
+                        default_title=row.default_title,
+                        display_group=row.display_group,
+                        options=row.options or {},
+                        doc_url=row.doc_url,
+                        author=row.author,
+                        deprecated=row.deprecated,
                     ),
-                    origin,
+                    row.origin,
                 )
             )
 
@@ -923,7 +852,7 @@ class RegistryActionsService(BaseService):
         )
         result = await self.session.execute(combined)
         # Extract just the manifest column from each row (source is only for ordering)
-        manifest_rows = [row[0] for row in result.tuples().all()]
+        manifest_rows = [row[0] for row in result.all()]
 
         aggregated: dict[str, SecretAggregate] = {}
         seen_actions: set[str] = set()
