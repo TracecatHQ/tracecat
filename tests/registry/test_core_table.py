@@ -1,5 +1,6 @@
 """Tests for core.table UDFs in the registry."""
 
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -1150,20 +1151,31 @@ async def ddl_workspace() -> AsyncGenerator[Workspace, None]:
         yield workspace
     finally:
         # Clean up: drop schema first, then delete workspace
+        # Use timeout to prevent hanging on database locks during parallel test execution
         schema_name = f"tables_{workspace_id.short()}"
-        async with get_async_session_context_manager() as cleanup_session:
-            # Drop the schema if it exists (CASCADE drops all tables in schema)
-            await cleanup_session.execute(
-                text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
-            )
-            await cleanup_session.commit()
+        try:
+            async with asyncio.timeout(30):  # 30 second timeout for cleanup
+                async with get_async_session_context_manager() as cleanup_session:
+                    # Drop the schema if it exists (CASCADE drops all tables in schema)
+                    await cleanup_session.execute(
+                        text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
+                    )
+                    await cleanup_session.commit()
 
-            # Delete the workspace
-            await cleanup_session.execute(
-                text("DELETE FROM workspace WHERE id = :workspace_id"),
-                {"workspace_id": str(workspace_id)},
+                    # Delete the workspace
+                    await cleanup_session.execute(
+                        text("DELETE FROM workspace WHERE id = :workspace_id"),
+                        {"workspace_id": str(workspace_id)},
+                    )
+                    await cleanup_session.commit()
+        except TimeoutError:
+            # Log but don't fail - the schema/workspace will be orphaned but
+            # won't affect other tests since each uses unique IDs
+            import logging
+
+            logging.warning(
+                f"Timeout during ddl_workspace cleanup for workspace {workspace_id}"
             )
-            await cleanup_session.commit()
 
 
 @pytest.fixture
@@ -1179,6 +1191,7 @@ def ddl_role(ddl_workspace: Workspace) -> Role:
 
 
 @pytest.mark.anyio
+@pytest.mark.xdist_group("ddl")
 class TestCoreTableIntegration:
     """Integration tests for core.table UDFs using real database.
 
@@ -1186,6 +1199,11 @@ class TestCoreTableIntegration:
     (CREATE SCHEMA, CREATE TABLE) which requires the direct database path.
     DDL cannot work with the savepoint-based session fixture because PostgreSQL
     DDL acquires exclusive locks that conflict with SERIALIZABLE isolation.
+
+    NOTE: These tests are grouped with @pytest.mark.xdist_group("ddl") to run
+    serially within the same worker when using pytest-xdist. This prevents
+    deadlocks during fixture teardown when multiple workers compete for
+    database locks on DDL operations.
     """
 
     pytestmark = pytest.mark.usefixtures("db")

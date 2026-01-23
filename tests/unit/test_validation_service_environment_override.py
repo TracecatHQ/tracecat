@@ -60,7 +60,7 @@ class TestGetEffectiveEnvironment:
             args={"value": "test"},
         )
         # Manually set environment to non-string (bypassing Pydantic)
-        stmt.__dict__["environment"] = 123
+        object.__setattr__(stmt, "environment", 123)
 
         result = get_effective_environment(stmt, "default_env")
         assert result == "default_env"
