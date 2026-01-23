@@ -158,38 +158,6 @@ class RegistryActionsService(BaseService):
 
     service_name = "registry_actions"
 
-    async def list_actions(
-        self,
-        *,
-        namespace: str | None = None,
-        include_marked: bool = False,
-        include_keys: set[str] | None = None,
-    ) -> Sequence[RegistryAction]:
-        statement = select(RegistryAction).where(
-            RegistryAction.organization_id == self.organization_id
-        )
-
-        if not include_marked:
-            statement = statement.where(
-                cast(RegistryAction.options["include_in_schema"].astext, Boolean)  # noqa: E712
-                == True  # noqa: E712
-            )
-
-        if namespace:
-            statement = statement.where(
-                RegistryAction.namespace.startswith(namespace),
-            )
-
-        if include_keys:
-            statement = statement.where(
-                func.concat(RegistryAction.namespace, ".", RegistryAction.name).in_(
-                    include_keys
-                )
-            )
-
-        result = await self.session.execute(statement)
-        return result.scalars().all()
-
     async def list_actions_from_index(
         self,
         *,
@@ -807,38 +775,6 @@ class RegistryActionsService(BaseService):
             raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
 
-    async def get_action_by_impl(self, module: str, name: str) -> RegistryAction:
-        """Get an action by its implementation module and function name.
-
-        This is used when we have the action_impl metadata (module path and function name)
-        but need to load the registry action for execution.
-
-        Args:
-            module: The module path (e.g., 'tracecat_registry.integrations.core.transform')
-            name: The function name (e.g., 'reshape')
-
-        Returns:
-            The registry action matching the implementation.
-
-        Raises:
-            RegistryError: If no action with matching implementation is found.
-        """
-        # Query for UDF actions that match the module and function name
-        statement = select(RegistryAction).where(
-            RegistryAction.organization_id == self.organization_id,
-            RegistryAction.implementation["type"].astext == "udf",
-            RegistryAction.implementation["module"].astext == module,
-            RegistryAction.implementation["name"].astext == name,
-        )
-        result = await self.session.execute(statement)
-        action = result.scalars().first()
-        if not action:
-            raise RegistryError(
-                f"Action with implementation {module}.{name} not found in the registry",
-                detail={"module": module, "name": name},
-            )
-        return action
-
     async def get_actions(
         self, action_names: list[str]
     ) -> Sequence[RegistryAction | PlatformRegistryAction]:
@@ -1256,29 +1192,6 @@ class RegistryActionsService(BaseService):
             created=n_created,
             updated=n_updated,
             deleted=n_deleted,
-        )
-
-    # Legacy method for backward compatibility with in-process sync
-    async def upsert_actions_from_repo(
-        self,
-        repo: Repository,
-        db_repo: RegistryRepository,
-        *,
-        commit: bool = True,
-        allow_delete_all: bool = False,
-    ) -> None:
-        """Upsert actions from a Repository object (legacy in-process flow).
-
-        This method is kept for backward compatibility. New code should use
-        the subprocess-based sync flow via sync_actions_from_repository.
-        """
-        # Convert BoundRegistryAction objects to RegistryActionCreate DTOs
-        actions = [
-            RegistryActionCreate.from_bound(bound_action, db_repo.id)
-            for bound_action in repo.store.values()
-        ]
-        await self.upsert_actions_from_list(
-            actions, db_repo, commit=commit, allow_delete_all=allow_delete_all
         )
 
     async def load_action_impl(
