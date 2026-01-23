@@ -870,7 +870,10 @@ class RegistryActionsService(BaseService):
         """
         # Org-scoped query - get manifests from current versions
         org_statement = (
-            select(RegistryVersion.manifest)
+            select(
+                RegistryVersion.manifest,
+                literal("org").label("source"),
+            )
             .join(
                 RegistryRepository,
                 RegistryVersion.repository_id == RegistryRepository.id,
@@ -883,7 +886,10 @@ class RegistryActionsService(BaseService):
 
         # Platform query - get manifests from current versions
         platform_statement = (
-            select(PlatformRegistryVersion.manifest).join(
+            select(
+                PlatformRegistryVersion.manifest,
+                literal("platform").label("source"),
+            ).join(
                 PlatformRegistryRepository,
                 PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
             )
@@ -891,10 +897,13 @@ class RegistryActionsService(BaseService):
             PlatformRegistryRepository.current_version_id == PlatformRegistryVersion.id,
         )
 
-        # Combine with UNION ALL
-        combined = union_all(org_statement, platform_statement)
+        # Combine with UNION ALL, ordered so org results come first
+        combined = union_all(org_statement, platform_statement).order_by(
+            text("source")  # "org" < "platform" alphabetically
+        )
         result = await self.session.execute(combined)
-        manifest_rows = result.scalars().all()
+        # Extract just the manifest column from each row (source is only for ordering)
+        manifest_rows = [row[0] for row in result.tuples().all()]
 
         aggregated: dict[str, SecretAggregate] = {}
         seen_actions: set[str] = set()
