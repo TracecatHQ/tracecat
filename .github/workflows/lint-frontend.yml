@@ -18,6 +18,7 @@ permissions:
 jobs:
   quality:
     runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -26,6 +26,7 @@ permissions:
 jobs:
   ruff:
     runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +44,7 @@ jobs:
 
   pyright:
     runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
