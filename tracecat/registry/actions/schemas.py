@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict
 
 import yaml
 from pydantic import (
@@ -31,27 +31,8 @@ if TYPE_CHECKING:
 
     from tracecat.db.models import BaseRegistryIndex
     from tracecat.registry.actions.bound import BoundRegistryAction
+    from tracecat.registry.actions.types import IndexEntry
     from tracecat.registry.versions.schemas import RegistryVersionManifestAction
-
-
-class RegistryIndexLike(Protocol):
-    """Protocol for _IndexEntry dataclass from the service layer.
-
-    Note: SQLAlchemy models (RegistryIndex, PlatformRegistryIndex) should use
-    BaseRegistryIndex type directly due to Mapped[] type incompatibility with protocols.
-    """
-
-    id: UUID4
-    namespace: str
-    name: str
-    action_type: str
-    description: str
-    default_title: str | None
-    display_group: str | None
-    doc_url: str | None
-    author: str | None
-    deprecated: str | None
-    options: dict[str, Any]
 
 
 RegistryActionType = Literal["udf", "template"]
@@ -229,13 +210,8 @@ class RegistryActionReadMinimal(BaseModel):
         return f"{self.namespace}.{self.name}"
 
     @classmethod
-    def from_index(
-        cls, index: RegistryIndexLike, origin: str
-    ) -> RegistryActionReadMinimal:
-        """Create from any registry index-like object.
-
-        Accepts RegistryIndex, PlatformRegistryIndex, or _IndexEntry from service layer.
-        """
+    def from_index(cls, index: IndexEntry, origin: str) -> RegistryActionReadMinimal:
+        """Create from an IndexEntry object."""
         from typing import cast
 
         return cls(
@@ -270,13 +246,13 @@ class RegistryActionRead(RegistryActionBase):
     @classmethod
     def from_index_and_manifest(
         cls,
-        index: BaseRegistryIndex | RegistryIndexLike,
+        index: BaseRegistryIndex | IndexEntry,
         manifest_action: RegistryVersionManifestAction,
         origin: str,
         repository_id: UUID,
         extra_secrets: list[RegistrySecretType] | None = None,
     ) -> RegistryActionRead:
-        """Create from RegistryIndex or PlatformRegistryIndex + manifest action.
+        """Create from BaseRegistryIndex or IndexEntry + manifest action.
 
         Args:
             index: The registry index entry
@@ -285,7 +261,6 @@ class RegistryActionRead(RegistryActionBase):
             repository_id: The repository ID
             extra_secrets: Additional secrets to merge (e.g., from template steps)
         """
-        from tracecat.registry.actions.schemas import RegistryActionImplValidator
 
         # Merge direct secrets with extra secrets (e.g., from template steps)
         all_secrets = list(manifest_action.secrets) if manifest_action.secrets else []

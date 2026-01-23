@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 from typing import cast as typing_cast
 
@@ -64,6 +63,7 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
     TemplateAction,
 )
+from tracecat.registry.actions.types import IndexedActionResult, IndexEntry
 from tracecat.registry.loaders import (
     LoaderMode,
     get_bound_action_from_manifest,
@@ -155,42 +155,6 @@ class SecretAggregate(TypedDict):
     optional_keys: set[str]
     optional: bool
     actions: set[str]
-
-
-@dataclass(slots=True)
-class IndexEntry:
-    """Data holder for registry index entries from UNION ALL query results.
-
-    Used to convert raw query results into objects compatible with
-    RegistryActionReadMinimal.from_index() and RegistryActionRead.from_index_and_manifest().
-
-    Implements RegistryIndexLike protocol.
-    """
-
-    id: uuid.UUID
-    namespace: str
-    name: str
-    action_type: str
-    description: str
-    default_title: str | None
-    display_group: str | None
-    options: dict
-    doc_url: str | None = None
-    author: str | None = None
-    deprecated: str | None = None
-
-
-@dataclass(slots=True)
-class IndexedActionResult:
-    """Result from index/manifest lookup operations.
-
-    Combines index entry metadata with the full manifest for action resolution.
-    """
-
-    index_entry: IndexEntry
-    manifest: RegistryVersionManifest
-    origin: str
-    repository_id: uuid.UUID
 
 
 class RegistryActionsService(BaseService):
