@@ -42,8 +42,6 @@ class OrgInviteResponse(Schema):
     organization_slug: str
     org_created: bool
     magic_link: str
-    email_sent: bool
-    email_error: str | None = None
 
 
 class OrgCreate(Schema):

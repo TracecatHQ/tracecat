@@ -9291,21 +9291,6 @@ export const $OrgInviteResponse = {
       type: "string",
       title: "Magic Link",
     },
-    email_sent: {
-      type: "boolean",
-      title: "Email Sent",
-    },
-    email_error: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Email Error",
-    },
   },
   type: "object",
   required: [
@@ -9317,7 +9302,6 @@ export const $OrgInviteResponse = {
     "organization_slug",
     "org_created",
     "magic_link",
-    "email_sent",
   ],
   title: "OrgInviteResponse",
   description: "Response from inviting a user to an organization.",

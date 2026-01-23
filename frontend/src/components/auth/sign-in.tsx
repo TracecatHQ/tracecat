@@ -35,12 +35,27 @@ import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
+/**
+ * Validate that a redirect URL is internal (same-origin).
+ * Prevents open redirect attacks by ensuring the URL starts with /
+ * and doesn't contain protocol indicators.
+ */
+function getSafeRedirectUrl(url: string | null | undefined): string {
+  const fallback = "/workspaces"
+  if (!url) return fallback
+  // Must start with / and not contain protocol indicators
+  if (!url.startsWith("/") || url.startsWith("//") || url.includes("://")) {
+    return fallback
+  }
+  return url
+}
+
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectUrl = searchParams?.get("redirect") || "/workspaces"
+  const redirectUrl = getSafeRedirectUrl(searchParams?.get("redirect"))
 
   if (user) {
     router.push(redirectUrl)

@@ -183,20 +183,20 @@ async def create_invitation(
 ):
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
-    invitation = await service.create_invitation(
+    result = await service.create_invitation(
         email=params.email,
         role=params.role,
     )
     return OrgInvitationRead(
-        id=invitation.id,
-        organization_id=invitation.organization_id,
-        email=invitation.email,
-        role=invitation.role,
-        status=invitation.status,
-        invited_by=invitation.invited_by,
-        expires_at=invitation.expires_at,
-        created_at=invitation.created_at,
-        accepted_at=invitation.accepted_at,
+        id=result.invitation.id,
+        organization_id=result.invitation.organization_id,
+        email=result.invitation.email,
+        role=result.invitation.role,
+        status=result.invitation.status,
+        invited_by=result.invitation.invited_by,
+        expires_at=result.invitation.expires_at,
+        created_at=result.invitation.created_at,
+        accepted_at=result.invitation.accepted_at,
     )
 
 

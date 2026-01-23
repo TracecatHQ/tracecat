@@ -211,7 +211,7 @@ invite_app = typer.Typer(no_args_is_help=True)
 app.add_typer(invite_app, name="invite", help="Invitation management.")
 
 
-@invite_app.command("org")
+@invite_app.command("org", no_args_is_help=True)
 @async_command
 async def invite_org(
     email: Annotated[
@@ -225,18 +225,18 @@ async def invite_org(
             help="Role to assign (owner, admin, member)",
         ),
     ] = "admin",
-    org_name: Annotated[
+    name: Annotated[
         str | None,
         typer.Option(
-            "--org-name",
+            "--name",
             "-n",
             help="Organization name. Creates org if it doesn't exist.",
         ),
     ] = None,
-    org_slug: Annotated[
+    slug: Annotated[
         str | None,
         typer.Option(
-            "--org-slug",
+            "--slug",
             "-s",
             help="Organization slug. If not provided, uses 'default' or 'default-N'.",
         ),
@@ -256,7 +256,7 @@ async def invite_org(
         tracecat admin invite org --email admin@example.com --role admin
 
         # Invite to a specific organization (creates if doesn't exist)
-        tracecat admin invite org --email admin@acme.com --role admin --org-name "Acme Corp" --org-slug acme
+        tracecat admin invite org --email admin@acme.com --role admin --name "Acme Corp" --slug acme
     """
     # Validate role
     valid_roles = {"owner", "admin", "member"}
@@ -269,8 +269,8 @@ async def invite_org(
             result = await client.invite_org_user(
                 email=email,
                 role=role.lower(),
-                org_name=org_name,
-                org_slug=org_slug,
+                org_name=name,
+                org_slug=slug,
             )
 
         if json_output:

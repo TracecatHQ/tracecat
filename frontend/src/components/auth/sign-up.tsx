@@ -53,11 +53,26 @@ function isEmailLoginValidationError(
   )
 }
 
+/**
+ * Validate that a redirect URL is internal (same-origin).
+ * Prevents open redirect attacks by ensuring the URL starts with /
+ * and doesn't contain protocol indicators.
+ */
+function getSafeRedirectUrl(url: string | null | undefined): string {
+  const fallback = "/workspaces"
+  if (!url) return fallback
+  // Must start with / and not contain protocol indicators
+  if (!url.startsWith("/") || url.startsWith("//") || url.includes("://")) {
+    return fallback
+  }
+  return url
+}
+
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectUrl = searchParams?.get("redirect") || "/workspaces"
+  const redirectUrl = getSafeRedirectUrl(searchParams?.get("redirect"))
 
   useEffect(() => {
     if (user) {

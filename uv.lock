@@ -4890,7 +4890,7 @@ requires-dist = [
     { name = "pysaml2", specifier = "==7.5.0" },
     { name = "python-slugify", specifier = "==8.0.4" },
     { name = "redis", extras = ["hiredis"], specifier = "==7.1.0" },
-    { name = "resend", specifier = ">=2.21.0" },
+    { name = "resend", specifier = "==2.21.0" },
     { name = "sentry-sdk", specifier = "==2.24.1" },
     { name = "sqlalchemy", specifier = "==2.0.45" },
     { name = "starlette", specifier = "==0.49.3" },

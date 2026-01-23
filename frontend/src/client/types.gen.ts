@@ -3057,8 +3057,6 @@ export type OrgInviteResponse = {
   organization_slug: string
   org_created: boolean
   magic_link: string
-  email_sent: boolean
-  email_error?: string | null
 }
 
 export type OrgMemberRead = {

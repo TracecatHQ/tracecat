@@ -59,3 +59,10 @@ class OrgInvitationAccept(BaseModel):
     """Request body for accepting an organization invitation via token."""
 
     token: str
+
+
+class OrgInvitationResult(BaseModel):
+    """Result of creating an organization invitation."""
+
+    invitation: OrgInvitationRead
+    magic_link: str
