@@ -263,6 +263,10 @@ class RegistryActionsService(BaseService):
             action_name = f"{index.namespace}.{index.name}"
             # Skip duplicates (org-scoped takes precedence due to ORDER BY)
             if action_name in seen_actions:
+                self.logger.warning(
+                    "Duplicate action found in registry index. This should not happen.",
+                    action_name=action_name,
+                )
                 continue
             seen_actions.add(action_name)
 
