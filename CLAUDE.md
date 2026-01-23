@@ -108,6 +108,7 @@ cd frontend && pnpm check         # Biome comprehensive check (lint + format + o
 
 # Type checking
 just typecheck       # Run basedpyright type checking
+uv run basedpyright --warnings --threads 4 # Use a reasonable number of threads
 ```
 
 ### API and Code Generation
