@@ -239,7 +239,7 @@ async def sync_registry_repository(
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
         ) from e
 
@@ -318,7 +318,7 @@ async def _sync_platform_repository(
     except Exception as e:
         logger.error("Unexpected error while syncing platform repository", exc=e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error while syncing platform repository {repo.origin!r}: {e}",
         ) from e
 
