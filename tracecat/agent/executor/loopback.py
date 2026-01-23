@@ -31,11 +31,12 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
 )
 from tracecat.agent.common.types import (
+    AgentConfig,
+    MCPCommandServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
 )
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.types import AgentConfig
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.logger import logger
@@ -68,6 +69,8 @@ class LoopbackInput:
     sdk_session_data: str | None = None
     is_approval_continuation: bool = False
     is_fork: bool = False  # True when forking from parent session
+    # Command-based MCP servers (stdio) - run as subprocesses inside sandbox
+    mcp_command_servers: list[MCPCommandServerConfig] | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -196,6 +199,7 @@ class LoopbackHandler:
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
             is_fork=self.input.is_fork,
+            mcp_command_servers=self.input.mcp_command_servers,
         )
 
         payload_bytes = orjson.dumps(payload.to_dict())

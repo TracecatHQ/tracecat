@@ -43,6 +43,19 @@ import {
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+const SERVER_TYPES = [
+  {
+    value: "url",
+    label: "URL (HTTP/SSE)",
+    description: "Connect to an MCP server via HTTP or SSE endpoint",
+  },
+  {
+    value: "command",
+    label: "Command (stdio)",
+    description: "Run a command that spawns an MCP server (e.g., npx)",
+  },
+] as const
+
 const AUTH_TYPES = [
   {
     value: "OAUTH2",
@@ -61,6 +74,8 @@ const AUTH_TYPES = [
   },
 ] as const
 
+const ALLOWED_COMMANDS = ["npx", "uvx", "python", "python3", "node"] as const
+
 const formSchema = z
   .object({
     name: z
@@ -74,16 +89,44 @@ const formSchema = z
       .max(512, { message: "Description must be 512 characters or fewer" })
       .optional()
       .or(z.literal("")),
-    server_uri: z.string().trim().url({ message: "Enter a valid URL" }),
+    // Server type
+    server_type: z.enum(["url", "command"]),
+    // URL-type fields
+    server_uri: z.string().trim().optional().or(z.literal("")),
     auth_type: z.enum(["OAUTH2", "CUSTOM", "NONE"]),
-    // OAuth fields
     oauth_integration_id: z.string().uuid().optional().or(z.literal("")),
-    // Custom credentials (JSON string for API key, bearer token, or custom headers)
     custom_credentials: z.string().trim().optional().or(z.literal("")),
+    // Command-type fields
+    command: z.string().trim().optional().or(z.literal("")),
+    command_args: z.string().trim().optional().or(z.literal("")),
+    command_env: z.string().trim().optional().or(z.literal("")),
+    // General fields
+    timeout: z.coerce.number().int().min(1).max(300).optional(),
   })
+  // URL-type validation
   .refine(
     (data) => {
-      if (data.auth_type === "OAUTH2") {
+      if (data.server_type === "url") {
+        if (!data.server_uri || data.server_uri.trim() === "") {
+          return false
+        }
+        try {
+          new URL(data.server_uri)
+          return true
+        } catch {
+          return false
+        }
+      }
+      return true
+    },
+    {
+      message: "Valid server URL is required for URL-type servers",
+      path: ["server_uri"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.server_type === "url" && data.auth_type === "OAUTH2") {
         return !!data.oauth_integration_id && data.oauth_integration_id !== ""
       }
       return true
@@ -95,11 +138,10 @@ const formSchema = z
   )
   .refine(
     (data) => {
-      if (data.auth_type === "CUSTOM") {
+      if (data.server_type === "url" && data.auth_type === "CUSTOM") {
         if (!data.custom_credentials || data.custom_credentials.trim() === "") {
           return false
         }
-        // Validate JSON format
         try {
           JSON.parse(data.custom_credentials)
           return true
@@ -114,16 +156,63 @@ const formSchema = z
       path: ["custom_credentials"],
     }
   )
+  // Command-type validation
+  .refine(
+    (data) => {
+      if (data.server_type === "command") {
+        if (!data.command || data.command.trim() === "") {
+          return false
+        }
+        const cmd = data.command.trim() as (typeof ALLOWED_COMMANDS)[number]
+        return ALLOWED_COMMANDS.includes(cmd)
+      }
+      return true
+    },
+    {
+      message: `Command must be one of: ${ALLOWED_COMMANDS.join(", ")}`,
+      path: ["command"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (
+        data.server_type === "command" &&
+        data.command_env &&
+        data.command_env.trim() !== ""
+      ) {
+        try {
+          const parsed = JSON.parse(data.command_env)
+          return (
+            typeof parsed === "object" &&
+            parsed !== null &&
+            !Array.isArray(parsed)
+          )
+        } catch {
+          return false
+        }
+      }
+      return true
+    },
+    {
+      message: "Environment variables must be a valid JSON object",
+      path: ["command_env"],
+    }
+  )
 
 type MCPIntegrationFormValues = z.infer<typeof formSchema>
 
 const DEFAULT_VALUES: MCPIntegrationFormValues = {
   name: "",
   description: "",
+  server_type: "url",
   server_uri: "",
-  auth_type: "OAUTH2",
+  auth_type: "NONE",
   oauth_integration_id: "",
   custom_credentials: "",
+  command: "",
+  command_args: "",
+  command_env: "",
+  timeout: 30,
 }
 
 export function MCPIntegrationDialog({
@@ -168,6 +257,7 @@ export function MCPIntegrationDialog({
     defaultValues: DEFAULT_VALUES,
   })
 
+  const serverType = form.watch("server_type")
   const authType = form.watch("auth_type")
 
   // Load integration data when in edit mode
@@ -176,10 +266,15 @@ export function MCPIntegrationDialog({
       form.reset({
         name: mcpIntegration.name,
         description: mcpIntegration.description || "",
-        server_uri: mcpIntegration.server_uri,
+        server_type: mcpIntegration.server_type,
+        server_uri: mcpIntegration.server_uri || "",
         auth_type: mcpIntegration.auth_type,
         oauth_integration_id: mcpIntegration.oauth_integration_id || "",
         custom_credentials: "", // Don't populate for security
+        command: mcpIntegration.command || "",
+        command_args: mcpIntegration.command_args?.join("\n") || "",
+        command_env: "", // Env vars are not returned from API for security
+        timeout: mcpIntegration.timeout || 30,
       })
     }
   }, [isEditMode, mcpIntegration, mcpIntegrationIsLoading, form])
@@ -189,10 +284,15 @@ export function MCPIntegrationDialog({
       form.reset({
         name: mcpIntegration.name,
         description: mcpIntegration.description || "",
-        server_uri: mcpIntegration.server_uri,
+        server_type: mcpIntegration.server_type,
+        server_uri: mcpIntegration.server_uri || "",
         auth_type: mcpIntegration.auth_type,
         oauth_integration_id: mcpIntegration.oauth_integration_id || "",
         custom_credentials: "",
+        command: mcpIntegration.command || "",
+        command_args: mcpIntegration.command_args?.join("\n") || "",
+        command_env: "", // Env vars are not returned from API for security
+        timeout: mcpIntegration.timeout || 30,
       })
     } else {
       form.reset(DEFAULT_VALUES)
@@ -211,39 +311,60 @@ export function MCPIntegrationDialog({
 
   const onSubmit = async (values: MCPIntegrationFormValues) => {
     try {
+      // Parse command_args from newline-separated string to array
+      const commandArgs = values.command_args?.trim()
+        ? values.command_args
+            .split("\n")
+            .map((arg) => arg.trim())
+            .filter(Boolean)
+        : undefined
+
+      // Parse command_env from JSON string to object
+      const commandEnv = values.command_env?.trim()
+        ? (JSON.parse(values.command_env) as Record<string, string>)
+        : undefined
+
+      const baseParams = {
+        name: values.name.trim(),
+        description: values.description?.trim() || undefined,
+        server_type: values.server_type,
+        timeout: values.timeout,
+      }
+
+      const urlParams =
+        values.server_type === "url"
+          ? {
+              server_uri: values.server_uri?.trim(),
+              auth_type: values.auth_type,
+              oauth_integration_id:
+                values.auth_type === "OAUTH2" && values.oauth_integration_id
+                  ? values.oauth_integration_id
+                  : undefined,
+              custom_credentials:
+                values.auth_type === "CUSTOM" && values.custom_credentials
+                  ? values.custom_credentials.trim()
+                  : undefined,
+            }
+          : {}
+
+      const commandParams =
+        values.server_type === "command"
+          ? {
+              command: values.command?.trim(),
+              command_args: commandArgs,
+              command_env: commandEnv,
+            }
+          : {}
+
+      const params = { ...baseParams, ...urlParams, ...commandParams }
+
       if (isEditMode && mcpIntegrationId) {
         await updateMcpIntegration({
           mcpIntegrationId,
-          params: {
-            name: values.name.trim(),
-            description: values.description?.trim() || undefined,
-            server_uri: values.server_uri.trim(),
-            auth_type: values.auth_type,
-            oauth_integration_id:
-              values.auth_type === "OAUTH2" && values.oauth_integration_id
-                ? values.oauth_integration_id
-                : undefined,
-            custom_credentials:
-              values.auth_type === "CUSTOM" && values.custom_credentials
-                ? values.custom_credentials.trim()
-                : undefined,
-          },
+          params,
         })
       } else {
-        await createMcpIntegration({
-          name: values.name.trim(),
-          description: values.description?.trim() || undefined,
-          server_uri: values.server_uri.trim(),
-          auth_type: values.auth_type,
-          oauth_integration_id:
-            values.auth_type === "OAUTH2" && values.oauth_integration_id
-              ? values.oauth_integration_id
-              : undefined,
-          custom_credentials:
-            values.auth_type === "CUSTOM" && values.custom_credentials
-              ? values.custom_credentials.trim()
-              : undefined,
-        })
+        await createMcpIntegration(params)
       }
       handleOpenChange(false)
     } catch (error) {
@@ -328,48 +449,31 @@ export function MCPIntegrationDialog({
                   </FormItem>
                 )}
               />
+
+              {/* Server type selector */}
               <FormField
                 control={form.control}
-                name="server_uri"
+                name="server_type"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Server URI</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="https://mcp.example.com/mcp"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription className="text-xs">
-                      The MCP server endpoint URL. Must use HTTPS (localhost
-                      allowed with HTTP).
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="auth_type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Authentication type</FormLabel>
+                    <FormLabel>Server type</FormLabel>
                     <FormControl>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
+                        disabled={isEditMode}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select authentication type">
+                          <SelectValue placeholder="Select server type">
                             {field.value
-                              ? AUTH_TYPES.find(
+                              ? SERVER_TYPES.find(
                                   (opt) => opt.value === field.value
                                 )?.label
                               : null}
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          {AUTH_TYPES.map((option) => (
+                          {SERVER_TYPES.map((option) => (
                             <SelectItem
                               key={option.value}
                               value={option.value}
@@ -389,15 +493,196 @@ export function MCPIntegrationDialog({
                       </Select>
                     </FormControl>
                     <FormDescription className="text-xs">
-                      Choose how to authenticate with the MCP server.
+                      {isEditMode
+                        ? "Server type cannot be changed after creation."
+                        : "Choose how to connect to the MCP server."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {/* OAuth 2.0 Fields */}
-              {authType === "OAUTH2" && (
+              {/* URL-type fields */}
+              {serverType === "url" && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="server_uri"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Server URI</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="https://mcp.example.com/mcp"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          The MCP server endpoint URL. Must use HTTPS (localhost
+                          allowed with HTTP).
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="auth_type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Authentication type</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select authentication type">
+                                {field.value
+                                  ? AUTH_TYPES.find(
+                                      (opt) => opt.value === field.value
+                                    )?.label
+                                  : null}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {AUTH_TYPES.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                  textValue={option.label}
+                                >
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-sm font-medium">
+                                      {option.label}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {option.description}
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Choose how to authenticate with the MCP server.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              {/* Command-type fields */}
+              {serverType === "command" && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="command"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Command</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value || ""}
+                            onValueChange={field.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select command">
+                                {field.value || null}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ALLOWED_COMMANDS.map((cmd) => (
+                                <SelectItem key={cmd} value={cmd}>
+                                  {cmd}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Command to run the MCP server. Only{" "}
+                          {ALLOWED_COMMANDS.join(", ")} are allowed.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="command_args"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Arguments</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="@modelcontextprotocol/server-github"
+                            className="font-mono text-sm min-h-[80px]"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          One argument per line (e.g., package name for npx).
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="command_env"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Environment variables</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder='{"GITHUB_TOKEN": "ghp_xxx"}'
+                            className="font-mono text-sm min-h-[80px]"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          JSON object with environment variables for the
+                          command.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              {/* Timeout field for both types */}
+              <FormField
+                control={form.control}
+                name="timeout"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Timeout (seconds)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={300}
+                        placeholder="30"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      {serverType === "command"
+                        ? "Process timeout in seconds (1-300)."
+                        : "HTTP request timeout in seconds (1-300)."}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* OAuth 2.0 Fields (only for URL type) */}
+              {serverType === "url" && authType === "OAUTH2" && (
                 <FormField
                   control={form.control}
                   name="oauth_integration_id"
@@ -499,8 +784,8 @@ export function MCPIntegrationDialog({
                 />
               )}
 
-              {/* Custom Credentials Fields */}
-              {authType === "CUSTOM" && (
+              {/* Custom Credentials Fields (only for URL type) */}
+              {serverType === "url" && authType === "CUSTOM" && (
                 <FormField
                   control={form.control}
                   name="custom_credentials"

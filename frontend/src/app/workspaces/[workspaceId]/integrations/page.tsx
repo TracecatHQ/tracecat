@@ -94,7 +94,7 @@ type IntegrationItem =
       name: string
       description: string | null
       slug: string
-      server_uri: string
+      server_uri: string | null
       auth_type: string
       oauth_integration_id?: string | null
     }

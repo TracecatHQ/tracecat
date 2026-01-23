@@ -3311,6 +3311,30 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
+ * Configuration for a command-based MCP server (stdio).
+ *
+ * These servers run as subprocesses and communicate via stdio. They are spawned
+ * fresh for each agent invocation inside the sandbox.
+ *
+ * Example:
+ * {
+ * "name": "github",
+ * "command": "npx",
+ * "args": ["@modelcontextprotocol/server-github"],
+ * "env": {"GITHUB_TOKEN": "ghp_xxx"}
+ * }
+ */
+export type MCPCommandServerConfig = {
+  name: string
+  command: string
+  args?: Array<string>
+  env?: {
+    [key: string]: string
+  }
+  timeout?: number
+}
+
+/**
  * Request model for creating an MCP integration.
  */
 export type MCPIntegrationCreate = {
@@ -3323,13 +3347,17 @@ export type MCPIntegrationCreate = {
    */
   description?: string | null
   /**
-   * MCP server endpoint URL
+   * Server type: 'url' (HTTP/SSE) or 'command' (stdio)
    */
-  server_uri: string
+  server_type?: "url" | "command"
   /**
-   * Authentication type
+   * MCP server endpoint URL (required for url type)
    */
-  auth_type: MCPAuthType
+  server_uri?: string | null
+  /**
+   * Authentication type (for url type)
+   */
+  auth_type?: MCPAuthType
   /**
    * OAuth integration ID (required for oauth2 auth_type)
    */
@@ -3338,7 +3366,30 @@ export type MCPIntegrationCreate = {
    * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
    */
   custom_credentials?: string | null
+  /**
+   * Command to run for command-type servers (e.g., 'npx')
+   */
+  command?: string | null
+  /**
+   * Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])
+   */
+  command_args?: Array<string> | null
+  /**
+   * Environment variables for command-type servers (can reference secrets)
+   */
+  command_env?: {
+    [key: string]: string
+  } | null
+  /**
+   * Timeout in seconds
+   */
+  timeout?: number | null
 }
+
+/**
+ * Server type: 'url' (HTTP/SSE) or 'command' (stdio)
+ */
+export type server_type = "url" | "command"
 
 /**
  * Response model for MCP integration.
@@ -3349,9 +3400,14 @@ export type MCPIntegrationRead = {
   name: string
   description: string | null
   slug: string
-  server_uri: string
+  server_type: MCPServerType
+  server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  command: string | null
+  command_args: Array<string> | null
+  has_command_env?: boolean
+  timeout: number | null
   created_at: string
   updated_at: string
 }
@@ -3369,10 +3425,28 @@ export type MCPIntegrationUpdate = {
    * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
    */
   custom_credentials?: string | null
+  /**
+   * Command to run for command-type servers (e.g., 'npx')
+   */
+  command?: string | null
+  /**
+   * Arguments for the command
+   */
+  command_args?: Array<string> | null
+  /**
+   * Environment variables for command-type servers
+   */
+  command_env?: {
+    [key: string]: string
+  } | null
+  /**
+   * Timeout in seconds
+   */
+  timeout?: number | null
 }
 
 /**
- * Configuration for a user-defined MCP server.
+ * Configuration for a URL-based MCP server (HTTP/SSE).
  *
  * Users can connect custom MCP servers to their agents - whether running as
  * Docker containers, local processes, or remote services. The server must
@@ -3396,6 +3470,11 @@ export type MCPServerConfig = {
 }
 
 export type transport = "http" | "sse"
+
+/**
+ * Server type for MCP integrations.
+ */
+export type MCPServerType = "url" | "command"
 
 /**
  * The type/kind of message stored in the chat.

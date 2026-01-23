@@ -12,7 +12,12 @@ from sqlalchemy import select
 
 from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.agent.types import (
+    AgentConfig,
+    MCPCommandServerConfig,
+    MCPServerConfig,
+    OutputType,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
@@ -21,6 +26,10 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.mcp_validation import (
+    MCPValidationError,
+    validate_mcp_command_config,
+)
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
@@ -207,10 +216,14 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def _resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
-    ) -> list[MCPServerConfig] | None:
-        """Resolve MCP provider URLs and authorization headers from selected integrations."""
+    ) -> tuple[list[MCPServerConfig] | None, list[MCPCommandServerConfig] | None]:
+        """Resolve MCP integrations into URL and command server configs.
+
+        Returns:
+            Tuple of (url_servers, command_servers) where each can be None if empty.
+        """
         if not mcp_integrations:
-            return None
+            return None, None
 
         integrations_service = IntegrationService(self.session, role=self.role)
         available_mcp_integrations = await integrations_service.list_mcp_integrations()
@@ -226,8 +239,10 @@ class AgentPresetService(BaseWorkspaceService):
                 "TRACECAT__DB_ENCRYPTION_KEY is not set, cannot resolve MCP integrations"
             )
 
-        # Collect all matching integrations in preset order
-        mcp_servers = []
+        # Collect URL-type and command-type servers separately
+        url_servers: list[MCPServerConfig] = []
+        command_servers: list[MCPCommandServerConfig] = []
+
         for mcp_id_str in mcp_integrations:
             try:
                 mcp_integration_id = uuid.UUID(mcp_id_str)
@@ -254,6 +269,66 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
 
             mcp_integration = by_id[mcp_integration_id]
+
+            # Handle command-type servers
+            if mcp_integration.server_type == "command":
+                if not mcp_integration.command:
+                    logger.warning(
+                        "Command-type MCP integration %r has no command specified",
+                        mcp_integration.name,
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+
+                # Re-validate command config at resolution time
+                try:
+                    validate_mcp_command_config(
+                        command=mcp_integration.command,
+                        args=mcp_integration.command_args,
+                        env=mcp_integration.command_env,
+                        name=mcp_integration.slug,
+                    )
+                except MCPValidationError as e:
+                    logger.warning(
+                        "Command-type MCP integration %r failed validation: %s",
+                        mcp_integration.name,
+                        str(e),
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+
+                command_config: MCPCommandServerConfig = {
+                    "name": mcp_integration.slug,
+                    "command": mcp_integration.command,
+                }
+                if mcp_integration.command_args:
+                    command_config["args"] = mcp_integration.command_args
+                if mcp_integration.command_env:
+                    command_config["env"] = mcp_integration.command_env
+                if mcp_integration.timeout:
+                    command_config["timeout"] = mcp_integration.timeout
+
+                command_servers.append(command_config)
+                continue
+
+            # Handle URL-type servers (default)
+            if not mcp_integration.server_uri:
+                logger.warning(
+                    "URL-type MCP integration %r has no server_uri specified",
+                    mcp_integration.name,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration.id),
+                    },
+                )
+                continue
+
             headers: dict[str, str] = {}
 
             # Resolve headers based on auth type
@@ -375,7 +450,7 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
 
             # Build MCP server config
-            mcp_servers.append(
+            url_servers.append(
                 {
                     "name": mcp_integration.name,
                     "url": mcp_integration.server_uri,
@@ -383,12 +458,12 @@ class AgentPresetService(BaseWorkspaceService):
                 }
             )
 
-        if not mcp_servers:
+        if not url_servers and not command_servers:
             raise TracecatValidationError(
                 "No matching MCP integrations found for this preset in the workspace"
             )
 
-        return mcp_servers
+        return url_servers or None, command_servers or None
 
     async def _normalize_and_validate_slug(
         self,
@@ -437,10 +512,12 @@ class AgentPresetService(BaseWorkspaceService):
         return result.scalars().first()
 
     async def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
-        mcp_servers = await self._resolve_mcp_integrations(preset.mcp_integrations)
+        mcp_servers, mcp_command_servers = await self._resolve_mcp_integrations(
+            preset.mcp_integrations
+        )
         # Only disable parallel tool calls if tools will be present
         model_settings = {}
-        if preset.actions or mcp_servers:
+        if preset.actions or mcp_servers or mcp_command_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(
             model_name=preset.model_name,
@@ -452,6 +529,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
             mcp_servers=mcp_servers,
+            mcp_command_servers=mcp_command_servers,
             retries=preset.retries,
             model_settings=model_settings,
             enable_internet_access=preset.enable_internet_access,

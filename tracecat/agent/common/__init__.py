@@ -43,9 +43,20 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.common.types import (
+    AgentConfig,
+    CustomToolList,
+    DeferredToolApprovalResult,
+    DeferredToolRequests,
+    DeferredToolResults,
+    MCPCommandServerConfig,
     MCPServerConfig,
     MCPToolDefinition,
+    OutputType,
     SandboxAgentConfig,
+    StreamKey,
+    Tool,
+    ToolApproved,
+    ToolDenied,
 )
 
 __all__ = [
@@ -78,7 +89,18 @@ __all__ = [
     "ToolCallContent",
     "UnifiedStreamEvent",
     # Types
+    "AgentConfig",
+    "CustomToolList",
+    "DeferredToolApprovalResult",
+    "DeferredToolRequests",
+    "DeferredToolResults",
+    "MCPCommandServerConfig",
     "MCPServerConfig",
     "MCPToolDefinition",
+    "OutputType",
     "SandboxAgentConfig",
+    "StreamKey",
+    "Tool",
+    "ToolApproved",
+    "ToolDenied",
 ]

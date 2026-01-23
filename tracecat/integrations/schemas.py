@@ -7,7 +7,7 @@ Terminology:
 
 import uuid
 from datetime import datetime
-from typing import Any, Self, TypedDict
+from typing import Any, Literal, Self, TypedDict
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -16,10 +16,16 @@ from pydantic import (
     Field,
     SecretStr,
     field_validator,
+    model_validator,
 )
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    MCPServerType,
+    OAuthGrantType,
+)
 
 
 # Pydantic models for API responses
@@ -358,14 +364,44 @@ class MCPIntegrationCreate(BaseModel):
     description: str | None = Field(
         default=None, max_length=512, description="Optional description"
     )
-    server_uri: str = Field(..., description="MCP server endpoint URL")
-    auth_type: MCPAuthType = Field(..., description="Authentication type")
+    # Server type: 'url' for HTTP/SSE servers, 'command' for stdio servers
+    server_type: Literal["url", "command"] = Field(
+        default="url", description="Server type: 'url' (HTTP/SSE) or 'command' (stdio)"
+    )
+    # URL-type server fields
+    server_uri: str | None = Field(
+        default=None, description="MCP server endpoint URL (required for url type)"
+    )
+    auth_type: MCPAuthType = Field(
+        default=MCPAuthType.NONE, description="Authentication type (for url type)"
+    )
     oauth_integration_id: uuid.UUID | None = Field(
         default=None, description="OAuth integration ID (required for oauth2 auth_type)"
     )
     custom_credentials: SecretStr | None = Field(
         default=None,
         description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    )
+    # Command-type server fields
+    command: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Command to run for command-type servers (e.g., 'npx')",
+    )
+    command_args: list[str] | None = Field(
+        default=None,
+        description="Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])",
+    )
+    command_env: dict[str, str] | None = Field(
+        default=None,
+        description="Environment variables for command-type servers (can reference secrets)",
+    )
+    # General fields
+    timeout: int | None = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="Timeout in seconds",
     )
 
     @field_validator("server_uri", mode="before")
@@ -388,18 +424,52 @@ class MCPIntegrationCreate(BaseModel):
 
         return value
 
+    @model_validator(mode="after")
+    def _validate_server_type_fields(self) -> Self:
+        """Validate that required fields are present based on server_type."""
+        if self.server_type == "url":
+            if not self.server_uri:
+                raise ValueError("server_uri is required for url-type servers")
+        elif self.server_type == "command":
+            if not self.command:
+                raise ValueError("command is required for command-type servers")
+        return self
+
 
 class MCPIntegrationUpdate(BaseModel):
     """Request model for updating an MCP integration."""
 
     name: str | None = Field(default=None, min_length=3, max_length=255)
     description: str | None = Field(default=None, max_length=512)
+    # Server type cannot be changed after creation (would require migrating fields)
+    # URL-type server fields
     server_uri: str | None = None
     auth_type: MCPAuthType | None = None
     oauth_integration_id: uuid.UUID | None = None
     custom_credentials: SecretStr | None = Field(
         default=None,
         description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    )
+    # Command-type server fields
+    command: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Command to run for command-type servers (e.g., 'npx')",
+    )
+    command_args: list[str] | None = Field(
+        default=None,
+        description="Arguments for the command",
+    )
+    command_env: dict[str, str] | None = Field(
+        default=None,
+        description="Environment variables for command-type servers",
+    )
+    # General fields
+    timeout: int | None = Field(
+        default=None,
+        ge=1,
+        le=300,
+        description="Timeout in seconds",
     )
 
     @field_validator("server_uri", mode="before")
@@ -427,12 +497,23 @@ class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 
     id: UUID4
-    workspace_id: UUID4
+    workspace_id: WorkspaceID
     name: str
     description: str | None
     slug: str
-    server_uri: str
+    # Server type
+    server_type: MCPServerType
+    # URL-type server fields
+    server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None
+    # Command-type server fields
+    command: str | None
+    command_args: list[str] | None
+    # NOTE: command_env is write-only to avoid exposing secrets in API responses
+    has_command_env: bool = False
+    """Whether command_env is configured (actual values are not exposed)."""
+    # General fields
+    timeout: int | None
     created_at: datetime
     updated_at: datetime
