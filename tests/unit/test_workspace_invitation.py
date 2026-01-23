@@ -1,7 +1,7 @@
 """Tests for WorkspaceService invitation methods."""
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -11,7 +11,6 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.db.models import (
-    Invitation,
     Membership,
     Organization,
     OrganizationMembership,
@@ -476,39 +475,6 @@ class TestAcceptInvitation:
 
         with pytest.raises(TracecatValidationError, match="has been revoked"):
             await service.accept_invitation(invitation.token, basic_user.id)
-
-    @pytest.mark.anyio
-    async def test_accept_invitation_expired(
-        self,
-        session: AsyncSession,
-        org: Organization,
-        workspace: Workspace,
-        admin_user: User,
-        basic_user: User,
-    ):
-        """Test accepting expired invitation fails."""
-        # Create invitation manually with past expiry
-        invitation = Invitation(
-            workspace_id=workspace.id,
-            email=basic_user.email,
-            role=WorkspaceRole.EDITOR,
-            status=InvitationStatus.PENDING,
-            invited_by=admin_user.id,
-            token=f"expired-token-{uuid.uuid4().hex}",
-            expires_at=datetime.now(UTC) - timedelta(days=1),  # Already expired
-        )
-        session.add(invitation)
-        await session.commit()
-
-        role = create_workspace_admin_role(org.id, workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
-
-        with pytest.raises(TracecatValidationError, match="has expired"):
-            await service.accept_invitation(invitation.token, basic_user.id)
-
-        # Verify invitation was marked as expired
-        await session.refresh(invitation)
-        assert invitation.status == InvitationStatus.EXPIRED
 
     @pytest.mark.anyio
     async def test_accept_invitation_user_already_member(

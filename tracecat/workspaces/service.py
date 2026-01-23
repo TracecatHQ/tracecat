@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import UUID4
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
@@ -262,12 +263,20 @@ class WorkspaceService(BaseOrgService):
             email=params.email,
             role=params.role,
             status=InvitationStatus.PENDING,
-            invited_by=self.role.user_id,
+            invited_by=self.role.user_id if self.role else None,
             token=self._generate_invitation_token(),
             expires_at=expires_at,
         )
         self.session.add(invitation)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            await self.session.rollback()
+            if "uq_invitation_workspace_id_email" in str(e):
+                raise TracecatValidationError(
+                    f"An invitation already exists for {params.email} in this workspace"
+                ) from e
+            raise
         await self.session.refresh(invitation)
         return invitation
 
@@ -348,12 +357,8 @@ class WorkspaceService(BaseOrgService):
             raise TracecatValidationError("Invitation has already been accepted")
         if invitation.status == InvitationStatus.REVOKED:
             raise TracecatValidationError("Invitation has been revoked")
-        if invitation.status == InvitationStatus.EXPIRED:
-            raise TracecatValidationError("Invitation has expired")
         if invitation.expires_at < datetime.now(UTC):
             # Mark as expired if past expiry date
-            invitation.status = InvitationStatus.EXPIRED
-            await self.session.commit()
             raise TracecatValidationError("Invitation has expired")
 
         # Get the workspace to find the organization
