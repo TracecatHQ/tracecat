@@ -258,13 +258,17 @@ class RegistryActionsService(BaseService):
                 ).in_(include_keys)
             )
 
-        # Combine with UNION ALL for a single database call
-        combined = union_all(org_statement, platform_statement)
+        # Combine with UNION ALL, ordered so org results come first
+        combined = union_all(org_statement, platform_statement).order_by(
+            text("source")  # "org" < "platform" alphabetically
+        )
         result = await self.session.execute(combined)
         rows = result.tuples().all()
 
         # Convert raw tuples to index-like objects for compatibility with from_index()
+        # Deduplicate: org-scoped takes precedence over platform
         entries: list[tuple[IndexEntry, str]] = []
+        seen_actions: set[str] = set()
         for (
             id_,
             namespace_,
@@ -277,6 +281,12 @@ class RegistryActionsService(BaseService):
             origin,
             _,  # source indicator (org/platform), not needed in result
         ) in rows:
+            action_name = f"{namespace_}.{name}"
+            # Skip duplicates (org-scoped takes precedence due to ORDER BY)
+            if action_name in seen_actions:
+                continue
+            seen_actions.add(action_name)
+
             entry = IndexEntry(
                 id=id_,
                 namespace=namespace_,
