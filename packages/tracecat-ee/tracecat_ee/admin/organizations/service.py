@@ -147,7 +147,6 @@ class AdminOrgService(BaseService):
         self, org_id: uuid.UUID, repository_id: uuid.UUID, force: bool = False
     ) -> OrgRegistrySyncResponse:
         """Sync a registry repository for an organization."""
-        from tracecat.feature_flags import FeatureFlag, is_feature_enabled
         from tracecat.git.utils import parse_git_url
         from tracecat.registry.actions.service import RegistryActionsService
         from tracecat.registry.repositories.schemas import RegistryRepositoryUpdate
@@ -230,37 +229,32 @@ class AdminOrgService(BaseService):
         actions_service = RegistryActionsService(self.session, org_role)
         last_synced_at = datetime.now(UTC)
 
-        # Check if v2 sync is enabled
-        use_v2_sync = is_feature_enabled(FeatureFlag.REGISTRY_SYNC_V2)
         is_git_ssh = repo.origin.startswith("git+ssh://")
 
         version: str | None = None
         commit_sha: str | None = None
 
-        if use_v2_sync:
-            if is_git_ssh:
-                allowed_domains_setting = await get_setting(
-                    "git_allowed_domains", role=org_role
-                )
-                allowed_domains = allowed_domains_setting or {"github.com"}
-                git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+        if is_git_ssh:
+            allowed_domains_setting = await get_setting(
+                "git_allowed_domains", role=org_role
+            )
+            allowed_domains = allowed_domains_setting or {"github.com"}
+            git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
 
-                async with ssh_context(
-                    role=org_role, git_url=git_url, session=self.session
-                ) as ssh_env:
-                    (
-                        commit_sha,
-                        version,
-                    ) = await actions_service.sync_actions_from_repository_v2(
-                        repo, ssh_env=ssh_env
-                    )
-            else:
+            async with ssh_context(
+                role=org_role, git_url=git_url, session=self.session
+            ) as ssh_env:
                 (
                     commit_sha,
                     version,
-                ) = await actions_service.sync_actions_from_repository_v2(repo)
+                ) = await actions_service.sync_actions_from_repository_v2(
+                    repo, ssh_env=ssh_env
+                )
         else:
-            commit_sha = await actions_service.sync_actions_from_repository(repo)
+            (
+                commit_sha,
+                version,
+            ) = await actions_service.sync_actions_from_repository_v2(repo)
 
         # Update repository
         self.session.expire(repo)

@@ -48,7 +48,6 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
@@ -334,10 +333,10 @@ async def module_builtin_repo(
     """Module-scoped builtin repository for shared sync.
 
     Creates BOTH org-scoped and platform-scoped repositories:
-    - Org repo: Used by RegistryActionsService for action upserts
+    - Org repo: Used by RegistrySyncService for version/index sync
     - Platform repo: Used by executor for tarball lookups (via UNION ALL)
     """
-    # Create org-scoped repo (for RegistryAction foreign key)
+    # Create org-scoped repo
     org_svc = RegistryReposService(module_committing_session, role=module_test_role)
     org_repo = await org_svc.get_repository(DEFAULT_REGISTRY_ORIGIN)
     if org_repo is None:
@@ -352,7 +351,7 @@ async def module_builtin_repo(
     await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
 
     await module_committing_session.commit()
-    yield org_repo  # Return org repo for action upserts
+    yield org_repo  # Return org repo for version/index sync
 
 
 @pytest.fixture(scope="module")
@@ -371,7 +370,7 @@ async def shared_synced_registry(
     would otherwise call sync_repository_v2.
 
     Syncs to BOTH org and platform tables:
-    - Org sync: For RegistryAction upserts and org-scoped tests
+    - Org sync: For org-scoped tests (version + index tables)
     - Platform sync: For executor tarball lookups (uses UNION ALL)
 
     Returns a dict with:
@@ -398,14 +397,6 @@ async def shared_synced_registry(
         target_version=module_unique_version,
         bypass_temporal=True,
     )
-
-    # Upsert actions to RegistryAction table (required for subprocess execution)
-    async with RegistryActionsService.with_session(
-        session=module_committing_session, role=module_test_role
-    ) as actions_service:
-        await actions_service.upsert_actions_from_list(
-            sync_result.actions, module_builtin_repo, commit=True
-        )
 
     await module_committing_session.commit()
 
