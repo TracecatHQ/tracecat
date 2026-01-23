@@ -306,6 +306,21 @@ class OrgService(BaseService):
             status=InvitationStatus.PENDING,
         )
         self.session.add(invitation)
+
+        # Get org name for email
+        org_stmt = select(Organization).where(Organization.id == target_org_id)
+        org_result = await self.session.execute(org_stmt)
+        org = org_result.scalar_one()
+
+        # Send email before committing - if email fails, rollback
+        magic_link = send_invitation_email(
+            to_email=email,
+            org_name=org.name,
+            token=invitation.token,
+        )
+        self.logger.info("Invitation email sent", to_email=email)
+
+        # Commit only after email succeeds
         await self.session.commit()
         await self.session.refresh(invitation)
 

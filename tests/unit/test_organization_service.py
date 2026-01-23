@@ -3,6 +3,7 @@
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -582,6 +583,15 @@ class TestOrganizationServiceAddMember:
 
 class TestOrganizationServiceInvitations:
     """Tests for OrgService invitation methods."""
+
+    @pytest.fixture(autouse=True)
+    def mock_send_email(self):
+        """Mock send_invitation_email for all invitation tests."""
+        with patch(
+            "tracecat.organization.service.send_invitation_email",
+            return_value="https://app.tracecat.com/invite/accept?token=mock-token",
+        ):
+            yield
 
     @pytest.mark.anyio
     async def test_create_invitation(
