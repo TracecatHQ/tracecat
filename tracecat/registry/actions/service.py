@@ -614,6 +614,7 @@ class RegistryActionsService(BaseService):
                 RegistryVersion.manifest,
                 RegistryRepository.origin,
                 RegistryRepository.id.label("repo_id"),
+                literal("org").label("source"),
             )
             .join(
                 RegistryVersion,
@@ -647,6 +648,7 @@ class RegistryActionsService(BaseService):
                 PlatformRegistryVersion.manifest,
                 PlatformRegistryRepository.origin,
                 PlatformRegistryRepository.id.label("repo_id"),
+                literal("platform").label("source"),
             )
             .join(
                 PlatformRegistryVersion,
@@ -663,8 +665,10 @@ class RegistryActionsService(BaseService):
             )
         )
 
-        # Combine with UNION ALL
-        combined = union_all(org_statement, platform_statement)
+        # Combine with UNION ALL, ordered so org results come first
+        combined = union_all(org_statement, platform_statement).order_by(
+            text("source")  # "org" < "platform" alphabetically
+        )
         result = await self.session.execute(combined)
         rows = result.tuples().all()
 
@@ -684,6 +688,7 @@ class RegistryActionsService(BaseService):
             manifest_data,
             origin,
             repo_id,
+            _,  # source indicator (org/platform)
         ) in rows:
             action_name = f"{namespace}.{name}"
             # Skip if already found (org-scoped takes precedence)
