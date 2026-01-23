@@ -81,8 +81,9 @@ class AgentPresetService(BaseWorkspaceService):
         """Validate that all actions are in the registry index."""
         actions_set = set(actions)
         registry_service = RegistryActionsService(self.session, role=self.role)
+        # include_marked=True to allow hidden/advanced actions in presets
         index_entries = await registry_service.list_actions_from_index(
-            include_keys=actions_set
+            include_keys=actions_set, include_marked=True
         )
         available_identifiers = {
             f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
