@@ -268,15 +268,33 @@ class WorkspaceService(BaseOrgService):
             expires_at=expires_at,
         )
         self.session.add(invitation)
+
         try:
-            await self.session.commit()
+            await self.session.flush()
         except IntegrityError as e:
             await self.session.rollback()
             if "uq_invitation_workspace_id_email" in str(e):
+                # Check if the existing invitation is expired - if so, delete and retry
+                existing_stmt = select(Invitation).where(
+                    Invitation.workspace_id == workspace_id,
+                    Invitation.email == params.email,
+                )
+                result = await self.session.execute(existing_stmt)
+                existing_invitation = result.scalar_one_or_none()
+
+                if existing_invitation and existing_invitation.expires_at < now:
+                    # Delete the expired invitation and retry
+                    await self.session.delete(existing_invitation)
+                    await self.session.commit()
+                    # Recurse to create the new invitation
+                    return await self.create_invitation(workspace_id, params)
+
                 raise TracecatValidationError(
                     f"An invitation already exists for {params.email} in this workspace"
                 ) from e
             raise
+
+        await self.session.commit()
         await self.session.refresh(invitation)
         return invitation
 
