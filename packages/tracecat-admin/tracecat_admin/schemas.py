@@ -137,3 +137,52 @@ class OrgRegistryVersionPromoteResponse(BaseModel):
     previous_version: str | None
     current_version_id: uuid.UUID
     current_version: str
+
+
+# Tier Schemas
+
+
+class EntitlementsDict(BaseModel):
+    """Feature entitlements for a tier."""
+
+    custom_registry: bool = False
+    sso: bool = False
+    git_sync: bool = False
+
+
+class TierRead(BaseModel):
+    """Tier response schema."""
+
+    id: str
+    display_name: str
+    max_concurrent_workflows: int | None
+    max_action_executions_per_workflow: int | None
+    max_concurrent_actions: int | None
+    api_rate_limit: int | None
+    api_burst_capacity: int | None
+    entitlements: dict[str, bool]
+    is_default: bool
+    sort_order: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class OrganizationTierRead(BaseModel):
+    """Organization tier assignment response."""
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    tier_id: str
+    max_concurrent_workflows: int | None
+    max_action_executions_per_workflow: int | None
+    max_concurrent_actions: int | None
+    api_rate_limit: int | None
+    api_burst_capacity: int | None
+    entitlement_overrides: dict[str, bool] | None
+    stripe_customer_id: str | None
+    stripe_subscription_id: str | None
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    tier: TierRead | None = None
