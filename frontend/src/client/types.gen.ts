@@ -4971,6 +4971,7 @@ export type ThinkingBlock = {
  * Create tier request.
  */
 export type TierCreate = {
+  id: string
   display_name: string
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
