@@ -78,6 +78,35 @@ class ScopeDeniedError(TracecatAuthorizationError):
         )
 
 
+class TracecatRLSViolationError(TracecatAuthorizationError):
+    """Raised when Row-Level Security blocks access to a resource.
+
+    This exception indicates that the current user's context (org/workspace)
+    does not have permission to access the requested database record.
+    """
+
+    def __init__(
+        self,
+        *args,
+        table: str,
+        operation: str,
+        org_id: str | None = None,
+        workspace_id: str | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.table = table
+        self.operation = operation
+        self.org_id = org_id
+        self.workspace_id = workspace_id
+        self.detail = {
+            "table": table,
+            "operation": operation,
+            "org_id": org_id,
+            "workspace_id": workspace_id,
+        }
+
+
 class TracecatManagementError(TracecatException):
     """Tracecat user-facing management error"""
 

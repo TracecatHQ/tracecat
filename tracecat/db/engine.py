@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
+from tracecat.db.rls import set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -185,7 +186,28 @@ def reset_async_engine() -> None:
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get an async SQLAlchemy database session."""
+    """Get an async SQLAlchemy database session with RLS context.
+
+    Automatically sets RLS context from ctx_role if the RLS feature flag is enabled.
+    The RLS context scopes database access to the current organization/workspace.
+    """
+    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        # Set RLS context from ctx_role (no-op if RLS disabled)
+        await set_rls_context_from_role(session)
+        yield session
+
+
+async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
+    """Get an async SQLAlchemy database session without RLS context.
+
+    Use this for system operations that need unrestricted access:
+    - Database migrations
+    - Background jobs without user context
+    - Administrative operations
+
+    WARNING: Use sparingly and only when necessary. Prefer get_async_session()
+    with proper role context for most operations.
+    """
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
         yield session
 
@@ -193,5 +215,15 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
     AsyncSession
 ]:
-    """Get a context manager for an async SQLAlchemy database session."""
+    """Get a context manager for an async SQLAlchemy database session with RLS context."""
     return contextlib.asynccontextmanager(get_async_session)()
+
+
+def get_async_session_bypass_rls_context_manager() -> (
+    contextlib.AbstractAsyncContextManager[AsyncSession]
+):
+    """Get a context manager for an async session without RLS context.
+
+    Use this for system operations that need unrestricted database access.
+    """
+    return contextlib.asynccontextmanager(get_async_session_bypass_rls)()
