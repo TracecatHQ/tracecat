@@ -267,36 +267,34 @@ class TestVerifyRlsAccess:
     @pytest.mark.anyio
     async def test_returns_true_when_record_found(self, mock_session: AsyncMock):
         """Test that verify_rls_access returns True when record is accessible."""
-        # Mock table class
-        mock_table = MagicMock()
-        mock_table.id = MagicMock()
-        mock_table.__tablename__ = "test_table"
-
         # Mock query result to return a record
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = MagicMock()
         mock_session.execute.return_value = mock_result
 
-        result = await verify_rls_access(mock_session, mock_table, uuid.uuid4())
+        # Use actual SQLAlchemy model for testing
+        from tracecat.db.models import Workflow
+
+        result = await verify_rls_access(mock_session, Workflow, uuid.uuid4())
 
         assert result is True
+        mock_session.execute.assert_called_once()
 
     @pytest.mark.anyio
     async def test_returns_false_when_record_not_found(self, mock_session: AsyncMock):
         """Test that verify_rls_access returns False when RLS blocks access."""
-        # Mock table class
-        mock_table = MagicMock()
-        mock_table.id = MagicMock()
-        mock_table.__tablename__ = "test_table"
-
         # Mock query result to return None (RLS blocked)
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        result = await verify_rls_access(mock_session, mock_table, uuid.uuid4())
+        # Use actual SQLAlchemy model for testing
+        from tracecat.db.models import Workflow
+
+        result = await verify_rls_access(mock_session, Workflow, uuid.uuid4())
 
         assert result is False
+        mock_session.execute.assert_called_once()
 
 
 class TestRequireRlsAccess:
@@ -309,11 +307,10 @@ class TestRequireRlsAccess:
         """Test that require_rls_access does nothing when RLS is disabled."""
         monkeypatch.setattr("tracecat.db.rls.is_rls_enabled", lambda: False)
 
-        mock_table = MagicMock()
-        mock_table.__tablename__ = "test_table"
+        from tracecat.db.models import Workflow
 
         # Should not raise even without setting up mock
-        await require_rls_access(mock_session, mock_table, uuid.uuid4())
+        await require_rls_access(mock_session, Workflow, uuid.uuid4())
 
     @pytest.mark.anyio
     async def test_passes_when_access_allowed(
@@ -325,9 +322,7 @@ class TestRequireRlsAccess:
             {FeatureFlag.RLS_ENABLED},
         )
 
-        mock_table = MagicMock()
-        mock_table.id = MagicMock()
-        mock_table.__tablename__ = "test_table"
+        from tracecat.db.models import Workflow
 
         # Mock query result to return a record
         mock_result = MagicMock()
@@ -335,7 +330,7 @@ class TestRequireRlsAccess:
         mock_session.execute.return_value = mock_result
 
         # Should not raise
-        await require_rls_access(mock_session, mock_table, uuid.uuid4())
+        await require_rls_access(mock_session, Workflow, uuid.uuid4())
 
     @pytest.mark.anyio
     async def test_raises_when_access_denied(
@@ -347,12 +342,10 @@ class TestRequireRlsAccess:
             {FeatureFlag.RLS_ENABLED},
         )
 
+        from tracecat.db.models import Workflow
+
         # Set role context
         ctx_role.set(test_role)
-
-        mock_table = MagicMock()
-        mock_table.id = MagicMock()
-        mock_table.__tablename__ = "test_table"
 
         # Mock query result to return None (RLS blocked)
         mock_result = MagicMock()
@@ -362,10 +355,10 @@ class TestRequireRlsAccess:
         try:
             with pytest.raises(TracecatRLSViolationError) as exc_info:
                 await require_rls_access(
-                    mock_session, mock_table, uuid.uuid4(), operation="delete"
+                    mock_session, Workflow, uuid.uuid4(), operation="delete"
                 )
 
-            assert exc_info.value.table == "test_table"
+            assert exc_info.value.table == "workflow"
             assert exc_info.value.operation == "delete"
             assert exc_info.value.org_id == str(test_role.organization_id)
             assert exc_info.value.workspace_id == str(test_role.workspace_id)
@@ -382,11 +375,9 @@ class TestRequireRlsAccess:
             {FeatureFlag.RLS_ENABLED},
         )
 
-        ctx_role.set(test_role)
+        from tracecat.db.models import Workflow
 
-        mock_table = MagicMock()
-        mock_table.id = MagicMock()
-        mock_table.__tablename__ = "test_table"
+        ctx_role.set(test_role)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -396,12 +387,12 @@ class TestRequireRlsAccess:
             try:
                 with pytest.raises(TracecatRLSViolationError):
                     await require_rls_access(
-                        mock_session, mock_table, uuid.uuid4(), operation="update"
+                        mock_session, Workflow, uuid.uuid4(), operation="update"
                     )
 
                 mock_audit.assert_called_once()
                 call_kwargs = mock_audit.call_args[1]
-                assert call_kwargs["table"] == "test_table"
+                assert call_kwargs["table"] == "workflow"
                 assert call_kwargs["operation"] == "update"
             finally:
                 ctx_role.set(None)
