@@ -177,12 +177,23 @@ def test_db_engine():
 
 @pytest.fixture(autouse=True, scope="session")
 def dispose_db_engine():
-    """Dispose the async engine once after the test session."""
+    """Dispose the async engine once after the test session.
+
+    Uses a new event loop to avoid conflicts with pytest-anyio's loop management.
+    Errors are logged but don't fail the test run since the process is ending.
+    """
     yield
     try:
-        asyncio.run(get_async_engine().dispose())
+        # Create a fresh event loop for disposal to avoid conflicts with
+        # pytest-anyio's loop that may already be closed at session teardown
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(get_async_engine().dispose())
+        finally:
+            loop.close()
     except Exception as e:
-        logger.error(f"Error disposing engine in dispose_db_engine: {e}")
+        # Log but don't fail - process is ending anyway
+        logger.warning(f"Engine disposal skipped at session end: {e}")
 
 
 @pytest.fixture(scope="session")
