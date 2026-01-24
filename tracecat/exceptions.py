@@ -191,4 +191,16 @@ class RateLimitExceeded(ExecutorClientError):
 
 
 class PayloadSizeExceeded(TracecatException):
-    """ERror raised when a payload exceeds a size limit."""
+    """Error raised when a payload exceeds a size limit."""
+
+
+class EntitlementRequired(TracecatException):
+    """Exception raised when a feature requires a higher subscription tier.
+
+    Raised when an organization attempts to use a feature they are not entitled to.
+    """
+
+    def __init__(self, entitlement: str):
+        self.entitlement = entitlement
+        message = f"Feature '{entitlement}' requires a higher subscription tier"
+        super().__init__(message, detail={"entitlement": entitlement})
