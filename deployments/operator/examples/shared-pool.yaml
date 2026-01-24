@@ -1,0 +1,91 @@
+apiVersion: compute.tracecat.io/v1alpha1
+kind: TracecatWorkerPool
+metadata:
+  name: starter-pool
+  namespace: tracecat
+  labels:
+    tracecat.io/tier: starter
+    tracecat.io/tenant-type: shared
+spec:
+  # Shared tenant configuration
+  tenant:
+    type: shared
+
+  # Image configuration
+  image:
+    repository: ghcr.io/tracecathq/tracecat
+    tag: "0.53.21"
+    pullPolicy: IfNotPresent
+
+  # Temporal configuration
+  temporal:
+    clusterUrl: temporal-frontend:7233
+    namespace: default
+
+  # Database configuration
+  database:
+    host: tracecat-postgres-rw
+    port: 5432
+    database: app
+    sslMode: disable
+    credentialsSecretRef:
+      name: tracecat-postgres-app
+      usernameKey: username
+      passwordKey: password
+
+  # Redis configuration
+  redis:
+    url: redis://tracecat-valkey:6379
+
+  # Core secrets
+  secrets:
+    coreSecretRef:
+      name: tracecat-secrets
+
+  # Service account
+  serviceAccount:
+    name: tracecat-app
+
+  # Worker configurations (minimal for starter tier)
+  workers:
+    dsl:
+      enabled: true
+      replicas: 2
+      queue: starter-pool-task-queue
+      threadpoolMaxWorkers: 50
+      contextCompression:
+        enabled: false
+        thresholdKb: 16
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1000m"
+          memory: "1Gi"
+
+    executor:
+      enabled: true
+      replicas: 1
+      queue: starter-pool-action-queue
+      backend: auto
+      sandbox:
+        disableNsjail: false
+      contextCompression:
+        enabled: false
+        thresholdKb: 16
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1000m"
+          memory: "1Gi"
+
+    # Agent not enabled for starter tier
+    agent:
+      enabled: false
+
+  # No autoscaling for starter tier
+  autoscaling:
+    enabled: false

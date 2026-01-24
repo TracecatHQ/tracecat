@@ -3005,6 +3005,7 @@ export type OAuthSettingsUpdate = {
 export type OrgCreate = {
   name: string
   slug: string
+  tier?: Tier
 }
 
 export type OrgMemberRead = {
@@ -3027,6 +3028,7 @@ export type OrgRead = {
   name: string
   slug: string
   is_active: boolean
+  tier: Tier
   created_at: string
   updated_at?: string | null
 }
@@ -3103,6 +3105,14 @@ export type OrgUpdate = {
   name?: string | null
   slug?: string | null
   is_active?: boolean | null
+  tier?: Tier | null
+}
+
+/**
+ * Update organization tier request.
+ */
+export type OrgUpdateTier = {
+  tier: Tier
 }
 
 /**
@@ -4917,6 +4927,19 @@ export type TextUIPart = {
 export type ThinkingBlock = {
   thinking: string
   signature: string
+}
+
+/**
+ * Subscription tier.
+ */
+export type Tier = "starter" | "pro" | "enterprise"
+
+export type TierChangeResult = {
+  previous_tier: Tier
+  new_tier: Tier
+  worker_pool_provisioned: boolean
+  worker_pool_deprovisioned: boolean
+  error?: string | null
 }
 
 export type Toggle = {
@@ -6866,6 +6889,13 @@ export type AdminDeleteOrganizationData = {
 }
 
 export type AdminDeleteOrganizationResponse = void
+
+export type AdminUpdateOrganizationTierData = {
+  orgId: string
+  requestBody: OrgUpdateTier
+}
+
+export type AdminUpdateOrganizationTierResponse = TierChangeResult
 
 export type AdminListOrgRepositoriesData = {
   orgId: string
@@ -9700,6 +9730,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/tier": {
+    put: {
+      req: AdminUpdateOrganizationTierData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TierChangeResult
         /**
          * Validation Error
          */

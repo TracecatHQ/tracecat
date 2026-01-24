@@ -1,0 +1,119 @@
+apiVersion: compute.tracecat.io/v1alpha1
+kind: TracecatWorkerPool
+metadata:
+  name: acme-corp
+  namespace: tracecat
+  labels:
+    tracecat.io/tier: enterprise
+    tracecat.io/tenant-type: dedicated
+spec:
+  # Tenant identification
+  tenant:
+    type: dedicated
+    organizationId: org_abc123
+
+  # Image configuration
+  image:
+    repository: ghcr.io/tracecathq/tracecat
+    tag: "0.53.21"
+    pullPolicy: IfNotPresent
+
+  # Temporal configuration
+  temporal:
+    clusterUrl: temporal-frontend:7233
+    namespace: default
+    auth:
+      apiKeySecretRef:
+        name: temporal-credentials
+        key: apiKey
+
+  # Database configuration
+  database:
+    host: tracecat-postgres-rw
+    port: 5432
+    database: app
+    sslMode: disable
+    credentialsSecretRef:
+      name: tracecat-postgres-app
+      usernameKey: username
+      passwordKey: password
+
+  # Redis configuration
+  redis:
+    url: redis://tracecat-valkey:6379
+
+  # Core secrets
+  secrets:
+    coreSecretRef:
+      name: tracecat-secrets
+
+  # Service account
+  serviceAccount:
+    name: tracecat-app
+
+  # Worker configurations
+  workers:
+    dsl:
+      enabled: true
+      replicas: 4
+      queue: acme-corp-task-queue
+      threadpoolMaxWorkers: 100
+      contextCompression:
+        enabled: false
+        thresholdKb: 16
+      resources:
+        requests:
+          cpu: "1000m"
+          memory: "1Gi"
+        limits:
+          cpu: "2000m"
+          memory: "2Gi"
+
+    executor:
+      enabled: true
+      replicas: 2
+      queue: acme-corp-action-queue
+      backend: pool
+      workerPoolSize: 10
+      sandbox:
+        disableNsjail: false
+      contextCompression:
+        enabled: false
+        thresholdKb: 16
+      resources:
+        requests:
+          cpu: "1000m"
+          memory: "1Gi"
+        limits:
+          cpu: "2000m"
+          memory: "2Gi"
+
+    agent:
+      enabled: true
+      replicas: 2
+      queue: acme-corp-agent-queue
+      maxConcurrentActivities: 50
+      resources:
+        requests:
+          cpu: "2000m"
+          memory: "4Gi"
+        limits:
+          cpu: "4000m"
+          memory: "8Gi"
+
+  # KEDA autoscaling
+  autoscaling:
+    enabled: true
+    workers:
+      dsl:
+        minReplicas: 2
+        maxReplicas: 20
+        targetQueueSize: 10
+      executor:
+        minReplicas: 2
+        maxReplicas: 15
+        targetQueueSize: 5
+      agent:
+        minReplicas: 1
+        maxReplicas: 10
+        targetQueueSize: 3

@@ -1,0 +1,100 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tracecat-operator
+  namespace: tracecat
+  labels:
+    app.kubernetes.io/name: tracecat-operator
+    app.kubernetes.io/component: operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tracecat-operator
+  labels:
+    app.kubernetes.io/name: tracecat-operator
+    app.kubernetes.io/component: operator
+rules:
+  # TracecatWorkerPool CRD access
+  - apiGroups:
+      - compute.tracecat.io
+    resources:
+      - tracecatworkerpools
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - compute.tracecat.io
+    resources:
+      - tracecatworkerpools/status
+    verbs:
+      - get
+      - patch
+      - update
+  # Deployment management
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # KEDA ScaledObject management
+  - apiGroups:
+      - keda.sh
+    resources:
+      - scaledobjects
+      - triggerauthentications
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Event creation for operator status
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  # Kopf requires coordination for leader election
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tracecat-operator
+  labels:
+    app.kubernetes.io/name: tracecat-operator
+    app.kubernetes.io/component: operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tracecat-operator
+subjects:
+  - kind: ServiceAccount
+    name: tracecat-operator
+    namespace: tracecat
