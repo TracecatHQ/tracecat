@@ -18,3 +18,4 @@ class FeatureFlag(StrEnum):
     AI_RANKING = "ai-ranking"
     WORKFLOW_CONCURRENCY_LIMITS = "workflow-concurrency-limits"
     AGENT_CHANNELS = "agent-channels"
+    RLS_ENABLED = "rls-enabled"
