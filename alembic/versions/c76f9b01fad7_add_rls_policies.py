@@ -74,10 +74,10 @@ ORG_SCOPED_TABLES = [
 def _enable_rls_workspace_table(table: str) -> str:
     """Generate SQL to enable RLS on a workspace-scoped table."""
     return f"""
-        ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE {table} FORCE ROW LEVEL SECURITY;
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY;
 
-        CREATE POLICY rls_policy_{table} ON {table}
+        CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
             USING (
                 current_setting('app.current_workspace_id', true) = '{RLS_BYPASS_VALUE}'
@@ -93,19 +93,19 @@ def _enable_rls_workspace_table(table: str) -> str:
 def _disable_rls_workspace_table(table: str) -> str:
     """Generate SQL to disable RLS on a workspace-scoped table."""
     return f"""
-        DROP POLICY IF EXISTS rls_policy_{table} ON {table};
-        ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY;
-        ALTER TABLE {table} DISABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_policy_{table} ON "{table}";
+        ALTER TABLE "{table}" NO FORCE ROW LEVEL SECURITY;
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """
 
 
 def _enable_rls_org_table(table: str) -> str:
     """Generate SQL to enable RLS on an organization-scoped table."""
     return f"""
-        ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE {table} FORCE ROW LEVEL SECURITY;
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY;
 
-        CREATE POLICY rls_policy_{table} ON {table}
+        CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
             USING (
                 current_setting('app.current_org_id', true) = '{RLS_BYPASS_VALUE}'
@@ -121,9 +121,9 @@ def _enable_rls_org_table(table: str) -> str:
 def _disable_rls_org_table(table: str) -> str:
     """Generate SQL to disable RLS on an organization-scoped table."""
     return f"""
-        DROP POLICY IF EXISTS rls_policy_{table} ON {table};
-        ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY;
-        ALTER TABLE {table} DISABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_policy_{table} ON "{table}";
+        ALTER TABLE "{table}" NO FORCE ROW LEVEL SECURITY;
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """
 
 
@@ -136,10 +136,10 @@ def _enable_rls_workspace_special() -> str:
     - Org admins need to list all workspaces in their org
     """
     return f"""
-        ALTER TABLE workspace ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE workspace FORCE ROW LEVEL SECURITY;
+        ALTER TABLE "workspace" ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE "workspace" FORCE ROW LEVEL SECURITY;
 
-        CREATE POLICY rls_policy_workspace ON workspace
+        CREATE POLICY rls_policy_workspace ON "workspace"
             FOR ALL
             USING (
                 -- Bypass check
@@ -160,9 +160,9 @@ def _enable_rls_workspace_special() -> str:
 def _disable_rls_workspace_special() -> str:
     """Generate SQL to disable RLS on the workspace table."""
     return """
-        DROP POLICY IF EXISTS rls_policy_workspace ON workspace;
-        ALTER TABLE workspace NO FORCE ROW LEVEL SECURITY;
-        ALTER TABLE workspace DISABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS rls_policy_workspace ON "workspace";
+        ALTER TABLE "workspace" NO FORCE ROW LEVEL SECURITY;
+        ALTER TABLE "workspace" DISABLE ROW LEVEL SECURITY;
     """
 
 
