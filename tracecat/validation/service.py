@@ -15,6 +15,7 @@ from tracecat_registry import (
     RegistrySecret,
 )
 
+from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
@@ -237,6 +238,8 @@ class ActionEnvPair:
 
 async def validate_actions_have_defined_secrets(
     dsl: DSLInput,
+    *,
+    role: Role,
 ) -> list[SecretValidationResult]:
     """Validate that all actions in the DSL have their required secrets defined."""
     checked_keys: set[str] = set()
@@ -249,10 +252,10 @@ async def validate_actions_have_defined_secrets(
         )
 
     async with get_async_session_context_manager() as session:
-        secrets_service = SecretsService(session)
+        secrets_service = SecretsService(session, role=role)
 
         # Get all actions that need validation from index/manifest
-        registry_service = RegistryActionsService(session)
+        registry_service = RegistryActionsService(session, role=role)
         action_names = [a.action for a in dsl.actions]
         actions_data = await registry_service.get_actions_from_index(action_names)
 
@@ -280,6 +283,7 @@ async def validate_actions_have_defined_secrets(
 async def validate_registry_action_args(
     *,
     session: AsyncSession,
+    role: Role,
     action_name: str,
     action_ref: str,
     args: Mapping[str, Any],
@@ -293,7 +297,7 @@ async def validate_registry_action_args(
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
             else:
-                service = RegistryActionsService(session)
+                service = RegistryActionsService(session, role=role)
                 action_data = await service.get_action_from_index(action_name)
                 if action_data is None:
                     raise KeyError(f"Action {action_name} not found in registry index")
@@ -362,6 +366,7 @@ async def validate_registry_action_args(
 async def validate_dsl_actions(
     *,
     session: AsyncSession,
+    role: Role,
     dsl: DSLInput,
 ) -> list[ActionValidationResult]:
     """Validate arguemnts to the DSLInput.
@@ -377,6 +382,7 @@ async def validate_dsl_actions(
         # We store the DSL as is to ensure compatibility with with string reprs
         result = await validate_registry_action_args(
             session=session,
+            role=role,
             action_name=act_stmt.action,
             args=act_stmt.args,
             action_ref=act_stmt.ref,
@@ -638,6 +644,7 @@ async def validate_dsl(
     session: AsyncSession,
     dsl: DSLInput,
     *,
+    role: Role,
     validate_entrypoint: bool = True,
     validate_args: bool = True,
     validate_expressions: bool = True,
@@ -666,7 +673,7 @@ async def validate_dsl(
 
     # Tier 2: Action Args validation
     if validate_args:
-        dsl_args_errs = await validate_dsl_actions(session=session, dsl=dsl)
+        dsl_args_errs = await validate_dsl_actions(session=session, role=role, dsl=dsl)
         logger.debug(
             f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
         )
@@ -687,7 +694,9 @@ async def validate_dsl(
 
     # For secrets we also need to check if any used actions have undefined secrets
     if validate_secrets:
-        udf_missing_secrets = await validate_actions_have_defined_secrets(dsl)
+        udf_missing_secrets = await validate_actions_have_defined_secrets(
+            dsl, role=role
+        )
         logger.debug(
             f"{len(udf_missing_secrets)} DSL secret validation errors",
             errs=udf_missing_secrets,

@@ -410,7 +410,7 @@ class WorkflowSyncService(BaseWorkspaceService):
             pr_url = None
             if options.create_pr:
                 try:
-                    ws_svc = WorkspaceService(session=self.session)
+                    ws_svc = WorkspaceService(session=self.session, role=self.role)
                     workspace = await ws_svc.get_workspace(self.workspace_id)
                     if not workspace:
                         raise TracecatNotFoundError("Workspace not found")
