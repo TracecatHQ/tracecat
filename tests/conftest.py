@@ -169,17 +169,20 @@ def monkeysession(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True, scope="function")
-async def test_db_engine():
-    """Create a new engine for each integration test."""
-    engine = get_async_engine()
+def test_db_engine():
+    """Ensure the async engine is initialized for each test."""
+    get_async_engine()
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
+def dispose_db_engine():
+    """Dispose the async engine once after the test session."""
+    yield
     try:
-        yield engine
-    finally:
-        # Ensure the engine is disposed even if the test fails
-        try:
-            await engine.dispose()
-        except Exception as e:
-            logger.error(f"Error disposing engine in test_db_engine: {e}")
+        asyncio.run(get_async_engine().dispose())
+    except Exception as e:
+        logger.error(f"Error disposing engine in dispose_db_engine: {e}")
 
 
 @pytest.fixture(scope="session")

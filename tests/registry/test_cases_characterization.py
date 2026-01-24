@@ -13,6 +13,7 @@ Test Strategy:
 from __future__ import annotations
 
 import base64
+import os
 import uuid
 from datetime import UTC
 from unittest.mock import patch
@@ -196,15 +197,23 @@ def blob_storage_config(monkeypatch: pytest.MonkeyPatch):
     The dev stack exposes MinIO at localhost:9000. We need to override the
     config module values to point to this endpoint.
     """
+    endpoint = os.environ.get(
+        "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://localhost:9000"
+    )
+    access_key = os.environ.get(
+        "AWS_ACCESS_KEY_ID", os.environ.get("MINIO_ROOT_USER", "minioadmin")
+    )
+    secret_key = os.environ.get(
+        "AWS_SECRET_ACCESS_KEY", os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin")
+    )
+
     # Set environment variables for blob storage
-    monkeypatch.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", "http://localhost:9000")
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minioadmin")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+    monkeypatch.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", endpoint)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", access_key)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
 
     # Also update the config module's values directly since they're already loaded
-    monkeypatch.setattr(
-        config, "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://localhost:9000"
-    )
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_ENDPOINT", endpoint)
 
     yield
 
