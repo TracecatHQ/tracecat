@@ -1,6 +1,6 @@
 """Add Row-Level Security (RLS) policies for multi-tenancy
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c76f9b01fad7
 Revises: f4f5b93cbb16
 Create Date: 2025-01-24
 
@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
+revision: str = "c76f9b01fad7"
 down_revision: str | None = "f4f5b93cbb16"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
