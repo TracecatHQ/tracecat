@@ -9,8 +9,11 @@ Tests cover:
 3. Action-environment pair handling in secret validation
 """
 
+import uuid
+
 import pytest
 
+from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.common import ExprType
@@ -291,6 +294,13 @@ class TestSecretValidationWithEnvironmentOverride:
 
         from tracecat.validation.service import validate_actions_have_defined_secrets
 
+        mock_role = Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+        )
+
         dsl = DSLInput(
             title="Test Workflow",
             description="Test workflow with mixed environment overrides",
@@ -369,7 +379,7 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_tg.results = MagicMock(return_value=[])  # Add missing results method
 
             # Call the function
-            await validate_actions_have_defined_secrets(dsl)
+            await validate_actions_have_defined_secrets(dsl, role=mock_role)
 
             # Verify that registry service was called with correct action names
             mock_registry.get_actions_from_index.assert_called_once()
@@ -384,6 +394,13 @@ class TestSecretValidationWithEnvironmentOverride:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from tracecat.validation.service import validate_actions_have_defined_secrets
+
+        mock_role = Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+        )
 
         dsl = DSLInput(
             title="Test Workflow",
@@ -484,7 +501,7 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_task_group.return_value = await mock_task_group_impl()
 
             # Call the function
-            await validate_actions_have_defined_secrets(dsl)
+            await validate_actions_have_defined_secrets(dsl, role=mock_role)
 
             # Verify that check_action_secrets_from_manifest was called with correct environments
             assert len(captured_environments) == 2
