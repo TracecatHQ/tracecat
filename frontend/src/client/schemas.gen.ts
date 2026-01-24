@@ -9662,7 +9662,6 @@ export const $OrganizationTierRead = {
     },
     tier_id: {
       type: "string",
-      format: "uuid",
       title: "Tier Id",
     },
     max_concurrent_workflows: {
@@ -9812,7 +9811,6 @@ export const $OrganizationTierUpdate = {
       anyOf: [
         {
           type: "string",
-          format: "uuid",
         },
         {
           type: "null",
@@ -15248,6 +15246,13 @@ export const $ThinkingBlock = {
 
 export const $TierCreate = {
   properties: {
+    id: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9_-]+$",
+      title: "Id",
+    },
     display_name: {
       type: "string",
       maxLength: 255,
@@ -15325,7 +15330,7 @@ export const $TierCreate = {
     },
   },
   type: "object",
-  required: ["display_name"],
+  required: ["id", "display_name"],
   title: "TierCreate",
   description: "Create tier request.",
 } as const
@@ -15334,7 +15339,6 @@ export const $TierRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid",
       title: "Id",
     },
     display_name: {
