@@ -67,7 +67,7 @@ WORKSPACE_SCOPED_TABLES = [
 # Organization-scoped tables (filtered by organization_id)
 ORG_SCOPED_TABLES = [
     "organization_secret",
-    "organization_setting",
+    "organization_settings",
 ]
 
 
