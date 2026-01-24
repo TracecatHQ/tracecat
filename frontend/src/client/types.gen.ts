@@ -2215,6 +2215,7 @@ export type FeatureFlag =
   | "case-tasks"
   | "registry-client"
   | "registry-sync-v2"
+  | "rls-enabled"
 
 /**
  * Response model for feature flags.

@@ -7151,6 +7151,7 @@ export const $FeatureFlag = {
     "case-tasks",
     "registry-client",
     "registry-sync-v2",
+    "rls-enabled",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
