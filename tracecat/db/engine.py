@@ -164,6 +164,15 @@ def get_async_engine() -> AsyncEngine:
     return _async_engine
 
 
+def reset_async_engine() -> None:
+    """Reset the global async engine.
+
+    This should only be used in tests to ensure clean state between tests.
+    """
+    global _async_engine
+    _async_engine = None
+
+
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """Get an async SQLAlchemy database session."""
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
