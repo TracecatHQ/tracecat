@@ -21,12 +21,14 @@ from tracecat_registry import RegistrySecretType
 from tracecat.agent.types import Tool
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
 from tracecat.contexts import ctx_role
-from tracecat.db.models import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.bound import BoundRegistryAction
-from tracecat.registry.actions.schemas import RegistryActionOptions
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.service import (
+    IndexedActionResult,
+    RegistryActionsService,
+)
+from tracecat.registry.loaders import get_bound_action_from_manifest
 
 
 class ToolExecutionError(Exception):
@@ -136,37 +138,40 @@ async def call_tracecat_action(
 
 async def create_tool_from_registry(
     action_name: str,
-    ra: RegistryAction | None = None,
+    indexed_result: IndexedActionResult,
     *,
-    service: RegistryActionsService | None = None,
     tool_approvals: dict[str, bool] | None = None,
 ) -> Tool:
-    """Create a Tool from a registry action.
+    """Create a Tool from a registry action using index-based lookup.
 
     Args:
         action_name: Full canonical action name (e.g., "core.http_request")
-        ra: Optional pre-fetched RegistryAction
-        service: Optional RegistryActionsService instance
+        indexed_result: Pre-fetched IndexedActionResult containing index entry and manifest
         tool_approvals: Tool approval requirements by tool name
 
     Returns:
         A Tool with canonical action name and JSON schema
 
     Raises:
-        ValueError: If action has no description
+        ValueError: If action has no description or is not found in manifest
     """
-    if service is None:
-        async with RegistryActionsService.with_session() as _service:
-            return await create_tool_from_registry(
-                action_name,
-                ra,
-                service=_service,
-                tool_approvals=tool_approvals,
-            )
+    # Get requires_approval from index_entry options
+    options = indexed_result.index_entry.options or {}
+    requires_approval = options.get("requires_approval", False)
 
-    reg_action = ra or await service.get_action(action_name)
-    options = RegistryActionOptions.model_validate(reg_action.options)
-    bound_action = service.get_bound(reg_action, mode="execution")
+    if tool_approvals and action_name in tool_approvals:
+        requires_approval = tool_approvals[action_name]
+
+    # Build BoundRegistryAction from manifest
+    manifest_action = indexed_result.manifest.actions.get(action_name)
+    if not manifest_action:
+        raise ValueError(f"Action '{action_name}' not found in manifest")
+
+    bound_action = get_bound_action_from_manifest(
+        manifest_action,
+        indexed_result.origin,
+        mode="execution",
+    )
 
     # Extract metadata from the bound action
     description, model_cls = _extract_action_metadata(bound_action)
@@ -178,13 +183,6 @@ async def create_tool_from_registry(
     parameters_json_schema = (
         model_cls.model_json_schema() if hasattr(model_cls, "model_json_schema") else {}  # type: ignore[call-non-callable]
     )
-
-    # Determine requires_approval
-    override = (tool_approvals or {}).get(action_name)
-    if override is not None:
-        requires_approval = override
-    else:
-        requires_approval = options.requires_approval
 
     return Tool(
         name=action_name,  # Canonical name with dots
@@ -207,16 +205,14 @@ class CreateToolResult:
 
 
 async def create_single_tool(
-    service: RegistryActionsService,
-    ra: RegistryAction,
+    indexed_result: IndexedActionResult,
     action_name: str,
     tool_approvals: dict[str, bool] | None = None,
 ) -> CreateToolResult | None:
-    """Create a single tool from a registry action.
+    """Create a single tool from an indexed action result.
 
     Args:
-        service: The registry actions service instance
-        ra: The registry action to create a tool from
+        indexed_result: The indexed action result containing index entry and manifest
         action_name: The canonical action name (namespace.name)
         tool_approvals: Tool approval requirements by tool name
 
@@ -226,13 +222,16 @@ async def create_single_tool(
     collected_secrets: set[RegistrySecretType] = set()
 
     try:
-        action_secrets = await service.fetch_all_action_secrets(ra)
+        # Use manifest-based secret aggregation instead of DB queries
+        action_secrets = RegistryActionsService.aggregate_secrets_from_manifest(
+            indexed_result.manifest,
+            action_name,
+        )
         collected_secrets.update(action_secrets)
 
         tool = await create_tool_from_registry(
             action_name,
-            ra,
-            service=service,
+            indexed_result,
             tool_approvals=tool_approvals,
         )
 
@@ -266,7 +265,7 @@ async def build_agent_tools(
     tool_approvals: dict[str, bool] | None = None,
     max_tools: int = TRACECAT__AGENT_MAX_TOOLS,
 ) -> BuildToolsResult:
-    """Build tools from a list of actions.
+    """Build tools from a list of actions using index-based lookups.
 
     Args:
         namespaces: Optional list of namespace prefixes to filter by
@@ -287,21 +286,16 @@ async def build_agent_tools(
     collected_secrets: set[RegistrySecretType] = set()
 
     async with RegistryActionsService.with_session() as service:
-        selected_actions = await service.get_actions(actions)
+        # Use index-based lookup instead of querying action tables
+        indexed_results = await service.get_actions_from_index(actions)
 
         failed_actions: set[str] = set()
-        missing_actions: set[str] = set()
 
-        if actions:
-            found_actions = {f"{ra.namespace}.{ra.name}" for ra in selected_actions}
-            missing_actions = {
-                action_name
-                for action_name in actions
-                if action_name not in found_actions
-            }
+        # Check for missing actions
+        found_actions = set(indexed_results.keys())
+        missing_actions = set(actions) - found_actions
 
-        for ra in selected_actions:
-            action_name = f"{ra.namespace}.{ra.name}"
+        for action_name, indexed_result in indexed_results.items():
             logger.debug(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
@@ -310,8 +304,7 @@ async def build_agent_tools(
                     continue
 
             result = await create_single_tool(
-                service,
-                ra,
+                indexed_result,
                 action_name,
                 tool_approvals=tool_approvals,
             )

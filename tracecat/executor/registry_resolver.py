@@ -13,12 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.exceptions import RegistryError
 from tracecat.executor.schemas import ActionImplementation
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
@@ -67,27 +73,50 @@ async def _fetch_manifest(
     version: str,
     organization_id: OrganizationID,
 ) -> RegistryVersionManifest:
-    """Fetch manifest from database for a specific origin and version."""
+    """Fetch manifest from database for a specific origin and version.
+
+    Routes to platform tables for the base registry (tracecat-registry),
+    otherwise queries org-scoped tables.
+
+    Both table hierarchies share the same structure via BaseRegistryVersion/BaseRegistryRepository,
+    differing only in org-scoping.
+    """
+    is_platform = origin == DEFAULT_REGISTRY_ORIGIN
+
+    # Select models based on whether this is platform or org-scoped
+    if is_platform:
+        version_model = PlatformRegistryVersion
+        repo_model = PlatformRegistryRepository
+    else:
+        version_model = RegistryVersion
+        repo_model = RegistryRepository
+
     statement = (
-        select(RegistryVersion.manifest)
+        select(version_model.manifest)
         .join(
-            RegistryRepository,
-            RegistryVersion.repository_id == RegistryRepository.id,
+            repo_model,
+            version_model.repository_id == repo_model.id,
         )
         .where(
-            RegistryRepository.organization_id == organization_id,
-            RegistryVersion.organization_id == organization_id,
-            RegistryRepository.origin == origin,
-            RegistryVersion.version == version,
+            repo_model.origin == origin,
+            version_model.version == version,
         )
     )
+
+    # Add org filter only for org-scoped tables
+    if not is_platform:
+        statement = statement.where(
+            RegistryRepository.organization_id == organization_id,
+            RegistryVersion.organization_id == organization_id,
+        )
 
     result = await session.execute(statement)
     manifest_dict = result.scalar_one_or_none()
 
     if manifest_dict is None:
+        table_type = "Platform registry" if is_platform else "Registry"
         raise RegistryError(
-            f"Registry version not found: origin={origin!r}, version={version!r}"
+            f"{table_type} version not found: origin={origin!r}, version={version!r}"
         )
 
     return RegistryVersionManifest.model_validate(manifest_dict)

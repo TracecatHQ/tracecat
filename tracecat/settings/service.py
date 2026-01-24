@@ -93,9 +93,9 @@ class SettingsService(BaseService):
                             is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
                         )
                     )
-                    self.logger.info("Created setting", key=key)
+                    self.logger.debug("Created setting", key=key)
                 else:
-                    self.logger.info("Setting already exists", key=key)
+                    self.logger.debug("Setting already exists", key=key)
         await self.session.commit()
 
     def get_value(self, setting: OrganizationSetting) -> Any:

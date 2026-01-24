@@ -6008,7 +6008,7 @@ export const $DSLEntrypoint = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Output",
           },
           type: "object",
         },
@@ -6978,7 +6978,7 @@ export const $ExecutionType = {
 Distinguishes between draft (development) and published (production) executions.`,
 } as const
 
-export const $ExpectedField = {
+export const $ExpectedField_Input = {
   properties: {
     type: {
       type: "string",
@@ -6996,18 +6996,48 @@ export const $ExpectedField = {
       title: "Description",
     },
     default: {
+      title: "Default",
+    },
+    enum: {
       anyOf: [
-        {},
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
         {
           type: "null",
         },
       ],
-      title: "Default",
+      title: "Enum",
+    },
+    optional: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Optional",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["type"],
   title: "ExpectedField",
+  description: `Schema for a field in a template action's expects definition.
+
+Note: The default field uses a sentinel to distinguish between
+"no default specified" (required field) and "default is explicitly None"
+(optional field).`,
+} as const
+
+export const $ExpectedField_Output = {
+  additionalProperties: true,
+  type: "object",
 } as const
 
 export const $ExprType = {
@@ -10254,6 +10284,21 @@ export const $PullResult = {
   title: "PullResult",
 } as const
 
+export const $ReadinessResponse = {
+  properties: {
+    status: {
+      type: "string",
+      title: "Status",
+    },
+    registry: {
+      $ref: "#/components/schemas/RegistryStatus",
+    },
+  },
+  type: "object",
+  required: ["status", "registry"],
+  title: "ReadinessResponse",
+} as const
+
 export const $ReasoningUIPart = {
   properties: {
     type: {
@@ -11445,6 +11490,33 @@ export const $RegistrySecretType_Output = {
       oauth: "#/components/schemas/RegistryOAuthSecret-Output",
     },
   },
+} as const
+
+export const $RegistryStatus = {
+  properties: {
+    synced: {
+      type: "boolean",
+      title: "Synced",
+    },
+    expected_version: {
+      type: "string",
+      title: "Expected Version",
+    },
+    current_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version",
+    },
+  },
+  type: "object",
+  required: ["synced", "expected_version", "current_version"],
+  title: "RegistryStatus",
 } as const
 
 export const $RegistryStatusResponse = {
@@ -14514,7 +14586,7 @@ export const $TemplateActionDefinition_Input = {
     },
     expects: {
       additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField",
+        $ref: "#/components/schemas/ExpectedField-Input",
       },
       type: "object",
       title: "Expects",
@@ -14642,7 +14714,7 @@ export const $TemplateActionDefinition_Output = {
     },
     expects: {
       additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField",
+        $ref: "#/components/schemas/ExpectedField-Output",
       },
       type: "object",
       title: "Expects",
@@ -16739,7 +16811,7 @@ export const $WorkflowEntrypointValidationRequest = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Input",
           },
           type: "object",
         },
@@ -17687,7 +17759,7 @@ export const $WorkflowRead = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Output",
           },
           type: "object",
         },
@@ -18047,7 +18119,7 @@ export const $WorkflowUpdate = {
       anyOf: [
         {
           additionalProperties: {
-            $ref: "#/components/schemas/ExpectedField",
+            $ref: "#/components/schemas/ExpectedField-Input",
           },
           type: "object",
         },

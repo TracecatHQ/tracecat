@@ -238,7 +238,12 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
     """
     from sqlalchemy.orm import Session
 
-    from tracecat.db.models import RegistryRepository, RegistryVersion
+    from tracecat.db.models import (
+        PlatformRegistryRepository,
+        PlatformRegistryVersion,
+        RegistryRepository,
+        RegistryVersion,
+    )
 
     def _seed_registry_version(sync_db_uri: str) -> None:
         # Use sync engine to avoid event loop conflicts.
@@ -610,6 +615,115 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                 },
             )
 
+            # Also seed platform registry tables for platform-scoped resolution
+            # The executor routes tracecat_registry origin to platform tables
+            platform_repo = session.scalar(
+                select(PlatformRegistryRepository).where(
+                    PlatformRegistryRepository.origin == origin,
+                )
+            )
+            if platform_repo is None:
+                platform_repo = PlatformRegistryRepository(origin=origin)
+                session.add(platform_repo)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    platform_repo = session.scalar(
+                        select(PlatformRegistryRepository).where(
+                            PlatformRegistryRepository.origin == origin,
+                        )
+                    )
+                    if platform_repo is None:
+                        raise
+                else:
+                    session.refresh(platform_repo)
+
+            platform_rv = session.scalar(
+                select(PlatformRegistryVersion).where(
+                    PlatformRegistryVersion.repository_id == platform_repo.id,
+                    PlatformRegistryVersion.version == version,
+                )
+            )
+            if platform_rv is None:
+                platform_rv = PlatformRegistryVersion(
+                    repository_id=platform_repo.id,
+                    version=version,
+                    manifest=manifest,
+                    tarball_uri="s3://test/test.tar.gz",
+                )
+                session.add(platform_rv)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    platform_rv = session.scalar(
+                        select(PlatformRegistryVersion).where(
+                            PlatformRegistryVersion.repository_id == platform_repo.id,
+                            PlatformRegistryVersion.version == version,
+                        )
+                    )
+                    if platform_rv is None:
+                        raise
+                else:
+                    session.refresh(platform_rv)
+            else:
+                platform_rv.manifest = manifest
+                platform_rv.tarball_uri = "s3://test/test.tar.gz"
+                session.commit()
+
+            platform_repo.current_version_id = platform_rv.id
+            session.commit()
+
+            # Create PlatformRegistryIndex entries for each action in the manifest
+            # This is required for get_actions_from_index to work in agent tools
+            from tracecat.db.models import PlatformRegistryIndex
+
+            for _action_name, action_data in manifest_actions.items():
+                existing_index = session.scalar(
+                    select(PlatformRegistryIndex).where(
+                        PlatformRegistryIndex.registry_version_id == platform_rv.id,
+                        PlatformRegistryIndex.namespace == action_data["namespace"],
+                        PlatformRegistryIndex.name == action_data["name"],
+                    )
+                )
+                if existing_index is None:
+                    # Ensure include_in_schema is True so actions appear in list queries
+                    options = action_data.get("options", {})
+                    options.setdefault("include_in_schema", True)
+                    index_entry = PlatformRegistryIndex(
+                        registry_version_id=platform_rv.id,
+                        namespace=action_data["namespace"],
+                        name=action_data["name"],
+                        action_type=action_data["action_type"],
+                        description=action_data.get("description", ""),
+                        default_title=action_data.get("default_title"),
+                        display_group=action_data.get("display_group"),
+                        doc_url=action_data.get("doc_url"),
+                        author=action_data.get("author"),
+                        deprecated=action_data.get("deprecated"),
+                        secrets=action_data.get("secrets"),
+                        interface=action_data.get("interface", {}),
+                        options=options,
+                    )
+                    session.add(index_entry)
+                    # Commit each entry individually to handle race conditions
+                    # with pytest-xdist parallel workers
+                    try:
+                        session.commit()
+                    except IntegrityError:
+                        session.rollback()
+                        # Entry already exists from another worker, continue
+
+            logger.info(
+                "Created platform registry version with manifest and index",
+                extra={
+                    "db_uri": sync_db_uri,
+                    "version": version,
+                    "num_actions": len(manifest_actions),
+                },
+            )
+
         sync_engine.dispose()
 
     # Seed both the per-test database and the default engine DB (used by services via with_session()).
@@ -858,6 +972,9 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     # so services that use `with_session()` (and thus `get_async_session_context_manager`)
     # can see the same workspace and satisfy foreign key constraints.
     async with get_async_session_context_manager() as global_session:
+        # Set timeouts to avoid deadlocks with parallel workers
+        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
         # Avoid duplicate insert if the workspace already exists
         result = await global_session.execute(
             select(Workspace).where(Workspace.id == workspace.id)
@@ -880,6 +997,13 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         # Clean up workspace from global session (postgres database) first
         try:
             async with get_async_session_context_manager() as global_cleanup_session:
+                # Set timeouts to avoid deadlocks with parallel workers
+                await global_cleanup_session.execute(
+                    text("SET LOCAL lock_timeout = '5s'")
+                )
+                await global_cleanup_session.execute(
+                    text("SET LOCAL statement_timeout = '30s'")
+                )
                 result = await global_cleanup_session.execute(
                     select(Workspace).where(Workspace.id == workspace.id)
                 )
@@ -906,6 +1030,11 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
                     # If that fails, try with a completely new session
                     await session.close()
                     async with get_async_session_context_manager() as new_session:
+                        # Set timeouts to avoid deadlocks with parallel workers
+                        await new_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                        await new_session.execute(
+                            text("SET LOCAL statement_timeout = '30s'")
+                        )
                         # Fetch the workspace again in the new session by logical ID
                         result = await new_session.execute(
                             select(Workspace).where(Workspace.id == workspace.id)

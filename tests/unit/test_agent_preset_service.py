@@ -1,6 +1,7 @@
 """Tests for AgentPresetService."""
 
 import uuid
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +10,19 @@ from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.db.models import RegistryAction, RegistryRepository, Workspace
+from tracecat.db.models import (
+    RegistryAction,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
+    Workspace,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.registry.actions.schemas import RegistryActionType
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    RegistryVersionManifestAction,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -42,42 +54,98 @@ async def registry_repository(
 async def registry_actions(
     session: AsyncSession, registry_repository: RegistryRepository
 ) -> list[RegistryAction]:
-    """Create test registry actions."""
-    actions = [
-        RegistryAction(
-            organization_id=registry_repository.organization_id,
-            repository_id=registry_repository.id,
-            name="test_action",
-            namespace="tools.test",
-            description="Test action",
-            origin="test",
-            type="udf",
-            interface={},
-        ),
-        RegistryAction(
-            organization_id=registry_repository.organization_id,
-            repository_id=registry_repository.id,
-            name="another_action",
-            namespace="tools.test",
-            description="Another test action",
-            origin="test",
-            type="udf",
-            interface={},
-        ),
-        RegistryAction(
-            organization_id=registry_repository.organization_id,
-            repository_id=registry_repository.id,
-            name="http_request",
-            namespace="core",
-            description="HTTP request action",
-            origin="test",
-            type="template",
-            interface={},
-        ),
+    """Create test registry actions with associated index entries.
+
+    This fixture creates RegistryAction entries along with:
+    - A RegistryVersion with a manifest containing all actions
+    - RegistryIndex entries for each action
+
+    This ensures actions are discoverable via both direct queries and index lookups.
+    """
+    # Define test actions
+    test_actions_data = [
+        {
+            "name": "test_action",
+            "namespace": "tools.test",
+            "description": "Test action",
+            "type": "udf",
+        },
+        {
+            "name": "another_action",
+            "namespace": "tools.test",
+            "description": "Another test action",
+            "type": "udf",
+        },
+        {
+            "name": "http_request",
+            "namespace": "core",
+            "description": "HTTP request action",
+            "type": "template",
+        },
     ]
-    for action in actions:
+
+    # Create RegistryAction entries
+    actions = []
+    for action_data in test_actions_data:
+        action = RegistryAction(
+            organization_id=registry_repository.organization_id,
+            repository_id=registry_repository.id,
+            name=action_data["name"],
+            namespace=action_data["namespace"],
+            description=action_data["description"],
+            origin="test",
+            type=action_data["type"],
+            interface={},
+            implementation={},
+            options={},
+        )
         session.add(action)
+        actions.append(action)
+    await session.flush()
+
+    # Build manifest for the registry version
+    manifest_actions = {}
+    for action_data in test_actions_data:
+        action_name = f"{action_data['namespace']}.{action_data['name']}"
+        manifest_actions[action_name] = RegistryVersionManifestAction(
+            namespace=action_data["namespace"],
+            name=action_data["name"],
+            action_type=cast(RegistryActionType, action_data["type"]),
+            description=action_data["description"],
+            interface={"expects": {}, "returns": {}},
+            implementation={"type": action_data["type"]},
+        )
+    manifest = RegistryVersionManifest(actions=manifest_actions)
+
+    # Create RegistryVersion with manifest
+    version = RegistryVersion(
+        organization_id=registry_repository.organization_id,
+        repository_id=registry_repository.id,
+        version="test-version",
+        manifest=manifest.model_dump(mode="json"),
+        tarball_uri="s3://test/test.tar.gz",
+    )
+    session.add(version)
+    await session.flush()
+
+    # Set current_version_id on the repository
+    registry_repository.current_version_id = version.id
+    await session.flush()
+
+    # Create RegistryIndex entries for each action
+    for action_data in test_actions_data:
+        index_entry = RegistryIndex(
+            organization_id=registry_repository.organization_id,
+            registry_version_id=version.id,
+            namespace=action_data["namespace"],
+            name=action_data["name"],
+            action_type=action_data["type"],
+            description=action_data["description"],
+            options={"include_in_schema": True},
+        )
+        session.add(index_entry)
     await session.commit()
+
     for action in actions:
         await session.refresh(action)
     return actions

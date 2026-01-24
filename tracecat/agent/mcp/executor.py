@@ -27,6 +27,10 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 
 
+class ActionNotFoundError(Exception):
+    """Raised when an action is not found in the registry."""
+
+
 class ActionNotAllowedError(Exception):
     """Raised when an action is not in the allowed actions list."""
 

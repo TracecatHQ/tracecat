@@ -105,8 +105,16 @@ async def create_manifest_for_actions(
         manifest=manifest,
         tarball_uri="s3://test/test.tar.gz",
     )
+
     session.add(rv)
+    await session.flush()
+
+    # Update the repository's current_version_id to point to this version
+    repo.current_version_id = rv.id
     await session.commit()
+
+    # Refresh after commit to ensure manifest data is loaded from DB
+    await session.refresh(rv)
 
     versions_svc = RegistryVersionsService(session)
     await versions_svc.populate_index_from_manifest(rv, commit=True)
@@ -963,12 +971,16 @@ async def test_agent_tool_approvals_requires_feature_flag(
     repo.init(include_base=True, include_templates=False)
 
     ra_service = RegistryActionsService(session, role=test_role)
+    bound_action = repo.get("ai.agent")
+    action_create = RegistryActionCreate.from_bound(bound_action, db_repo_id)
+
     # Ensure the agent action is registered exactly once.
     # It may already exist if the base registry has been synced.
     if await ra_service.get_action_or_none("ai.agent") is None:
-        await ra_service.create_action(
-            RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
-        )
+        await ra_service.create_action(action_create)
+
+    # Create manifest for the ai.agent action using the helper
+    await create_manifest_for_actions(session, db_repo_id, [bound_action])
 
     dsl = DSLInput(
         title="Test Workflow",
@@ -1022,12 +1034,16 @@ async def test_agent_tool_approvals_passes_with_feature_flag(
     repo.init(include_base=True, include_templates=False)
 
     ra_service = RegistryActionsService(session, role=test_role)
+    bound_action = repo.get("ai.agent")
+    action_create = RegistryActionCreate.from_bound(bound_action, db_repo_id)
+
     # Ensure the agent action is registered exactly once.
     # It may already exist if the base registry has been synced.
     if await ra_service.get_action_or_none("ai.agent") is None:
-        await ra_service.create_action(
-            RegistryActionCreate.from_bound(repo.get("ai.agent"), db_repo_id)
-        )
+        await ra_service.create_action(action_create)
+
+    # Create manifest for the ai.agent action using the helper
+    await create_manifest_for_actions(session, db_repo_id, [bound_action])
 
     dsl = DSLInput(
         title="Test Workflow",

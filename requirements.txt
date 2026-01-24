@@ -322,9 +322,9 @@ botocore==1.40.61 \
     #   aiobotocore
     #   boto3
     #   s3transfer
-botocore-stubs==1.42.30 \
-    --hash=sha256:c4d11678eb172263feb1de805452c376d9c11e54f1903a7cfa132ba765d57b7d \
-    --hash=sha256:e41f864440d7d84ef514384557454ca094a5ee74e72c4ff907f637bc8a786df4
+botocore-stubs==1.42.32 \
+    --hash=sha256:53027f37ffd7d440d9a2d8dd84571717e11d8404f1e8dbbe75119640ad3fc8f9 \
+    --hash=sha256:b11fd20ee281283b84857eac7a1a75e25dc16f0fa611f36c2970a7e9498a7848
     # via
     #   types-aioboto3
     #   types-aiobotocore
@@ -658,6 +658,30 @@ docutils==0.22.4 \
     --hash=sha256:4db53b1fde9abecbb74d91230d32ab626d94f6badfc575d6db9194a49df29968 \
     --hash=sha256:d0013f540772d1420576855455d050a2180186c91c15779301ac2ccb3eeb68de
     # via rich-rst
+duckdb==1.4.3 \
+    --hash=sha256:006aca6a6d6736c441b02ff5c7600b099bb8b7f4de094b8b062137efddce42df \
+    --hash=sha256:130c6760f6c573f9c9fe9aba56adba0fab48811a4871b7b8fd667318b4a3e8da \
+    --hash=sha256:16952ac05bd7e7b39946695452bf450db1ebbe387e1e7178e10f593f2ea7b9a8 \
+    --hash=sha256:1b35491db98ccd11d151165497c084a9d29d3dc42fc80abea2715a6c861ca43d \
+    --hash=sha256:1b9b445970fd18274d5ac07a0b24c032e228f967332fb5ebab3d7db27738c0e4 \
+    --hash=sha256:1e5457dda91b67258aae30fb1a0df84183a9f6cd27abac1d5536c0d876c6dfa1 \
+    --hash=sha256:20c88effaa557a11267706b01419c542fe42f893dee66e5a6daa5974ea2d4a46 \
+    --hash=sha256:23b12854032c1a58d0452e2b212afa908d4ce64171862f3792ba9a596ba7c765 \
+    --hash=sha256:274d4a31aba63115f23e7e7b401e3e3a937f3626dc9dea820a9c7d3073f450d2 \
+    --hash=sha256:316711a9e852bcfe1ed6241a5f654983f67e909e290495f3562cccdf43be8180 \
+    --hash=sha256:4f868a7e6d9b37274a1aa34849ea92aa964e9bd59a5237d6c17e8540533a1e4f \
+    --hash=sha256:5634e40e1e2d972e4f75bced1fbdd9e9e90faa26445c1052b27de97ee546944a \
+    --hash=sha256:6302452e57aef29aae3977063810ed7b2927967b97912947b9cca45c1c21955f \
+    --hash=sha256:6db124f53a3edcb32b0a896ad3519e37477f7e67bf4811cb41ab60c1ef74e4c8 \
+    --hash=sha256:90f241f25cffe7241bf9f376754a5845c74775e00e1c5731119dc88cd71e0cb2 \
+    --hash=sha256:9e625b2b4d52bafa1fd0ebdb0990c3961dac8bb00e30d327185de95b68202131 \
+    --hash=sha256:a2813f4635f4d6681cc3304020374c46aca82758c6740d7edbc237fe3aae2744 \
+    --hash=sha256:a8b0a8764e1b5dd043d168c8f749314f7a1252b5a260fa415adaa26fa3b958fd \
+    --hash=sha256:de984cd24a6cbefdd6d4a349f7b9a46e583ca3e58ce10d8def0b20a6e5fcbe78 \
+    --hash=sha256:deab351ac43b6282a3270e3d40e3d57b3b50f472d9fd8c30975d88a31be41231 \
+    --hash=sha256:ef7ef15347ce97201b1b5182a5697682679b04c3374d5a01ac10ba31cf791b95 \
+    --hash=sha256:fea43e03604c713e25a25211ada87d30cd2a044d8f27afab5deba26ac49e5268
+    # via tracecat-registry
 elementpath==4.8.0 \
     --hash=sha256:5393191f84969bcf8033b05ec4593ef940e58622ea13cefe60ecefbbf09d58d9 \
     --hash=sha256:5822a2560d99e2633d95f78694c7ff9646adaa187db520da200a8e9479dc46ae
@@ -1159,9 +1183,9 @@ httpx-sse==0.4.3 \
     --hash=sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc \
     --hash=sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d
     # via mcp
-huggingface-hub==1.3.2 \
-    --hash=sha256:15d7902e154f04174a0816d1e9594adcf15cdad57596920a5dc70fadb5d896c7 \
-    --hash=sha256:b552b9562a5532102a041fa31a6966bb9de95138fc7aa578bb3703198c25d1b6
+huggingface-hub==1.3.3 \
+    --hash=sha256:44af7b62380efc87c1c3bde7e1bf0661899b5bdfca1fc60975c61ee68410e10e \
+    --hash=sha256:f8be6f468da4470db48351e8c77d6d8115dff9b3daeb30276e568767b1ff7574
     # via tokenizers
 identify==2.6.16 \
     --hash=sha256:391ee4d77741d994189522896270b787aed8670389bfd60f326d677d64a6dfb0 \
@@ -1768,9 +1792,9 @@ orjson==3.10.3 \
     #   litellm
     #   tracecat
     #   tracecat-registry
-packaging==25.0 \
-    --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484 \
-    --hash=sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f
+packaging==26.0 \
+    --hash=sha256:00243ae351a257117b6a241061796684b084ed1c516a08c48a3f7e147a9d80b4 \
+    --hash=sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529
     # via
     #   ansible-core
     #   ansible-runner
@@ -2080,9 +2104,9 @@ pyasn1-modules==0.4.2 \
     --hash=sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a \
     --hash=sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6
     # via google-auth
-pycparser==2.23 ; implementation_name != 'PyPy' \
-    --hash=sha256:78816d4f24add8f10a06d6f05b4d424ad9e96cfebf68a4ddc99c65c0720d00c2 \
-    --hash=sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934
+pycparser==3.0 ; implementation_name != 'PyPy' \
+    --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
     # via cffi
 pycryptodome==3.23.0 \
     --hash=sha256:0011f7f00cdb74879142011f95133274741778abba114ceca229adbf8e62c3e4 \
@@ -2746,9 +2770,9 @@ sentry-sdk==2.24.1 \
     # via
     #   fastapi-cloud-cli
     #   tracecat
-setuptools==80.9.0 \
-    --hash=sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922 \
-    --hash=sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c
+setuptools==80.10.1 \
+    --hash=sha256:bf2e513eb8144c3298a3bd28ab1a5edb739131ec5c22e045ff93cd7f5319703a \
+    --hash=sha256:fc30c51cbcb8199a219c12cc9c281b5925a4978d212f84229c909636d9f6984e
     # via
     #   grpcio-tools
     #   polyfile
@@ -2965,9 +2989,9 @@ typer-slim==0.21.1 \
 types-aioboto3==15.5.0 \
     --hash=sha256:5769a1c3df7ca1abedf3656ddf0b970c9b0436d0f88cf4686040b55cd2a02925 \
     --hash=sha256:8aed7c9b6fe9b59e6ce74f7a6db7b8a9912a34c8f80ed639fac1fa59d6b20aa1
-types-aiobotocore==3.1.0 \
-    --hash=sha256:4ab223580f4249a84ebac17461ff3719b541a1dc94fe0840d392e3f5d2ba7ef0 \
-    --hash=sha256:9c36d9d29044b424657900fa99e8c058f73d5a755e93d21e4bbeb0eea8f19392
+types-aiobotocore==3.1.1 \
+    --hash=sha256:421577ec8c204dd33275ea14fa1656382fd29723a2cfac1247301b30252c5934 \
+    --hash=sha256:7974585e194939da2c70a7b628f6edb22642769a84e4f6c1aa53228ff3b8ae71
     # via types-aioboto3
 types-aiobotocore-s3==2.25.2 \
     --hash=sha256:151301e84bb2f1cbf30f0d1ef791bb75c141cfbfe47b93fd317b7f1ba3eb35e4 \

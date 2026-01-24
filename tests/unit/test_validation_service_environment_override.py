@@ -343,18 +343,24 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_secrets = AsyncMock()
             mock_secrets_service.return_value = mock_secrets
 
-            # Create mock registry actions
-            mock_http_action = AsyncMock()
-            mock_http_action.action = "core.http_request"
-            mock_transform_action = AsyncMock()
-            mock_transform_action.action = "core.transform.reshape"
+            # Create mock IndexedActionResult for get_actions_from_index
+            mock_manifest = MagicMock()
+            mock_manifest.actions = {
+                "core.http_request": MagicMock(),
+                "core.transform.reshape": MagicMock(),
+            }
+
+            # Mock get_actions_from_index return value using IndexedActionResult-like objects
+            mock_result = MagicMock()
+            mock_result.manifest = mock_manifest
+            mock_actions_data = {
+                "core.http_request": mock_result,
+                "core.transform.reshape": mock_result,
+            }
 
             mock_registry = AsyncMock()
             mock_registry_service.return_value = mock_registry
-            mock_registry.list_actions.return_value = [
-                mock_http_action,
-                mock_transform_action,
-            ]
+            mock_registry.get_actions_from_index.return_value = mock_actions_data
 
             mock_tg = AsyncMock()
             mock_task_group.return_value.__aenter__.return_value = mock_tg
@@ -365,15 +371,17 @@ class TestSecretValidationWithEnvironmentOverride:
             # Call the function
             await validate_actions_have_defined_secrets(dsl)
 
-            # Verify that registry service was called with correct action keys
-            expected_action_keys = {"core.http_request", "core.transform.reshape"}
-            mock_registry.list_actions.assert_called_once_with(
-                include_keys=expected_action_keys
-            )
+            # Verify that registry service was called with correct action names
+            mock_registry.get_actions_from_index.assert_called_once()
+            actual_action_names = mock_registry.get_actions_from_index.call_args[0][0]
+            assert set(actual_action_names) == {
+                "core.http_request",
+                "core.transform.reshape",
+            }
 
     async def test_effective_environment_used_in_secret_validation(self):
         """Test that effective environments are used when validating secrets."""
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from tracecat.validation.service import validate_actions_have_defined_secrets
 
@@ -398,24 +406,15 @@ class TestSecretValidationWithEnvironmentOverride:
             ],
         )
 
-        # Create simple mock registry actions
-        mock_registry_action1 = AsyncMock()
-        mock_registry_action1.action = "tools.http.get"
-        mock_registry_action1.definition = {"secrets": ["api_token"]}
-
-        mock_registry_action2 = AsyncMock()
-        mock_registry_action2.action = "tools.http.post"
-        mock_registry_action2.definition = {"secrets": ["api_key"]}
-
         captured_environments = []
         captured_actions = []
 
-        async def mock_check_action_secrets(
-            _secrets_service, _registry_service, _checked_keys, environment, action
+        async def mock_check_action_secrets_from_manifest(
+            _secrets_service, _checked_keys, environment, _manifest, action_name
         ):
             """Mock function that captures the environment and action passed to it."""
             captured_environments.append(environment)
-            captured_actions.append(action.action)
+            captured_actions.append(action_name)
             return []  # Return empty results
 
         with (
@@ -427,8 +426,8 @@ class TestSecretValidationWithEnvironmentOverride:
                 "tracecat.validation.service.RegistryActionsService"
             ) as mock_registry_service,
             patch(
-                "tracecat.validation.service.check_action_secrets",
-                side_effect=mock_check_action_secrets,
+                "tracecat.validation.service.check_action_secrets_from_manifest",
+                side_effect=mock_check_action_secrets_from_manifest,
             ),
             patch("tracecat.validation.service.GatheringTaskGroup") as mock_task_group,
         ):
@@ -440,12 +439,24 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_secrets = AsyncMock()
             mock_secrets_service.return_value = mock_secrets
 
+            # Create mock IndexedActionResult for get_actions_from_index
+            mock_manifest = MagicMock()
+            mock_manifest.actions = {
+                "tools.http.get": MagicMock(),
+                "tools.http.post": MagicMock(),
+            }
+
+            # Mock get_actions_from_index return value using IndexedActionResult-like objects
+            mock_result = MagicMock()
+            mock_result.manifest = mock_manifest
+            mock_actions_data = {
+                "tools.http.get": mock_result,
+                "tools.http.post": mock_result,
+            }
+
             mock_registry = AsyncMock()
             mock_registry_service.return_value = mock_registry
-            mock_registry.list_actions.return_value = [
-                mock_registry_action1,
-                mock_registry_action2,
-            ]
+            mock_registry.get_actions_from_index.return_value = mock_actions_data
 
             # Mock task group to actually execute tasks synchronously for testing
             async def mock_task_group_impl():
@@ -475,7 +486,7 @@ class TestSecretValidationWithEnvironmentOverride:
             # Call the function
             await validate_actions_have_defined_secrets(dsl)
 
-            # Verify that check_action_secrets was called with correct environments
+            # Verify that check_action_secrets_from_manifest was called with correct environments
             assert len(captured_environments) == 2
             assert len(captured_actions) == 2
 

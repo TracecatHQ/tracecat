@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import RegistryError, TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
@@ -117,20 +117,25 @@ async def get_action(
 
     # Add default value for input if it's empty
     if len(action.inputs) == 0:
-        # Lookup action type in the registry DB (no module loading required)
+        # Lookup action type in the registry index (supports both org and platform actions)
         ra_service = RegistryActionsService(session, role=role)
-        try:
-            reg_action = await ra_service.get_action(action_name=action.type)
-        except RegistryError as e:
+        result = await ra_service.get_action_from_index(action_name=action.type)
+        if result is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Action not found in registry",
-            ) from e
-        # Extract required fields from the interface JSON schema stored in DB
+            )
+        manifest_action = result.manifest.actions.get(action.type)
+        if manifest_action is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Action not found in manifest",
+            )
+        # Extract required fields from the interface JSON schema stored in manifest
         # The schema has: { "properties": {...}, "required": [...], ... }
         try:
             interface = RegistryActionInterfaceValidator.validate_python(
-                reg_action.interface or {}
+                manifest_action.interface
             )
             expects_schema = interface["expects"]
             required_fields = expects_schema.get("required", [])

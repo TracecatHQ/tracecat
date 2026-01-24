@@ -26,7 +26,12 @@ from tracecat.executor.service import (
 )
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.loaders import get_bound_action_from_manifest
 from tracecat.secrets import secrets_manager
+
+
+class ActionNotFoundError(Exception):
+    """Raised when an action is not found in the registry."""
 
 
 async def run_action(
@@ -51,11 +56,25 @@ async def run_action(
     else:
         role = None
 
-    # Load action and secrets
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        action_secrets = await service.fetch_all_action_secrets(reg_action)
-        bound_action = service.get_bound(reg_action, mode="execution")
+    # Load action from index + manifest (not RegistryAction table)
+    async with RegistryActionsService.with_session(role=role) as service:
+        indexed_result = await service.get_action_from_index(action_name)
+        if indexed_result is None:
+            raise ActionNotFoundError(f"Action '{action_name}' not found in registry")
+
+    # Get manifest action and aggregate secrets from manifest
+    manifest_action = indexed_result.manifest.actions.get(action_name)
+    if manifest_action is None:
+        raise ActionNotFoundError(f"Action '{action_name}' not found in manifest")
+
+    action_secrets = set(
+        RegistryActionsService.aggregate_secrets_from_manifest(
+            indexed_result.manifest, action_name
+        )
+    )
+    bound_action = get_bound_action_from_manifest(
+        manifest_action, indexed_result.origin, mode="execution"
+    )
 
     collected = collect_expressions(args)
     secrets = await secrets_manager.get_action_secrets(
