@@ -6672,6 +6672,28 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
+export const $EntitlementsDict = {
+  properties: {
+    custom_registry: {
+      type: "boolean",
+      title: "Custom Registry",
+    },
+    sso: {
+      type: "boolean",
+      title: "Sso",
+    },
+    git_sync: {
+      type: "boolean",
+      title: "Git Sync",
+    },
+  },
+  type: "object",
+  title: "EntitlementsDict",
+  description: `TypedDict for tier entitlements stored in JSONB.
+
+All keys are optional (total=False) to support partial overrides.`,
+} as const
+
 export const $ErrorDetails = {
   properties: {
     type: {
@@ -9594,6 +9616,281 @@ export const $OrganizationSecretRead = {
   ],
   title: "OrganizationSecretRead",
   description: "Read schema for organization-scoped secrets.",
+} as const
+
+export const $OrganizationTierRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    tier_id: {
+      type: "string",
+      title: "Tier Id",
+    },
+    max_concurrent_workflows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Workflows",
+    },
+    max_action_executions_per_workflow: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Action Executions Per Workflow",
+    },
+    max_concurrent_actions: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Actions",
+    },
+    api_rate_limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Rate Limit",
+    },
+    api_burst_capacity: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Burst Capacity",
+    },
+    entitlement_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EntitlementsDict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    stripe_customer_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stripe Customer Id",
+    },
+    stripe_subscription_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stripe Subscription Id",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    tier: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TierRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "tier_id",
+    "max_concurrent_workflows",
+    "max_action_executions_per_workflow",
+    "max_concurrent_actions",
+    "api_rate_limit",
+    "api_burst_capacity",
+    "entitlement_overrides",
+    "stripe_customer_id",
+    "stripe_subscription_id",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "OrganizationTierRead",
+  description: "Organization tier assignment response.",
+} as const
+
+export const $OrganizationTierUpdate = {
+  properties: {
+    tier_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tier Id",
+    },
+    max_concurrent_workflows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Workflows",
+    },
+    max_action_executions_per_workflow: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Action Executions Per Workflow",
+    },
+    max_concurrent_actions: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Actions",
+    },
+    api_rate_limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Rate Limit",
+    },
+    api_burst_capacity: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Burst Capacity",
+    },
+    entitlement_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EntitlementsDict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    stripe_customer_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stripe Customer Id",
+    },
+    stripe_subscription_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stripe Subscription Id",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  title: "OrganizationTierUpdate",
+  description: "Update organization tier assignment request.",
 } as const
 
 export const $OutputType = {
@@ -14873,6 +15170,327 @@ export const $ThinkingBlock = {
   type: "object",
   required: ["thinking", "signature"],
   title: "ThinkingBlock",
+} as const
+
+export const $TierCreate = {
+  properties: {
+    id: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9_-]+$",
+      title: "Id",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    max_concurrent_workflows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Workflows",
+    },
+    max_action_executions_per_workflow: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Action Executions Per Workflow",
+    },
+    max_concurrent_actions: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Actions",
+    },
+    api_rate_limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Rate Limit",
+    },
+    api_burst_capacity: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Burst Capacity",
+    },
+    entitlements: {
+      $ref: "#/components/schemas/EntitlementsDict",
+      default: {},
+    },
+    is_default: {
+      type: "boolean",
+      title: "Is Default",
+      default: false,
+    },
+    sort_order: {
+      type: "integer",
+      title: "Sort Order",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: ["id", "display_name"],
+  title: "TierCreate",
+  description: "Create tier request.",
+} as const
+
+export const $TierRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    max_concurrent_workflows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Workflows",
+    },
+    max_action_executions_per_workflow: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Action Executions Per Workflow",
+    },
+    max_concurrent_actions: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Actions",
+    },
+    api_rate_limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Rate Limit",
+    },
+    api_burst_capacity: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Burst Capacity",
+    },
+    entitlements: {
+      $ref: "#/components/schemas/EntitlementsDict",
+    },
+    is_default: {
+      type: "boolean",
+      title: "Is Default",
+    },
+    sort_order: {
+      type: "integer",
+      title: "Sort Order",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "display_name",
+    "max_concurrent_workflows",
+    "max_action_executions_per_workflow",
+    "max_concurrent_actions",
+    "api_rate_limit",
+    "api_burst_capacity",
+    "entitlements",
+    "is_default",
+    "sort_order",
+    "is_active",
+    "created_at",
+    "updated_at",
+  ],
+  title: "TierRead",
+  description: "Tier response schema.",
+} as const
+
+export const $TierUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    max_concurrent_workflows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Workflows",
+    },
+    max_action_executions_per_workflow: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Action Executions Per Workflow",
+    },
+    max_concurrent_actions: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Actions",
+    },
+    api_rate_limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Rate Limit",
+    },
+    api_burst_capacity: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Burst Capacity",
+    },
+    entitlements: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EntitlementsDict",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    is_default: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Default",
+    },
+    sort_order: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sort Order",
+    },
+    is_active: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Active",
+    },
+  },
+  type: "object",
+  title: "TierUpdate",
+  description: "Update tier request.",
 } as const
 
 export const $Toggle = {

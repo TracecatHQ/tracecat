@@ -63,7 +63,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
-from tracecat.exceptions import TracecatException
+from tracecat.exceptions import EntitlementRequired, TracecatException
 from tracecat.feature_flags import (
     FeatureFlag,
     FlagLike,
@@ -223,6 +223,28 @@ def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Re
         case _:
             status_code = status.HTTP_401_UNAUTHORIZED
     return ORJSONResponse(status_code=status_code, content={"detail": msg})
+
+
+def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle EntitlementRequired exceptions with a 403 Forbidden response."""
+    if not isinstance(exc, EntitlementRequired):
+        return ORJSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": str(exc)},
+        )
+    logger.warning(
+        "Entitlement required",
+        entitlement=exc.entitlement,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "type": "EntitlementRequired",
+            "message": str(exc),
+            "detail": exc.detail,
+        },
+    )
 
 
 def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
@@ -401,6 +423,7 @@ def create_app(**kwargs) -> FastAPI:
         FastAPIUsersException,
         fastapi_users_auth_exception_handler,
     )
+    app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
