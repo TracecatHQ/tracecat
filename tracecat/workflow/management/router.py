@@ -433,7 +433,7 @@ async def commit_workflow(
     # When we're here, we've verified that the workflow DSL is structurally sound
     # Now, we have to ensure that the arguments are sound
 
-    if val_errors := await validate_dsl(session=session, dsl=dsl):
+    if val_errors := await validate_dsl(session=session, dsl=dsl, role=role):
         logger.info("Validation errors", errors=val_errors)
         return WorkflowCommitResponse(
             workflow_id=workflow_id.short(),

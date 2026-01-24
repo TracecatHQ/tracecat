@@ -9,7 +9,7 @@ from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Membership, User, Workspace
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
-from tracecat.service import BaseOrgService
+from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
@@ -25,7 +25,7 @@ class MembershipWithOrg:
     org_id: OrganizationID
 
 
-class MembershipService(BaseOrgService):
+class MembershipService(BaseService):
     """Manage workspace memberships."""
 
     service_name = "membership"
