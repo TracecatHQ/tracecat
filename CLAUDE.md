@@ -161,7 +161,7 @@ uv run basedpyright tracecat/api/
 ### API and Code Generation
 ```bash
 # Generate frontend API client
-just gen-client
+just gen-client-ci
 
 # Generate API spec (requires CLI installed)
 just gen-api
@@ -363,7 +363,7 @@ Available predefined roles:
 - When writing typescript code, always do your best to use proper type hints and avoid using `any`. If you really have to you can use `unknown`.
 
 ## Frontend Type Generation
-- If you need to add frontend types, you should first try to generate them from the backend using `just gen-client`
+- If you need to add frontend types, you should first try to generate them from the backend using `just gen-client-ci`
 
 ## Database Migrations
 - Ensure the database is running first: `just cluster up -d`
