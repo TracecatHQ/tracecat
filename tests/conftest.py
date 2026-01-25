@@ -31,7 +31,11 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_engine, get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_engine,
+    get_async_session_context_manager,
+    reset_async_engine,
+)
 from tracecat.db.models import Base, Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
@@ -170,16 +174,23 @@ def monkeysession(request: pytest.FixtureRequest):
 
 @pytest.fixture(autouse=True, scope="function")
 async def test_db_engine():
-    """Create a new engine for each integration test."""
+    """Ensure a fresh async engine for each test.
+
+    This fixture creates a new engine for each test function and disposes it
+    after the test completes. This ensures connections are properly cleaned up
+    and don't hold references to closed event loops when using pytest-xdist.
+    """
     engine = get_async_engine()
     try:
         yield engine
     finally:
-        # Ensure the engine is disposed even if the test fails
         try:
             await engine.dispose()
         except Exception as e:
-            logger.error(f"Error disposing engine in test_db_engine: {e}")
+            logger.warning(f"Error disposing engine: {e}")
+        finally:
+            # Reset the global so next test gets a fresh engine
+            reset_async_engine()
 
 
 @pytest.fixture(scope="session")
