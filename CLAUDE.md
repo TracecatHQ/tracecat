@@ -88,8 +88,27 @@ uv run pytest tests/unit          # Backend/API tests
 uv run pytest tests/registry     # Registry/integration tests
 uv run pytest tests/unit/test_functions.py -x --last-failed  # Inline functions tests
 
+# Parallel execution with pytest-xdist
+uv run pytest tests/unit -n auto
+
+# Run tests matching a keyword
+uv run pytest -k "keyword"
+
+# Run with specific markers
+uv run pytest -m "not slow and not temporal"
+uv run pytest -m temporal  # Temporal/workflow tests only
+
+# Run benchmarks (requires Docker for nsjail on macOS)
+just bench
+
 # Frontend tests
 cd frontend && pnpm test
+```
+
+### Temporal Management
+```bash
+# Stop all running Temporal workflow executions
+just temporal-stop-all
 ```
 
 ### Linting and Formatting
@@ -130,7 +149,12 @@ uv run basedpyright tracecat/api/
 # - Using `Any` when a more specific type is possible
 ```
 
-**Pre-commit hooks**: Runs automatically on commit (Ruff, Gitleaks secret detection, YAML/TOML validation).
+**Pre-commit hooks**: Runs automatically on commit:
+- Ruff (lint + format)
+- Gitleaks (secret detection)
+- YAML/TOML validation
+- UV lock sync
+- Frontend client generation (when tracecat/packages change)
 
 **CI Requirements**: Both linting (`just fix`) and type checking (`just typecheck`) must pass in CI before merging.
 
@@ -152,12 +176,15 @@ just gen-functions
 ### Core Components
 - **API Service** (`tracecat/api/`): FastAPI application with auth, workflows, cases
 - **Worker Service** (`tracecat/dsl/worker.py`): Temporal workflow worker
-- **Executor Service** (`tracecat/api/executor.py`): Action execution engine
+- **Executor Service** (`tracecat/executor/`): Action execution engine with index-based registry resolution
+- **Agent System** (`tracecat/agent/`): LLM-powered agents with multi-runtime support (PydanticAI, Claude Code), MCP integration, tool execution
+- **Organization Service** (`tracecat/organization/`): Multi-tenancy and organization membership management
+- **tracecat-admin CLI** (`packages/tracecat-admin/`): CLI tool for platform operators (admin, auth, migrate, orgs, registry commands)
 - **Frontend** (`frontend/`): Next.js 15 with TypeScript, React Query, Tailwind CSS
-- **Registry** (`registry/`): Independent package for integrations and templates
+- **Registry** (`packages/tracecat-registry/`): Independent package for integrations and templates
 
 ### Key Technologies
-- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic
+- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic, PydanticAI, LiteLLM, FastMCP
 - **Frontend**: Next.js 15, TypeScript, React Query, Tailwind CSS, Radix UI
 - **Infrastructure**: Docker, PostgreSQL, MinIO, Temporal Server
 - **Package Management**: `uv` for Python, `pnpm` for JavaScript
@@ -191,6 +218,11 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - **Shims**: `tracecat/ee/` contains shims for backward compatibility
 - **Features**: RBAC, multi-tenancy, SSO integration, advanced auth, interactions
 
+### Agent System
+- **Location**: `tracecat/agent/`
+- **Purpose**: LLM-powered agents for workflow automation
+- **Key directories**: `runtime/` (PydanticAI, Claude Code), `mcp/` (Model Context Protocol), `executor/`, `preset/`
+
 ## Development Guidelines
 
 ### Dependency Management and Security
@@ -199,7 +231,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Security fixes should update the pinned version to the specific patched version, not use range constraints
 
 ### Python Standards
-- Use Python 3.11+ type hints with builtin types (`list`, `dict`, `set`)
+- Use Python 3.12+ type hints with builtin types (`list`, `dict`, `set`)
 - Follow Google Python style guide
 - Import statements at top of file only
 - Use `uv run` for executing Python/pytest commands
@@ -209,6 +241,11 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Always avoid use of `type: ignore` when writing python code
 - You must *NEVER* put import statements in function bodies.
 - If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+- Use PEP 695 generic syntax for new generics: `class Name[T: Bound]` over `TypeVar`
+- Use `StrEnum` for string-based enumerations (JSON/YAML serialization)
+- Use `frozen=True` dataclasses for immutable value objects
+- Use `TypedDict` with `NotRequired` for configuration types
+- Use `@runtime_checkable` protocols for structural typing
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
@@ -226,6 +263,37 @@ tracecat/agent/
 ├── service.py       # Business logic
 └── router.py        # FastAPI routes
 ```
+
+### Service Architecture
+Services inherit from `BaseService` (`tracecat/service.py`) which provides:
+- Automatic logger binding with service name
+- Context-aware role fallback via `ctx_role.get()`
+- `with_session()` context manager for lifecycle management
+
+Context variables (`tracecat/contexts.py`) for request-scoped state:
+- `ctx_role`: Current user/service role
+- `ctx_run`: Workflow run context
+- `ctx_logger`: Request-scoped logger
+- `ctx_interaction`: Interaction context for workflows
+
+Router access control using predefined roles from `tracecat/auth/dependencies.py`:
+```python
+from tracecat.auth.dependencies import WorkspaceUserRole, OrgAdminUser
+
+@router.get("/endpoint")
+async def handler(role: WorkspaceUserRole):  # User with workspace access
+    ...
+
+@router.get("/admin")
+async def admin_handler(role: OrgAdminUser):  # Org admin required
+    ...
+```
+
+Available predefined roles:
+- `WorkspaceUserRole`: User with workspace access
+- `ExecutorWorkspaceRole`: Executor service with workspace
+- `ServiceRole`: Internal service role
+- `OrgAdminUser`: Organization admin user
 
 ### Frontend Standards
 - Use kebab-case for file names
@@ -252,11 +320,18 @@ tracecat/agent/
 - `frontend/package.json`: Frontend dependencies and scripts
 - `docker-compose.dev.yml`: Development environment
 - `alembic.ini`: Database migration configuration
+- `tracecat/service.py`: Base service class with context-aware defaults
+- `tracecat/contexts.py`: Context variables for request-scoped state
+- `scripts/cluster`: Multi-cluster orchestration script
 
 ### Testing Patterns
 - `tests/conftest.py`: Comprehensive pytest fixtures for database, workspaces, temporal
-- Test markers: `@pytest.mark.integration`, `@pytest.mark.unit`, `@pytest.mark.slow`
+- Test markers: `@pytest.mark.integration`, `@pytest.mark.unit`, `@pytest.mark.slow`, `@pytest.mark.temporal`, `@pytest.mark.llm`
 - Database isolation: Each test gets its own transaction
+- **Parallel testing**: pytest-xdist support with worker-specific:
+  - Temporal task queues: `tracecat-task-queue-{worker_id}`
+  - Redis databases: Worker offset % 16
+  - Port configuration via environment variables
 
 ### Action Templates and Registry
 - **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
