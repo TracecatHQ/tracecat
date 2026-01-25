@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field, TypeAdapter
 from tracecat.workflow.management.schemas import WorkflowReadMinimal
 
 
+class WorkflowRelationRead(BaseModel):
+    id: str
+    title: str | None = None
+    alias: str | None = None
+
+
 class WorkflowFolderRead(BaseModel):
     id: uuid.UUID
     name: str
@@ -40,6 +46,8 @@ class FolderDirectoryItem(WorkflowFolderRead):
 
 class WorkflowDirectoryItem(WorkflowReadMinimal):
     type: Literal["workflow"]
+    parents: list[WorkflowRelationRead] | None = None
+    subflows: list[WorkflowRelationRead] | None = None
 
 
 DirectoryItem = Annotated[

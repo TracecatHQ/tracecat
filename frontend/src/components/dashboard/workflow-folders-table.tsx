@@ -10,8 +10,11 @@ import type {
   ApiError,
   FolderDirectoryItem,
   TagRead,
+  WorkflowRelationRead,
+  WorkflowDirectoryItem,
   WorkflowReadMinimal,
 } from "@/client"
+import Link from "next/link"
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { FolderDeleteAlertDialog } from "@/components/dashboard/folder-delete-dialog"
 import { FolderMoveDialog } from "@/components/dashboard/folder-move-dialog"
@@ -422,6 +425,71 @@ export function WorkflowsDashboardTable({
                 )
               },
               enableHiding: true,
+            },
+            {
+              id: "Relations",
+              accessorFn: (row: DirectoryItem) =>
+                row.type === "workflow" ? (row as WorkflowDirectoryItem) : undefined,
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Relations"
+                />
+              ),
+              cell: ({ row }) => {
+                if (row.original.type === "folder") {
+                  return (
+                    <span className="text-xs text-muted-foreground/70">
+                      {NO_DATA}
+                    </span>
+                  )
+                }
+
+                const { parents, subflows } = row.original as WorkflowDirectoryItem
+
+                if (!(parents?.length || subflows?.length)) {
+                  return (
+                    <span className="text-xs text-muted-foreground/70">
+                      No relations
+                    </span>
+                  )
+                }
+
+                const renderRelationBadge = (
+                  relation: WorkflowRelationRead,
+                  label: string
+                ) => (
+                  <Badge
+                    key={`${label}-${relation.id}`}
+                    asChild
+                    variant="secondary"
+                    className="gap-1 px-1.5 py-1 text-[0.65rem]"
+                  >
+                    <Link
+                      href={`/workspaces/${workspaceId}/workflows/${relation.id}`}
+                    >
+                      <span className="font-semibold uppercase text-muted-foreground">
+                        {label}
+                      </span>
+                      <span className="font-mono font-medium text-foreground/80">
+                        {relation.alias || relation.title || relation.id}
+                      </span>
+                    </Link>
+                  </Badge>
+                )
+
+                return (
+                  <div className="flex flex-wrap gap-1">
+                    {parents?.map((parent) =>
+                      renderRelationBadge(parent, "Parent")
+                    )}
+                    {subflows?.map((subflow) =>
+                      renderRelationBadge(subflow, "Subflow")
+                    )}
+                  </div>
+                )
+              },
             },
             {
               id: "actions",
