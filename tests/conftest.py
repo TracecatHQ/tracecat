@@ -36,7 +36,12 @@ from tracecat.db.engine import (
     get_async_session_context_manager,
     reset_async_engine,
 )
-from tracecat.db.models import Base, Workspace
+from tracecat.db.models import (
+    Base,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    Workspace,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
