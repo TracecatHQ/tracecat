@@ -18,14 +18,22 @@ import type {
   ActionsUpdateActionResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationResponse,
+  AdminCreateTierData,
+  AdminCreateTierResponse,
   AdminDeleteOrganizationData,
   AdminDeleteOrganizationResponse,
+  AdminDeleteTierData,
+  AdminDeleteTierResponse,
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationResponse,
+  AdminGetOrgTierData,
+  AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetRegistryStatusResponse,
+  AdminGetTierData,
+  AdminGetTierResponse,
   AdminGetUserData,
   AdminGetUserResponse,
   AdminListOrganizationsResponse,
@@ -35,6 +43,8 @@ import type {
   AdminListOrgRepositoryVersionsResponse,
   AdminListRegistryVersionsData,
   AdminListRegistryVersionsResponse,
+  AdminListTiersData,
+  AdminListTiersResponse,
   AdminListUsersResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
@@ -50,8 +60,12 @@ import type {
   AdminSyncRepositoryResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationResponse,
+  AdminUpdateOrgTierData,
+  AdminUpdateOrgTierResponse,
   AdminUpdateRegistrySettingsData,
   AdminUpdateRegistrySettingsResponse,
+  AdminUpdateTierData,
+  AdminUpdateTierResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -3941,6 +3955,172 @@ export const adminUpdateRegistrySettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/admin/settings/registry",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Tiers
+ * List all tiers.
+ * @param data The data for the request.
+ * @param data.includeInactive Include inactive tiers in results
+ * @returns TierRead Successful Response
+ * @throws ApiError
+ */
+export const adminListTiers = (
+  data: AdminListTiersData = {}
+): CancelablePromise<AdminListTiersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers",
+    query: {
+      include_inactive: data.includeInactive,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Tier
+ * Create a new tier.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns TierRead Successful Response
+ * @throws ApiError
+ */
+export const adminCreateTier = (
+  data: AdminCreateTierData
+): CancelablePromise<AdminCreateTierResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/tiers",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Tier
+ * Get tier by ID.
+ * @param data The data for the request.
+ * @param data.tierId
+ * @returns TierRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetTier = (
+  data: AdminGetTierData
+): CancelablePromise<AdminGetTierResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers/{tier_id}",
+    path: {
+      tier_id: data.tierId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Tier
+ * Update a tier.
+ * @param data The data for the request.
+ * @param data.tierId
+ * @param data.requestBody
+ * @returns TierRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateTier = (
+  data: AdminUpdateTierData
+): CancelablePromise<AdminUpdateTierResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/tiers/{tier_id}",
+    path: {
+      tier_id: data.tierId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Tier
+ * Delete a tier (only if no orgs are assigned to it).
+ * @param data The data for the request.
+ * @param data.tierId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminDeleteTier = (
+  data: AdminDeleteTierData
+): CancelablePromise<AdminDeleteTierResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/tiers/{tier_id}",
+    path: {
+      tier_id: data.tierId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Org Tier
+ * Get tier assignment for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns OrganizationTierRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetOrgTier = (
+  data: AdminGetOrgTierData
+): CancelablePromise<AdminGetOrgTierResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers/organizations/{org_id}",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Org Tier
+ * Update organization's tier assignment and overrides.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.requestBody
+ * @returns OrganizationTierRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateOrgTier = (
+  data: AdminUpdateOrgTierData
+): CancelablePromise<AdminUpdateOrgTierResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/tiers/organizations/{org_id}",
+    path: {
+      org_id: data.orgId,
+    },
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
