@@ -36,7 +36,7 @@ class AdminTierService(BaseService):
 
     async def list_tiers(self, include_inactive: bool = False) -> Sequence[TierRead]:
         """List all tiers."""
-        stmt = select(Tier).order_by(Tier.sort_order, Tier.id)
+        stmt = select(Tier).order_by(Tier.sort_order)
         if not include_inactive:
             stmt = stmt.where(Tier.is_active.is_(True))
         result = await self.session.execute(stmt)
@@ -73,8 +73,8 @@ class AdminTierService(BaseService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise ValueError(
-                f"Tier with display name '{params.display_name}' already exists"
+            raise TierNotFoundError(
+                f"Tier with display_name '{params.display_name}' already exists"
             ) from e
         await self.session.refresh(tier)
         return TierRead.model_validate(tier)

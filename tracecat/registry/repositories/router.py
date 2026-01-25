@@ -47,6 +47,7 @@ from tracecat.registry.versions.service import (
 )
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
+from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
@@ -583,6 +584,10 @@ async def create_registry_repository(
     params: RegistryRepositoryCreate,
 ) -> RegistryRepositoryRead:
     """Create a new registry repository."""
+    # Check entitlement for custom registry (non-system repositories)
+    if params.origin != DEFAULT_REGISTRY_ORIGIN:
+        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+
     service = RegistryReposService(session, role=role)
     try:
         created_repository = await service.create_repository(params)
