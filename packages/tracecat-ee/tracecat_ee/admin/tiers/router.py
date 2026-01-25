@@ -8,6 +8,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.tiers.exceptions import (
+    CannotDeleteDefaultTierError,
+    OrganizationNotFoundError,
+    TierInUseError,
+    TierNotFoundError,
+)
 from tracecat_ee.admin.tiers.schemas import (
     OrganizationTierRead,
     OrganizationTierUpdate,
@@ -60,7 +66,7 @@ async def get_tier(
     service = AdminTierService(session, role=role)
     try:
         return await service.get_tier(tier_id)
-    except ValueError as e:
+    except TierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -75,12 +81,8 @@ async def update_tier(
     service = AdminTierService(session, role=role)
     try:
         return await service.update_tier(tier_id, params)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TierNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.delete("/{tier_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -93,11 +95,9 @@ async def delete_tier(
     service = AdminTierService(session, role=role)
     try:
         await service.delete_tier(tier_id)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
+    except TierNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except (CannotDeleteDefaultTierError, TierInUseError) as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
@@ -114,7 +114,7 @@ async def get_org_tier(
     service = AdminTierService(session, role=role)
     try:
         return await service.get_org_tier(org_id)
-    except ValueError as e:
+    except (OrganizationNotFoundError, TierNotFoundError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -129,9 +129,5 @@ async def update_org_tier(
     service = AdminTierService(session, role=role)
     try:
         return await service.update_org_tier(org_id, params)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except (OrganizationNotFoundError, TierNotFoundError) as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
