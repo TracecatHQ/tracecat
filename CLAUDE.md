@@ -246,6 +246,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Use `frozen=True` dataclasses for immutable value objects
 - Use `TypedDict` with `NotRequired` for configuration types
 - Use `@runtime_checkable` protocols for structural typing
+- Avoid adding re-exports to `__init__.py` files; import directly from submodules (e.g., `from tracecat.agent.schemas import RunAgentArgs` not `from tracecat.agent import RunAgentArgs`). This keeps imports explicit, avoids circular import issues, and improves import performance. Exception: re-exports make sense for versioned external packages where you need to hide internal structure—rare for internal code.
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
