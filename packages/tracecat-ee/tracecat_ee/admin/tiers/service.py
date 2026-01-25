@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -52,26 +51,13 @@ class AdminTierService(BaseService):
             raise TierNotFoundError(f"Tier {tier_id} not found")
         return TierRead.model_validate(tier)
 
-    async def get_tier_by_slug(self, slug: str) -> TierRead:
-        """Get tier by slug."""
-        stmt = select(Tier).where(Tier.slug == slug)
-        result = await self.session.execute(stmt)
-        tier = result.scalar_one_or_none()
-        if not tier:
-            raise TierNotFoundError(f"Tier with slug '{slug}' not found")
-        return TierRead.model_validate(tier)
-
     async def create_tier(self, params: TierCreate) -> TierRead:
         """Create a new tier."""
         # If this tier is set as default, unset other defaults
         if params.is_default:
             await self._unset_other_defaults(None)
 
-        # Generate slug from display_name
-        slug = slugify(params.display_name)
-
         tier = Tier(
-            slug=slug,
             display_name=params.display_name,
             max_concurrent_workflows=params.max_concurrent_workflows,
             max_action_executions_per_workflow=params.max_action_executions_per_workflow,
@@ -201,9 +187,7 @@ class AdminTierService(BaseService):
         if not org_tier:
             # Create new org tier with default tier
             default_tier = await self._get_default_tier()
-            org_tier = OrganizationTier(
-                organization_id=org_id, tier_id=default_tier.id
-            )
+            org_tier = OrganizationTier(organization_id=org_id, tier_id=default_tier.id)
             self.session.add(org_tier)
 
         # If changing tier_id, verify the new tier exists

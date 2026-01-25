@@ -32,8 +32,6 @@ import type {
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
   AdminGetRegistryStatusResponse,
-  AdminGetTierBySlugData,
-  AdminGetTierBySlugResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -4004,29 +4002,6 @@ export const adminCreateTier = (
     url: "/admin/tiers",
     body: data.requestBody,
     mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Tier By Slug
- * Get tier by slug.
- * @param data The data for the request.
- * @param data.slug
- * @returns TierRead Successful Response
- * @throws ApiError
- */
-export const adminGetTierBySlug = (
-  data: AdminGetTierBySlugData
-): CancelablePromise<AdminGetTierBySlugResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/admin/tiers/by-slug/{slug}",
-    path: {
-      slug: data.slug,
-    },
     errors: {
       422: "Validation Error",
     },

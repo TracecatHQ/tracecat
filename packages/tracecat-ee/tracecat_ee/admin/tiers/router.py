@@ -56,20 +56,6 @@ async def create_tier(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
-@router.get("/by-slug/{slug}", response_model=TierRead)
-async def get_tier_by_slug(
-    role: SuperuserRole,
-    session: AsyncDBSession,
-    slug: str,
-) -> TierRead:
-    """Get tier by slug."""
-    service = AdminTierService(session, role=role)
-    try:
-        return await service.get_tier_by_slug(slug)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-
-
 @router.get("/{tier_id}", response_model=TierRead)
 async def get_tier(
     role: SuperuserRole,

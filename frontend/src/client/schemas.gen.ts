@@ -15327,9 +15327,7 @@ export const $TierCreate = {
   type: "object",
   required: ["display_name"],
   title: "TierCreate",
-  description: `Create tier request.
-
-The slug is auto-generated from display_name.`,
+  description: "Create tier request.",
 } as const
 
 export const $TierRead = {
@@ -15338,10 +15336,6 @@ export const $TierRead = {
       type: "string",
       format: "uuid",
       title: "Id",
-    },
-    slug: {
-      type: "string",
-      title: "Slug",
     },
     display_name: {
       type: "string",
@@ -15431,7 +15425,6 @@ export const $TierRead = {
   type: "object",
   required: [
     "id",
-    "slug",
     "display_name",
     "max_concurrent_workflows",
     "max_action_executions_per_workflow",
