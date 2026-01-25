@@ -47,7 +47,7 @@ from tracecat.registry.versions.service import (
 )
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
-from tracecat.tiers import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 

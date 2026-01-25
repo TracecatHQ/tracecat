@@ -4969,8 +4969,6 @@ export type ThinkingBlock = {
 
 /**
  * Create tier request.
- *
- * The slug is auto-generated from display_name.
  */
 export type TierCreate = {
   display_name: string
@@ -4989,7 +4987,6 @@ export type TierCreate = {
  */
 export type TierRead = {
   id: string
-  slug: string
   display_name: string
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
@@ -7060,12 +7057,6 @@ export type AdminCreateTierData = {
 }
 
 export type AdminCreateTierResponse = TierRead
-
-export type AdminGetTierBySlugData = {
-  slug: string
-}
-
-export type AdminGetTierBySlugResponse = TierRead
 
 export type AdminGetTierData = {
   tierId: string
@@ -10035,21 +10026,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TierRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/tiers/by-slug/{slug}": {
-    get: {
-      req: AdminGetTierBySlugData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TierRead
         /**
          * Validation Error
          */
