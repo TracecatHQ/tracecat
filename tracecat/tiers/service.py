@@ -94,8 +94,8 @@ class TierService(BaseService):
         org_tier = await self.get_org_tier(org_id)
 
         if org_tier is None:
-            # No org tier - use default limits from config
-            return DEFAULT_LIMITS
+            # No org tier - return copy of default limits to avoid mutating shared instance
+            return DEFAULT_LIMITS.model_copy()
 
         tier = org_tier.tier
 
@@ -134,8 +134,8 @@ class TierService(BaseService):
         org_tier = await self.get_org_tier(org_id)
 
         if org_tier is None:
-            # No org tier - use default entitlements from config
-            return DEFAULT_ENTITLEMENTS
+            # No org tier - return copy of default entitlements to avoid mutating shared instance
+            return DEFAULT_ENTITLEMENTS.model_copy()
 
         tier = org_tier.tier
         tier_entitlements = tier.entitlements if tier else {}
