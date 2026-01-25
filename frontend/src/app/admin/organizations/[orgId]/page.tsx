@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { ArrowLeftIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { use, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
@@ -43,7 +43,7 @@ export default function AdminOrganizationDetailPage({
   params: Promise<{ orgId: string }>
 }) {
   const router = useRouter()
-  const { orgId } = params as unknown as { orgId: string }
+  const { orgId } = use(params)
   const { organization, isLoading, updateOrganization, updatePending } =
     useAdminOrganization(orgId)
 

@@ -29,20 +29,22 @@ import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminTiers } from "@/hooks/use-admin"
 
+// Preprocessor to convert empty strings to undefined for optional numeric fields
+const emptyToUndefined = z.preprocess(
+  (val) => (val === "" ? undefined : val),
+  z.coerce.number().int().positive().optional()
+)
+
 const formSchema = z.object({
   display_name: z
     .string()
     .min(1, "Name is required")
     .max(50, "Name is too long"),
-  max_concurrent_workflows: z.coerce.number().int().positive().optional(),
-  max_action_executions_per_workflow: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
-  max_concurrent_actions: z.coerce.number().int().positive().optional(),
-  api_rate_limit: z.coerce.number().int().positive().optional(),
-  api_burst_capacity: z.coerce.number().int().positive().optional(),
+  max_concurrent_workflows: emptyToUndefined,
+  max_action_executions_per_workflow: emptyToUndefined,
+  max_concurrent_actions: emptyToUndefined,
+  api_rate_limit: emptyToUndefined,
+  api_burst_capacity: emptyToUndefined,
   is_default: z.boolean().default(false),
   sort_order: z.coerce.number().int().min(0).default(0),
 })

@@ -2,6 +2,7 @@
 
 import { ArrowLeftIcon } from "lucide-react"
 import Link from "next/link"
+import { use } from "react"
 import { AssignTierDialog } from "@/components/admin/assign-tier-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,7 +20,7 @@ export default function AdminOrgTierPage({
 }: {
   params: Promise<{ orgId: string }>
 }) {
-  const { orgId } = params as unknown as { orgId: string }
+  const { orgId } = use(params)
   const { organization } = useAdminOrganization(orgId)
   const { orgTier, isLoading } = useAdminOrgTier(orgId)
 
@@ -129,12 +130,12 @@ export default function AdminOrgTierPage({
           </CardHeader>
           <CardContent>
             <div className="text-sm text-muted-foreground">
-              {orgTier.max_concurrent_workflows ||
-              orgTier.max_action_executions_per_workflow ||
-              orgTier.max_concurrent_actions ||
-              orgTier.api_rate_limit ? (
+              {orgTier.max_concurrent_workflows != null ||
+              orgTier.max_action_executions_per_workflow != null ||
+              orgTier.max_concurrent_actions != null ||
+              orgTier.api_rate_limit != null ? (
                 <div className="grid grid-cols-2 gap-4">
-                  {orgTier.max_concurrent_workflows && (
+                  {orgTier.max_concurrent_workflows != null && (
                     <div>
                       <span className="text-foreground">
                         Max concurrent workflows:
@@ -144,7 +145,7 @@ export default function AdminOrgTierPage({
                       </span>
                     </div>
                   )}
-                  {orgTier.max_action_executions_per_workflow && (
+                  {orgTier.max_action_executions_per_workflow != null && (
                     <div>
                       <span className="text-foreground">
                         Max actions per workflow:
@@ -154,7 +155,7 @@ export default function AdminOrgTierPage({
                       </span>
                     </div>
                   )}
-                  {orgTier.max_concurrent_actions && (
+                  {orgTier.max_concurrent_actions != null && (
                     <div>
                       <span className="text-foreground">
                         Max concurrent actions:
@@ -164,7 +165,7 @@ export default function AdminOrgTierPage({
                       </span>
                     </div>
                   )}
-                  {orgTier.api_rate_limit && (
+                  {orgTier.api_rate_limit != null && (
                     <div>
                       <span className="text-foreground">API rate limit:</span>
                       <span className="ml-2">{orgTier.api_rate_limit}</span>
