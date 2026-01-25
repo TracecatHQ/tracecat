@@ -2,6 +2,7 @@
 
 import { ArrowLeftIcon } from "lucide-react"
 import Link from "next/link"
+import { use } from "react"
 import { AdminOrgRegistryTable } from "@/components/admin/admin-org-registry-table"
 import { useAdminOrganization } from "@/hooks/use-admin"
 
@@ -10,7 +11,7 @@ export default function AdminOrgRegistryPage({
 }: {
   params: Promise<{ orgId: string }>
 }) {
-  const { orgId } = params as unknown as { orgId: string }
+  const { orgId } = use(params)
   const { organization } = useAdminOrganization(orgId)
 
   return (

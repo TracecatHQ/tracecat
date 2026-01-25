@@ -43,7 +43,7 @@ export function AdminSidebar({
       title: "Users",
       url: "/admin/users",
       icon: UsersIcon,
-      isActive: pathname === "/admin/users",
+      isActive: pathname?.includes("/admin/users"),
     },
     {
       title: "Tiers",

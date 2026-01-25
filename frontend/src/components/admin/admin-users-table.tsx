@@ -255,7 +255,7 @@ export function AdminUsersTable() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
-                      onClick={() => navigator.clipboard.writeText(rowUser.id)}
+                      onSelect={() => navigator.clipboard.writeText(rowUser.id)}
                     >
                       Copy user ID
                     </DropdownMenuItem>
@@ -265,7 +265,7 @@ export function AdminUsersTable() {
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
                           disabled={isSelf || isLastSuperuser}
-                          onClick={() => {
+                          onSelect={() => {
                             setSelectedUser(rowUser)
                             setActionType("demote")
                           }}
@@ -280,7 +280,7 @@ export function AdminUsersTable() {
                     ) : (
                       <AlertDialogTrigger asChild>
                         <DropdownMenuItem
-                          onClick={() => {
+                          onSelect={() => {
                             setSelectedUser(rowUser)
                             setActionType("promote")
                           }}

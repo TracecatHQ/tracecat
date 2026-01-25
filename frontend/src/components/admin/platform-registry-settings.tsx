@@ -62,7 +62,10 @@ export function PlatformRegistrySettings() {
         git_repo_url: values.git_repo_url || null,
         git_repo_package_name: values.git_repo_package_name || null,
         git_allowed_domains: values.git_allowed_domains
-          ? values.git_allowed_domains.split(",").map((d) => d.trim())
+          ? values.git_allowed_domains
+              .split(",")
+              .map((d) => d.trim())
+              .filter((d) => d.length > 0)
           : null,
       })
       toast({
