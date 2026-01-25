@@ -6,6 +6,7 @@ import {
   ChevronsUpDown,
   CircleCheck,
   Plus,
+  ShieldCheckIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -219,6 +220,19 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                     <BuildingIcon className="size-4" />
                   </div>
                   <span>Organization</span>
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {user?.isSuperuser && (
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/admin"
+                  className="flex items-center gap-2 py-1 px-2 cursor-default"
+                >
+                  <div className="flex size-6 items-center justify-center text-amber-500">
+                    <ShieldCheckIcon className="size-4" />
+                  </div>
+                  <span className="text-amber-500">Admin</span>
                 </Link>
               </DropdownMenuItem>
             )}

@@ -9,6 +9,7 @@ interface AuthGuardProps {
   children: React.ReactNode
   requireAuth?: boolean
   requirePrivileged?: boolean
+  requireSuperuser?: boolean
   redirectTo?: string
 }
 
@@ -16,6 +17,7 @@ export function AuthGuard({
   children,
   requireAuth = true,
   requirePrivileged = false,
+  requireSuperuser = false,
   redirectTo = "/",
 }: AuthGuardProps) {
   const { user, userIsLoading } = useAuth()
@@ -27,9 +29,19 @@ export function AuthGuard({
         router.push(redirectTo)
       } else if (requirePrivileged && !user?.isPrivileged()) {
         router.push(redirectTo)
+      } else if (requireSuperuser && !user?.isSuperuser) {
+        router.push(redirectTo)
       }
     }
-  }, [user, userIsLoading, requireAuth, requirePrivileged, redirectTo, router])
+  }, [
+    user,
+    userIsLoading,
+    requireAuth,
+    requirePrivileged,
+    requireSuperuser,
+    redirectTo,
+    router,
+  ])
 
   if (userIsLoading) {
     return <CenteredSpinner />
@@ -40,6 +52,10 @@ export function AuthGuard({
   }
 
   if (requirePrivileged && !user?.isPrivileged()) {
+    return null
+  }
+
+  if (requireSuperuser && !user?.isSuperuser) {
     return null
   }
 

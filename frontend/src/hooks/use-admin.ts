@@ -1,0 +1,504 @@
+"use client"
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type AdminCreateOrganizationResponse,
+  type AdminCreateTierResponse,
+  type AdminListOrganizationsResponse,
+  type AdminListTiersResponse,
+  type AdminListUsersResponse,
+  type AdminUserRead,
+  adminCreateOrganization,
+  adminCreateTier,
+  adminDeleteOrganization,
+  adminDeleteTier,
+  adminDemoteFromSuperuser,
+  adminGetOrganization,
+  adminGetOrgTier,
+  adminGetRegistrySettings,
+  adminGetRegistryStatus,
+  adminGetTier,
+  adminListOrganizations,
+  adminListOrgRepositories,
+  adminListOrgRepositoryVersions,
+  adminListRegistryVersions,
+  adminListTiers,
+  adminListUsers,
+  adminPromoteOrgRepositoryVersion,
+  adminPromoteRegistryVersion,
+  adminPromoteToSuperuser,
+  adminSyncAllRepositories,
+  adminSyncOrgRepository,
+  adminSyncRepository,
+  adminUpdateOrganization,
+  adminUpdateOrgTier,
+  adminUpdateRegistrySettings,
+  adminUpdateTier,
+  type OrganizationTierUpdate,
+  type OrgCreate,
+  type OrgRead,
+  type OrgUpdate,
+  type PlatformRegistrySettingsUpdate,
+  type TierCreate,
+  type TierRead,
+  type TierUpdate,
+} from "@/client"
+
+/* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
+
+export function useAdminOrganizations() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: organizations,
+    isLoading,
+    error,
+  } = useQuery<AdminListOrganizationsResponse>({
+    queryKey: ["admin", "organizations"],
+    queryFn: adminListOrganizations,
+  })
+
+  const { mutateAsync: createOrganization, isPending: createPending } =
+    useMutation<AdminCreateOrganizationResponse, Error, OrgCreate>({
+      mutationFn: (data) => adminCreateOrganization({ requestBody: data }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] }),
+    })
+
+  const { mutateAsync: updateOrganization, isPending: updatePending } =
+    useMutation<OrgRead, Error, { orgId: string; data: OrgUpdate }>({
+      mutationFn: ({ orgId, data }) =>
+        adminUpdateOrganization({ orgId, requestBody: data }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] }),
+    })
+
+  const { mutateAsync: deleteOrganization, isPending: deletePending } =
+    useMutation<void, Error, string>({
+      mutationFn: (orgId) => adminDeleteOrganization({ orgId }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] }),
+    })
+
+  return {
+    organizations,
+    isLoading,
+    error,
+    createOrganization,
+    createPending,
+    updateOrganization,
+    updatePending,
+    deleteOrganization,
+    deletePending,
+  }
+}
+
+export function useAdminOrganization(orgId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: organization,
+    isLoading,
+    error,
+  } = useQuery<OrgRead>({
+    queryKey: ["admin", "organizations", orgId],
+    queryFn: () => adminGetOrganization({ orgId }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: updateOrganization, isPending: updatePending } =
+    useMutation<OrgRead, Error, OrgUpdate>({
+      mutationFn: (data) =>
+        adminUpdateOrganization({ orgId, requestBody: data }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "organizations", orgId],
+        })
+        queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] })
+      },
+    })
+
+  return {
+    organization,
+    isLoading,
+    error,
+    updateOrganization,
+    updatePending,
+  }
+}
+
+/* ── USERS ─────────────────────────────────────────────────────────────────── */
+
+export function useAdminUsers() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: users,
+    isLoading,
+    error,
+  } = useQuery<AdminListUsersResponse>({
+    queryKey: ["admin", "users"],
+    queryFn: adminListUsers,
+  })
+
+  const { mutateAsync: promoteToSuperuser, isPending: promotePending } =
+    useMutation<AdminUserRead, Error, string>({
+      mutationFn: (userId) => adminPromoteToSuperuser({ userId }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+    })
+
+  const { mutateAsync: demoteFromSuperuser, isPending: demotePending } =
+    useMutation<AdminUserRead, Error, string>({
+      mutationFn: (userId) => adminDemoteFromSuperuser({ userId }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+    })
+
+  return {
+    users,
+    isLoading,
+    error,
+    promoteToSuperuser,
+    promotePending,
+    demoteFromSuperuser,
+    demotePending,
+  }
+}
+
+/* ── TIERS ─────────────────────────────────────────────────────────────────── */
+
+export function useAdminTiers(includeInactive = true) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: tiers,
+    isLoading,
+    error,
+  } = useQuery<AdminListTiersResponse>({
+    queryKey: ["admin", "tiers", { includeInactive }],
+    queryFn: () => adminListTiers({ includeInactive }),
+  })
+
+  const { mutateAsync: createTier, isPending: createPending } = useMutation<
+    AdminCreateTierResponse,
+    Error,
+    TierCreate
+  >({
+    mutationFn: (data) => adminCreateTier({ requestBody: data }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] }),
+  })
+
+  const { mutateAsync: updateTier, isPending: updatePending } = useMutation<
+    TierRead,
+    Error,
+    { tierId: string; data: TierUpdate }
+  >({
+    mutationFn: ({ tierId, data }) =>
+      adminUpdateTier({ tierId, requestBody: data }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] }),
+  })
+
+  const { mutateAsync: deleteTier, isPending: deletePending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: (tierId) => adminDeleteTier({ tierId }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] }),
+  })
+
+  return {
+    tiers,
+    isLoading,
+    error,
+    createTier,
+    createPending,
+    updateTier,
+    updatePending,
+    deleteTier,
+    deletePending,
+  }
+}
+
+export function useAdminTier(tierId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: tier,
+    isLoading,
+    error,
+  } = useQuery<TierRead>({
+    queryKey: ["admin", "tiers", tierId],
+    queryFn: () => adminGetTier({ tierId }),
+    enabled: !!tierId,
+  })
+
+  const { mutateAsync: updateTier, isPending: updatePending } = useMutation<
+    TierRead,
+    Error,
+    TierUpdate
+  >({
+    mutationFn: (data) => adminUpdateTier({ tierId, requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "tiers", tierId] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] })
+    },
+  })
+
+  return {
+    tier,
+    isLoading,
+    error,
+    updateTier,
+    updatePending,
+  }
+}
+
+/* ── ORG TIER ASSIGNMENT ───────────────────────────────────────────────────── */
+
+export function useAdminOrgTier(orgId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: orgTier,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admin", "organizations", orgId, "tier"],
+    queryFn: () => adminGetOrgTier({ orgId }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: updateOrgTier, isPending: updatePending } = useMutation({
+    mutationFn: (data: OrganizationTierUpdate) =>
+      adminUpdateOrgTier({ orgId, requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", orgId, "tier"],
+      })
+      queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] })
+    },
+  })
+
+  return {
+    orgTier,
+    isLoading,
+    error,
+    updateOrgTier,
+    updatePending,
+  }
+}
+
+/* ── ORG REGISTRY ──────────────────────────────────────────────────────────── */
+
+export function useAdminOrgRegistry(orgId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: repositories,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admin", "organizations", orgId, "registry"],
+    queryFn: () => adminListOrgRepositories({ orgId }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: syncRepository, isPending: syncPending } = useMutation({
+    mutationFn: ({
+      repositoryId,
+      force,
+    }: {
+      repositoryId: string
+      force?: boolean
+    }) =>
+      adminSyncOrgRepository({
+        orgId,
+        repositoryId,
+        requestBody: { force: force ?? false },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", orgId, "registry"],
+      })
+    },
+  })
+
+  const { mutateAsync: promoteVersion, isPending: promotePending } =
+    useMutation({
+      mutationFn: ({
+        repositoryId,
+        versionId,
+      }: {
+        repositoryId: string
+        versionId: string
+      }) =>
+        adminPromoteOrgRepositoryVersion({
+          orgId,
+          repositoryId,
+          versionId,
+        }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "organizations", orgId, "registry"],
+        })
+      },
+    })
+
+  return {
+    repositories,
+    isLoading,
+    error,
+    syncRepository,
+    syncPending,
+    promoteVersion,
+    promotePending,
+  }
+}
+
+export function useAdminOrgRepositoryVersions(
+  orgId: string,
+  repositoryId: string
+) {
+  const {
+    data: versions,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admin", "organizations", orgId, "registry", repositoryId],
+    queryFn: () => adminListOrgRepositoryVersions({ orgId, repositoryId }),
+    enabled: !!orgId && !!repositoryId,
+  })
+
+  return {
+    versions,
+    isLoading,
+    error,
+  }
+}
+
+/* ── PLATFORM REGISTRY ─────────────────────────────────────────────────────── */
+
+export function useAdminRegistryStatus() {
+  const {
+    data: status,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["admin", "registry", "status"],
+    queryFn: adminGetRegistryStatus,
+  })
+
+  return {
+    status,
+    isLoading,
+    error,
+    refetch,
+  }
+}
+
+export function useAdminRegistryVersions(
+  repositoryId?: string,
+  limit?: number
+) {
+  const {
+    data: versions,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admin", "registry", "versions", { repositoryId, limit }],
+    queryFn: () => adminListRegistryVersions({ repositoryId, limit }),
+  })
+
+  return {
+    versions,
+    isLoading,
+    error,
+  }
+}
+
+export function useAdminRegistrySync() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: syncAllRepositories, isPending: syncAllPending } =
+    useMutation({
+      mutationFn: (force?: boolean) => adminSyncAllRepositories({ force }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+      },
+    })
+
+  const { mutateAsync: syncRepository, isPending: syncPending } = useMutation({
+    mutationFn: ({
+      repositoryId,
+      force,
+    }: {
+      repositoryId: string
+      force?: boolean
+    }) => adminSyncRepository({ repositoryId, force }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
+  const { mutateAsync: promoteVersion, isPending: promotePending } =
+    useMutation({
+      mutationFn: ({
+        repositoryId,
+        versionId,
+      }: {
+        repositoryId: string
+        versionId: string
+      }) => adminPromoteRegistryVersion({ repositoryId, versionId }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+      },
+    })
+
+  return {
+    syncAllRepositories,
+    syncAllPending,
+    syncRepository,
+    syncPending,
+    promoteVersion,
+    promotePending,
+  }
+}
+
+export function useAdminRegistrySettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: settings,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["admin", "registry", "settings"],
+    queryFn: adminGetRegistrySettings,
+  })
+
+  const { mutateAsync: updateSettings, isPending: updatePending } = useMutation(
+    {
+      mutationFn: (data: PlatformRegistrySettingsUpdate) =>
+        adminUpdateRegistrySettings({ requestBody: data }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "registry", "settings"],
+        })
+      },
+    }
+  )
+
+  return {
+    settings,
+    isLoading,
+    error,
+    updateSettings,
+    updatePending,
+  }
+}
