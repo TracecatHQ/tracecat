@@ -356,7 +356,7 @@ def print_tiers_table(tiers: list[TierRead]) -> None:
 
     for tier in tiers:
         table.add_row(
-            tier.id,
+            str(tier.id),
             tier.display_name,
             "Yes" if tier.is_default else "No",
             "Yes" if tier.is_active else "No",
@@ -374,7 +374,7 @@ def print_tier_detail(tier: TierRead) -> None:
     table.add_column("Field", style="dim")
     table.add_column("Value")
 
-    table.add_row("ID", tier.id)
+    table.add_row("ID", str(tier.id))
     table.add_row("Display Name", tier.display_name)
     table.add_row("Default", "Yes" if tier.is_default else "No")
     table.add_row("Active", "Yes" if tier.is_active else "No")
@@ -410,7 +410,7 @@ def print_org_tier_detail(org_tier: OrganizationTierRead) -> None:
 
     table.add_row("ID", str(org_tier.id))
     table.add_row("Organization ID", str(org_tier.organization_id))
-    table.add_row("Tier ID", org_tier.tier_id)
+    table.add_row("Tier ID", str(org_tier.tier_id))
     table.add_row("", "")  # Spacer
 
     # Show tier info if available

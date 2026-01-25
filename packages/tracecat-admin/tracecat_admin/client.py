@@ -299,7 +299,6 @@ class AdminClient:
 
     async def create_tier(
         self,
-        tier_id: str,
         display_name: str,
         max_concurrent_workflows: int | None = None,
         max_action_executions_per_workflow: int | None = None,
@@ -312,7 +311,6 @@ class AdminClient:
     ) -> TierRead:
         """Create a new tier."""
         data: dict[str, Any] = {
-            "id": tier_id,
             "display_name": display_name,
             "is_default": is_default,
             "sort_order": sort_order,

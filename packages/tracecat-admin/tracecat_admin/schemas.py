@@ -153,7 +153,7 @@ class EntitlementsDict(BaseModel):
 class TierRead(BaseModel):
     """Tier response schema."""
 
-    id: str
+    id: uuid.UUID
     display_name: str
     max_concurrent_workflows: int | None
     max_action_executions_per_workflow: int | None
@@ -173,7 +173,7 @@ class OrganizationTierRead(BaseModel):
 
     id: uuid.UUID
     organization_id: uuid.UUID
-    tier_id: str
+    tier_id: uuid.UUID
     max_concurrent_workflows: int | None
     max_action_executions_per_workflow: int | None
     max_concurrent_actions: int | None

@@ -116,13 +116,6 @@ async def get_tier(
 @app.command("create")
 @async_command
 async def create_tier(
-    tier_id: Annotated[
-        str,
-        typer.Option(
-            "--id",
-            help="Tier ID (lowercase alphanumeric with hyphens/underscores)",
-        ),
-    ],
     display_name: Annotated[
         str,
         typer.Option("--display-name", "-n", help="Display name for the tier"),
@@ -176,7 +169,6 @@ async def create_tier(
 
         async with AdminClient() as client:
             tier = await client.create_tier(
-                tier_id=tier_id,
                 display_name=display_name,
                 max_concurrent_workflows=max_concurrent_workflows,
                 max_action_executions_per_workflow=max_action_executions_per_workflow,
@@ -191,7 +183,9 @@ async def create_tier(
         if json_output:
             typer.echo(json.dumps(tier.model_dump(mode="json"), indent=2))
         else:
-            print_success(f"Tier '{tier_id}' created successfully")
+            print_success(
+                f"Tier '{tier.display_name}' created successfully (ID: {tier.id})"
+            )
             print_tier_detail(tier)
     except AdminClientError as e:
         print_error(str(e))
