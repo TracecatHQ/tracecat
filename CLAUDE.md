@@ -291,8 +291,16 @@ tracecat/agent/
 
 ## Database Migrations
 - Ensure the database is running first: `just cluster up -d`
-- When running an alembic migration, you should use `export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:5432/postgres` or pass it into the command
-- Check `just cluster ports` if using a non-default cluster number (port may be 5532, 5632, etc.)
+- When running an alembic migration, first check the PostgreSQL port with `just cluster ports`, then set the DB URI:
+  ```bash
+  export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:<port>/postgres
+  ```
+  Default port is 5432 for cluster 1, but may be 5532, 5632, etc. for other clusters.
+- **Creating new migrations**: Always let Alembic autogenerate the migration first to get correct naming conventions and structure:
+  ```bash
+  uv run alembic revision --autogenerate -m "description of migration"
+  ```
+  Then review and edit the generated migration file as needed. This ensures consistent revision IDs and proper down_revision chains.
 
 ## Services and Logging Guidelines
 - When working with live services, use `just cluster` commands to manage the stack:
