@@ -128,12 +128,6 @@ def upgrade() -> None:
             "organization_id", name="uq_organization_tier_organization_id"
         ),
     )
-    op.create_index(
-        "ix_organization_tier_organization_id",
-        "organization_tier",
-        ["organization_id"],
-        unique=True,
-    )
 
     # Backfill: Create organization_tier records for all existing organizations
     op.execute(
@@ -149,8 +143,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_organization_tier_organization_id", table_name="organization_tier"
-    )
     op.drop_table("organization_tier")
     op.drop_table("tier")
