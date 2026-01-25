@@ -137,6 +137,7 @@ function ImportWorkflowDialog({
                   <FormControl>
                     <Input
                       type="file"
+                      className="min-h-9 py-2"
                       onChange={(e) => {
                         const file = e.target.files?.[0]
                         if (file) {

@@ -256,6 +256,7 @@ function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
               <Input
                 type="file"
                 accept=".csv"
+                className="min-h-9 py-2"
                 onChange={(e) => {
                   const file = e.target.files?.[0]
                   if (file) {

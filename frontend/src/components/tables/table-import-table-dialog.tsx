@@ -181,7 +181,7 @@ export function TableImportTableDialog({
                     <Input
                       type="file"
                       accept=".csv,text/csv"
-                      className="w-full"
+                      className="min-h-9 w-full py-2"
                       onChange={async (event) => {
                         const file = event.target.files?.[0]
                         if (!file) {
