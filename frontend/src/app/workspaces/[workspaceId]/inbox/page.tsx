@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
-import { InboxLayout } from "@/components/inbox"
+import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useInbox } from "@/hooks/use-inbox"
@@ -14,11 +14,17 @@ export default function InboxPage() {
   const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
 
   const {
-    items: inboxItems,
+    sessions,
     selectedId,
     setSelectedId,
     isLoading: inboxIsLoading,
     error: inboxError,
+    filters,
+    setSearchQuery,
+    setEntityType,
+    setLimit,
+    setUpdatedAfter,
+    setCreatedAfter,
   } = useInbox({ enabled: agentsFeatureEnabled })
 
   useEffect(() => {
@@ -44,12 +50,18 @@ export default function InboxPage() {
 
   return (
     <div className="size-full overflow-hidden">
-      <InboxLayout
-        items={inboxItems}
+      <ActivityLayout
+        sessions={sessions}
         selectedId={selectedId}
         onSelect={setSelectedId}
         isLoading={inboxIsLoading}
         error={inboxError ?? null}
+        filters={filters}
+        onSearchChange={setSearchQuery}
+        onEntityTypeChange={setEntityType}
+        onLimitChange={setLimit}
+        onUpdatedAfterChange={setUpdatedAfter}
+        onCreatedAfterChange={setCreatedAfter}
       />
     </div>
   )
