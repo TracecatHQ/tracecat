@@ -13,6 +13,7 @@ from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.service import BaseService
 from tracecat.tiers.exceptions import (
     CannotDeleteDefaultTierError,
+    DefaultTierNotConfiguredError,
     OrganizationNotFoundError,
     TierInUseError,
     TierNotFoundError,
@@ -41,7 +42,7 @@ class AdminTierService(BaseService):
         result = await self.session.execute(stmt)
         return TierRead.list_adapter().validate_python(result.scalars().all())
 
-    async def get_tier(self, tier_id: str) -> TierRead:
+    async def get_tier(self, tier_id: uuid.UUID) -> TierRead:
         """Get tier by ID."""
         stmt = select(Tier).where(Tier.id == tier_id)
         result = await self.session.execute(stmt)
@@ -78,7 +79,7 @@ class AdminTierService(BaseService):
         await self.session.refresh(tier)
         return TierRead.model_validate(tier)
 
-    async def update_tier(self, tier_id: str, params: TierUpdate) -> TierRead:
+    async def update_tier(self, tier_id: uuid.UUID, params: TierUpdate) -> TierRead:
         """Update a tier."""
         stmt = select(Tier).where(Tier.id == tier_id)
         result = await self.session.execute(stmt)
@@ -98,7 +99,7 @@ class AdminTierService(BaseService):
         await self.session.refresh(tier)
         return TierRead.model_validate(tier)
 
-    async def delete_tier(self, tier_id: str) -> None:
+    async def delete_tier(self, tier_id: uuid.UUID) -> None:
         """Delete a tier (only if no orgs are assigned to it)."""
         # Check if tier exists
         stmt = select(Tier).where(Tier.id == tier_id)
@@ -120,7 +121,7 @@ class AdminTierService(BaseService):
         await self.session.delete(tier)
         await self.session.commit()
 
-    async def _unset_other_defaults(self, exclude_tier_id: str | None) -> None:
+    async def _unset_other_defaults(self, exclude_tier_id: uuid.UUID | None) -> None:
         """Unset is_default on all tiers except the specified one."""
         stmt = select(Tier).where(Tier.is_default.is_(True))
         if exclude_tier_id:
@@ -184,8 +185,9 @@ class AdminTierService(BaseService):
         org_tier = result.scalar_one_or_none()
 
         if not org_tier:
-            # Create new org tier
-            org_tier = OrganizationTier(organization_id=org_id, tier_id="default")
+            # Create new org tier with default tier
+            default_tier = await self._get_default_tier()
+            org_tier = OrganizationTier(organization_id=org_id, tier_id=default_tier.id)
             self.session.add(org_tier)
 
         # If changing tier_id, verify the new tier exists
@@ -228,6 +230,15 @@ class AdminTierService(BaseService):
             updated_at=org_tier.updated_at,
             tier=tier_read,
         )
+
+    async def _get_default_tier(self) -> Tier:
+        """Get the default tier, raising if not configured."""
+        stmt = select(Tier).where(Tier.is_default.is_(True), Tier.is_active.is_(True))
+        result = await self.session.execute(stmt)
+        tier = result.scalar_one_or_none()
+        if not tier:
+            raise DefaultTierNotConfiguredError
+        return tier
 
     async def _verify_org_exists(self, org_id: uuid.UUID) -> None:
         """Verify organization exists."""

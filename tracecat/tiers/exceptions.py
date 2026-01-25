@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 from tracecat.exceptions import TracecatException, TracecatNotFoundError
@@ -43,7 +44,7 @@ class CannotDeleteDefaultTierError(TierError):
 class TierInUseError(TierError):
     """Raised when attempting to delete a tier that has organizations assigned."""
 
-    def __init__(self, tier_id: str):
+    def __init__(self, tier_id: uuid.UUID):
         super().__init__(
             f"Cannot delete tier '{tier_id}': organizations are still assigned to it"
         )

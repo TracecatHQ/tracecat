@@ -60,7 +60,7 @@ async def create_tier(
 async def get_tier(
     role: SuperuserRole,
     session: AsyncDBSession,
-    tier_id: str,
+    tier_id: uuid.UUID,
 ) -> TierRead:
     """Get tier by ID."""
     service = AdminTierService(session, role=role)
@@ -74,7 +74,7 @@ async def get_tier(
 async def update_tier(
     role: SuperuserRole,
     session: AsyncDBSession,
-    tier_id: str,
+    tier_id: uuid.UUID,
     params: TierUpdate,
 ) -> TierRead:
     """Update a tier."""
@@ -89,7 +89,7 @@ async def update_tier(
 async def delete_tier(
     role: SuperuserRole,
     session: AsyncDBSession,
-    tier_id: str,
+    tier_id: uuid.UUID,
 ) -> None:
     """Delete a tier (only if no orgs are assigned to it)."""
     service = AdminTierService(session, role=role)
