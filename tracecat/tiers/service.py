@@ -11,6 +11,10 @@ from sqlalchemy.orm import selectinload
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.service import BaseService
 from tracecat.tiers.defaults import DEFAULT_ENTITLEMENTS, DEFAULT_LIMITS
+from tracecat.tiers.exceptions import (
+    DefaultTierNotConfiguredError,
+    OrganizationNotFoundError,
+)
 from tracecat.tiers.schemas import EffectiveEntitlements, EffectiveLimits
 
 if TYPE_CHECKING:
@@ -59,14 +63,14 @@ class TierService(BaseService):
         # Get default tier - required for creating new org tiers
         default_tier = await self.get_default_tier()
         if default_tier is None:
-            raise ValueError("No default tier configured. Run database migrations.")
+            raise DefaultTierNotConfiguredError
 
         # Verify org exists
         org_stmt = select(Organization).where(Organization.id == org_id)
         result = await self.session.execute(org_stmt)
         org = result.scalar_one_or_none()
         if org is None:
-            raise ValueError(f"Organization {org_id} not found")
+            raise OrganizationNotFoundError(org_id)
 
         org_tier = OrganizationTier(organization_id=org_id, tier_id=default_tier.id)
         self.session.add(org_tier)
