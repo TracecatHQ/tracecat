@@ -14,7 +14,7 @@ from tracecat.tiers.exceptions import (
     TierInUseError,
     TierNotFoundError,
 )
-from tracecat_ee.admin.tiers.schemas import (
+from tracecat.tiers.schemas import (
     OrganizationTierRead,
     OrganizationTierUpdate,
     TierCreate,
