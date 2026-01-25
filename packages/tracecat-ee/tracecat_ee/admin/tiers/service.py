@@ -57,7 +57,6 @@ class AdminTierService(BaseService):
             await self._unset_other_defaults(None)
 
         tier = Tier(
-            id=params.id,
             display_name=params.display_name,
             max_concurrent_workflows=params.max_concurrent_workflows,
             max_action_executions_per_workflow=params.max_action_executions_per_workflow,
@@ -73,7 +72,9 @@ class AdminTierService(BaseService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise ValueError(f"Tier with ID '{params.id}' already exists") from e
+            raise ValueError(
+                f"Tier with display name '{params.display_name}' already exists"
+            ) from e
         await self.session.refresh(tier)
         return TierRead.model_validate(tier)
 
