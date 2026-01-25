@@ -99,7 +99,7 @@ export function ActivityItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 py-2 pl-4 pr-6 text-left transition-colors",
+        "flex w-full items-center gap-3 py-2 pl-6 pr-6 text-left transition-colors",
         "hover:bg-muted/50",
         isSelected && "bg-muted"
       )}
