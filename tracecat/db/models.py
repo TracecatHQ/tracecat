@@ -66,6 +66,7 @@ from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGra
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.tiers.types import EntitlementsDict
 from tracecat.workspaces.schemas import WorkspaceSettings
 
 _UNSET = object()
@@ -206,6 +207,11 @@ class Organization(Base, TimestampMixin):
         secondary="organization_membership",
         back_populates="organizations",
         lazy="select",
+    )
+    organization_tier: Mapped[OrganizationTier | None] = relationship(
+        "OrganizationTier",
+        back_populates="organization",
+        uselist=False,
     )
 
 
@@ -2845,3 +2851,71 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
     # Relationships
     workspace: Mapped[Workspace] = relationship("Workspace")
     inviter: Mapped[User | None] = relationship("User")
+
+
+class Tier(Base, TimestampMixin):
+    """Platform-configurable tier definition.
+
+    Tiers define resource limits and feature entitlements that apply to organizations.
+    The default tier provides unlimited access for self-hosted deployments.
+    """
+
+    __tablename__ = "tier"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str] = mapped_column(String)
+
+    # Limits (None = unlimited)
+    max_concurrent_workflows: Mapped[int | None] = mapped_column(Integer)
+    max_action_executions_per_workflow: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_actions: Mapped[int | None] = mapped_column(Integer)
+    api_rate_limit: Mapped[int | None] = mapped_column(Integer)
+    api_burst_capacity: Mapped[int | None] = mapped_column(Integer)
+
+    # Entitlements (JSONB for flexibility)
+    entitlements: Mapped[EntitlementsDict] = mapped_column(JSONB, default=dict)
+
+    # Metadata
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class OrganizationTier(Base, TimestampMixin):
+    """Organization's assigned tier with optional overrides.
+
+    Each organization can have a tier assigned with per-org overrides for limits
+    and entitlements. None values mean "use tier default".
+    """
+
+    __tablename__ = "organization_tier"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    tier_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("tier.id"))
+
+    # Per-org limit overrides (None = use tier default)
+    max_concurrent_workflows: Mapped[int | None] = mapped_column(Integer)
+    max_action_executions_per_workflow: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_actions: Mapped[int | None] = mapped_column(Integer)
+    api_rate_limit: Mapped[int | None] = mapped_column(Integer)
+    api_burst_capacity: Mapped[int | None] = mapped_column(Integer)
+
+    # Per-org entitlement overrides
+    entitlement_overrides: Mapped[EntitlementsDict | None] = mapped_column(JSONB)
+
+    # Billing (future)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    # Relationships
+    organization: Mapped[Organization] = relationship(
+        "Organization", back_populates="organization_tier"
+    )
+    tier: Mapped[Tier] = relationship("Tier")
