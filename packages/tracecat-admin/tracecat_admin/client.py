@@ -9,6 +9,7 @@ import httpx
 
 from tracecat_admin.config import Config, get_config, load_cookies
 from tracecat_admin.schemas import (
+    OrganizationTierRead,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -18,6 +19,7 @@ from tracecat_admin.schemas import (
     RegistrySyncResponse,
     RegistryVersionPromoteResponse,
     RegistryVersionRead,
+    TierRead,
     UserRead,
 )
 
@@ -277,3 +279,151 @@ class AdminClient:
             f"/admin/organizations/{org_id}/registry/repositories/{repository_id}/versions/{version_id}/promote",
         )
         return OrgRegistryVersionPromoteResponse.model_validate(response.json())
+
+    # Tier endpoints
+
+    async def list_tiers(self, include_inactive: bool = False) -> list[TierRead]:
+        """List all tiers."""
+        params: dict[str, Any] = {}
+        if include_inactive:
+            params["include_inactive"] = "true"
+        response = await self._request(
+            "GET", "/admin/tiers", params=params if params else None
+        )
+        return [TierRead.model_validate(t) for t in response.json()]
+
+    async def get_tier(self, tier_id: str) -> TierRead:
+        """Get a tier by ID."""
+        response = await self._request("GET", f"/admin/tiers/{tier_id}")
+        return TierRead.model_validate(response.json())
+
+    async def create_tier(
+        self,
+        display_name: str,
+        max_concurrent_workflows: int | None = None,
+        max_action_executions_per_workflow: int | None = None,
+        max_concurrent_actions: int | None = None,
+        api_rate_limit: int | None = None,
+        api_burst_capacity: int | None = None,
+        entitlements: dict[str, bool] | None = None,
+        is_default: bool = False,
+        sort_order: int = 0,
+    ) -> TierRead:
+        """Create a new tier."""
+        data: dict[str, Any] = {
+            "display_name": display_name,
+            "is_default": is_default,
+            "sort_order": sort_order,
+        }
+        if max_concurrent_workflows is not None:
+            data["max_concurrent_workflows"] = max_concurrent_workflows
+        if max_action_executions_per_workflow is not None:
+            data["max_action_executions_per_workflow"] = (
+                max_action_executions_per_workflow
+            )
+        if max_concurrent_actions is not None:
+            data["max_concurrent_actions"] = max_concurrent_actions
+        if api_rate_limit is not None:
+            data["api_rate_limit"] = api_rate_limit
+        if api_burst_capacity is not None:
+            data["api_burst_capacity"] = api_burst_capacity
+        if entitlements is not None:
+            data["entitlements"] = entitlements
+        response = await self._request("POST", "/admin/tiers", json=data)
+        return TierRead.model_validate(response.json())
+
+    async def update_tier(
+        self,
+        tier_id: str,
+        display_name: str | None = None,
+        max_concurrent_workflows: int | None = None,
+        max_action_executions_per_workflow: int | None = None,
+        max_concurrent_actions: int | None = None,
+        api_rate_limit: int | None = None,
+        api_burst_capacity: int | None = None,
+        entitlements: dict[str, bool] | None = None,
+        is_default: bool | None = None,
+        sort_order: int | None = None,
+        is_active: bool | None = None,
+    ) -> TierRead:
+        """Update a tier."""
+        data: dict[str, Any] = {}
+        if display_name is not None:
+            data["display_name"] = display_name
+        if max_concurrent_workflows is not None:
+            data["max_concurrent_workflows"] = max_concurrent_workflows
+        if max_action_executions_per_workflow is not None:
+            data["max_action_executions_per_workflow"] = (
+                max_action_executions_per_workflow
+            )
+        if max_concurrent_actions is not None:
+            data["max_concurrent_actions"] = max_concurrent_actions
+        if api_rate_limit is not None:
+            data["api_rate_limit"] = api_rate_limit
+        if api_burst_capacity is not None:
+            data["api_burst_capacity"] = api_burst_capacity
+        if entitlements is not None:
+            data["entitlements"] = entitlements
+        if is_default is not None:
+            data["is_default"] = is_default
+        if sort_order is not None:
+            data["sort_order"] = sort_order
+        if is_active is not None:
+            data["is_active"] = is_active
+        response = await self._request("PATCH", f"/admin/tiers/{tier_id}", json=data)
+        return TierRead.model_validate(response.json())
+
+    async def delete_tier(self, tier_id: str) -> None:
+        """Delete a tier."""
+        await self._request("DELETE", f"/admin/tiers/{tier_id}")
+
+    # Organization tier endpoints
+
+    async def get_org_tier(self, org_id: str) -> OrganizationTierRead:
+        """Get tier assignment for an organization."""
+        response = await self._request("GET", f"/admin/tiers/organizations/{org_id}")
+        return OrganizationTierRead.model_validate(response.json())
+
+    async def update_org_tier(
+        self,
+        org_id: str,
+        tier_id: str | None = None,
+        max_concurrent_workflows: int | None = None,
+        max_action_executions_per_workflow: int | None = None,
+        max_concurrent_actions: int | None = None,
+        api_rate_limit: int | None = None,
+        api_burst_capacity: int | None = None,
+        entitlement_overrides: dict[str, bool] | None = None,
+        clear_overrides: bool = False,
+    ) -> OrganizationTierRead:
+        """Update organization's tier assignment and overrides."""
+        data: dict[str, Any] = {}
+        if tier_id is not None:
+            data["tier_id"] = tier_id
+        if clear_overrides:
+            # Clear all overrides by setting them to None
+            data["max_concurrent_workflows"] = None
+            data["max_action_executions_per_workflow"] = None
+            data["max_concurrent_actions"] = None
+            data["api_rate_limit"] = None
+            data["api_burst_capacity"] = None
+            data["entitlement_overrides"] = None
+        else:
+            if max_concurrent_workflows is not None:
+                data["max_concurrent_workflows"] = max_concurrent_workflows
+            if max_action_executions_per_workflow is not None:
+                data["max_action_executions_per_workflow"] = (
+                    max_action_executions_per_workflow
+                )
+            if max_concurrent_actions is not None:
+                data["max_concurrent_actions"] = max_concurrent_actions
+            if api_rate_limit is not None:
+                data["api_rate_limit"] = api_rate_limit
+            if api_burst_capacity is not None:
+                data["api_burst_capacity"] = api_burst_capacity
+            if entitlement_overrides is not None:
+                data["entitlement_overrides"] = entitlement_overrides
+        response = await self._request(
+            "PATCH", f"/admin/tiers/organizations/{org_id}", json=data
+        )
+        return OrganizationTierRead.model_validate(response.json())

@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tracecat_admin.schemas import (
+    OrganizationTierRead,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -18,6 +19,7 @@ from tracecat_admin.schemas import (
     RegistrySyncResponse,
     RegistryVersionPromoteResponse,
     RegistryVersionRead,
+    TierRead,
     UserRead,
 )
 
@@ -325,3 +327,129 @@ def print_org_version_promote_result(result: OrgRegistryVersionPromoteResponse) 
     else:
         console.print("  Previous version: [dim]None[/dim]")
     console.print(f"  Current version: {result.current_version}")
+
+
+# Tier output functions
+
+
+def _format_limit(value: int | None) -> str:
+    """Format a limit value for display."""
+    return str(value) if value is not None else "unlimited"
+
+
+def _format_entitlements(entitlements: dict[str, bool]) -> str:
+    """Format entitlements for display in a table cell."""
+    enabled = [k for k, v in entitlements.items() if v]
+    return ", ".join(enabled) if enabled else "-"
+
+
+def print_tiers_table(tiers: list[TierRead]) -> None:
+    """Print tiers in a table format."""
+    table = Table(title="Tiers")
+    table.add_column("ID", style="cyan")
+    table.add_column("Display Name")
+    table.add_column("Default", style="green")
+    table.add_column("Active", style="blue")
+    table.add_column("Concurrent Workflows")
+    table.add_column("Actions/Workflow")
+    table.add_column("Entitlements", style="magenta")
+
+    for tier in tiers:
+        table.add_row(
+            str(tier.id),
+            tier.display_name,
+            "Yes" if tier.is_default else "No",
+            "Yes" if tier.is_active else "No",
+            _format_limit(tier.max_concurrent_workflows),
+            _format_limit(tier.max_action_executions_per_workflow),
+            _format_entitlements(tier.entitlements),
+        )
+
+    console.print(table)
+
+
+def print_tier_detail(tier: TierRead) -> None:
+    """Print single tier details."""
+    table = Table(title="Tier Details", show_header=False)
+    table.add_column("Field", style="dim")
+    table.add_column("Value")
+
+    table.add_row("ID", str(tier.id))
+    table.add_row("Display Name", tier.display_name)
+    table.add_row("Default", "Yes" if tier.is_default else "No")
+    table.add_row("Active", "Yes" if tier.is_active else "No")
+    table.add_row("Sort Order", str(tier.sort_order))
+    table.add_row("", "")  # Spacer
+    table.add_row("[bold]Resource Limits[/bold]", "")
+    table.add_row(
+        "Max Concurrent Workflows", _format_limit(tier.max_concurrent_workflows)
+    )
+    table.add_row(
+        "Max Actions/Workflow", _format_limit(tier.max_action_executions_per_workflow)
+    )
+    table.add_row("Max Concurrent Actions", _format_limit(tier.max_concurrent_actions))
+    table.add_row("API Rate Limit", _format_limit(tier.api_rate_limit))
+    table.add_row("API Burst Capacity", _format_limit(tier.api_burst_capacity))
+    table.add_row("", "")  # Spacer
+    table.add_row("[bold]Entitlements[/bold]", "")
+    for key, value in tier.entitlements.items():
+        status = "[green]Yes[/green]" if value else "[red]No[/red]"
+        table.add_row(f"  {key}", status)
+    table.add_row("", "")  # Spacer
+    table.add_row("Created", format_datetime(tier.created_at))
+    table.add_row("Updated", format_datetime(tier.updated_at))
+
+    console.print(table)
+
+
+def print_org_tier_detail(org_tier: OrganizationTierRead) -> None:
+    """Print organization tier assignment details."""
+    table = Table(title="Organization Tier Assignment", show_header=False)
+    table.add_column("Field", style="dim")
+    table.add_column("Value")
+
+    table.add_row("ID", str(org_tier.id))
+    table.add_row("Organization ID", str(org_tier.organization_id))
+    table.add_row("Tier ID", str(org_tier.tier_id))
+    table.add_row("", "")  # Spacer
+
+    # Show tier info if available
+    if org_tier.tier:
+        table.add_row("[bold]Tier Info[/bold]", "")
+        table.add_row("  Tier Name", org_tier.tier.display_name)
+        table.add_row("", "")
+
+    table.add_row("[bold]Override Limits[/bold]", "(org-specific, overrides tier)")
+    table.add_row(
+        "Max Concurrent Workflows", _format_limit(org_tier.max_concurrent_workflows)
+    )
+    table.add_row(
+        "Max Actions/Workflow",
+        _format_limit(org_tier.max_action_executions_per_workflow),
+    )
+    table.add_row(
+        "Max Concurrent Actions", _format_limit(org_tier.max_concurrent_actions)
+    )
+    table.add_row("API Rate Limit", _format_limit(org_tier.api_rate_limit))
+    table.add_row("API Burst Capacity", _format_limit(org_tier.api_burst_capacity))
+
+    table.add_row("", "")
+    table.add_row("[bold]Entitlement Overrides[/bold]", "")
+    if org_tier.entitlement_overrides:
+        for key, value in org_tier.entitlement_overrides.items():
+            status = "[green]Yes[/green]" if value else "[red]No[/red]"
+            table.add_row(f"  {key}", status)
+    else:
+        table.add_row("  (none)", "-")
+
+    table.add_row("", "")
+    table.add_row("[bold]Subscription[/bold]", "")
+    table.add_row("Stripe Customer ID", org_tier.stripe_customer_id or "-")
+    table.add_row("Stripe Subscription ID", org_tier.stripe_subscription_id or "-")
+    table.add_row("Expires At", format_datetime(org_tier.expires_at))
+
+    table.add_row("", "")
+    table.add_row("Created", format_datetime(org_tier.created_at))
+    table.add_row("Updated", format_datetime(org_tier.updated_at))
+
+    console.print(table)
