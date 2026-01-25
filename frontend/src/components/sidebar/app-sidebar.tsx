@@ -4,9 +4,10 @@ import {
   BlocksIcon,
   ChevronDown,
   InboxIcon,
+  LayersPlus,
   LockKeyholeIcon,
   type LucideIcon,
-  MessageSquare,
+  MessageCirclePlus,
   SquareMousePointerIcon,
   SquareStackIcon,
   Table2Icon,
@@ -15,9 +16,10 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams, usePathname } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
@@ -42,7 +44,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { useListChats } from "@/hooks/use-chat"
+import { useCreateChat } from "@/hooks/use-chat"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -52,6 +54,7 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
   const params = useParams<{ caseId?: string }>()
   const { setOpen: setSidebarOpen } = useSidebar()
@@ -62,16 +65,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const isCasesList = pathname === casesListPath
   const { isFeatureEnabled } = useFeatureFlag()
   const agentPresetsEnabled = isFeatureEnabled("agent-presets")
-  const { chats } = useListChats({
-    workspaceId,
-    entityType: "copilot",
-    entityId: workspaceId,
-    limit: 1,
-  })
-  const mostRecentChatId = chats?.[0]?.id
-  const copilotUrl = mostRecentChatId
-    ? `${basePath}/copilot?chatId=${mostRecentChatId}`
-    : `${basePath}/copilot`
+  const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
+  const { createChat, createChatPending } = useCreateChat(workspaceId)
+
+  const handleNewChat = async () => {
+    try {
+      const newChat = await createChat({
+        title: "Copilot",
+        entity_type: "copilot",
+        entity_id: workspaceId,
+      })
+      router.push(`${basePath}/copilot?chatId=${newChat.id}`)
+    } catch (error) {
+      console.error("Failed to create chat:", error)
+    }
+  }
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -98,21 +106,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive?: boolean
     }[]
   }
-
-  const navMain: NavItem[] = [
-    {
-      title: "Chats",
-      url: copilotUrl,
-      icon: MessageSquare,
-      isActive: pathname === `${basePath}/copilot`,
-    },
-    {
-      title: "Inbox",
-      url: `${basePath}/inbox`,
-      icon: InboxIcon,
-      isActive: pathname?.startsWith(`${basePath}/inbox`),
-    },
-  ]
 
   const navWorkspace: NavItem[] = [
     {
@@ -178,19 +171,37 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navMain
-                .filter((item) => item.visible !== false)
-                .map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={item.isActive}>
-                      <Link href={item.url!}>
-                        <item.icon />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => void handleNewChat()}
+                  disabled={createChatPending}
+                >
+                  <MessageCirclePlus />
+                  <span>New chat</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setCreateCaseDialogOpen(true)}>
+                  <LayersPlus />
+                  <span>Add case</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname?.startsWith(`${basePath}/inbox`)}
+                >
+                  <Link href={`${basePath}/inbox`}>
+                    <InboxIcon />
+                    <span>Inbox</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
+            <CreateCaseDialog
+              open={createCaseDialogOpen}
+              onOpenChange={setCreateCaseDialogOpen}
+            />
           </SidebarGroupContent>
         </SidebarGroup>
         <Collapsible defaultOpen className="group/collapsible">

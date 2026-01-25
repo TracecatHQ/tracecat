@@ -84,7 +84,7 @@ export function InboxHeader({
     (createdAfter !== null ? 1 : 0)
 
   return (
-    <header className="flex h-10 shrink-0 items-center border-b px-3">
+    <header className="flex h-10 shrink-0 items-center border-b pl-3 pr-4">
       {/* Left section: Search input with magnifying glass */}
       <div className="flex items-center gap-3 min-w-0">
         {/* Match SidebarTrigger dimensions (h-7 w-7) for alignment */}

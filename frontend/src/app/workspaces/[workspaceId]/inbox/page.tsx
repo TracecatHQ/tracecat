@@ -49,20 +49,18 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="size-full overflow-hidden">
-      <ActivityLayout
-        sessions={sessions}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        isLoading={inboxIsLoading}
-        error={inboxError ?? null}
-        filters={filters}
-        onSearchChange={setSearchQuery}
-        onEntityTypeChange={setEntityType}
-        onLimitChange={setLimit}
-        onUpdatedAfterChange={setUpdatedAfter}
-        onCreatedAfterChange={setCreatedAfter}
-      />
-    </div>
+    <ActivityLayout
+      sessions={sessions}
+      selectedId={selectedId}
+      onSelect={setSelectedId}
+      isLoading={inboxIsLoading}
+      error={inboxError ?? null}
+      filters={filters}
+      onSearchChange={setSearchQuery}
+      onEntityTypeChange={setEntityType}
+      onLimitChange={setLimit}
+      onUpdatedAfterChange={setUpdatedAfter}
+      onCreatedAfterChange={setCreatedAfter}
+    />
   )
 }
