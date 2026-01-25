@@ -11,6 +11,12 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.service import BaseService
+from tracecat.tiers.exceptions import (
+    CannotDeleteDefaultTierError,
+    OrganizationNotFoundError,
+    TierInUseError,
+    TierNotFoundError,
+)
 from tracecat.tiers.schemas import (
     OrganizationTierRead,
     OrganizationTierUpdate,
@@ -41,7 +47,7 @@ class AdminTierService(BaseService):
         result = await self.session.execute(stmt)
         tier = result.scalar_one_or_none()
         if not tier:
-            raise ValueError(f"Tier {tier_id} not found")
+            raise TierNotFoundError(f"Tier {tier_id} not found")
         return TierRead.model_validate(tier)
 
     async def create_tier(self, params: TierCreate) -> TierRead:
@@ -77,7 +83,7 @@ class AdminTierService(BaseService):
         result = await self.session.execute(stmt)
         tier = result.scalar_one_or_none()
         if not tier:
-            raise ValueError(f"Tier {tier_id} not found")
+            raise TierNotFoundError(f"Tier {tier_id} not found")
 
         # If setting this tier as default, unset other defaults
         if params.is_default is True:
@@ -98,19 +104,17 @@ class AdminTierService(BaseService):
         result = await self.session.execute(stmt)
         tier = result.scalar_one_or_none()
         if not tier:
-            raise ValueError(f"Tier {tier_id} not found")
+            raise TierNotFoundError(f"Tier {tier_id} not found")
 
         # Prevent deleting the default tier
         if tier.is_default:
-            raise ValueError("Cannot delete the default tier")
+            raise CannotDeleteDefaultTierError
 
         # Check if any orgs are using this tier
         org_stmt = select(OrganizationTier).where(OrganizationTier.tier_id == tier_id)
         org_result = await self.session.execute(org_stmt)
         if org_result.first():
-            raise ValueError(
-                f"Cannot delete tier {tier_id}: organizations are still assigned to it"
-            )
+            raise TierInUseError(tier_id)
 
         await self.session.delete(tier)
         await self.session.commit()
@@ -140,7 +144,9 @@ class AdminTierService(BaseService):
         org_tier = result.scalar_one_or_none()
 
         if not org_tier:
-            raise ValueError(f"No tier assignment found for organization {org_id}")
+            raise TierNotFoundError(
+                f"No tier assignment found for organization {org_id}"
+            )
 
         tier_read = TierRead.model_validate(org_tier.tier) if org_tier.tier else None
         return OrganizationTierRead(
@@ -186,7 +192,7 @@ class AdminTierService(BaseService):
             tier_stmt = select(Tier).where(Tier.id == params.tier_id)
             tier_result = await self.session.execute(tier_stmt)
             if not tier_result.scalar_one_or_none():
-                raise ValueError(f"Tier {params.tier_id} not found")
+                raise TierNotFoundError(f"Tier {params.tier_id} not found")
 
         update_data = params.model_dump(exclude_unset=True)
         for field, value in update_data.items():
@@ -227,4 +233,4 @@ class AdminTierService(BaseService):
         stmt = select(Organization).where(Organization.id == org_id)
         result = await self.session.execute(stmt)
         if not result.scalar_one_or_none():
-            raise ValueError(f"Organization {org_id} not found")
+            raise OrganizationNotFoundError(org_id)
