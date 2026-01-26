@@ -32,7 +32,6 @@ from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
-    get_async_session_context_manager,
     reset_async_engine,
 )
 from tracecat.db.models import Base, Workspace
@@ -1005,100 +1004,47 @@ async def db_session_with_repo(test_role):
 
 @pytest.fixture
 async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None]:
-    """Service test fixture. Create a function scoped test workspace."""
+    """Service test fixture. Create a function scoped test workspace.
+
+    This fixture:
+    1. Creates a workspace and adds it to the test session
+    2. Patches get_async_session_context_manager to return a context manager that
+       yields the test session, so services using with_session() see the same data
+    3. Cleans up the workspace on teardown (via session rollback)
+    """
+    import contextlib
+
+    import tracecat.db.engine as engine_module
+
     workspace = Workspace(
         name="test-workspace",
         organization_id=config.TRACECAT__DEFAULT_ORG_ID,
     )
 
-    # Persist the workspace in the default engine used by BaseWorkspaceService
-    # so services that use `with_session()` (and thus `get_async_session_context_manager`)
-    # can see the same workspace and satisfy foreign key constraints.
-    # We only insert here (not in test session) to avoid lock contention.
-    async with get_async_session_context_manager() as global_session:
-        # Set timeouts to avoid deadlocks with parallel workers
-        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
-        # Avoid duplicate insert if the workspace already exists
-        result = await global_session.execute(
-            select(Workspace).where(Workspace.id == workspace.id)
-        )
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            global_session.add(
-                Workspace(
-                    id=workspace.id,
-                    name=workspace.name,
-                    organization_id=workspace.organization_id,
-                )
-            )
-            await global_session.commit()
+    # Add workspace to test session and flush to make it visible within the session
+    session.add(workspace)
+    await session.flush()
 
-    # Merge the workspace into the test session. This is more reliable than SELECT
-    # because it doesn't depend on the test session seeing the global commit immediately.
-    # merge() will either:
-    # 1. Return an existing instance from the session if present
-    # 2. Load from database if visible
-    # 3. Create a new pending instance from the given object if not visible
-    # In all cases, the test session can use the workspace for FK relationships.
-    session_workspace = await session.merge(workspace)
+    # Create a context manager that yields the test session instead of creating a new one.
+    # This ensures services using with_session() see the same data as test code.
+    @contextlib.asynccontextmanager
+    async def mock_get_async_session():
+        yield session
+
+    # Patch get_async_session_context_manager to return our mock
+    original_get_async_session_context_manager = (
+        engine_module.get_async_session_context_manager
+    )
+    engine_module.get_async_session_context_manager = mock_get_async_session
 
     try:
-        yield session_workspace
+        yield workspace
     finally:
-        logger.debug("Cleaning up test workspace")
-        # Clean up workspace from global session (postgres database) first
-        try:
-            async with get_async_session_context_manager() as global_cleanup_session:
-                # Set timeouts to avoid deadlocks with parallel workers
-                await global_cleanup_session.execute(
-                    text("SET LOCAL lock_timeout = '5s'")
-                )
-                await global_cleanup_session.execute(
-                    text("SET LOCAL statement_timeout = '30s'")
-                )
-                result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace.id)
-                )
-                global_workspace = result.scalar_one_or_none()
-                if global_workspace:
-                    await global_cleanup_session.delete(global_workspace)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up workspace from global session")
-        except Exception as e:
-            logger.error(f"Error cleaning up workspace from global session: {e}")
-
-        # Clean up workspace from test session
-        try:
-            if session.is_active:
-                # Reset transaction state in case it was aborted
-                try:
-                    # Try to roll back any active transaction first
-                    await session.rollback()
-                    # Then delete and commit in a fresh transaction
-                    await session.delete(workspace)
-                    await session.commit()
-                except Exception as inner_e:
-                    logger.error(f"Failed to clean up in existing session: {inner_e}")
-                    # If that fails, try with a completely new session
-                    await session.close()
-                    async with get_async_session_context_manager() as new_session:
-                        # Set timeouts to avoid deadlocks with parallel workers
-                        await new_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-                        await new_session.execute(
-                            text("SET LOCAL statement_timeout = '30s'")
-                        )
-                        # Fetch the workspace again in the new session by logical ID
-                        result = await new_session.execute(
-                            select(Workspace).where(Workspace.id == workspace.id)
-                        )
-                        db_workspace = result.scalar_one_or_none()
-                        if db_workspace:
-                            await new_session.delete(db_workspace)
-                            await new_session.commit()
-        except Exception as e:
-            # Log the error but don't raise it to prevent test teardown failures
-            logger.error(f"Error during workspace cleanup: {e}")
+        # Restore the original function
+        engine_module.get_async_session_context_manager = (
+            original_get_async_session_context_manager
+        )
+        # No explicit cleanup needed - the session fixture will rollback the transaction
 
 
 @pytest.fixture
