@@ -1012,14 +1012,11 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         name="test-workspace",
         organization_id=config.TRACECAT__DEFAULT_ORG_ID,
     )
-    # Add to test session first. With join_transaction_mode="create_savepoint",
-    # this commits a savepoint within the outer transaction.
-    session.add(workspace)
-    await session.commit()
 
-    # Also persist the workspace in the default engine used by BaseWorkspaceService
+    # Persist the workspace in the default engine used by BaseWorkspaceService
     # so services that use `with_session()` (and thus `get_async_session_context_manager`)
     # can see the same workspace and satisfy foreign key constraints.
+    # We only insert here (not in test session) to avoid lock contention.
     async with get_async_session_context_manager() as global_session:
         # Set timeouts to avoid deadlocks with parallel workers
         await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
@@ -1039,8 +1036,15 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
             )
             await global_session.commit()
 
+    # With READ COMMITTED isolation, the test session can see the committed workspace.
+    # Load it into the test session for FK constraint satisfaction.
+    result = await session.execute(
+        select(Workspace).where(Workspace.id == workspace.id)
+    )
+    session_workspace = result.scalar_one()
+
     try:
-        yield workspace
+        yield session_workspace
     finally:
         logger.debug("Cleaning up test workspace")
         # Clean up workspace from global session (postgres database) first
