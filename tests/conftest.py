@@ -755,9 +755,17 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
     Uses READ COMMITTED isolation to allow parallel tests to see committed
     workspace data without lock contention that SERIALIZABLE would cause.
+
+    IMPORTANT: Uses config.TRACECAT__DB_URI (after async driver conversion) to ensure
+    this session connects to the same database as the global engine used by services.
     """
+    # Use the same URL as the global engine to ensure both point to the same database.
+    # config.TRACECAT__DB_URI is set to the test database URL by env_sandbox.
+    db_uri = config.TRACECAT__DB_URI
+    if "psycopg" in db_uri:
+        db_uri = db_uri.replace("psycopg", "asyncpg")
     async_engine = create_async_engine(
-        TEST_DB_CONFIG.test_url,
+        db_uri,
         isolation_level="READ COMMITTED",
         poolclass=NullPool,  # Prevent connection accumulation in parallel tests
     )
