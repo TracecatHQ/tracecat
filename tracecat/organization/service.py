@@ -10,7 +10,9 @@ from sqlalchemy import and_, cast, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import contains_eager
 
+from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel
 from tracecat.auth.users import (
@@ -383,12 +385,12 @@ class OrgService(BaseOrgService):
             raise TracecatNotFoundError("Invitation not found")
         return invitation
 
-    @audit_log(resource_type="organization_invitation", action="accept")
     async def accept_invitation(self, token: str) -> OrganizationMembership:
         """Accept an invitation and create organization membership.
 
         This method validates the invitation token, checks expiry and status,
-        then creates the membership record.
+        then creates the membership record. Audit events are logged to the
+        invitation's target organization, not the user's current organization.
 
         Args:
             token: The unique invitation token.
@@ -429,19 +431,57 @@ class OrgService(BaseOrgService):
         if invitation.expires_at < datetime.now(UTC):
             raise TracecatAuthorizationError("Invitation has expired")
 
-        # Create membership
-        membership = await self.add_member(
-            user_id=self.role.user_id,
-            organization_id=invitation.organization_id,
-            role=invitation.role,
+        # Create role scoped to invitation's organization for audit logging
+        audit_role = self.role.model_copy(
+            update={"organization_id": invitation.organization_id}
         )
 
-        # Mark invitation as accepted
-        invitation.status = InvitationStatus.ACCEPTED
-        invitation.accepted_at = datetime.now(UTC)
-        await self.session.commit()
+        # Log audit attempt to the invitation's organization
+        async with AuditService.with_session(audit_role, session=self.session) as svc:
+            await svc.create_event(
+                resource_type="organization_invitation",
+                action="accept",
+                resource_id=invitation.id,
+                status=AuditEventStatus.ATTEMPT,
+            )
 
-        return membership
+        try:
+            # Create membership
+            membership = await self.add_member(
+                user_id=self.role.user_id,
+                organization_id=invitation.organization_id,
+                role=invitation.role,
+            )
+
+            # Mark invitation as accepted
+            invitation.status = InvitationStatus.ACCEPTED
+            invitation.accepted_at = datetime.now(UTC)
+            await self.session.commit()
+
+            # Log audit success to the invitation's organization
+            async with AuditService.with_session(
+                audit_role, session=self.session
+            ) as svc:
+                await svc.create_event(
+                    resource_type="organization_invitation",
+                    action="accept",
+                    resource_id=invitation.id,
+                    status=AuditEventStatus.SUCCESS,
+                )
+
+            return membership
+        except Exception:
+            # Log audit failure to the invitation's organization
+            async with AuditService.with_session(
+                audit_role, session=self.session
+            ) as svc:
+                await svc.create_event(
+                    resource_type="organization_invitation",
+                    action="accept",
+                    resource_id=invitation.id,
+                    status=AuditEventStatus.FAILURE,
+                )
+            raise
 
     @audit_log(resource_type="organization_invitation", action="revoke")
     @require_access_level(AccessLevel.ADMIN)
