@@ -816,6 +816,13 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__DB_ENDPOINT", None)
     monkeysession.setattr(config, "TRACECAT__DB_PORT", None)
     monkeysession.setattr(config, "TRACECAT__DB_NAME", None)
+    # Also clear env vars in case config module gets reloaded
+    monkeysession.delenv("TRACECAT__DB_USER", raising=False)
+    monkeysession.delenv("TRACECAT__DB_PASS", raising=False)
+    monkeysession.delenv("TRACECAT__DB_PASS__ARN", raising=False)
+    monkeysession.delenv("TRACECAT__DB_ENDPOINT", raising=False)
+    monkeysession.delenv("TRACECAT__DB_PORT", raising=False)
+    monkeysession.delenv("TRACECAT__DB_NAME", raising=False)
     monkeysession.setattr(
         config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
     )
@@ -1005,8 +1012,12 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         name="test-workspace",
         organization_id=config.TRACECAT__DEFAULT_ORG_ID,
     )
+    # Add to test session first. With join_transaction_mode="create_savepoint",
+    # this commits a savepoint within the outer transaction.
+    session.add(workspace)
+    await session.commit()
 
-    # Persist the workspace in the default engine used by BaseWorkspaceService
+    # Also persist the workspace in the default engine used by BaseWorkspaceService
     # so services that use `with_session()` (and thus `get_async_session_context_manager`)
     # can see the same workspace and satisfy foreign key constraints.
     async with get_async_session_context_manager() as global_session:
@@ -1028,15 +1039,8 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
             )
             await global_session.commit()
 
-    # Load the committed workspace into the test session so FK constraints are satisfied.
-    # With READ COMMITTED isolation, the test session can see the committed workspace.
-    result = await session.execute(
-        select(Workspace).where(Workspace.id == workspace.id)
-    )
-    session_workspace = result.scalar_one()
-
     try:
-        yield session_workspace
+        yield workspace
     finally:
         logger.debug("Cleaning up test workspace")
         # Clean up workspace from global session (postgres database) first
