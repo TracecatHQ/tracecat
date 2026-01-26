@@ -22,8 +22,7 @@ from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -33,7 +32,6 @@ from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
-    get_async_session_context_manager,
     reset_async_engine,
 )
 from tracecat.db.models import Base, Workspace
@@ -173,7 +171,7 @@ def monkeysession(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True, scope="function")
-async def test_db_engine():
+async def test_db_engine() -> AsyncGenerator[AsyncEngine, None]:
     """Ensure a fresh async engine for each test.
 
     This fixture creates a new engine for each test function and disposes it
@@ -236,6 +234,103 @@ def db() -> Iterator[None]:
             )
         logger.info("Dropped test database")
         default_engine.dispose()
+
+
+# Well-known test workspace ID that's created once per session and reused by all tests
+_TEST_WORKSPACE_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def persistent_workspace(db: None, env_sandbox: None) -> Iterator[Workspace]:
+    """Session-scoped fixture to create a persistent workspace for tests.
+
+    This workspace is committed to the database ONCE at the start of the test session,
+    before any test transactions begin. This ensures all code paths (including direct
+    database calls and cross-process operations) can see the workspace.
+
+    The workspace uses a well-known ID so it can be referenced consistently.
+    """
+    from sqlalchemy.orm import Session
+
+    sync_db_uri = TEST_DB_CONFIG.test_url_sync.replace("+asyncpg", "+psycopg")
+    sync_engine = create_engine(sync_db_uri)
+
+    workspace = Workspace(
+        id=_TEST_WORKSPACE_ID,
+        name="test-workspace",
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+
+    with Session(sync_engine) as session:
+        # First ensure the organization exists (required for FK constraint)
+        session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
+                VALUES (
+                    '00000000-0000-0000-0000-000000000000',
+                    'Default Organization',
+                    'default',
+                    true,
+                    now(),
+                    now()
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+        )
+        session.commit()
+
+        # Check if workspace already exists (shouldn't happen but be safe)
+        existing = session.query(Workspace).filter_by(id=_TEST_WORKSPACE_ID).first()
+        if existing is None:
+            session.add(
+                Workspace(
+                    id=workspace.id,
+                    name=workspace.name,
+                    organization_id=workspace.organization_id,
+                )
+            )
+            session.commit()
+            logger.info("Created persistent test workspace")
+
+        # Pre-create the custom fields schema AND table for the workspace.
+        # This is required because registry_client_off tests create their own
+        # database connections that try to CREATE SCHEMA/TABLE, which would conflict
+        # with locks held by test transactions.
+        # By pre-creating both, tests can skip lock acquisition entirely.
+        # NOTE: Must use the same schema name format as CaseFieldsService:
+        # f"custom_fields_{WorkspaceUUID.new(workspace_id).short()}"
+        from tracecat.identifiers.workflow import WorkspaceUUID
+
+        workspace_uuid = WorkspaceUUID.new(_TEST_WORKSPACE_ID)
+        schema_name = f"custom_fields_{workspace_uuid.short()}"
+        session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
+        # Create the case_fields table that CaseFieldsService expects
+        session.execute(
+            text(f"""
+                CREATE TABLE IF NOT EXISTS {schema_name}.case_fields (
+                    id UUID PRIMARY KEY,
+                    case_id UUID UNIQUE NOT NULL REFERENCES "case"(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+                )
+            """)
+        )
+        session.commit()
+        logger.info(f"Created custom fields schema and table: {schema_name}")
+
+    try:
+        yield workspace
+    finally:
+        # Clean up workspace at end of session
+        with Session(sync_engine) as session:
+            ws = session.query(Workspace).filter_by(id=_TEST_WORKSPACE_ID).first()
+            if ws:
+                session.delete(ws)
+                session.commit()
+                logger.info("Cleaned up persistent test workspace")
+        sync_engine.dispose()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -747,17 +842,22 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
 
 
 @pytest.fixture(scope="function")
-async def session() -> AsyncGenerator[AsyncSession, None]:
+async def session(env_sandbox: None) -> AsyncGenerator[AsyncSession, None]:
     """Creates a new database session joined to an external transaction.
 
     This fixture creates a nested transaction using SAVEPOINT, allowing
     each test to commit/rollback without affecting other tests.
+
+    IMPORTANT: Uses the global engine from get_async_engine() to ensure this session
+    connects to the exact same database as services using get_async_session_context_manager().
+    This is critical for svc_workspace to work correctly - it inserts via the global engine
+    and then reads via this session, which only works if they share the same engine/connection pool.
     """
-    async_engine = create_async_engine(
-        TEST_DB_CONFIG.test_url,
-        isolation_level="SERIALIZABLE",
-        poolclass=NullPool,  # Prevent connection accumulation in parallel tests
-    )
+    # Use the SAME engine instance as the global engine used by services.
+    # This ensures both test code and service code see the same database state.
+    # The engine is already configured with the test database URL by env_sandbox
+    # and reset_async_engine() was called to clear any stale cached engine.
+    async_engine = get_async_engine()
 
     # Connect and begin the outer transaction
     async with async_engine.connect() as connection:
@@ -783,11 +883,8 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
                 await connection.rollback()
             except Exception as e:
                 logger.error(f"Error during session cleanup: {e}")
-            finally:
-                try:
-                    await async_engine.dispose()
-                except Exception as e:
-                    logger.error(f"Error disposing engine: {e}")
+            # Note: We do NOT dispose the engine here since it's the shared global engine.
+            # The test_db_engine fixture handles engine disposal after each test.
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -798,13 +895,28 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
 
     # Use module-level IN_DOCKER detection for host selection
-    db_host = "postgres_db" if IN_DOCKER else "localhost"
     temporal_host = "temporal" if IN_DOCKER else "localhost"
     api_host = "api" if IN_DOCKER else "localhost"
     blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
-    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:{PG_PORT}/postgres"
+    # Use per-worker test database for all global engine sessions.
+    # Clear individual DB component configs to ensure _get_db_uri() uses TRACECAT__DB_URI
+    # instead of constructing a URL from TRACECAT__DB_USER/PASS/ENDPOINT/PORT/NAME.
+    db_uri = TEST_DB_CONFIG.test_url_sync
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
+    monkeysession.setattr(config, "TRACECAT__DB_USER", None)
+    monkeysession.setattr(config, "TRACECAT__DB_PASS", None)
+    monkeysession.setattr(config, "TRACECAT__DB_PASS__ARN", None)
+    monkeysession.setattr(config, "TRACECAT__DB_ENDPOINT", None)
+    monkeysession.setattr(config, "TRACECAT__DB_PORT", None)
+    monkeysession.setattr(config, "TRACECAT__DB_NAME", None)
+    # Also clear env vars in case config module gets reloaded
+    monkeysession.delenv("TRACECAT__DB_USER", raising=False)
+    monkeysession.delenv("TRACECAT__DB_PASS", raising=False)
+    monkeysession.delenv("TRACECAT__DB_PASS__ARN", raising=False)
+    monkeysession.delenv("TRACECAT__DB_ENDPOINT", raising=False)
+    monkeysession.delenv("TRACECAT__DB_PORT", raising=False)
+    monkeysession.delenv("TRACECAT__DB_NAME", raising=False)
     monkeysession.setattr(
         config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
     )
@@ -863,6 +975,24 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_QUEUE", EXECUTOR_TASK_QUEUE)
     monkeysession.setenv("TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
     monkeysession.setattr(config, "TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
+
+    # Patch engine creation so all global sessions enforce timeouts in tests.
+    import tracecat.db.engine as engine_module
+
+    original_create_async_engine = engine_module.create_async_engine
+
+    def _create_async_engine_with_timeouts(*args, **kwargs):
+        connect_args = kwargs.setdefault("connect_args", {})
+        server_settings = connect_args.setdefault("server_settings", {})
+        server_settings.setdefault("statement_timeout", "5min")
+        server_settings.setdefault("lock_timeout", "30s")
+        return original_create_async_engine(*args, **kwargs)
+
+    monkeysession.setattr(
+        engine_module, "create_async_engine", _create_async_engine_with_timeouts
+    )
+    # Ensure any cached async engine is recreated with test DB + timeouts.
+    reset_async_engine()
 
     yield
     logger.info("Environment variables cleaned up")
@@ -970,93 +1100,53 @@ async def db_session_with_repo(test_role):
 
 
 @pytest.fixture
-async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None]:
-    """Service test fixture. Create a function scoped test workspace."""
-    workspace = Workspace(
-        name="test-workspace",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
-    )
-    session.add(workspace)
-    await session.commit()
+async def svc_workspace(
+    session: AsyncSession, persistent_workspace: Workspace
+) -> AsyncGenerator[Workspace, None]:
+    """Service test fixture. Returns a reference to the persistent test workspace.
 
-    # Also persist the workspace in the default engine used by BaseWorkspaceService
-    # so services that use `with_session()` (and thus `get_async_session_context_manager`)
-    # can see the same workspace and satisfy foreign key constraints.
-    async with get_async_session_context_manager() as global_session:
-        # Set timeouts to avoid deadlocks with parallel workers
-        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
-        # Avoid duplicate insert if the workspace already exists
-        result = await global_session.execute(
-            select(Workspace).where(Workspace.id == workspace.id)
-        )
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            global_session.add(
-                Workspace(
-                    id=workspace.id,
-                    name=workspace.name,
-                    organization_id=workspace.organization_id,
-                )
-            )
-            await global_session.commit()
+    This fixture:
+    1. References the session-scoped persistent_workspace (committed to database)
+    2. Loads it into the test session for FK relationships
+    3. Patches get_async_session_context_manager for in-process service calls
+
+    The workspace is committed at session scope, so all code paths can see it:
+    - In-process service calls (via patched get_async_session_context_manager)
+    - Direct database calls (workspace exists in actual database)
+    - Cross-process operations (like Temporal workflows)
+    """
+    import contextlib
+
+    import tracecat.db.engine as engine_module
+
+    # Load the persistent workspace into the test session.
+    # Since it's already committed to the database, this just attaches it to the session.
+    result = await session.execute(
+        select(Workspace).where(Workspace.id == persistent_workspace.id)
+    )
+    session_workspace = result.scalar_one()
+
+    # Create a context manager that yields the test session instead of creating a new one.
+    # This ensures in-process services using with_session() see the same session state.
+    @contextlib.asynccontextmanager
+    async def mock_get_async_session():
+        yield session
+
+    # Patch get_async_session_context_manager to return our mock
+    original_get_async_session_context_manager = (
+        engine_module.get_async_session_context_manager
+    )
+    engine_module.get_async_session_context_manager = mock_get_async_session
 
     try:
-        yield workspace
+        yield session_workspace
     finally:
-        logger.debug("Cleaning up test workspace")
-        # Clean up workspace from global session (postgres database) first
-        try:
-            async with get_async_session_context_manager() as global_cleanup_session:
-                # Set timeouts to avoid deadlocks with parallel workers
-                await global_cleanup_session.execute(
-                    text("SET LOCAL lock_timeout = '5s'")
-                )
-                await global_cleanup_session.execute(
-                    text("SET LOCAL statement_timeout = '30s'")
-                )
-                result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace.id)
-                )
-                global_workspace = result.scalar_one_or_none()
-                if global_workspace:
-                    await global_cleanup_session.delete(global_workspace)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up workspace from global session")
-        except Exception as e:
-            logger.error(f"Error cleaning up workspace from global session: {e}")
-
-        # Clean up workspace from test session
-        try:
-            if session.is_active:
-                # Reset transaction state in case it was aborted
-                try:
-                    # Try to roll back any active transaction first
-                    await session.rollback()
-                    # Then delete and commit in a fresh transaction
-                    await session.delete(workspace)
-                    await session.commit()
-                except Exception as inner_e:
-                    logger.error(f"Failed to clean up in existing session: {inner_e}")
-                    # If that fails, try with a completely new session
-                    await session.close()
-                    async with get_async_session_context_manager() as new_session:
-                        # Set timeouts to avoid deadlocks with parallel workers
-                        await new_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-                        await new_session.execute(
-                            text("SET LOCAL statement_timeout = '30s'")
-                        )
-                        # Fetch the workspace again in the new session by logical ID
-                        result = await new_session.execute(
-                            select(Workspace).where(Workspace.id == workspace.id)
-                        )
-                        db_workspace = result.scalar_one_or_none()
-                        if db_workspace:
-                            await new_session.delete(db_workspace)
-                            await new_session.commit()
-        except Exception as e:
-            # Log the error but don't raise it to prevent test teardown failures
-            logger.error(f"Error during workspace cleanup: {e}")
+        # Restore the original function
+        engine_module.get_async_session_context_manager = (
+            original_get_async_session_context_manager
+        )
+        # No explicit cleanup needed - the session fixture will rollback any changes
+        # made within the test, but the workspace itself persists (session-scoped)
 
 
 @pytest.fixture
