@@ -101,7 +101,11 @@ export function AssignTierDialog({
           </Button>
           <Button
             onClick={handleAssign}
-            disabled={updatePending || selectedTierId === currentTierId}
+            disabled={
+              updatePending ||
+              selectedTierId == null ||
+              selectedTierId === currentTierId
+            }
           >
             {updatePending ? "Assigning..." : "Assign"}
           </Button>
