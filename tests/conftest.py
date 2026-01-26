@@ -1034,12 +1034,14 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
             )
             await global_session.commit()
 
-    # With READ COMMITTED isolation, the test session can see the committed workspace.
-    # Load it into the test session for FK constraint satisfaction.
-    result = await session.execute(
-        select(Workspace).where(Workspace.id == workspace.id)
-    )
-    session_workspace = result.scalar_one()
+    # Merge the workspace into the test session. This is more reliable than SELECT
+    # because it doesn't depend on the test session seeing the global commit immediately.
+    # merge() will either:
+    # 1. Return an existing instance from the session if present
+    # 2. Load from database if visible
+    # 3. Create a new pending instance from the given object if not visible
+    # In all cases, the test session can use the workspace for FK relationships.
+    session_workspace = await session.merge(workspace)
 
     try:
         yield session_workspace
