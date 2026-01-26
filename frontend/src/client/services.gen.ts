@@ -2989,7 +2989,7 @@ export const organizationRevokeInvitation = (
  * Accept an invitation and join the organization.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns string Successful Response
  * @throws ApiError
  */
 export const organizationAcceptInvitation = (
@@ -3008,10 +3008,12 @@ export const organizationAcceptInvitation = (
 
 /**
  * Get Invitation By Token
- * Get invitation details by token (public endpoint for UI).
+ * Get minimal invitation details by token (public endpoint for UI).
+ *
+ * Returns only essential fields to reduce information disclosure.
  * @param data The data for the request.
  * @param data.token
- * @returns OrgInvitationRead Successful Response
+ * @returns OrgInvitationReadMinimal Successful Response
  * @throws ApiError
  */
 export const organizationGetInvitationByToken = (

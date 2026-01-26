@@ -1,3 +1,4 @@
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -18,6 +19,7 @@ from tracecat.organization.schemas import (
     OrgInvitationAccept,
     OrgInvitationCreate,
     OrgInvitationRead,
+    OrgInvitationReadMinimal,
     OrgMemberRead,
     OrgRead,
 )
@@ -25,26 +27,41 @@ from tracecat.organization.service import OrgService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 
+# RoleACL() returns a Depends object, so no need to wrap with Depends()
+OrgUserRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+]
+
+OrgAdminRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+]
+
 
 @router.get("", response_model=OrgRead, include_in_schema=False)
 async def get_organization(
     *,
-    role: Role = RoleACL(allow_user=True, allow_service=False, require_workspace="no"),
-):
+    role: OrgUserRole,
+) -> OrgRead:
     raise NotImplementedError
 
 
 @router.get("/members", response_model=list[OrgMemberRead])
 async def list_org_members(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
-):
+) -> list[OrgMemberRead]:
     service = OrgService(session, role=role)
     members = await service.list_members()
     return [
@@ -66,15 +83,10 @@ async def list_org_members(
 @router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_org_member(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
     user_id: UserID,
-):
+) -> None:
     service = OrgService(session, role=role)
     try:
         await service.delete_member(user_id)
@@ -96,16 +108,11 @@ async def delete_org_member(
 @router.patch("/members/{user_id}", response_model=OrgMemberRead)
 async def update_org_member(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
     user_id: UserID,
     params: UserUpdate,
-):
+) -> OrgMemberRead:
     service = OrgService(session, role=role)
     try:
         user = await service.update_member(user_id, params)
@@ -133,14 +140,9 @@ async def update_org_member(
 @router.get("/sessions", response_model=list[SessionRead])
 async def list_sessions(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
-):
+) -> list[SessionRead]:
     service = OrgService(session, role=role)
     return await service.list_sessions()
 
@@ -148,15 +150,10 @@ async def list_sessions(
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
     session_id: SessionID,
-):
+) -> None:
     service = OrgService(session, role=role)
     try:
         await service.delete_session(session_id)
@@ -176,15 +173,10 @@ async def delete_session(
 )
 async def create_invitation(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
     params: OrgInvitationCreate,
-):
+) -> OrgInvitationRead:
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
     try:
@@ -220,15 +212,10 @@ async def create_invitation(
 @router.get("/invitations", response_model=list[OrgInvitationRead])
 async def list_invitations(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
     invitation_status: InvitationStatus | None = Query(None, alias="status"),
-):
+) -> list[OrgInvitationRead]:
     """List invitations for the organization."""
     service = OrgService(session, role=role)
     invitations = await service.list_invitations(status=invitation_status)
@@ -251,15 +238,10 @@ async def list_invitations(
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invitation(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
+    role: OrgAdminRole,
     session: AsyncDBSession,
     invitation_id: UUID,
-):
+) -> None:
     """Revoke a pending invitation."""
     service = OrgService(session, role=role)
     try:
@@ -277,14 +259,10 @@ async def revoke_invitation(
 @router.post("/invitations/accept")
 async def accept_invitation(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: OrgInvitationAccept,
-):
+) -> dict[str, str]:
     """Accept an invitation and join the organization."""
     service = OrgService(session, role=role)
     try:
@@ -303,13 +281,16 @@ async def accept_invitation(
         ) from e
 
 
-@router.get("/invitations/token/{token}", response_model=OrgInvitationRead)
+@router.get("/invitations/token/{token}", response_model=OrgInvitationReadMinimal)
 async def get_invitation_by_token(
     *,
     session: AsyncDBSession,
     token: str,
-):
-    """Get invitation details by token (public endpoint for UI)."""
+) -> OrgInvitationReadMinimal:
+    """Get minimal invitation details by token (public endpoint for UI).
+
+    Returns only essential fields to reduce information disclosure.
+    """
     # Create a minimal role for unauthenticated access
     role = Role(
         type="service",
@@ -319,16 +300,11 @@ async def get_invitation_by_token(
     service = OrgService(session, role=role)
     try:
         invitation = await service.get_invitation_by_token(token)
-        return OrgInvitationRead(
-            id=invitation.id,
+        return OrgInvitationReadMinimal(
             organization_id=invitation.organization_id,
-            email=invitation.email,
             role=invitation.role,
             status=invitation.status,
-            invited_by=invitation.invited_by,
             expires_at=invitation.expires_at,
-            created_at=invitation.created_at,
-            accepted_at=invitation.accepted_at,
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

@@ -55,6 +55,19 @@ class OrgInvitationRead(BaseModel):
     accepted_at: datetime | None
 
 
+class OrgInvitationReadMinimal(BaseModel):
+    """Minimal response for public token-based invitation lookup.
+
+    Excludes sensitive fields like email, invited_by, and timestamps
+    to reduce information disclosure when querying by token.
+    """
+
+    organization_id: OrganizationID
+    role: OrgRole
+    status: InvitationStatus
+    expires_at: datetime
+
+
 class OrgInvitationAccept(BaseModel):
     """Request body for accepting an organization invitation via token."""
 
