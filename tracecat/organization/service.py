@@ -273,7 +273,7 @@ class OrgService(BaseOrgService):
             .join(User, OrganizationMembership.user_id == User.id)
             .where(
                 OrganizationMembership.organization_id == self.organization_id,
-                User.email == email,
+                User.email == email,  # pyright: ignore[reportArgumentType]
             )
         )
         existing_member_result = await self.session.execute(existing_member_stmt)
@@ -413,7 +413,7 @@ class OrgService(BaseOrgService):
 
         # Verify user's email matches invitation email
         user_result = await self.session.execute(
-            select(User).where(User.id == self.role.user_id)
+            select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
         )
         user = user_result.scalar_one_or_none()
         if user is None:
