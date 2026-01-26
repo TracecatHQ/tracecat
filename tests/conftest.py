@@ -752,10 +752,13 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
     This fixture creates a nested transaction using SAVEPOINT, allowing
     each test to commit/rollback without affecting other tests.
+
+    Uses READ COMMITTED isolation to allow parallel tests to see committed
+    workspace data without lock contention that SERIALIZABLE would cause.
     """
     async_engine = create_async_engine(
         TEST_DB_CONFIG.test_url,
-        isolation_level="SERIALIZABLE",
+        isolation_level="READ COMMITTED",
         poolclass=NullPool,  # Prevent connection accumulation in parallel tests
     )
 
@@ -994,11 +997,8 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         name="test-workspace",
         organization_id=config.TRACECAT__DEFAULT_ORG_ID,
     )
-    # Add to test session first (inside its SERIALIZABLE transaction)
-    session.add(workspace)
-    await session.commit()
 
-    # Also persist the workspace in the default engine used by BaseWorkspaceService
+    # Persist the workspace in the default engine used by BaseWorkspaceService
     # so services that use `with_session()` (and thus `get_async_session_context_manager`)
     # can see the same workspace and satisfy foreign key constraints.
     async with get_async_session_context_manager() as global_session:
@@ -1020,8 +1020,15 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
             )
             await global_session.commit()
 
+    # Load the committed workspace into the test session so FK constraints are satisfied.
+    # With READ COMMITTED isolation, the test session can see the committed workspace.
+    result = await session.execute(
+        select(Workspace).where(Workspace.id == workspace.id)
+    )
+    session_workspace = result.scalar_one()
+
     try:
-        yield workspace
+        yield session_workspace
     finally:
         logger.debug("Cleaning up test workspace")
         # Clean up workspace from global session (postgres database) first
