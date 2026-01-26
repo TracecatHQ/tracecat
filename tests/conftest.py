@@ -294,6 +294,16 @@ def persistent_workspace(db: None, env_sandbox: None) -> Iterator[Workspace]:
             session.commit()
             logger.info("Created persistent test workspace")
 
+        # Pre-create the custom fields schema for the workspace.
+        # This is required because registry_client_off tests create their own
+        # database connections that try to CREATE SCHEMA, which would conflict
+        # with locks held by test transactions.
+        workspace_id_str = str(_TEST_WORKSPACE_ID).replace("-", "")
+        schema_name = f"custom_fields_ws_{workspace_id_str}"
+        session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
+        session.commit()
+        logger.info(f"Created custom fields schema: {schema_name}")
+
     try:
         yield workspace
     finally:
