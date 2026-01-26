@@ -6,6 +6,13 @@ import { casesDeleteField } from "@/client"
 import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useCaseFields } from "@/lib/hooks"
@@ -93,19 +100,17 @@ export function CustomFieldsView() {
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
         {caseFields.filter((field) => !field.reserved).length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
-            <div className="rounded-full bg-muted p-3">
-              <DatabaseIcon className="size-8 text-muted-foreground" />
-            </div>
-            <div className="space-y-1 text-center">
-              <h4 className="text-sm font-semibold text-muted-foreground">
-                No custom fields defined yet
-              </h4>
-              <p className="text-xs text-muted-foreground">
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <DatabaseIcon className="size-6" />
+              </EmptyMedia>
+              <EmptyTitle>No custom fields defined yet</EmptyTitle>
+              <EmptyDescription>
                 Add your first custom field using the button in the header
-              </p>
-            </div>
-          </div>
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="space-y-4">
             <CustomFieldsTable

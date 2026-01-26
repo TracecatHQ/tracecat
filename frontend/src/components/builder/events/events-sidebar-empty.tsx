@@ -1,5 +1,13 @@
 import { type LucideIcon, Plus, WorkflowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
 export interface EventsSidebarEmptyProps
@@ -20,27 +28,17 @@ export function EventsSidebarEmpty({
   className,
   ...props
 }: EventsSidebarEmptyProps) {
-  if (typeof description === "string") {
-    description = <p className="text-xs text-muted-foreground">{description}</p>
-  }
   return (
-    <div
-      id="outer"
-      className={cn(
-        "flex size-full flex-col items-center justify-center",
-        className
-      )}
-      {...props}
-    >
-      <div className="flex flex-col items-center gap-4 p-6 text-center">
-        <div className="rounded-full bg-muted p-3">
-          {Icon && <Icon className="size-6 text-muted-foreground" />}
-        </div>
-        <div className="space-y-1">
-          <h4 className="text-sm font-semibold">{title}</h4>
-          {description}
-        </div>
-        {action && (
+    <Empty className={cn("size-full", className)} {...props}>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          {Icon && <Icon className="size-6" />}
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+      {action && (
+        <EmptyContent>
           <Button
             variant="outline"
             size="sm"
@@ -50,8 +48,8 @@ export function EventsSidebarEmpty({
             <Plus className="size-4" />
             {actionLabel}
           </Button>
-        )}
-      </div>
-    </div>
+        </EmptyContent>
+      )}
+    </Empty>
   )
 }

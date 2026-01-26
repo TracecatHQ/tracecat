@@ -217,10 +217,15 @@ class CasesService(BaseWorkspaceService):
 
             # Use SQLAlchemy's concat function for proper parameter binding
             search_pattern = func.concat("%", search_term, "%")
+            # Build short_id expression in SQL: 'CASE-' + lpad(case_number, 4, '0')
+            short_id_expr = func.concat(
+                "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
+            )
             filters.append(
                 or_(
                     Case.summary.ilike(search_pattern),
                     Case.description.ilike(search_pattern),
+                    short_id_expr.ilike(search_pattern),
                 )
             )
 
@@ -500,7 +505,7 @@ class CasesService(BaseWorkspaceService):
         """Search cases based on various criteria.
 
         Args:
-            search_term: Text to search for in case summary and description
+            search_term: Text to search for in case summary, description, or short ID
             status: Filter by case status
             priority: Filter by case priority
             severity: Filter by case severity
@@ -532,10 +537,15 @@ class CasesService(BaseWorkspaceService):
 
             # Use SQLAlchemy's concat function for proper parameter binding
             search_pattern = func.concat("%", search_term, "%")
+            # Build short_id expression in SQL: 'CASE-' + lpad(case_number, 4, '0')
+            short_id_expr = func.concat(
+                "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
+            )
             statement = statement.where(
                 or_(
                     Case.summary.ilike(search_pattern),
                     Case.description.ilike(search_pattern),
+                    short_id_expr.ilike(search_pattern),
                 )
             )
 

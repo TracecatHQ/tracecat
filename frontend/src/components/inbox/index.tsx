@@ -7,7 +7,6 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import type { DateFilterValue, UseInboxFilters } from "@/hooks/use-inbox"
 import type { AgentSessionWithStatus } from "@/lib/agents"
 import { ActivityAccordion } from "./activity-accordion"
-import { InboxEmptyState } from "./inbox-empty-state"
 import { InboxHeader } from "./inbox-header"
 
 interface ActivityLayoutProps {
@@ -102,28 +101,6 @@ export function ActivityLayout({
     )
   }
 
-  if (sessions.length === 0) {
-    return (
-      <div className="flex size-full flex-col">
-        <InboxHeader
-          searchQuery={filters.searchQuery}
-          onSearchChange={onSearchChange}
-          entityType={filters.entityType}
-          onEntityTypeChange={onEntityTypeChange}
-          limit={filters.limit}
-          onLimitChange={onLimitChange}
-          updatedAfter={filters.updatedAfter}
-          onUpdatedAfterChange={onUpdatedAfterChange}
-          createdAfter={filters.createdAfter}
-          onCreatedAfterChange={onCreatedAfterChange}
-        />
-        <div className="flex-1">
-          <InboxEmptyState />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex size-full flex-col">
       <InboxHeader
@@ -148,6 +125,3 @@ export function ActivityLayout({
     </div>
   )
 }
-
-// Re-export for backward compatibility
-export { InboxEmptyState } from "./inbox-empty-state"

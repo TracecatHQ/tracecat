@@ -23,7 +23,6 @@ import type {
   SqlType,
   UserRead,
 } from "@/client"
-import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CaseWorkflowTriggerButton } from "@/components/cases/case-panel-common"
@@ -38,6 +37,7 @@ import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
+import { CaseFeed } from "@/components/cases/cases-feed"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
@@ -1012,10 +1012,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   </TabsContent>
 
                   <TabsContent value="activity" className="mt-4">
-                    <CaseActivityFeed
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                    />
+                    <CaseFeed caseId={caseId} workspaceId={workspaceId} />
                   </TabsContent>
 
                   <TabsContent value="attachments" className="mt-4">

@@ -29,6 +29,7 @@ export function DeleteCaseAlertDialog({
 
   return (
     <AlertDialog
+      open={selectedCase !== null}
       onOpenChange={(isOpen) => {
         if (!isOpen) {
           setSelectedCase(null)

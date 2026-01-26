@@ -1,8 +1,10 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   ClockPlus,
   FileUpIcon,
@@ -14,15 +16,17 @@ import {
   Plus,
   Search,
   Sparkles,
+  TagsIcon,
   Trash2,
   User,
   X,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { Fragment, type ReactNode, useState } from "react"
-import type { CaseStatus, OAuthGrantType } from "@/client"
+import { Fragment, type ReactNode, useCallback, useState } from "react"
+import { type CaseStatus, casesAddTag, type OAuthGrantType } from "@/client"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
+import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import {
   PRIORITIES,
@@ -81,6 +85,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
@@ -95,6 +100,7 @@ import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import {
+  useCaseTagCatalog,
   useGetCase,
   useGetTable,
   useIntegrationProvider,
@@ -329,7 +335,6 @@ function AgentsActions() {
 
 function CasesActions() {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -337,18 +342,14 @@ function CasesActions() {
     ? CasesViewMode.CustomFields
     : pathname?.includes("/cases/durations")
       ? CasesViewMode.Durations
-      : searchParams?.get("view") === CasesViewMode.Tags
+      : pathname?.includes("/cases/tags")
         ? CasesViewMode.Tags
         : CasesViewMode.Cases
 
   const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
-  const tagsHref = (() => {
-    if (!workspaceId || !casesHref) return undefined
-    const params = new URLSearchParams(searchParams?.toString())
-    params.set("view", CasesViewMode.Tags)
-    const queryString = params.toString()
-    return queryString ? `${casesHref}?${queryString}` : casesHref
-  })()
+  const tagsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/tags`
+    : undefined
   const customFieldsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/custom-fields`
     : undefined
@@ -369,6 +370,8 @@ function CasesActions() {
         <AddCustomField />
       ) : view === CasesViewMode.Durations ? (
         <AddCaseDuration />
+      ) : view === CasesViewMode.Tags ? (
+        <AddCaseTag />
       ) : (
         <>
           <Button
@@ -390,6 +393,7 @@ function CasesActions() {
 function CasesSelectionActionsBar() {
   const {
     selectedCount,
+    selectedCaseIds,
     clearSelection,
     deleteSelected,
     bulkUpdateSelectedCases,
@@ -397,8 +401,73 @@ function CasesSelectionActionsBar() {
     isUpdating,
   } = useCaseSelection()
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set())
+  const [isApplyingTags, setIsApplyingTags] = useState(false)
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
   const { members, membersLoading } = useWorkspaceMembers(workspaceId)
+  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
+
+  // All callbacks must be defined before any early returns to satisfy React's rules of hooks
+  const handleToggleTagSelection = useCallback((tagId: string) => {
+    setSelectedTagIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(tagId)) {
+        next.delete(tagId)
+      } else {
+        next.add(tagId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleApplyTags = useCallback(async () => {
+    if (selectedTagIds.size === 0 || selectedCaseIds.length === 0) {
+      return
+    }
+
+    setIsApplyingTags(true)
+    try {
+      // Apply each selected tag to each selected case
+      const promises = selectedCaseIds.flatMap((caseId) =>
+        Array.from(selectedTagIds).map((tagId) =>
+          casesAddTag({
+            caseId,
+            workspaceId,
+            requestBody: { tag_id: tagId },
+          })
+        )
+      )
+
+      await Promise.all(promises)
+
+      // Invalidate queries to refresh the data
+      await queryClient.invalidateQueries({ queryKey: ["cases"] })
+
+      const tagNames = caseTags
+        ?.filter((t) => selectedTagIds.has(t.id))
+        .map((t) => t.name)
+        .join(", ")
+
+      const caseCount = selectedCaseIds.length
+      toast({
+        title: "Tags applied",
+        description: `Applied ${selectedTagIds.size} tag${selectedTagIds.size === 1 ? "" : "s"} (${tagNames}) to ${caseCount} case${caseCount === 1 ? "" : "s"}.`,
+      })
+
+      // Clear selection after applying
+      setSelectedTagIds(new Set())
+    } catch (error) {
+      console.error("Failed to apply tags:", error)
+      toast({
+        title: "Error",
+        description: "Failed to apply some tags. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsApplyingTags(false)
+    }
+  }, [selectedTagIds, selectedCaseIds, workspaceId, queryClient, caseTags])
 
   const statusOptions = Object.values(STATUSES)
   const priorityOptions = Object.values(PRIORITIES)
@@ -422,9 +491,10 @@ function CasesSelectionActionsBar() {
     return null
   }
 
-  const isBusy = Boolean(isDeleting) || Boolean(isUpdating)
+  const isBusy = Boolean(isDeleting) || Boolean(isUpdating) || isApplyingTags
   const canUpdate = Boolean(bulkUpdateSelectedCases) && !isBusy
   const pluralisedCases = `${selectedCount} case${selectedCount === 1 ? "" : "s"}`
+  const canApplyTags = !isBusy && caseTags && caseTags.length > 0
 
   const handleClearSelection = () => {
     if (isBusy) {
@@ -630,6 +700,91 @@ function CasesSelectionActionsBar() {
                       {assignee.label}
                     </DropdownMenuItem>
                   ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={!canApplyTags}>
+                <span className="flex items-center gap-2">
+                  <TagsIcon
+                    className="size-3 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <span>Apply tags</span>
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-56">
+                {caseTagsIsLoading && (
+                  <DropdownMenuItem disabled>
+                    <Spinner className="mr-2 size-3" /> Loading tags...
+                  </DropdownMenuItem>
+                )}
+                {!caseTagsIsLoading && (!caseTags || caseTags.length === 0) && (
+                  <DropdownMenuItem disabled>
+                    No tags available
+                  </DropdownMenuItem>
+                )}
+                {!caseTagsIsLoading && caseTags && caseTags.length > 0 && (
+                  <>
+                    <div className="max-h-48 overflow-y-auto">
+                      {caseTags.map((tag) => {
+                        const isSelected = selectedTagIds.has(tag.id)
+                        return (
+                          <DropdownMenuItem
+                            key={tag.id}
+                            disabled={isBusy}
+                            className="flex items-center gap-2"
+                            onSelect={(e) => {
+                              e.preventDefault()
+                              handleToggleTagSelection(tag.id)
+                            }}
+                          >
+                            <div
+                              className={cn(
+                                "flex size-4 shrink-0 items-center justify-center rounded-sm border",
+                                isSelected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-muted-foreground/40"
+                              )}
+                            >
+                              {isSelected && (
+                                <Check className="size-3" aria-hidden />
+                              )}
+                            </div>
+                            <div
+                              className="size-2 shrink-0 rounded-full"
+                              style={{
+                                backgroundColor: tag.color || undefined,
+                              }}
+                            />
+                            <span className="truncate">{tag.name}</span>
+                          </DropdownMenuItem>
+                        )
+                      })}
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={selectedTagIds.size === 0 || isBusy}
+                      className="justify-center font-medium"
+                      onSelect={async (e) => {
+                        e.preventDefault()
+                        await handleApplyTags()
+                      }}
+                    >
+                      {isApplyingTags ? (
+                        <>
+                          <Spinner className="mr-2 size-3" />
+                          Applying...
+                        </>
+                      ) : (
+                        <>
+                          Apply{" "}
+                          {selectedTagIds.size > 0 &&
+                            `(${selectedTagIds.size})`}
+                        </>
+                      )}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
@@ -1020,7 +1175,8 @@ function getPageConfig(
   if (pagePath.startsWith("/cases")) {
     if (
       pagePath === "/cases/custom-fields" ||
-      pagePath === "/cases/durations"
+      pagePath === "/cases/durations" ||
+      pagePath === "/cases/tags"
     ) {
       return {
         title: "Cases",
@@ -1144,11 +1300,13 @@ export function ControlsHeader({
   }
 
   // Check if this is a case detail page to show timestamp
+  // Only apply background for case detail pages with status tints.
+  // Non-case pages should be transparent to avoid painting over SidebarInset's rounded corners.
   const headerBackgroundClass = caseId
     ? caseData?.status
       ? CASE_STATUS_TINTS[caseData.status]
       : "bg-muted/5 dark:bg-muted/[0.12]"
-    : "bg-background"
+    : ""
 
   const titleContent =
     typeof pageConfig.title === "string" ? (

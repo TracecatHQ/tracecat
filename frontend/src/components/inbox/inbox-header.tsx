@@ -123,7 +123,7 @@ export function InboxHeader({
               <FilterIcon className="size-3.5" />
               <span>Filter</span>
               {activeFilterCount > 0 && (
-                <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
                   {activeFilterCount}
                 </span>
               )}

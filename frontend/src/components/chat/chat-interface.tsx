@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, MessageSquare, Plus } from "lucide-react"
+import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type {
@@ -25,14 +25,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import {
   Tooltip,
   TooltipContent,
@@ -70,6 +62,7 @@ export function ChatInterface({
     chatId
   )
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
+  const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
@@ -108,14 +101,49 @@ export function ChatInterface({
     enabled: presetsEnabled,
   })
 
-  // Set the first chat as selected when chats are loaded and no chat is selected
   useEffect(() => {
-    if (chats && chats.length > 0 && !selectedChatId) {
+    setAutoCreateAttempted(false)
+  }, [entityType, entityId])
+
+  // Auto-select first chat or auto-create if none exists.
+  // IMPORTANT: Do NOT add an empty state here. Always go straight to chat -
+  // if no chat exists, create one automatically. This provides a better UX
+  // by eliminating an extra click to start chatting.
+  useEffect(() => {
+    if (!chats || chatsLoading || createChatPending) return
+
+    if (chats.length > 0 && !selectedChatId) {
+      // Select first existing chat
       const firstChatId = chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
+    } else if (chats.length === 0 && !selectedChatId && !autoCreateAttempted) {
+      // Auto-create a chat session immediately
+      setAutoCreateAttempted(true)
+      createChat({
+        title: "Chat 1",
+        entity_type: entityType,
+        entity_id: entityId,
+      })
+        .then((newChat) => {
+          setSelectedChatId(newChat.id)
+          onChatSelect?.(newChat.id)
+        })
+        .catch((error) => {
+          console.error("Failed to auto-create chat:", error)
+        })
     }
-  }, [chats, selectedChatId, onChatSelect])
+  }, [
+    chats,
+    chatsLoading,
+    selectedChatId,
+    onChatSelect,
+    createChat,
+    createChatPending,
+    entityType,
+    entityId,
+    autoCreateAttempted,
+  ])
 
   const handleCreateChat = async () => {
     setNewChatDialogOpen(false)
@@ -137,26 +165,11 @@ export function ChatInterface({
     onChatSelect?.(chatId)
   }
 
-  // Show empty state if no chats exist
-  if (chats && chats.length === 0) {
+  // Show loading while chats are loading or being auto-created
+  if (chatsLoading || (chats && chats.length === 0 && createChatPending)) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <MessageSquare />
-            </EmptyMedia>
-            <EmptyTitle>AI {entityType} chat</EmptyTitle>
-            <EmptyDescription>
-              Start a chat session with the {entityType} copilot.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button onClick={handleCreateChat} disabled={createChatPending}>
-              Start {entityType} chat
-            </Button>
-          </EmptyContent>
-        </Empty>
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
       </div>
     )
   }

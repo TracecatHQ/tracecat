@@ -150,8 +150,8 @@ export function ActivityAccordion({
                     <StatusIcon
                       className={cn("size-4 shrink-0", config.iconColor)}
                     />
-                    <span className="text-sm font-medium">{config.label}</span>
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-xs font-medium">{config.label}</span>
+                    <span className="text-xs text-muted-foreground">
                       {groupSessions.length}
                     </span>
                   </div>
