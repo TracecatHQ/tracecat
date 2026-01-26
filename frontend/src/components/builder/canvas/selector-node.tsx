@@ -477,22 +477,20 @@ function ActionCommandGroup({
           return (
             <CommandItem
               key={action.action}
-              className="text-xs"
+              className="flex items-center gap-3 py-2 text-xs"
               onSelect={async () => await handleSelect(action)}
             >
-              <div className="flex-col">
-                <div className="flex items-center justify-start">
-                  {getIcon(action.action, {
-                    className: "size-5 mr-2",
-                  })}
-                  <span className="text-xs">
-                    <HighlightedText
-                      result={titleResult}
-                      text={action.default_title ?? action.action}
-                    />
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">
+              {getIcon(action.action, {
+                className: "size-8 rounded-md border bg-muted/30 p-1.5",
+              })}
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-xs font-medium">
+                  <HighlightedText
+                    result={titleResult}
+                    text={action.default_title ?? action.action}
+                  />
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
                   <HighlightedText result={actionResult} text={action.action} />
                 </span>
               </div>
@@ -502,17 +500,17 @@ function ActionCommandGroup({
           return (
             <CommandItem
               key={action.action}
-              className="text-xs"
+              className="flex items-center gap-3 py-2 text-xs"
               onSelect={async () => await handleSelect(action)}
             >
-              <div className="flex-col">
-                <div className="flex items-center justify-start">
-                  {getIcon(action.action, {
-                    className: "size-5 mr-2",
-                  })}
-                  <span className="text-xs">{action.default_title}</span>
-                </div>
-                <span className="text-xs text-muted-foreground">
+              {getIcon(action.action, {
+                className: "size-8 rounded-md border bg-muted/30 p-1.5",
+              })}
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-xs font-medium">
+                  {action.default_title}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
                   {action.action}
                 </span>
               </div>
