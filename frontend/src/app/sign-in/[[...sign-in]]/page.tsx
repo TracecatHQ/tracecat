@@ -1,20 +1,24 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Suspense, useEffect } from "react"
 import { SignIn } from "@/components/auth/sign-in"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
 
-export default function Page() {
+function SignInContent() {
   const { user, userIsLoading } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnUrl = searchParams.get("returnUrl")
 
   useEffect(() => {
     if (user) {
-      router.push("/workspaces")
+      // Redirect to returnUrl if provided, otherwise to workspaces
+      const redirectTo = returnUrl || "/workspaces"
+      router.push(redirectTo)
     }
-  }, [user, router])
+  }, [user, router, returnUrl])
 
   if (userIsLoading || user) {
     return <CenteredSpinner />
@@ -24,5 +28,13 @@ export default function Page() {
     <div className="flex size-full items-center justify-center">
       <SignIn className="flex size-16 w-full justify-center" />
     </div>
+  )
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<CenteredSpinner />}>
+      <SignInContent />
+    </Suspense>
   )
 }

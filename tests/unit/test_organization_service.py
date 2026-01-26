@@ -797,6 +797,47 @@ class TestOrganizationServiceInvitations:
         assert retrieved.email == invitation.email
 
     @pytest.mark.anyio
+    async def test_get_invitation_by_token_returns_org_and_inviter_info(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test get_invitation_by_token returns org name and inviter info for acceptance page."""
+        # Set inviter's name for test
+        admin_in_org1.first_name = "John"
+        admin_in_org1.last_name = "Doe"
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(email="test@example.com")
+
+        # Get invitation by token
+        retrieved = await service.get_invitation_by_token(invitation.token)
+
+        # Verify organization info is available
+        assert retrieved.organization_id == org1.id
+
+        # Fetch org to verify name can be resolved
+        result = await session.execute(
+            select(Organization).where(Organization.id == retrieved.organization_id)
+        )
+        org = result.scalar_one()
+        assert org.name == "Test Organization 1"
+
+        # Verify inviter info is available
+        assert retrieved.invited_by == admin_in_org1.id
+        result = await session.execute(
+            select(User).where(User.id == retrieved.invited_by)
+        )
+        inviter = result.scalar_one()
+        assert inviter.first_name == "John"
+        assert inviter.last_name == "Doe"
+        assert inviter.email == admin_in_org1.email
+
+    @pytest.mark.anyio
     async def test_get_invitation_by_token_not_found(
         self,
         session: AsyncSession,

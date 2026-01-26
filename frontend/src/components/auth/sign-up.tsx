@@ -53,14 +53,20 @@ function isEmailLoginValidationError(
   )
 }
 
-export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
+interface SignUpProps extends React.HTMLProps<HTMLDivElement> {
+  returnUrl?: string | null
+}
+
+export function SignUp({ className, returnUrl }: SignUpProps) {
   const { user } = useAuth()
   const router = useRouter()
   useEffect(() => {
     if (user) {
-      router.push("/workspaces")
+      // Redirect to returnUrl if provided, otherwise to workspaces
+      const redirectTo = returnUrl || "/workspaces"
+      router.push(redirectTo)
     }
-  }, [user, router])
+  }, [user, router, returnUrl])
 
   return (
     <div
@@ -83,7 +89,14 @@ export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/sign-in" className="underline">
+            <Link
+              href={
+                returnUrl
+                  ? `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`
+                  : "/sign-in"
+              }
+              className="underline"
+            >
               Sign in
             </Link>
           </div>

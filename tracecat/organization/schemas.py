@@ -58,11 +58,14 @@ class OrgInvitationRead(BaseModel):
 class OrgInvitationReadMinimal(BaseModel):
     """Minimal response for public token-based invitation lookup.
 
-    Excludes sensitive fields like email, invited_by, and timestamps
+    Excludes sensitive fields like email, invited_by ID, and timestamps
     to reduce information disclosure when querying by token.
     """
 
     organization_id: OrganizationID
+    organization_name: str
+    inviter_name: str | None
+    inviter_email: str | None
     role: OrgRole
     status: InvitationStatus
     expires_at: datetime

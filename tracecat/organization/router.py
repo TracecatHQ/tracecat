@@ -2,12 +2,14 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Organization, User
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -287,7 +289,7 @@ async def get_invitation_by_token(
 ) -> OrgInvitationReadMinimal:
     """Get minimal invitation details by token (public endpoint for UI).
 
-    Returns only essential fields to reduce information disclosure.
+    Returns organization name and inviter info for the acceptance page.
     """
     # Create a minimal role for unauthenticated access
     role = Role(
@@ -298,8 +300,35 @@ async def get_invitation_by_token(
     service = OrgService(session, role=role)
     try:
         invitation = await service.get_invitation_by_token(token)
+
+        # Fetch organization name
+        org_result = await session.execute(
+            select(Organization).where(Organization.id == invitation.organization_id)
+        )
+        org = org_result.scalar_one()
+
+        # Fetch inviter info if available
+        inviter_name: str | None = None
+        inviter_email: str | None = None
+        if invitation.invited_by:
+            inviter_result = await session.execute(
+                select(User).where(User.id == invitation.invited_by)
+            )
+            inviter = inviter_result.scalar_one_or_none()
+            if inviter:
+                # Build display name from first/last name or fall back to email
+                if inviter.first_name or inviter.last_name:
+                    name_parts = [inviter.first_name, inviter.last_name]
+                    inviter_name = " ".join(p for p in name_parts if p)
+                else:
+                    inviter_name = inviter.email
+                inviter_email = inviter.email
+
         return OrgInvitationReadMinimal(
             organization_id=invitation.organization_id,
+            organization_name=org.name,
+            inviter_name=inviter_name,
+            inviter_email=inviter_email,
             role=invitation.role,
             status=invitation.status,
             expires_at=invitation.expires_at,
