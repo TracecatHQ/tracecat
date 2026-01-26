@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 import pytest
 import respx
-import sqlalchemy as sa
 from httpx import Response
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,11 +69,6 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.models import User, Workspace
 
-# Advisory lock ID for serializing case_fields schema creation in tests.
-# This prevents deadlocks when concurrent tests create workspace-scoped tables
-# with FK constraints to the same parent table.
-_CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
-
 
 @pytest.fixture
 async def cases_test_role(svc_workspace: Workspace) -> Role:
@@ -102,20 +96,14 @@ async def cases_ctx(
 ):
     """Set up the ctx_role and registry context for case UDF tests.
 
-    Also pre-initializes the case_fields workspace schema with an advisory lock
-    to prevent deadlocks when multiple tests run concurrently. The deadlock occurs
-    because CREATE TABLE with FK constraints acquires ShareRowExclusiveLock on
-    the referenced table, and concurrent schema creations can deadlock.
+    The case_fields schema and table are pre-created by the persistent_workspace
+    fixture at session scope to avoid lock contention when running tests in parallel.
+    This fixture just ensures the schema is marked as ready for the service instance.
     """
-    # Acquire advisory lock to serialize schema creation across concurrent tests
-    await session.execute(
-        sa.text(f"SELECT pg_advisory_xact_lock({_CASE_FIELDS_SCHEMA_LOCK_ID})")
-    )
-
-    # Pre-initialize the case_fields schema while holding the lock
+    # Use _ensure_schema_ready() which checks if schema/table exist first.
+    # Since persistent_workspace pre-creates them, this will skip lock acquisition.
     fields_service = CaseFieldsService(session=session, role=cases_test_role)
-    await fields_service.initialize_workspace_schema()
-    await session.commit()
+    await fields_service._ensure_schema_ready()
 
     # Set up registry context for SDK access within UDFs
     registry_ctx = RegistryContext(

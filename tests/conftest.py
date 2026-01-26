@@ -294,15 +294,31 @@ def persistent_workspace(db: None, env_sandbox: None) -> Iterator[Workspace]:
             session.commit()
             logger.info("Created persistent test workspace")
 
-        # Pre-create the custom fields schema for the workspace.
+        # Pre-create the custom fields schema AND table for the workspace.
         # This is required because registry_client_off tests create their own
-        # database connections that try to CREATE SCHEMA, which would conflict
+        # database connections that try to CREATE SCHEMA/TABLE, which would conflict
         # with locks held by test transactions.
-        workspace_id_str = str(_TEST_WORKSPACE_ID).replace("-", "")
-        schema_name = f"custom_fields_ws_{workspace_id_str}"
+        # By pre-creating both, tests can skip lock acquisition entirely.
+        # NOTE: Must use the same schema name format as CaseFieldsService:
+        # f"custom_fields_{WorkspaceUUID.new(workspace_id).short()}"
+        from tracecat.identifiers.workflow import WorkspaceUUID
+
+        workspace_uuid = WorkspaceUUID.new(_TEST_WORKSPACE_ID)
+        schema_name = f"custom_fields_{workspace_uuid.short()}"
         session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
+        # Create the case_fields table that CaseFieldsService expects
+        session.execute(
+            text(f"""
+                CREATE TABLE IF NOT EXISTS {schema_name}.case_fields (
+                    id UUID PRIMARY KEY,
+                    case_id UUID UNIQUE NOT NULL REFERENCES "case"(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+                )
+            """)
+        )
         session.commit()
-        logger.info(f"Created custom fields schema: {schema_name}")
+        logger.info(f"Created custom fields schema and table: {schema_name}")
 
     try:
         yield workspace
