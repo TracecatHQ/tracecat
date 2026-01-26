@@ -236,6 +236,58 @@ def db() -> Iterator[None]:
         default_engine.dispose()
 
 
+# Well-known test workspace ID that's created once per session and reused by all tests
+_TEST_WORKSPACE_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def persistent_workspace(db: None, env_sandbox: None) -> Iterator[Workspace]:
+    """Session-scoped fixture to create a persistent workspace for tests.
+
+    This workspace is committed to the database ONCE at the start of the test session,
+    before any test transactions begin. This ensures all code paths (including direct
+    database calls and cross-process operations) can see the workspace.
+
+    The workspace uses a well-known ID so it can be referenced consistently.
+    """
+    from sqlalchemy.orm import Session
+
+    sync_db_uri = TEST_DB_CONFIG.test_url_sync.replace("+asyncpg", "+psycopg")
+    sync_engine = create_engine(sync_db_uri)
+
+    workspace = Workspace(
+        id=_TEST_WORKSPACE_ID,
+        name="test-workspace",
+        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+
+    with Session(sync_engine) as session:
+        # Check if workspace already exists (shouldn't happen but be safe)
+        existing = session.query(Workspace).filter_by(id=_TEST_WORKSPACE_ID).first()
+        if existing is None:
+            session.add(
+                Workspace(
+                    id=workspace.id,
+                    name=workspace.name,
+                    organization_id=workspace.organization_id,
+                )
+            )
+            session.commit()
+            logger.info("Created persistent test workspace")
+
+    try:
+        yield workspace
+    finally:
+        # Clean up workspace at end of session
+        with Session(sync_engine) as session:
+            ws = session.query(Workspace).filter_by(id=_TEST_WORKSPACE_ID).first()
+            if ws:
+                session.delete(ws)
+                session.commit()
+                logger.info("Cleaned up persistent test workspace")
+        sync_engine.dispose()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None]:
     """Session-scoped fixture to create a RegistryVersion with manifest for core actions.
@@ -1003,35 +1055,34 @@ async def db_session_with_repo(test_role):
 
 
 @pytest.fixture
-async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None]:
-    """Service test fixture. Create a function scoped test workspace.
+async def svc_workspace(
+    session: AsyncSession, persistent_workspace: Workspace
+) -> AsyncGenerator[Workspace, None]:
+    """Service test fixture. Returns a reference to the persistent test workspace.
 
     This fixture:
-    1. Creates a workspace and adds it to the test session
-    2. Patches get_async_session_context_manager to return a context manager that
-       yields the test session, so services using with_session() see the same data
-    3. Cleans up the workspace on teardown (via session rollback)
+    1. References the session-scoped persistent_workspace (committed to database)
+    2. Loads it into the test session for FK relationships
+    3. Patches get_async_session_context_manager for in-process service calls
 
-    Note: This approach doesn't work for cross-process operations (like Temporal workflows)
-    since the workspace is only visible within the test session's transaction.
-    Tests that require cross-process visibility (e.g., test_workflow_interaction)
-    should be marked as xfail or use a different fixture strategy.
+    The workspace is committed at session scope, so all code paths can see it:
+    - In-process service calls (via patched get_async_session_context_manager)
+    - Direct database calls (workspace exists in actual database)
+    - Cross-process operations (like Temporal workflows)
     """
     import contextlib
 
     import tracecat.db.engine as engine_module
 
-    workspace = Workspace(
-        name="test-workspace",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    # Load the persistent workspace into the test session.
+    # Since it's already committed to the database, this just attaches it to the session.
+    result = await session.execute(
+        select(Workspace).where(Workspace.id == persistent_workspace.id)
     )
-
-    # Add workspace to test session and flush to make it visible within the session
-    session.add(workspace)
-    await session.flush()
+    session_workspace = result.scalar_one()
 
     # Create a context manager that yields the test session instead of creating a new one.
-    # This ensures services using with_session() see the same data as test code.
+    # This ensures in-process services using with_session() see the same session state.
     @contextlib.asynccontextmanager
     async def mock_get_async_session():
         yield session
@@ -1043,13 +1094,14 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     engine_module.get_async_session_context_manager = mock_get_async_session
 
     try:
-        yield workspace
+        yield session_workspace
     finally:
         # Restore the original function
         engine_module.get_async_session_context_manager = (
             original_get_async_session_context_manager
         )
-        # No explicit cleanup needed - the session fixture will rollback the transaction
+        # No explicit cleanup needed - the session fixture will rollback any changes
+        # made within the test, but the workspace itself persists (session-scoped)
 
 
 @pytest.fixture
