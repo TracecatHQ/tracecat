@@ -22,7 +22,7 @@ from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -173,7 +173,7 @@ def monkeysession(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True, scope="function")
-async def test_db_engine():
+async def test_db_engine() -> AsyncGenerator[AsyncEngine, None]:
     """Ensure a fresh async engine for each test.
 
     This fixture creates a new engine for each test function and disposes it
@@ -798,12 +798,12 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
 
     # Use module-level IN_DOCKER detection for host selection
-    db_host = "postgres_db" if IN_DOCKER else "localhost"
     temporal_host = "temporal" if IN_DOCKER else "localhost"
     api_host = "api" if IN_DOCKER else "localhost"
     blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
-    db_uri = f"postgresql+psycopg://postgres:postgres@{db_host}:{PG_PORT}/postgres"
+    # Use per-worker test database for all global engine sessions.
+    db_uri = TEST_DB_CONFIG.test_url_sync
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
         config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
@@ -863,6 +863,24 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_QUEUE", EXECUTOR_TASK_QUEUE)
     monkeysession.setenv("TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
     monkeysession.setattr(config, "TRACECAT__AGENT_QUEUE", AGENT_TASK_QUEUE)
+
+    # Patch engine creation so all global sessions enforce timeouts in tests.
+    import tracecat.db.engine as engine_module
+
+    original_create_async_engine = engine_module.create_async_engine
+
+    def _create_async_engine_with_timeouts(*args, **kwargs):
+        connect_args = kwargs.setdefault("connect_args", {})
+        server_settings = connect_args.setdefault("server_settings", {})
+        server_settings.setdefault("statement_timeout", "5min")
+        server_settings.setdefault("lock_timeout", "30s")
+        return original_create_async_engine(*args, **kwargs)
+
+    monkeysession.setattr(
+        engine_module, "create_async_engine", _create_async_engine_with_timeouts
+    )
+    # Ensure any cached async engine is recreated with test DB + timeouts.
+    reset_async_engine()
 
     yield
     logger.info("Environment variables cleaned up")
