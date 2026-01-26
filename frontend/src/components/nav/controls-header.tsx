@@ -435,10 +435,6 @@ function CasesSelectionActionsBar() {
             caseId,
             workspaceId,
             requestBody: { tag_id: tagId },
-          }).catch((error) => {
-            // Silently handle cases where tag is already applied
-            console.warn(`Failed to add tag ${tagId} to case ${caseId}:`, error)
-            return null
           })
         )
       )

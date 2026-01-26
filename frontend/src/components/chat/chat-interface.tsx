@@ -62,6 +62,7 @@ export function ChatInterface({
     chatId
   )
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
+  const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
@@ -100,6 +101,10 @@ export function ChatInterface({
     enabled: presetsEnabled,
   })
 
+  useEffect(() => {
+    setAutoCreateAttempted(false)
+  }, [entityType, entityId])
+
   // Auto-select first chat or auto-create if none exists.
   // IMPORTANT: Do NOT add an empty state here. Always go straight to chat -
   // if no chat exists, create one automatically. This provides a better UX
@@ -112,8 +117,13 @@ export function ChatInterface({
       const firstChatId = chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
-    } else if (chats.length === 0 && !selectedChatId) {
+    } else if (
+      chats.length === 0 &&
+      !selectedChatId &&
+      !autoCreateAttempted
+    ) {
       // Auto-create a chat session immediately
+      setAutoCreateAttempted(true)
       createChat({
         title: "Chat 1",
         entity_type: entityType,
@@ -136,6 +146,7 @@ export function ChatInterface({
     createChatPending,
     entityType,
     entityId,
+    autoCreateAttempted,
   ])
 
   const handleCreateChat = async () => {

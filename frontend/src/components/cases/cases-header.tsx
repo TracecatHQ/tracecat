@@ -641,6 +641,7 @@ export function CasesHeader({
   }, [tags])
 
   const hasFilters =
+    searchQuery.trim().length > 0 ||
     statusFilter.length > 0 ||
     priorityFilter.length > 0 ||
     severityFilter.length > 0 ||
@@ -650,6 +651,7 @@ export function CasesHeader({
     isDateFilterActive(createdAfter)
 
   const handleReset = () => {
+    onSearchChange("")
     onStatusChange([])
     onStatusModeChange("include")
     onPriorityChange([])

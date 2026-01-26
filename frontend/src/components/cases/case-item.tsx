@@ -95,13 +95,6 @@ export function CaseItem({
     onCheckChange?.(!isChecked)
   }
 
-  const handleCheckboxKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== " " && e.key !== "Enter") return
-    e.preventDefault()
-    e.stopPropagation()
-    onCheckChange?.(!isChecked)
-  }
-
   const handleCopyId = async () => {
     try {
       await navigator.clipboard.writeText(caseData.id)
@@ -285,9 +278,7 @@ export function CaseItem({
   return (
     <ContextMenu onOpenChange={setIsContextMenuOpen}>
       <ContextMenuTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
+        <div
           className={cn(
             "group/item",
             // Use negative margins to extend hover to full width
@@ -300,11 +291,15 @@ export function CaseItem({
           )}
         >
           {/* Checkbox - flat design, hidden by default, shown on hover or when checked */}
-          <div
+          <button
+            type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center"
             onClick={handleCheckboxClick}
+            role="checkbox"
+            aria-checked={isChecked}
+            aria-label={`Select case ${caseData.short_id}`}
           >
-            <div
+            <span
               className={cn(
                 "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
                 // Hidden by default, visible on hover or when checked
@@ -314,79 +309,80 @@ export function CaseItem({
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-muted-foreground/40 bg-transparent"
               )}
-              role="checkbox"
-              aria-checked={isChecked}
-              aria-label={`Select case ${caseData.short_id}`}
-              tabIndex={0}
-              onKeyDown={handleCheckboxKeyDown}
             >
               {isChecked && <Check className="size-3" aria-hidden />}
-            </div>
-          </div>
+            </span>
+          </button>
 
           {/* Case ID + Summary + Badges */}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="shrink-0 text-xs font-medium text-muted-foreground">
-              {caseData.short_id}
-            </span>
-            <span className="truncate text-xs">{caseData.summary}</span>
-            {/* Badges - right next to summary */}
-            {priorityConfig && (
-              <CaseBadge
-                value={caseData.priority}
-                label={priorityConfig.label}
-                icon={priorityConfig.icon}
-                color={priorityConfig.color}
-                className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-              />
-            )}
-            {severityConfig && (
-              <CaseBadge
-                value={caseData.severity}
-                label={severityConfig.label}
-                icon={severityConfig.icon}
-                color={severityConfig.color}
-                className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-              />
-            )}
-          </div>
-
-          {/* Tags - right aligned */}
-          {caseData.tags && caseData.tags.length > 0 && (
-            <div className="flex shrink-0 items-center gap-1">
-              {caseData.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag.id}
-                  className={cn(
-                    "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-medium",
-                    !tag.color && "bg-muted text-muted-foreground"
-                  )}
-                  style={
-                    tag.color
-                      ? {
-                          backgroundColor: `${tag.color}20`,
-                          color: tag.color,
-                        }
-                      : undefined
-                  }
-                >
-                  {tag.name}
-                </span>
-              ))}
-              {caseData.tags.length > 3 && (
-                <span className="text-[10px] text-muted-foreground">
-                  +{caseData.tags.length - 3}
-                </span>
+          <button
+            type="button"
+            onClick={onClick}
+            className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                {caseData.short_id}
+              </span>
+              <span className="truncate text-xs">{caseData.summary}</span>
+              {/* Badges - right next to summary */}
+              {priorityConfig && (
+                <CaseBadge
+                  value={caseData.priority}
+                  label={priorityConfig.label}
+                  icon={priorityConfig.icon}
+                  color={priorityConfig.color}
+                  className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                />
+              )}
+              {severityConfig && (
+                <CaseBadge
+                  value={caseData.severity}
+                  label={severityConfig.label}
+                  icon={severityConfig.icon}
+                  color={severityConfig.color}
+                  className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                />
               )}
             </div>
-          )}
 
-          {/* Timestamps */}
-          <div className="flex shrink-0 items-center gap-2">
-            <EventCreatedAt createdAt={caseData.created_at} />
-            <EventUpdatedAt updatedAt={caseData.updated_at} />
-          </div>
-        </button>
+            {/* Tags - right aligned */}
+            {caseData.tags && caseData.tags.length > 0 && (
+              <div className="flex shrink-0 items-center gap-1">
+                {caseData.tags.slice(0, 3).map((tag) => (
+                  <span
+                    key={tag.id}
+                    className={cn(
+                      "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-medium",
+                      !tag.color && "bg-muted text-muted-foreground"
+                    )}
+                    style={
+                      tag.color
+                        ? {
+                            backgroundColor: `${tag.color}20`,
+                            color: tag.color,
+                          }
+                        : undefined
+                    }
+                  >
+                    {tag.name}
+                  </span>
+                ))}
+                {caseData.tags.length > 3 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    +{caseData.tags.length - 3}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Timestamps */}
+            <div className="flex shrink-0 items-center gap-2">
+              <EventCreatedAt createdAt={caseData.created_at} />
+              <EventUpdatedAt updatedAt={caseData.updated_at} />
+            </div>
+          </button>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem asChild className="text-xs">
