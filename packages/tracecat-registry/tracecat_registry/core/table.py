@@ -1,48 +1,11 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
-from uuid import UUID
+from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
 from tracecat_registry import config, registry, types
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.exceptions import TracecatConflictError
-
-if TYPE_CHECKING:
-    import orjson
-    from asyncpg import DuplicateTableError
-    from pydantic_core import to_jsonable_python
-    from sqlalchemy.exc import ProgrammingError
-
-    from tracecat.expressions.functions import tabulate
-    from tracecat.tables.common import coerce_optional_to_utc_datetime
-    from tracecat.tables.enums import SqlType
-    from tracecat.tables.schemas import (
-        TableColumnCreate,
-        TableColumnRead,
-        TableCreate,
-        TableRead,
-        TableRowInsert,
-    )
-    from tracecat.tables.service import TablesService
-
-if not config.flags.registry_client:
-    import orjson
-    from asyncpg import DuplicateTableError
-    from pydantic_core import to_jsonable_python
-    from sqlalchemy.exc import ProgrammingError
-
-    from tracecat.expressions.functions import tabulate
-    from tracecat.tables.common import coerce_optional_to_utc_datetime
-    from tracecat.tables.enums import SqlType
-    from tracecat.tables.schemas import (
-        TableColumnCreate,
-        TableColumnRead,
-        TableCreate,
-        TableRead,
-        TableRowInsert,
-    )
-    from tracecat.tables.service import TablesService
 
 
 @registry.register(
@@ -65,19 +28,7 @@ async def lookup(
         Doc("The value to lookup."),
     ],
 ) -> dict[str, Any] | None:
-    if config.flags.registry_client:
-        return await get_context().tables.lookup(
-            table=table, column=column, value=value
-        )
-    async with TablesService.with_session() as service:
-        rows = await service.lookup_rows(
-            table_name=table,
-            columns=[column],
-            values=[value],
-            limit=min(1, config.MAX_ROWS_CLIENT_POSTGRES),
-        )
-    # Since we set limit=1, we know there will be at most one row
-    return rows[0] if rows else None
+    return await get_context().tables.lookup(table=table, column=column, value=value)
 
 
 @registry.register(
@@ -100,16 +51,7 @@ async def is_in(
         Doc("The value to check for."),
     ],
 ) -> bool:
-    if config.flags.registry_client:
-        return await get_context().tables.exists(
-            table=table, column=column, value=value
-        )
-    async with TablesService.with_session() as service:
-        return await service.exists_rows(
-            table_name=table,
-            columns=[column],
-            values=[value],
-        )
+    return await get_context().tables.exists(table=table, column=column, value=value)
 
 
 @registry.register(
@@ -141,24 +83,14 @@ async def lookup_many(
             f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    if config.flags.registry_client:
-        params: dict[str, Any] = {
-            "table": table,
-            "column": column,
-            "value": value,
-        }
-        if limit is not None:
-            params["limit"] = limit
-        return await get_context().tables.lookup_many(**params)
-
-    async with TablesService.with_session() as service:
-        rows = await service.lookup_rows(
-            table_name=table,
-            columns=[column],
-            values=[value],
-            limit=limit,
-        )
-    return rows
+    params: dict[str, Any] = {
+        "table": table,
+        "column": column,
+        "value": value,
+    }
+    if limit is not None:
+        params["limit"] = limit
+    return await get_context().tables.lookup_many(**params)
 
 
 @registry.register(
@@ -206,38 +138,22 @@ async def search_rows(
             f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    if config.flags.registry_client:
-        params: dict[str, Any] = {"table": table}
-        if search_term is not None:
-            params["search_term"] = search_term
-        if start_time is not None:
-            params["start_time"] = start_time
-        if end_time is not None:
-            params["end_time"] = end_time
-        if updated_before is not None:
-            params["updated_before"] = updated_before
-        if updated_after is not None:
-            params["updated_after"] = updated_after
-        if limit is not None:
-            params["limit"] = limit
-        if offset is not None:
-            params["offset"] = offset
-        return await get_context().tables.search_rows(**params)
-
-    async with TablesService.with_session() as service:
-        db_table = await service.get_table_by_name(table)
-
-        rows = await service.search_rows(
-            table=db_table,
-            search_term=search_term,
-            start_time=coerce_optional_to_utc_datetime(start_time),
-            end_time=coerce_optional_to_utc_datetime(end_time),
-            updated_before=coerce_optional_to_utc_datetime(updated_before),
-            updated_after=coerce_optional_to_utc_datetime(updated_after),
-            limit=limit,
-            offset=offset,
-        )
-        return rows
+    params: dict[str, Any] = {"table": table}
+    if search_term is not None:
+        params["search_term"] = search_term
+    if start_time is not None:
+        params["start_time"] = start_time
+    if end_time is not None:
+        params["end_time"] = end_time
+    if updated_before is not None:
+        params["updated_before"] = updated_before
+    if updated_after is not None:
+        params["updated_after"] = updated_after
+    if limit is not None:
+        params["limit"] = limit
+    if offset is not None:
+        params["offset"] = offset
+    return await get_context().tables.search_rows(**params)
 
 
 @registry.register(
@@ -260,17 +176,11 @@ async def insert_row(
         Doc("If true, update the row if it already exists (based on primary key)."),
     ] = False,
 ) -> dict[str, Any]:
-    if config.flags.registry_client:
-        return await get_context().tables.insert_row(
-            table=table,
-            row_data=row_data,
-            upsert=upsert,
-        )
-    params = TableRowInsert(data=row_data, upsert=upsert)
-    async with TablesService.with_session() as service:
-        db_table = await service.get_table_by_name(table)
-        row = await service.insert_row(table=db_table, params=params)
-    return row
+    return await get_context().tables.insert_row(
+        table=table,
+        row_data=row_data,
+        upsert=upsert,
+    )
 
 
 @registry.register(
@@ -293,18 +203,11 @@ async def insert_rows(
         Doc("If true, update the rows if they already exist (based on primary key)."),
     ] = False,
 ) -> int:
-    if config.flags.registry_client:
-        return await get_context().tables.insert_rows(
-            table=table,
-            rows_data=rows_data,
-            upsert=upsert,
-        )
-    async with TablesService.with_session() as service:
-        db_table = await service.get_table_by_name(table)
-        count = await service.batch_insert_rows(
-            table=db_table, rows=rows_data, upsert=upsert
-        )
-    return count
+    return await get_context().tables.insert_rows(
+        table=table,
+        rows_data=rows_data,
+        upsert=upsert,
+    )
 
 
 @registry.register(
@@ -327,18 +230,11 @@ async def update_row(
         Doc("The new data for the row."),
     ],
 ) -> dict[str, Any]:
-    if config.flags.registry_client:
-        return await get_context().tables.update_row(
-            table=table,
-            row_id=row_id,
-            row_data=row_data,
-        )
-    async with TablesService.with_session() as service:
-        db_table = await service.get_table_by_name(table)
-        row = await service.update_row(
-            table=db_table, row_id=UUID(row_id), data=row_data
-        )
-    return row
+    return await get_context().tables.update_row(
+        table=table,
+        row_id=row_id,
+        row_data=row_data,
+    )
 
 
 @registry.register(
@@ -357,12 +253,7 @@ async def delete_row(
         Doc("The ID of the row to delete."),
     ],
 ) -> None:
-    if config.flags.registry_client:
-        await get_context().tables.delete_row(table=table, row_id=row_id)
-        return
-    async with TablesService.with_session() as service:
-        db_table = await service.get_table_by_name(table)
-        await service.delete_row(table=db_table, row_id=UUID(row_id))
+    await get_context().tables.delete_row(table=table, row_id=row_id)
 
 
 @registry.register(
@@ -387,49 +278,16 @@ async def create_table(
         Doc("If true, raise an error if the table already exists."),
     ] = True,
 ) -> types.Table:
-    if config.flags.registry_client:
-        client_params: dict[str, Any] = {
-            "name": name,
-            "raise_on_duplicate": raise_on_duplicate,
-        }
-        if columns is not None:
-            client_params["columns"] = columns
-        try:
-            return await get_context().tables.create_table(**client_params)
-        except TracecatConflictError as exc:
-            raise ValueError("Table already exists") from exc
-    column_objects = []
-    if columns:
-        for col in columns:
-            column_objects.append(
-                TableColumnCreate(
-                    name=col["name"],
-                    type=SqlType(col["type"]),
-                    nullable=col.get("nullable", True),
-                    default=col.get("default"),
-                    options=col.get("options"),
-                )
-            )
-
-    params = TableCreate(name=name, columns=column_objects)
-    async with TablesService.with_session() as service:
-        try:
-            table = await service.create_table(params)
-        except ProgrammingError as e:
-            # Drill down to the root cause
-            while (cause := e.__cause__) is not None:
-                e = cause
-            if isinstance(e, DuplicateTableError):
-                if raise_on_duplicate:
-                    raise ValueError("Table already exists") from e
-                else:
-                    # Rollback the failed transaction before querying
-                    await service.session.rollback()
-                    # Return existing table instead of raising error
-                    table = await service.get_table_by_name(name)
-            else:
-                raise
-    return cast(types.Table, table.to_dict())
+    client_params: dict[str, Any] = {
+        "name": name,
+        "raise_on_duplicate": raise_on_duplicate,
+    }
+    if columns is not None:
+        client_params["columns"] = columns
+    try:
+        return await get_context().tables.create_table(**client_params)
+    except TracecatConflictError as exc:
+        raise ValueError("Table already exists") from exc
 
 
 @registry.register(
@@ -439,11 +297,7 @@ async def create_table(
     namespace="core.table",
 )
 async def list_tables() -> list[types.Table]:
-    if config.flags.registry_client:
-        return await get_context().tables.list_tables()
-    async with TablesService.with_session() as service:
-        tables = await service.list_tables()
-    return cast(list[types.Table], [table.to_dict() for table in tables])
+    return await get_context().tables.list_tables()
 
 
 @registry.register(
@@ -455,31 +309,7 @@ async def list_tables() -> list[types.Table]:
 async def get_table_metadata(
     name: Annotated[str, Doc("The name of the table to get.")],
 ) -> types.TableRead:
-    if config.flags.registry_client:
-        return await get_context().tables.get_table_metadata(name)
-    async with TablesService.with_session() as service:
-        table = await service.get_table_by_name(name)
-
-        # Get unique index info or default to empty dict if not present
-        index_columns = await service.get_index(table)
-
-        # Convert to response model (includes is_index field)
-        res = TableRead(
-            id=table.id,
-            name=table.name,
-            columns=[
-                TableColumnRead(
-                    id=column.id,
-                    name=column.name,
-                    type=SqlType(column.type),
-                    nullable=column.nullable,
-                    default=column.default,
-                    is_index=column.name in index_columns,
-                )
-                for column in table.columns
-            ],
-        )
-    return cast(types.TableRead, res.model_dump(mode="json"))
+    return await get_context().tables.get_table_metadata(name)
 
 
 @registry.register(
@@ -499,27 +329,9 @@ async def download(
     if limit > 1000:
         raise ValueError("Cannot return more than 1000 rows")
 
-    if config.flags.registry_client:
-        params: dict[str, Any] = {"table": name}
-        if format is not None:
-            params["format"] = format
-        if limit is not None:
-            params["limit"] = limit
-        return await get_context().tables.download(**params)
-
-    async with TablesService.with_session() as service:
-        table = await service.get_table_by_name(name)
-        rows = await service.list_rows(table=table, limit=limit)
-
-        # Convert rows to JSON-safe format (handles UUID and other non-serializable types)
-        json_safe_rows = to_jsonable_python(rows, fallback=str)
-
-        if format is None:
-            return json_safe_rows
-        elif format == "json":
-            return orjson.dumps(json_safe_rows).decode()
-        elif format == "ndjson":
-            return "\n".join([orjson.dumps(row).decode() for row in json_safe_rows])
-        elif format in ["csv", "markdown"]:
-            return tabulate(json_safe_rows, format)
-        return tabulate(json_safe_rows, format)
+    params: dict[str, Any] = {"table": name}
+    if format is not None:
+        params["format"] = format
+    if limit is not None:
+        params["limit"] = limit
+    return await get_context().tables.download(**params)

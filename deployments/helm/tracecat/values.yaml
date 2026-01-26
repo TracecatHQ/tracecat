@@ -97,8 +97,7 @@ tracecat:
   allowOrigins: ""
   sentryDsn: ""
   # Core feature flags (comma-separated).
-  # Required for registry v2 + sandboxed execution.
-  featureFlags: "registry-sync-v2,registry-client"
+  featureFlags: ""
 
   sandbox:
     disableNsjail: false

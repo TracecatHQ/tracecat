@@ -17,7 +17,6 @@ def test_validate_connection_url_blocks_internal_endpoint(
     """Reject user URLs that target the configured internal DB endpoint/port."""
     from tracecat_registry import config as registry_config
 
-    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
         registry_config,
         "TRACECAT__DB_URI",
@@ -44,7 +43,6 @@ def test_validate_connection_url_allows_external_endpoint(
     """Allow user URLs that point to a different endpoint."""
     from tracecat_registry import config as registry_config
 
-    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
         registry_config,
         "TRACECAT__DB_URI",
@@ -66,7 +64,6 @@ def test_validate_connection_url_uses_internal_uri_fallback(
     """Fallback to TRACECAT__DB_URI when TRACECAT__DB_ENDPOINT is unset."""
     from tracecat_registry import config as registry_config
 
-    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
         registry_config,
         "TRACECAT__DB_URI",
@@ -95,7 +92,6 @@ def setup_sql_test_table(db, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
 
     # Mock internal database config to use a different endpoint
     # This allows the test database on localhost:5432 to pass validation
-    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
         registry_config,
         "TRACECAT__DB_URI",
@@ -337,7 +333,6 @@ async def test_execute_query_invalid_connection_url(monkeypatch: pytest.MonkeyPa
     from tracecat_registry import config as registry_config
 
     # Mock internal database config to avoid validation issues
-    monkeypatch.setattr(registry_config.flags, "registry_client", False)
     monkeypatch.setattr(
         registry_config,
         "TRACECAT__DB_URI",

@@ -918,9 +918,9 @@ def generate_model_from_function(
                     # Only set the component if no default UI is provided
                     case Component():
                         manually_set_components.append(meta)
-                    # `tracecat_registry` (and sandboxed `registry-client` mode) provides
-                    # lightweight dataclass component definitions that are not instances
-                    # of `tracecat.registry.fields.Component`. These still need to
+                    # `tracecat_registry` provides lightweight dataclass component
+                    # definitions that are not instances of
+                    # `tracecat.registry.fields.Component`. These still need to
                     # propagate to JSONSchema via `x-tracecat-component` so the frontend
                     # can render specialized editors (code, textarea, etc).
                     case _ if isinstance(getattr(meta, "component_id", None), str):

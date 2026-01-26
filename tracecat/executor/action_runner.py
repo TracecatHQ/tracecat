@@ -440,8 +440,6 @@ class ActionRunner:
                 wf_exec_id=str(input.run_context.wf_run_id),
             )
             sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
-            # Only forward sandbox-safe feature flags (not EE flags like case-tasks)
-            sandbox_env["TRACECAT__FEATURE_FLAGS"] = "registry-client"
 
             logger.debug(
                 "Using untrusted mode - no DB credentials passed to sandbox",

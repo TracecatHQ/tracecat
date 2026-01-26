@@ -242,7 +242,7 @@ def _run_udf(
     except ImportError:
         pass  # Registry context not available
 
-    # Set secrets in registry secrets context (required when registry_client flag is set)
+    # Set secrets in registry secrets context (required for SDK-based actions)
     secrets_token = None
     registry_secrets: ModuleType | None = None
     try:

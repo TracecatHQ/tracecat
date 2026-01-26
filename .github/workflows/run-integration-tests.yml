@@ -116,7 +116,7 @@ jobs:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
           TRACECAT__EXECUTOR_BACKEND: "direct"
-          TRACECAT__FEATURE_FLAGS: "registry-sync-v2,registry-client"
+          TRACECAT__FEATURE_FLAGS: ""
           # Disable sandboxed registry sync to use local subprocess instead of Temporal workflow
           # This avoids the need for Docker executor to handle RegistrySyncWorkflow
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"

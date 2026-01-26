@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import uuid
-from typing import Literal, NotRequired, TypedDict, cast
+from typing import Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel
 
-from tracecat_registry import ActionIsInterfaceError, config
+from tracecat_registry import ActionIsInterfaceError
+from tracecat_registry import config
 
 
 type OutputType = (
@@ -78,35 +79,13 @@ class AgentOutput(BaseModel):
     session_id: uuid.UUID
 
 
-def _raise_registry_client() -> None:
-    if config.flags.registry_client:
-        raise ActionIsInterfaceError()
-
-
 async def build_agent(config: AgentConfig) -> object:
-    """The default factory for building an agent."""
-    _raise_registry_client()
-    from tracecat.agent.factory import build_agent as _build_agent
-    from tracecat.agent.types import AgentConfig as RuntimeAgentConfig
+    """The default factory for building an agent.
 
-    from tracecat.agent.types import CustomToolList
-
-    runtime_config = RuntimeAgentConfig(
-        model_name=config.model_name,
-        model_provider=config.model_provider,
-        base_url=config.base_url,
-        instructions=config.instructions,
-        output_type=config.output_type,
-        actions=config.actions,
-        namespaces=config.namespaces,
-        tool_approvals=config.tool_approvals,
-        model_settings=config.model_settings,
-        mcp_servers=config.mcp_servers,
-        retries=config.retries,
-        deps_type=config.deps_type,
-        custom_tools=cast(CustomToolList | None, config.custom_tools),
-    )
-    return await _build_agent(runtime_config)
+    NOTE: This function cannot be executed in sandbox mode.
+    It is an interface definition only.
+    """
+    raise ActionIsInterfaceError()
 
 
 async def run_agent_sync(
@@ -117,22 +96,12 @@ async def run_agent_sync(
     *,
     deferred_tool_results: object | None = None,
 ) -> AgentOutput:
-    """Run an agent synchronously."""
-    _raise_registry_client()
-    from pydantic_ai import Agent as PydanticAgent
-    from pydantic_ai.tools import DeferredToolResults
-    from tracecat.agent.runtime.pydantic_ai.runtime import (
-        run_agent_sync as _run_agent_sync,
-    )
+    """Run an agent synchronously.
 
-    result = await _run_agent_sync(
-        cast(PydanticAgent[object, object], agent),
-        user_prompt,
-        max_requests,
-        max_tools_calls,
-        deferred_tool_results=cast(DeferredToolResults | None, deferred_tool_results),
-    )
-    return AgentOutput.model_validate(result.model_dump())
+    NOTE: This function cannot be executed in sandbox mode.
+    It is an interface definition only.
+    """
+    raise ActionIsInterfaceError()
 
 
 async def run_agent(
@@ -154,31 +123,12 @@ async def run_agent(
     base_url: str | None = None,
     deferred_tool_results: object | None = None,
 ) -> AgentOutput:
-    """Run an AI agent with specified configuration and actions."""
-    _raise_registry_client()
-    from pydantic_ai.tools import DeferredToolResults
-    from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as _run_agent
+    """Run an AI agent with specified configuration and actions.
 
-    result = await _run_agent(
-        user_prompt=user_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        actions=actions,
-        namespaces=namespaces,
-        tool_approvals=tool_approvals,
-        mcp_server_url=mcp_server_url,
-        mcp_server_headers=mcp_server_headers,
-        mcp_servers=mcp_servers,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        max_tool_calls=max_tool_calls,
-        max_requests=max_requests,
-        retries=retries,
-        base_url=base_url,
-        deferred_tool_results=cast(DeferredToolResults | None, deferred_tool_results),
-    )
-    return AgentOutput.model_validate(result.model_dump())
+    NOTE: This function cannot be executed in sandbox mode.
+    It is an interface definition only.
+    """
+    raise ActionIsInterfaceError()
 
 
 async def rank_items(
@@ -194,22 +144,12 @@ async def rank_items(
     min_items: int | None = None,
     max_items: int | None = None,
 ) -> list[str | int]:
-    """Rank items using an LLM based on natural language criteria."""
-    _raise_registry_client()
-    from tracecat.ai.ranker import rank_items as _rank_items
+    """Rank items using an LLM based on natural language criteria.
 
-    return await _rank_items(
-        items=items,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        model_settings=model_settings,
-        max_requests=max_requests,
-        retries=retries,
-        base_url=base_url,
-        min_items=min_items,
-        max_items=max_items,
-    )
+    NOTE: This function cannot be executed in sandbox mode.
+    It is an interface definition only.
+    """
+    raise ActionIsInterfaceError()
 
 
 async def rank_items_pairwise(
@@ -229,26 +169,12 @@ async def rank_items_pairwise(
     min_items: int | None = None,
     max_items: int | None = None,
 ) -> list[str | int]:
-    """Rank items using LLM pairwise comparisons."""
-    _raise_registry_client()
-    from tracecat.ai.ranker import rank_items_pairwise as _rank_items_pairwise
+    """Rank items using LLM pairwise comparisons.
 
-    return await _rank_items_pairwise(
-        items=items,
-        criteria_prompt=criteria_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        id_field=id_field,
-        batch_size=batch_size,
-        num_passes=num_passes,
-        refinement_ratio=refinement_ratio,
-        model_settings=model_settings,
-        max_requests=max_requests,
-        retries=retries,
-        base_url=base_url,
-        min_items=min_items,
-        max_items=max_items,
-    )
+    NOTE: This function cannot be executed in sandbox mode.
+    It is an interface definition only.
+    """
+    raise ActionIsInterfaceError()
 
 
 __all__ = [

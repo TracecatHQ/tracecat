@@ -158,7 +158,7 @@ urls:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `tracecat.logLevel` | INFO | LOG_LEVEL for backend services |
-| `tracecat.featureFlags` | `registry-sync-v2,registry-client` | Core flags (comma-separated); required for registry v2 + sandboxed execution |
+| `tracecat.featureFlags` | `""` | Core flags (comma-separated) |
 | `enterprise.featureFlags` | "" | Enterprise-only flags appended to `tracecat.featureFlags` |
 
 ### Sandbox (nsjail)
