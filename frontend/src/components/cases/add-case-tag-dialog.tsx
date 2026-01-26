@@ -113,9 +113,7 @@ export function AddCaseTagDialog({
                         {...field}
                       />
                     </FormControl>
-                    <FormDescription>
-                      Max 50 characters
-                    </FormDescription>
+                    <FormDescription>Max 50 characters</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -117,11 +117,7 @@ export function ChatInterface({
       const firstChatId = chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
-    } else if (
-      chats.length === 0 &&
-      !selectedChatId &&
-      !autoCreateAttempted
-    ) {
+    } else if (chats.length === 0 && !selectedChatId && !autoCreateAttempted) {
       // Auto-create a chat session immediately
       setAutoCreateAttempted(true)
       createChat({
