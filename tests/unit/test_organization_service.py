@@ -902,30 +902,9 @@ class TestOrganizationServiceInvitations:
         user_service = OrgService(session, role=user_role)
         await user_service.accept_invitation(invitation.token)
 
-        # Try to accept again with a different user
-        another_user = User(
-            id=uuid.uuid4(),
-            email=f"another-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.BASIC,
-            is_active=True,
-            is_superuser=False,
-            is_verified=True,
-        )
-        session.add(another_user)
-        await session.commit()
-
-        another_role = Role(
-            type="user",
-            user_id=another_user.id,
-            organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
-            service_id="tracecat-api",
-        )
-        another_service = OrgService(session, role=another_role)
-
+        # Try to accept again with the same user
         with pytest.raises(TracecatAuthorizationError, match="already been accepted"):
-            await another_service.accept_invitation(invitation.token)
+            await user_service.accept_invitation(invitation.token)
 
     @pytest.mark.anyio
     async def test_accept_invitation_revoked_raises(
