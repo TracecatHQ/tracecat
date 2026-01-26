@@ -549,3 +549,44 @@ class TableRead(TypedDict):
     id: UUID
     name: str
     columns: list[TableColumnRead]
+
+
+# ============================================================================
+# Agent Types
+# ============================================================================
+
+
+class RunUsage(TypedDict):
+    """Agent run usage statistics."""
+
+    requests: int
+    tool_calls: int
+    input_tokens: int
+    output_tokens: int
+
+
+class AgentOutputRead(TypedDict):
+    """Agent execution output returned by run endpoint."""
+
+    output: Any
+    message_history: list[dict[str, Any]] | None
+    duration: float
+    usage: RunUsage | None
+    session_id: str  # UUID serialized as string
+
+
+class AgentPresetRead(TypedDict):
+    """Agent preset information."""
+
+    id: UUID
+    name: str
+    slug: str
+    model_name: str
+    model_provider: str
+    description: str | None
+    instructions: str | None
+    base_url: str | None
+    output_type: Any
+    actions: list[str] | None
+    created_at: datetime
+    updated_at: datetime

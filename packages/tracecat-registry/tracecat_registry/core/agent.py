@@ -1,21 +1,18 @@
 """AI agent with tool calling capabilities. Returns the output and full message history."""
 
 from typing import Annotated, Any
+
+from tracecat_registry._internal.exceptions import ActionIsInterfaceError
 from typing_extensions import Doc
 
-from tracecat_registry.fields import ActionType, AgentPreset, TextArea
-from tracecat_registry.sdk.agents import (
-    AgentConfig,
-    OutputType,
-    build_agent,
-    run_agent_sync,
-)
 from tracecat_registry import (
-    ActionIsInterfaceError,
     RegistrySecret,
     RegistrySecretType,
     registry,
 )
+from tracecat_registry.context import get_context
+from tracecat_registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry.sdk.agents import AgentConfig, OutputType
 
 anthropic_secret = RegistrySecret(
     name="anthropic",
@@ -249,8 +246,10 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> Any:
-    agent = await build_agent(
-        AgentConfig(
+    ctx = get_context()
+    result = await ctx.agents.run(
+        user_prompt=user_prompt,
+        config=AgentConfig(
             model_name=model_name,
             model_provider=model_provider,
             instructions=instructions,
@@ -258,7 +257,8 @@ async def action(
             model_settings=model_settings,
             retries=retries,
             base_url=base_url,
-        )
+            # No actions for simple action
+        ),
+        max_requests=max_requests,
     )
-    result = await run_agent_sync(agent, user_prompt, max_requests=max_requests)
-    return result.model_dump()
+    return result.get("output")  # Return just the output for simple action
