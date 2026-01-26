@@ -115,19 +115,24 @@ export const DEFAULT_DATE_FILTER: CaseDateFilterValue = {
 
 // Priority order mapping (higher value = higher priority)
 const PRIORITY_ORDER: Record<CasePriority, number> = {
+  unknown: 0,
   low: 1,
   medium: 2,
   high: 3,
   critical: 4,
+  other: 0,
 }
 
 // Severity order mapping (higher value = higher severity)
 const SEVERITY_ORDER: Record<CaseSeverity, number> = {
+  unknown: 0,
   informational: 1,
   low: 2,
   medium: 3,
   high: 4,
   critical: 5,
+  fatal: 6,
+  other: 0,
 }
 
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
