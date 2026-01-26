@@ -192,6 +192,8 @@ async def create_invitation(
             email=params.email,
             role=params.role,
         )
+    except TracecatAuthorizationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)

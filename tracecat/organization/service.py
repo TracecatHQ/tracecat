@@ -468,19 +468,6 @@ class OrgService(BaseOrgService):
             # Single atomic commit for both membership and invitation update
             await self.session.commit()
             await self.session.refresh(membership)
-
-            # Log audit success to the invitation's organization
-            async with AuditService.with_session(
-                audit_role, session=self.session
-            ) as svc:
-                await svc.create_event(
-                    resource_type="organization_invitation",
-                    action="accept",
-                    resource_id=invitation.id,
-                    status=AuditEventStatus.SUCCESS,
-                )
-
-            return membership
         except Exception:
             # Log audit failure to the invitation's organization
             async with AuditService.with_session(
@@ -493,6 +480,18 @@ class OrgService(BaseOrgService):
                     status=AuditEventStatus.FAILURE,
                 )
             raise
+
+        # Log audit success outside the try-except to avoid logging FAILURE
+        # if only audit logging fails after a successful commit
+        async with AuditService.with_session(audit_role, session=self.session) as svc:
+            await svc.create_event(
+                resource_type="organization_invitation",
+                action="accept",
+                resource_id=invitation.id,
+                status=AuditEventStatus.SUCCESS,
+            )
+
+        return membership
 
     @audit_log(resource_type="organization_invitation", action="revoke")
     @require_access_level(AccessLevel.ADMIN)
