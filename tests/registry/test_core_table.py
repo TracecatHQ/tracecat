@@ -239,9 +239,9 @@ class TestCoreCreateTable:
 
         result = await create_table(name="test_table")
 
+        # columns is only passed when not None
         mock_tables_client.create_table.assert_called_once_with(
             name="test_table",
-            columns=None,
             raise_on_duplicate=True,
         )
         assert result == mock_result
@@ -273,9 +273,9 @@ class TestCoreCreateTable:
 
         result = await create_table(name="test_table", raise_on_duplicate=False)
 
+        # columns is only passed when not None
         mock_tables_client.create_table.assert_called_once_with(
             name="test_table",
-            columns=None,
             raise_on_duplicate=False,
         )
         assert result == mock_result
@@ -314,7 +314,8 @@ class TestCoreGetTableMetadata:
 
         result = await get_table_metadata(name="test_table")
 
-        mock_tables_client.get_table_metadata.assert_called_once_with(name="test_table")
+        # Implementation passes name as positional argument
+        mock_tables_client.get_table_metadata.assert_called_once_with("test_table")
         assert result == mock_metadata
 
 
@@ -332,15 +333,11 @@ class TestCoreSearchRecords:
             offset=10,
         )
 
+        # Only non-None parameters are passed to the client
         mock_tables_client.search_rows.assert_called_once_with(
             table="test_table",
-            search_term=None,
-            start_time=None,
-            end_time=None,
-            updated_before=None,
-            updated_after=None,
-            offset=10,
             limit=50,
+            offset=10,
         )
         assert len(result) == 1
         assert result[0] == mock_row
@@ -366,15 +363,15 @@ class TestCoreSearchRecords:
             updated_before=updated_before,
         )
 
+        # Only non-None parameters are passed to the client
         mock_tables_client.search_rows.assert_called_once_with(
             table="test_table",
-            search_term=None,
             start_time=start_time,
             end_time=end_time,
             updated_before=updated_before,
             updated_after=updated_after,
-            offset=10,
             limit=50,
+            offset=10,
         )
         assert len(result) == 1
         assert result[0] == mock_row
@@ -443,9 +440,9 @@ class TestCoreDownloadTable:
 
         result = await download(name="test_table", limit=100)
 
+        # Only non-None parameters are passed to the client
         mock_tables_client.download.assert_called_once_with(
             table="test_table",
-            format=None,
             limit=100,
         )
         assert isinstance(result, list)

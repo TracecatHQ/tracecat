@@ -15,10 +15,12 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import UTC
+from typing import get_args
 
 import pytest
 import respx
 import sqlalchemy as sa
+from httpx import ASGITransport
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import types
@@ -56,6 +58,12 @@ from tracecat_registry.sdk.exceptions import (
 
 from tracecat import config
 from tracecat.api.app import app
+from tracecat.auth.dependencies import (
+    ExecutorWorkspaceRole,
+    OrgAdminUser,
+    ServiceRole,
+    WorkspaceUserRole,
+)
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionCreate,
@@ -63,8 +71,10 @@ from tracecat.cases.durations.schemas import (
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType
+from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
+from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import User, Workspace
 
 # Advisory lock ID for serializing case_fields schema creation in tests.
@@ -99,19 +109,6 @@ async def cases_ctx(
 
     Uses SDK path with respx mock to route HTTP calls to the FastAPI app.
     """
-    from typing import get_args
-
-    from httpx import ASGITransport
-
-    from tracecat.auth.dependencies import (
-        ExecutorWorkspaceRole,
-        OrgAdminUser,
-        ServiceRole,
-        WorkspaceUserRole,
-    )
-    from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
-    from tracecat.db.dependencies import get_async_session
-
     # Acquire advisory lock to serialize schema creation across concurrent tests
     await session.execute(
         sa.text(f"SELECT pg_advisory_xact_lock({_CASE_FIELDS_SCHEMA_LOCK_ID})")

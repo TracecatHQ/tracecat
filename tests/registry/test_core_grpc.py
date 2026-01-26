@@ -4,6 +4,7 @@ import ipaddress
 import sys
 import uuid
 from concurrent import futures
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -20,10 +21,19 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from grpc_tools import protoc
+from tracecat_registry._internal import secrets as registry_secrets
 from tracecat_registry.core import grpc as grpc_core
 from tracecat_registry.core.grpc import request as grpc_request
 
-from tracecat.secrets import secrets_manager
+
+@contextmanager
+def registry_secrets_sandbox(secrets: dict[str, str]):
+    """Context manager that sets up the registry secrets context."""
+    token = registry_secrets.set_context(secrets)
+    try:
+        yield
+    finally:
+        registry_secrets.reset_context(token)
 
 
 def _proto_source(package_name: str) -> str:
@@ -370,7 +380,7 @@ def test_grpc_request_mtls(
     server.start()
 
     try:
-        with secrets_manager.env_sandbox(
+        with registry_secrets_sandbox(
             {
                 "TLS_CERTIFICATE": client_cert,
                 "TLS_PRIVATE_KEY": client_key,

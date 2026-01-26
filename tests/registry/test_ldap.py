@@ -5,15 +5,27 @@ from __future__ import annotations
 import subprocess
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import ldap3
 import pytest
 from ldap3.core.exceptions import LDAPException
+from tracecat_registry._internal import secrets as registry_secrets
 from tracecat_registry.integrations.ldap3 import search_entries
 
 from tests import conftest as test_conftest
-from tracecat.secrets import secrets_manager
+
+
+@contextmanager
+def registry_secrets_sandbox(secrets: dict[str, str]):
+    """Context manager that sets up the registry secrets context."""
+    token = registry_secrets.set_context(secrets)
+    try:
+        yield
+    finally:
+        registry_secrets.reset_context(token)
+
 
 LDAP_IMAGE = "osixia/openldap:1.5.0"
 LDAP_DOMAIN = "example.com"
@@ -141,7 +153,7 @@ def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
 
 @pytest.fixture
 def configure_ldap_secrets(live_ldap_server: dict[str, Any]):
-    with secrets_manager.env_sandbox(
+    with registry_secrets_sandbox(
         {
             "LDAP_HOST": live_ldap_server["host"],
             "LDAP_PORT": str(live_ldap_server["port"]),

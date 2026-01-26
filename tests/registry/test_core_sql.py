@@ -1,6 +1,9 @@
+from contextlib import contextmanager
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from tracecat_registry._internal import secrets as registry_secrets
 from tracecat_registry.core.sql import (
     SQLConnectionValidationError,
     _validate_connection_url,
@@ -8,7 +11,20 @@ from tracecat_registry.core.sql import (
 )
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.secrets import secrets_manager
+
+
+@contextmanager
+def registry_secrets_sandbox(secrets: dict[str, str]):
+    """Context manager that sets up the registry secrets context.
+
+    This is needed because the registry secrets module reads from its own
+    context variable, not from environment variables directly.
+    """
+    token = registry_secrets.set_context(secrets)
+    try:
+        yield
+    finally:
+        registry_secrets.reset_context(token)
 
 
 def test_validate_connection_url_blocks_internal_endpoint(
@@ -145,7 +161,7 @@ def setup_sql_test_table(db, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
 async def test_execute_query_select_all(setup_sql_test_table):
     """Test SELECT query returning all rows."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "SELECT id, name, email, age, active FROM test_users ORDER BY id"
         )
@@ -162,7 +178,7 @@ async def test_execute_query_select_all(setup_sql_test_table):
 async def test_execute_query_select_with_where(setup_sql_test_table):
     """Test SELECT query with WHERE clause."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "SELECT name, email FROM test_users WHERE active = :active",
             bound_params={"active": True},
@@ -177,7 +193,7 @@ async def test_execute_query_select_with_where(setup_sql_test_table):
 async def test_execute_query_fetch_one(setup_sql_test_table):
     """Test SELECT query with fetch_one=True."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "SELECT name, email FROM test_users WHERE age > :min_age ORDER BY age LIMIT 1",
             bound_params={"min_age": 30},
@@ -194,7 +210,7 @@ async def test_execute_query_fetch_one(setup_sql_test_table):
 async def test_execute_query_fetch_one_no_results(setup_sql_test_table):
     """Test SELECT query with fetch_one=True when no results."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "SELECT name, email FROM test_users WHERE age > :min_age",
             bound_params={"min_age": 100},
@@ -208,7 +224,7 @@ async def test_execute_query_fetch_one_no_results(setup_sql_test_table):
 async def test_execute_query_insert(setup_sql_test_table):
     """Test INSERT query returning rowcount."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "INSERT INTO test_users (name, email, age, active) VALUES (:name, :email, :age, :active)",
             bound_params={
@@ -237,7 +253,7 @@ async def test_execute_query_insert(setup_sql_test_table):
 async def test_execute_query_update(setup_sql_test_table):
     """Test UPDATE query returning rowcount."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "UPDATE test_users SET age = :new_age WHERE name = :name",
             bound_params={"new_age": 31, "name": "Alice"},
@@ -261,7 +277,7 @@ async def test_execute_query_update(setup_sql_test_table):
 async def test_execute_query_delete(setup_sql_test_table):
     """Test DELETE query returning rowcount."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "DELETE FROM test_users WHERE name = :name", bound_params={"name": "Eve"}
         )
@@ -282,7 +298,7 @@ async def test_execute_query_delete(setup_sql_test_table):
 async def test_execute_query_max_rows_limit(setup_sql_test_table):
     """Test that max_rows limits the number of returned rows."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "SELECT id, name FROM test_users ORDER BY id", max_rows=2
         )
@@ -297,7 +313,7 @@ async def test_execute_query_max_rows_limit(setup_sql_test_table):
 async def test_execute_query_parameterized_query(setup_sql_test_table):
     """Test parameterized query with multiple parameters."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             """
             SELECT name, email FROM test_users
@@ -322,7 +338,7 @@ async def test_execute_query_invalid_sql(setup_sql_test_table):
     from sqlalchemy.exc import SQLAlchemyError
 
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         with pytest.raises(SQLAlchemyError):
             await execute_query("SELECT * FROM nonexistent_table")
 
@@ -344,7 +360,7 @@ async def test_execute_query_invalid_connection_url(monkeypatch: pytest.MonkeyPa
     # The error will be NoSuchModuleError from SQLAlchemy
     from sqlalchemy.exc import NoSuchModuleError
 
-    with secrets_manager.env_sandbox({"CONNECTION_URL": "invalid://url"}):
+    with registry_secrets_sandbox({"CONNECTION_URL": "invalid://url"}):
         with pytest.raises((ValueError, NoSuchModuleError)):
             await execute_query("SELECT 1")
 
@@ -353,7 +369,7 @@ async def test_execute_query_invalid_connection_url(monkeypatch: pytest.MonkeyPa
 async def test_execute_query_no_bound_params(setup_sql_test_table):
     """Test query without bound parameters."""
     connection_url = TEST_DB_CONFIG.test_url_sync
-    with secrets_manager.env_sandbox({"CONNECTION_URL": connection_url}):
+    with registry_secrets_sandbox({"CONNECTION_URL": connection_url}):
         result = await execute_query(
             "SELECT COUNT(*) as total FROM test_users WHERE active = TRUE"
         )
