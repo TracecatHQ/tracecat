@@ -11,7 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.db.models import Organization, RegistryRepository, RegistryVersion
+from tracecat.db.models import (
+    Organization,
+    RegistryRepository,
+    RegistryVersion,
+)
 from tracecat.service import BaseService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,

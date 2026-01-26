@@ -267,10 +267,12 @@ class OrgService(BaseOrgService):
             )
 
         # Prevent privilege escalation: only OWNER can create OWNER invitations
+        # Superusers can create any invitation regardless of membership
         if role == OrgRole.OWNER and self.role.org_role != OrgRole.OWNER:
-            raise TracecatAuthorizationError(
-                "Only organization owners can create owner invitations"
-            )
+            if not self.role.is_superuser:
+                raise TracecatAuthorizationError(
+                    "Only organization owners can create owner invitations"
+                )
 
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (

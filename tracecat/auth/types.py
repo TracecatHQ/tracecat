@@ -55,6 +55,11 @@ class Role(BaseModel):
     access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
 
+    @property
+    def is_superuser(self) -> bool:
+        """Check if this role has superuser (platform admin) privileges."""
+        return self.access_level == AccessLevel.ADMIN
+
     def to_headers(self) -> dict[str, str]:
         headers = {
             "x-tracecat-role-type": self.type,

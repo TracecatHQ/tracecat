@@ -5664,7 +5664,7 @@ export const tablesImportCsv = (
  * @param data.limit Maximum items per page
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
- * @param data.searchTerm Text to search for in case summary and description
+ * @param data.searchTerm Text to search for in case summary, description, or short ID
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -5732,7 +5732,7 @@ export const casesCreateCase = (
  * Search cases based on various criteria.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.searchTerm Text to search for in case summary and description
+ * @param data.searchTerm Text to search for in case summary, description, or short ID
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
