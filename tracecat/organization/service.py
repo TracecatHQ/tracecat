@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, cast, select
+from sqlalchemy import and_, cast, func, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import contains_eager
 
@@ -34,7 +34,6 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
-
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
 
@@ -273,13 +272,13 @@ class OrgService(BaseOrgService):
                 "Only organization owners can create owner invitations"
             )
 
-        # Check if user with this email is already a member
+        # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (
             select(OrganizationMembership)
             .join(User, OrganizationMembership.user_id == User.id)
             .where(
                 OrganizationMembership.organization_id == self.organization_id,
-                User.email == email,  # pyright: ignore[reportArgumentType]
+                func.lower(User.email) == email.lower(),
             )
         )
         existing_member_result = await self.session.execute(existing_member_stmt)
@@ -288,10 +287,10 @@ class OrgService(BaseOrgService):
                 f"{email} is already a member of this organization"
             )
 
-        # Check for existing invitation
+        # Check for existing invitation (case-insensitive)
         existing_stmt = select(OrganizationInvitation).where(
             OrganizationInvitation.organization_id == self.organization_id,
-            OrganizationInvitation.email == email,
+            func.lower(OrganizationInvitation.email) == email.lower(),
         )
         existing_result = await self.session.execute(existing_stmt)
         existing = existing_result.scalar_one_or_none()
@@ -417,14 +416,14 @@ class OrgService(BaseOrgService):
 
         invitation = await self.get_invitation_by_token(token)
 
-        # Verify user's email matches invitation email
+        # Verify user's email matches invitation email (case-insensitive)
         user_result = await self.session.execute(
             select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
         )
         user = user_result.scalar_one_or_none()
         if user is None:
             raise TracecatAuthorizationError("User not found")
-        if user.email != invitation.email:
+        if user.email.lower() != invitation.email.lower():
             raise TracecatAuthorizationError(
                 "This invitation was sent to a different email address"
             )
