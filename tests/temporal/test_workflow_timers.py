@@ -14,7 +14,10 @@ from typing import cast
 import dateparser
 import pytest
 
-pytestmark = pytest.mark.temporal
+pytestmark = [
+    pytest.mark.temporal,
+    pytest.mark.usefixtures("registry_version_with_manifest"),
+]
 
 import temporalio.api.enums.v1
 from temporalio import activity
