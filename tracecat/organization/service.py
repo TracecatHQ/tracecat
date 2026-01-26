@@ -399,7 +399,8 @@ class OrgService(BaseOrgService):
         Raises:
             TracecatNotFoundError: If the invitation doesn't exist.
             TracecatAuthorizationError: If the invitation is expired, revoked,
-                or already accepted, or if the user is not authenticated.
+                or already accepted, if the user is not authenticated, or if
+                the user's email doesn't match the invitation email.
         """
         if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
@@ -407,6 +408,18 @@ class OrgService(BaseOrgService):
             )
 
         invitation = await self.get_invitation_by_token(token)
+
+        # Verify user's email matches invitation email
+        user_result = await self.session.execute(
+            select(User).where(User.id == self.role.user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            raise TracecatAuthorizationError("User not found")
+        if user.email != invitation.email:
+            raise TracecatAuthorizationError(
+                "This invitation was sent to a different email address"
+            )
 
         # Validate invitation state
         if invitation.status == InvitationStatus.ACCEPTED:
