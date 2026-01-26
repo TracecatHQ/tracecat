@@ -346,7 +346,9 @@ def get_builder_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
                 "Patch selected fields on the agent preset and return the updated record. "
                 "Only include fields you want to change. "
                 "Supported fields: instructions (system prompt), actions (list of tool identifiers), "
-                "namespaces (scope for tool discovery), tool_approvals (map of tool_name to bool for auto-run)."
+                "namespaces (scope for tool discovery), tool_approvals"
+                " (map of tool_name to bool. If true, require human-in-the-loop approval. "
+                "If false, auto-run tool without approval)."
             ),
             parameters_json_schema=AgentPresetUpdate.model_json_schema(),
         ),
