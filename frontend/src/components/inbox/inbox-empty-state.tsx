@@ -1,4 +1,4 @@
-import { InboxIcon } from "lucide-react"
+import { ActivityIcon } from "lucide-react"
 
 import {
   Empty,
@@ -13,11 +13,11 @@ export function InboxEmptyState() {
     <Empty className="h-full border-none">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <InboxIcon />
+          <ActivityIcon />
         </EmptyMedia>
-        <EmptyTitle>No pending items</EmptyTitle>
+        <EmptyTitle>No activity yet</EmptyTitle>
         <EmptyDescription>
-          Items will appear here when agents need approval.
+          Agent runs will appear here when workflows execute.
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

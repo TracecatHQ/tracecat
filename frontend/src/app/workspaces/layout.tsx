@@ -93,6 +93,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetail = !!params?.caseId
+  const isInboxPage = pathname?.includes("/inbox")
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -114,6 +115,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
 
   // Case detail pages have their own layout with dual SidebarInset
   if (isCaseDetail) {
+    return <>{children}</>
+  }
+
+  // Inbox pages have their own layout with chat sidebar
+  if (isInboxPage) {
     return <>{children}</>
   }
 
