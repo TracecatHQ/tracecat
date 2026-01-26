@@ -196,6 +196,12 @@ async def create_invitation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except IntegrityError as e:
+        # Race condition: another request created invitation for same email
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An invitation already exists for this email",
+        ) from e
     return OrgInvitationRead(
         id=invitation.id,
         organization_id=invitation.organization_id,
