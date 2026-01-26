@@ -13,9 +13,13 @@ import {
   type WorkspaceMember,
 } from "@/client"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
-import type { FilterMode } from "@/components/cases/case-table-filters"
 import { CasesAccordion } from "@/components/cases/cases-accordion"
-import { CasesHeader } from "@/components/cases/cases-header"
+import {
+  CasesHeader,
+  type FilterMode,
+  type SortDirection,
+} from "@/components/cases/cases-header"
+import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
@@ -34,12 +38,16 @@ interface CasesLayoutProps {
   onStatusModeChange: (mode: FilterMode) => void
   onPriorityChange: (priority: CasePriority[]) => void
   onPriorityModeChange: (mode: FilterMode) => void
+  onPrioritySortDirectionChange: (direction: SortDirection) => void
   onSeverityChange: (severity: CaseSeverity[]) => void
   onSeverityModeChange: (mode: FilterMode) => void
+  onSeveritySortDirectionChange: (direction: SortDirection) => void
   onAssigneeChange: (assignee: string[]) => void
   onAssigneeModeChange: (mode: FilterMode) => void
+  onAssigneeSortDirectionChange: (direction: SortDirection) => void
   onTagChange: (tags: string[]) => void
   onTagModeChange: (mode: FilterMode) => void
+  onTagSortDirectionChange: (direction: SortDirection) => void
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
   refetch?: () => void
@@ -57,12 +65,16 @@ export function CasesLayout({
   onStatusModeChange,
   onPriorityChange,
   onPriorityModeChange,
+  onPrioritySortDirectionChange,
   onSeverityChange,
   onSeverityModeChange,
+  onSeveritySortDirectionChange,
   onAssigneeChange,
   onAssigneeModeChange,
+  onAssigneeSortDirectionChange,
   onTagChange,
   onTagModeChange,
+  onTagSortDirectionChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
   refetch,
@@ -73,6 +85,7 @@ export function CasesLayout({
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
   const [isBulkUpdating, setIsBulkUpdating] = useState(false)
+  const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
   const { deleteCase } = useDeleteCase({ workspaceId })
@@ -216,6 +229,10 @@ export function CasesLayout({
 
   const selectedCaseIdsSet = useMemo(() => selectedCaseIds, [selectedCaseIds])
 
+  const handleDeleteRequest = useCallback((caseData: CaseReadMinimal) => {
+    setCaseToDelete(caseData)
+  }, [])
+
   const headerProps = {
     searchQuery: filters.searchQuery,
     onSearchChange,
@@ -227,18 +244,26 @@ export function CasesLayout({
     onPriorityChange,
     priorityMode: filters.priorityMode,
     onPriorityModeChange,
+    prioritySortDirection: filters.prioritySortDirection,
+    onPrioritySortDirectionChange,
     severityFilter: filters.severityFilter,
     onSeverityChange,
     severityMode: filters.severityMode,
     onSeverityModeChange,
+    severitySortDirection: filters.severitySortDirection,
+    onSeveritySortDirectionChange,
     assigneeFilter: filters.assigneeFilter,
     onAssigneeChange,
     assigneeMode: filters.assigneeMode,
     onAssigneeModeChange,
+    assigneeSortDirection: filters.assigneeSortDirection,
+    onAssigneeSortDirectionChange,
     tagFilter: filters.tagFilter,
     onTagChange,
     tagMode: filters.tagMode,
     onTagModeChange,
+    tagSortDirection: filters.tagSortDirection,
+    onTagSortDirectionChange,
     updatedAfter: filters.updatedAfter,
     onUpdatedAfterChange,
     createdAfter: filters.createdAfter,
@@ -253,40 +278,62 @@ export function CasesLayout({
 
   if (isLoading) {
     return (
-      <div className="flex size-full flex-col">
-        <CasesHeader {...headerProps} />
-        <div className="flex flex-1 items-center justify-center">
-          <CenteredSpinner />
+      <DeleteCaseAlertDialog
+        selectedCase={caseToDelete}
+        setSelectedCase={setCaseToDelete}
+      >
+        <div className="flex size-full flex-col">
+          <CasesHeader {...headerProps} />
+          <div className="flex flex-1 items-center justify-center">
+            <CenteredSpinner />
+          </div>
         </div>
-      </div>
+      </DeleteCaseAlertDialog>
     )
   }
 
   if (error) {
     return (
-      <div className="flex size-full flex-col">
-        <CasesHeader {...headerProps} />
-        <div className="flex flex-1 items-center justify-center">
-          <span className="text-sm text-red-500">
-            Failed to load cases: {error.message}
-          </span>
+      <DeleteCaseAlertDialog
+        selectedCase={caseToDelete}
+        setSelectedCase={setCaseToDelete}
+      >
+        <div className="flex size-full flex-col">
+          <CasesHeader {...headerProps} />
+          <div className="flex flex-1 items-center justify-center">
+            <span className="text-sm text-red-500">
+              Failed to load cases: {error.message}
+            </span>
+          </div>
         </div>
-      </div>
+      </DeleteCaseAlertDialog>
     )
   }
 
   return (
-    <div className="flex size-full flex-col">
-      <CasesHeader {...headerProps} />
-      <div className="min-h-0 flex-1">
-        <CasesAccordion
-          cases={cases}
-          selectedId={selectedId}
-          selectedCaseIds={selectedCaseIdsSet}
-          onSelect={handleSelectCase}
-          onCheckChange={handleCheckChange}
-        />
+    <DeleteCaseAlertDialog
+      selectedCase={caseToDelete}
+      setSelectedCase={setCaseToDelete}
+    >
+      <div className="flex size-full flex-col">
+        <CasesHeader {...headerProps} />
+        <div className="min-h-0 flex-1">
+          <CasesAccordion
+            cases={cases}
+            selectedId={selectedId}
+            selectedCaseIds={selectedCaseIdsSet}
+            onSelect={handleSelectCase}
+            onCheckChange={handleCheckChange}
+            onDeleteRequest={handleDeleteRequest}
+            tags={tags}
+            members={members}
+            prioritySortDirection={filters.prioritySortDirection}
+            severitySortDirection={filters.severitySortDirection}
+            assigneeSortDirection={filters.assigneeSortDirection}
+            tagSortDirection={filters.tagSortDirection}
+          />
+        </div>
       </div>
-    </div>
+    </DeleteCaseAlertDialog>
   )
 }

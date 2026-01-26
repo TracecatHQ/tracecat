@@ -48,7 +48,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 import { InlineDotSeparator } from "../separator"
 
-function ActivityFeedEvent({
+function CaseFeedEvent({
   event,
   users,
 }: {
@@ -194,11 +194,11 @@ function WorkflowExecutionInfo({ wfExecId }: { wfExecId: string }) {
   )
 }
 
-// Group activities by date for better organization
-function groupActivitiesByDate(activities: CaseEventRead[]) {
-  if (!activities || activities.length === 0) return []
+// Group events by date for better organization
+function groupEventsByDate(events: CaseEventRead[]) {
+  if (!events || events.length === 0) return []
 
-  const grouped = activities.reduce(
+  const grouped = events.reduce(
     (grouped: Record<string, CaseEventRead[]>, event) => {
       const date = new Date(event.created_at).toDateString()
       if (!grouped[date]) grouped[date] = []
@@ -214,16 +214,16 @@ function groupActivitiesByDate(activities: CaseEventRead[]) {
       ([dateA], [dateB]) =>
         new Date(dateA).getTime() - new Date(dateB).getTime()
     )
-    .map(([date, activities]) => ({
+    .map(([date, events]) => ({
       date: new Date(date),
-      activities: activities.sort(
+      events: events.sort(
         (a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       ),
     }))
 }
 
-export function CaseActivityFeed({
+export function CaseFeed({
   caseId,
   workspaceId,
 }: {
@@ -267,7 +267,7 @@ export function CaseActivityFeed({
           <div className="flex items-center justify-center p-8">
             <div className="flex items-center gap-2 text-red-600">
               <AlertCircle className="h-4 w-4" />
-              <span className="text-sm">Failed to load activities</span>
+              <span className="text-sm">Failed to load events</span>
             </div>
           </div>
         </div>
@@ -284,9 +284,9 @@ export function CaseActivityFeed({
               <EmptyMedia variant="icon">
                 <Clock className="size-6" />
               </EmptyMedia>
-              <EmptyTitle>No activity yet</EmptyTitle>
+              <EmptyTitle>No events yet</EmptyTitle>
               <EmptyDescription>
-                Activities will appear here when changes are made to the case.
+                Events will appear here when changes are made to the case.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -295,12 +295,12 @@ export function CaseActivityFeed({
     )
   }
 
-  const groupedActivities = groupActivitiesByDate(events)
+  const groupedEvents = groupEventsByDate(events)
 
   return (
     <div className="mx-auto w-full">
       <div className="space-y-4 p-4">
-        {groupedActivities.map(({ date, activities }) => (
+        {groupedEvents.map(({ date, events: dateEvents }) => (
           <div key={date.toISOString()} className="space-y-2">
             <div className="sticky top-0 z-10 py-2">
               <div className="flex items-center">
@@ -322,8 +322,8 @@ export function CaseActivityFeed({
                 aria-hidden="true"
               />
               <div className="space-y-2">
-                {activities.map((event, index) => (
-                  <ActivityFeedEvent key={index} event={event} users={users} />
+                {dateEvents.map((event, index) => (
+                  <CaseFeedEvent key={index} event={event} users={users} />
                 ))}
               </div>
             </div>

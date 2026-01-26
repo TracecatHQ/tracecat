@@ -10,8 +10,14 @@ import {
   TrafficConeIcon,
 } from "lucide-react"
 import { useMemo } from "react"
-import type { CaseReadMinimal, CaseStatus } from "@/client"
+import type {
+  CaseReadMinimal,
+  CaseStatus,
+  CaseTagRead,
+  WorkspaceMember,
+} from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
+import type { SortDirection } from "@/components/cases/cases-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
@@ -73,6 +79,14 @@ interface CasesAccordionProps {
   selectedCaseIds: Set<string>
   onSelect: (id: string) => void
   onCheckChange: (id: string, checked: boolean) => void
+  onDeleteRequest?: (caseData: CaseReadMinimal) => void
+  tags?: CaseTagRead[]
+  members?: WorkspaceMember[]
+  /** When any sort direction is active, preserve the order from the hook */
+  prioritySortDirection?: SortDirection
+  severitySortDirection?: SortDirection
+  assigneeSortDirection?: SortDirection
+  tagSortDirection?: SortDirection
 }
 
 export function CasesAccordion({
@@ -81,7 +95,18 @@ export function CasesAccordion({
   selectedCaseIds,
   onSelect,
   onCheckChange,
+  onDeleteRequest,
+  tags,
+  members,
+  prioritySortDirection,
+  severitySortDirection,
+  assigneeSortDirection,
+  tagSortDirection,
 }: CasesAccordionProps) {
+  // Check if any explicit sort is active (from the header)
+  const hasExplicitSort =
+    prioritySortDirection || severitySortDirection || assigneeSortDirection || tagSortDirection
+
   // Group cases by status category
   const groupedCases = useMemo(() => {
     const groups: Record<StatusGroup, CaseReadMinimal[]> = {
@@ -107,16 +132,19 @@ export function CasesAccordion({
       }
     }
 
-    // Sort cases within each group by updated_at (most recent first)
-    for (const groupKey of Object.keys(groups) as StatusGroup[]) {
-      groups[groupKey].sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      )
+    // Only apply default updated_at sorting when no explicit sort is active
+    // When explicit sorting is applied, preserve the order from the hook
+    if (!hasExplicitSort) {
+      for (const groupKey of Object.keys(groups) as StatusGroup[]) {
+        groups[groupKey].sort(
+          (a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        )
+      }
     }
 
     return groups
-  }, [cases])
+  }, [cases, hasExplicitSort])
 
   // Calculate which groups have items and should be expanded by default
   const defaultExpandedGroups = useMemo(() => {
@@ -190,6 +218,9 @@ export function CasesAccordion({
                         onCheckChange(caseData.id, checked)
                       }
                       onClick={() => onSelect(caseData.id)}
+                      onDeleteRequest={onDeleteRequest}
+                      tags={tags}
+                      members={members}
                     />
                   ))}
                 </div>

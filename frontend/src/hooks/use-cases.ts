@@ -10,7 +10,7 @@ import {
   type CaseStatus,
   casesListCases,
 } from "@/client"
-import type { FilterMode } from "@/components/cases/case-table-filters"
+import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -28,12 +28,16 @@ export interface UseCasesFilters {
   statusMode: FilterMode
   priorityFilter: CasePriority[]
   priorityMode: FilterMode
+  prioritySortDirection: SortDirection
   severityFilter: CaseSeverity[]
   severityMode: FilterMode
+  severitySortDirection: SortDirection
   assigneeFilter: string[]
   assigneeMode: FilterMode
+  assigneeSortDirection: SortDirection
   tagFilter: string[]
   tagMode: FilterMode
+  tagSortDirection: SortDirection
   updatedAfter: CaseDateFilterValue
   createdAfter: CaseDateFilterValue
   limit: number
@@ -55,12 +59,16 @@ export interface UseCasesResult {
   setStatusMode: (mode: FilterMode) => void
   setPriorityFilter: (priority: CasePriority[]) => void
   setPriorityMode: (mode: FilterMode) => void
+  setPrioritySortDirection: (direction: SortDirection) => void
   setSeverityFilter: (severity: CaseSeverity[]) => void
   setSeverityMode: (mode: FilterMode) => void
+  setSeveritySortDirection: (direction: SortDirection) => void
   setAssigneeFilter: (assignee: string[]) => void
   setAssigneeMode: (mode: FilterMode) => void
+  setAssigneeSortDirection: (direction: SortDirection) => void
   setTagFilter: (tags: string[]) => void
   setTagMode: (mode: FilterMode) => void
+  setTagSortDirection: (direction: SortDirection) => void
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
   setLimit: (limit: number) => void
@@ -105,6 +113,23 @@ export const DEFAULT_DATE_FILTER: CaseDateFilterValue = {
   value: null,
 }
 
+// Priority order mapping (higher value = higher priority)
+const PRIORITY_ORDER: Record<CasePriority, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+}
+
+// Severity order mapping (higher value = higher severity)
+const SEVERITY_ORDER: Record<CaseSeverity, number> = {
+  informational: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+  critical: 5,
+}
+
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const { enabled = true, autoRefresh = true } = options
   const workspaceId = useWorkspaceId()
@@ -115,12 +140,19 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [statusMode, setStatusMode] = useState<FilterMode>("include")
   const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
   const [priorityMode, setPriorityMode] = useState<FilterMode>("include")
+  const [prioritySortDirection, setPrioritySortDirection] =
+    useState<SortDirection>(null)
   const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
   const [severityMode, setSeverityMode] = useState<FilterMode>("include")
+  const [severitySortDirection, setSeveritySortDirection] =
+    useState<SortDirection>(null)
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
   const [assigneeMode, setAssigneeMode] = useState<FilterMode>("include")
+  const [assigneeSortDirection, setAssigneeSortDirection] =
+    useState<SortDirection>(null)
   const [tagFilter, setTagFilter] = useState<string[]>([])
   const [tagMode, setTagMode] = useState<FilterMode>("include")
+  const [tagSortDirection, setTagSortDirection] = useState<SortDirection>(null)
   const [updatedAfter, setUpdatedAfter] =
     useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
   const [createdAfter, setCreatedAfter] =
@@ -222,7 +254,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     const updatedBounds = getDateBoundsFromFilter(updatedAfter)
     const createdBounds = getDateBoundsFromFilter(createdAfter)
 
-    return cases.filter((caseData) => {
+    const filtered = cases.filter((caseData) => {
       // Exclude mode filters (client-side)
       if (statusFilter.length > 0 && statusMode === "exclude") {
         if (statusFilter.includes(caseData.status)) return false
@@ -276,18 +308,62 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
       return true
     })
+
+    // Apply sorting based on sort direction (first active sort wins)
+    if (prioritySortDirection) {
+      const multiplier = prioritySortDirection === "asc" ? 1 : -1
+      return [...filtered].sort(
+        (a, b) =>
+          multiplier * (PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
+      )
+    }
+
+    if (severitySortDirection) {
+      const multiplier = severitySortDirection === "asc" ? 1 : -1
+      return [...filtered].sort(
+        (a, b) =>
+          multiplier * (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+      )
+    }
+
+    if (assigneeSortDirection) {
+      const multiplier = assigneeSortDirection === "asc" ? 1 : -1
+      return [...filtered].sort((a, b) => {
+        const aName = a.assignee?.email ?? ""
+        const bName = b.assignee?.email ?? ""
+        return multiplier * aName.localeCompare(bName)
+      })
+    }
+
+    if (tagSortDirection) {
+      const multiplier = tagSortDirection === "asc" ? 1 : -1
+      return [...filtered].sort((a, b) => {
+        // Sort by first tag name, empty tags go last
+        const aTag = a.tags?.[0]?.name ?? ""
+        const bTag = b.tags?.[0]?.name ?? ""
+        if (!aTag && bTag) return 1
+        if (aTag && !bTag) return -1
+        return multiplier * aTag.localeCompare(bTag)
+      })
+    }
+
+    return filtered
   }, [
     cases,
     statusFilter,
     statusMode,
     priorityFilter,
     priorityMode,
+    prioritySortDirection,
     severityFilter,
     severityMode,
+    severitySortDirection,
     assigneeFilter,
     assigneeMode,
+    assigneeSortDirection,
     tagFilter,
     tagMode,
+    tagSortDirection,
     updatedAfter,
     createdAfter,
   ])
@@ -303,12 +379,16 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       statusMode,
       priorityFilter,
       priorityMode,
+      prioritySortDirection,
       severityFilter,
       severityMode,
+      severitySortDirection,
       assigneeFilter,
       assigneeMode,
+      assigneeSortDirection,
       tagFilter,
       tagMode,
+      tagSortDirection,
       updatedAfter,
       createdAfter,
       limit,
@@ -318,12 +398,16 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setStatusMode,
     setPriorityFilter,
     setPriorityMode,
+    setPrioritySortDirection,
     setSeverityFilter,
     setSeverityMode,
+    setSeveritySortDirection,
     setAssigneeFilter,
     setAssigneeMode,
+    setAssigneeSortDirection,
     setTagFilter,
     setTagMode,
+    setTagSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
     setLimit,

@@ -21,12 +21,16 @@ export default function CasesPage() {
     setStatusMode,
     setPriorityFilter,
     setPriorityMode,
+    setPrioritySortDirection,
     setSeverityFilter,
     setSeverityMode,
+    setSeveritySortDirection,
     setAssigneeFilter,
     setAssigneeMode,
+    setAssigneeSortDirection,
     setTagFilter,
     setTagMode,
+    setTagSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
   } = useCases()
@@ -54,12 +58,16 @@ export default function CasesPage() {
         onStatusModeChange={setStatusMode}
         onPriorityChange={setPriorityFilter}
         onPriorityModeChange={setPriorityMode}
+        onPrioritySortDirectionChange={setPrioritySortDirection}
         onSeverityChange={setSeverityFilter}
         onSeverityModeChange={setSeverityMode}
+        onSeveritySortDirectionChange={setSeveritySortDirection}
         onAssigneeChange={setAssigneeFilter}
         onAssigneeModeChange={setAssigneeMode}
+        onAssigneeSortDirectionChange={setAssigneeSortDirection}
         onTagChange={setTagFilter}
         onTagModeChange={setTagMode}
+        onTagSortDirectionChange={setTagSortDirection}
         onUpdatedAfterChange={setUpdatedAfter}
         onCreatedAfterChange={setCreatedAfter}
         refetch={refetch}
