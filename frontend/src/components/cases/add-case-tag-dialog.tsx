@@ -103,14 +103,14 @@ export function AddCaseTagDialog({
                 key="name"
                 control={methods.control}
                 name="name"
-                render={() => (
+                render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm">Name</FormLabel>
                     <FormControl>
                       <Input
                         className="text-sm"
                         placeholder="Name"
-                        {...methods.register("name")}
+                        {...field}
                       />
                     </FormControl>
                     <FormDescription>

@@ -33,6 +33,13 @@ export function CaseItem({
     onCheckChange?.(!isChecked)
   }
 
+  const handleCheckboxKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== " " && e.key !== "Enter") return
+    e.preventDefault()
+    e.stopPropagation()
+    onCheckChange?.(!isChecked)
+  }
+
   return (
     <button
       type="button"
@@ -64,6 +71,8 @@ export function CaseItem({
           role="checkbox"
           aria-checked={isChecked}
           aria-label={`Select case ${caseData.short_id}`}
+          tabIndex={0}
+          onKeyDown={handleCheckboxKeyDown}
         >
           {isChecked && <Check className="size-3" aria-hidden />}
         </div>

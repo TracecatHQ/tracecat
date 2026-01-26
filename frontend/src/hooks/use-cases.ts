@@ -8,7 +8,7 @@ import {
   type CaseReadMinimal,
   type CaseSeverity,
   type CaseStatus,
-  casesSearchCases,
+  casesListCases,
 } from "@/client"
 import type { FilterMode } from "@/components/cases/case-table-filters"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -130,7 +130,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   // Compute query parameters for API (include mode only for now)
   // Exclude filtering is done client-side
   const queryParams = useMemo(() => {
+    const normalizedSearch = searchQuery.trim()
     return {
+      searchTerm: normalizedSearch.length > 0 ? normalizedSearch : undefined,
       status:
         statusFilter.length > 0 && statusMode === "include"
           ? statusFilter
@@ -143,7 +145,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         severityFilter.length > 0 && severityMode === "include"
           ? severityFilter
           : undefined,
-      assignee:
+      assigneeId:
         assigneeFilter.length > 0 && assigneeMode === "include"
           ? assigneeFilter
           : undefined,
@@ -154,6 +156,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       sort: "desc" as const,
     }
   }, [
+    searchQuery,
     statusFilter,
     statusMode,
     priorityFilter,
@@ -194,24 +197,25 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     queryKey: [
       "cases-inbox",
       workspaceId,
+      queryParams.searchTerm,
       queryParams.status,
       queryParams.priority,
       queryParams.severity,
-      queryParams.assignee,
+      queryParams.assigneeId,
       queryParams.tags,
       queryParams.limit,
     ],
     queryFn: () =>
-      casesSearchCases({
+      casesListCases({
         workspaceId,
         ...queryParams,
-      }),
+      }).then((response) => response.items),
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
   })
 
-  // Apply client-side filtering (search + exclude mode filters + date filters)
+  // Apply client-side filtering (exclude mode filters + date filters)
   const filteredCases = useMemo(() => {
     if (!cases) return []
 
@@ -219,16 +223,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     const createdBounds = getDateBoundsFromFilter(createdAfter)
 
     return cases.filter((caseData) => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase().trim()
-        const summary = caseData.summary.toLowerCase()
-        const shortId = caseData.short_id.toLowerCase()
-        if (!summary.includes(query) && !shortId.includes(query)) {
-          return false
-        }
-      }
-
       // Exclude mode filters (client-side)
       if (statusFilter.length > 0 && statusMode === "exclude") {
         if (statusFilter.includes(caseData.status)) return false
@@ -284,7 +278,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     })
   }, [
     cases,
-    searchQuery,
     statusFilter,
     statusMode,
     priorityFilter,

@@ -53,10 +53,18 @@ const updateTagSchema = z.object({
       "Tag name cannot be only whitespace"
     )
     .optional(),
-  color: z
-    .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/, "Color must be a valid hex color code")
-    .optional(),
+  color: z.preprocess(
+    (value) => {
+      if (value === "" || value === null || value === undefined) {
+        return undefined
+      }
+      return value
+    },
+    z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/, "Color must be a valid hex color code")
+      .optional()
+  ),
 })
 
 enum TagItemAction {
@@ -281,7 +289,7 @@ function EditTagDialogContent({
     resolver: zodResolver(updateTagSchema),
     defaultValues: {
       name: tag.name,
-      color: tag.color || "#aabbcc",
+      color: tag.color ?? "",
     },
   })
 
@@ -339,27 +347,33 @@ function EditTagDialogContent({
               key="color"
               control={methods.control}
               name="color"
-              defaultValue={tag.color}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm">Color</FormLabel>
-                  <div className="flex gap-2">
-                    <FormControl>
-                      <Input
-                        className="max-w-24 font-mono text-sm"
-                        placeholder="#000000"
-                        {...field}
-                        value={field.value ?? "#000000"}
+              defaultValue={tag.color ?? ""}
+              render={({ field }) => {
+                const displayColor =
+                  field.value && field.value.length > 0
+                    ? field.value
+                    : "#000000"
+                return (
+                  <FormItem>
+                    <FormLabel className="text-sm">Color</FormLabel>
+                    <div className="flex gap-2">
+                      <FormControl>
+                        <Input
+                          className="max-w-24 font-mono text-sm"
+                          placeholder="#000000"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <ColorPicker
+                        value={displayColor}
+                        onChange={(color) => field.onChange(color)}
                       />
-                    </FormControl>
-                    <ColorPicker
-                      value={field.value ?? "#000000"}
-                      onChange={(color) => field.onChange(color)}
-                    />
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
             />
             <AlertDialogFooter>
               <AlertDialogCancel disabled={isUpdating}>

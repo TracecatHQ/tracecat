@@ -221,6 +221,7 @@ class CasesService(BaseWorkspaceService):
                 or_(
                     Case.summary.ilike(search_pattern),
                     Case.description.ilike(search_pattern),
+                    Case.short_id.ilike(search_pattern),
                 )
             )
 
@@ -500,7 +501,7 @@ class CasesService(BaseWorkspaceService):
         """Search cases based on various criteria.
 
         Args:
-            search_term: Text to search for in case summary and description
+            search_term: Text to search for in case summary, description, or short ID
             status: Filter by case status
             priority: Filter by case priority
             severity: Filter by case severity
@@ -536,6 +537,7 @@ class CasesService(BaseWorkspaceService):
                 or_(
                     Case.summary.ilike(search_pattern),
                     Case.description.ilike(search_pattern),
+                    Case.short_id.ilike(search_pattern),
                 )
             )
 

@@ -16,7 +16,13 @@ import {
   TagIcon,
   UserIcon,
 } from "lucide-react"
-import { type ComponentType, type ReactNode, useMemo, useState } from "react"
+import {
+  type ComponentType,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type { DateRange } from "react-day-picker"
 import type {
   CasePriority,
@@ -111,6 +117,14 @@ function DateFilterSelect({
   const [dateRange, setDateRange] = useState<DateRange | undefined>(
     value.type === "range" ? value.value : undefined
   )
+
+  useEffect(() => {
+    if (value.type === "range") {
+      setDateRange(value.value)
+    } else {
+      setDateRange(undefined)
+    }
+  }, [value])
 
   const label = getDateFilterLabel(value)
   const isActive = isDateFilterActive(value)
