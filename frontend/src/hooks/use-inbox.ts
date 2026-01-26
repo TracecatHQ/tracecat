@@ -231,9 +231,10 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
       selectedId !== null &&
       enrichedSessions.some((session) => session.id === selectedId)
 
-    if (!selectionExists) {
-      // Don't auto-select - let user choose
-      // This differs from the old behavior where we auto-selected
+    if (!selectionExists && selectedId !== null) {
+      // Clear stale selection to avoid inconsistent UI state
+      // Don't auto-select a new session - let user choose
+      setSelectedId(null)
     }
   }, [enrichedSessions, selectedId])
 

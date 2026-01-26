@@ -181,7 +181,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => setCreateCaseDialogOpen(true)}>
+                <SidebarMenuButton
+                  onClick={() => setCreateCaseDialogOpen(true)}
+                >
                   <LayersPlus />
                   <span>Add case</span>
                 </SidebarMenuButton>

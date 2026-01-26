@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect } from "react"
-import type { AgentSessionEntity } from "@/client"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
+import type { AgentSessionEntity } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import type { DateFilterValue, UseInboxFilters } from "@/hooks/use-inbox"
 import type { AgentSessionWithStatus } from "@/lib/agents"
