@@ -105,7 +105,10 @@ export function CasesAccordion({
 }: CasesAccordionProps) {
   // Check if any explicit sort is active (from the header)
   const hasExplicitSort =
-    prioritySortDirection || severitySortDirection || assigneeSortDirection || tagSortDirection
+    prioritySortDirection ||
+    severitySortDirection ||
+    assigneeSortDirection ||
+    tagSortDirection
 
   // Group cases by status category
   const groupedCases = useMemo(() => {

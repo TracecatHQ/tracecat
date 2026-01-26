@@ -129,7 +129,8 @@ export function CaseItem({
 
   const handleTagToggle = async (tagId: string, hasTag: boolean) => {
     // Optimistically update the UI immediately
-    const currentTags = optimisticTags ?? new Set(caseData.tags?.map((t) => t.id) ?? [])
+    const currentTags =
+      optimisticTags ?? new Set(caseData.tags?.map((t) => t.id) ?? [])
     const newTags = new Set(currentTags)
     if (hasTag) {
       newTags.delete(tagId)
@@ -258,7 +259,7 @@ export function CaseItem({
         requestBody: { assignee_id: newAssigneeId },
       })
       const assigneeName = newAssigneeId
-        ? members?.find((m) => m.user_id === newAssigneeId)?.email ?? "user"
+        ? (members?.find((m) => m.user_id === newAssigneeId)?.email ?? "user")
         : "unassigned"
       toast({
         title: "Assignee updated",
@@ -278,7 +279,8 @@ export function CaseItem({
   }
 
   // Compute effective tag state (optimistic or actual)
-  const effectiveTagIds = optimisticTags ?? new Set(caseData.tags?.map((t) => t.id) ?? [])
+  const effectiveTagIds =
+    optimisticTags ?? new Set(caseData.tags?.map((t) => t.id) ?? [])
 
   return (
     <ContextMenu onOpenChange={setIsContextMenuOpen}>
@@ -551,7 +553,8 @@ export function CaseItem({
                     <div
                       className={cn(
                         "mr-2 flex size-2 shrink-0 rounded-full",
-                        !tag.color && "border border-muted-foreground/50 bg-muted"
+                        !tag.color &&
+                          "border border-muted-foreground/50 bg-muted"
                       )}
                       style={{
                         backgroundColor: tag.color || undefined,

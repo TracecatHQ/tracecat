@@ -1012,10 +1012,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   </TabsContent>
 
                   <TabsContent value="activity" className="mt-4">
-                    <CaseFeed
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                    />
+                    <CaseFeed caseId={caseId} workspaceId={workspaceId} />
                   </TabsContent>
 
                   <TabsContent value="attachments" className="mt-4">
