@@ -7,7 +7,7 @@ import {
   LayersPlus,
   LockKeyholeIcon,
   type LucideIcon,
-  MessageCirclePlus,
+  SquarePen,
   SquareMousePointerIcon,
   SquareStackIcon,
   Table2Icon,
@@ -176,7 +176,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   onClick={() => void handleNewChat()}
                   disabled={createChatPending}
                 >
-                  <MessageCirclePlus />
+                  <SquarePen />
                   <span>New chat</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
