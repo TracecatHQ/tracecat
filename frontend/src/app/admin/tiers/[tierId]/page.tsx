@@ -84,7 +84,7 @@ export default function AdminTierDetailPage({
         api_rate_limit: tier.api_rate_limit,
         api_burst_capacity: tier.api_burst_capacity,
         is_default: tier.is_default,
-        is_active: true, // TierRead doesn't have is_active, default to true
+        is_active: tier.is_active,
         sort_order: tier.sort_order,
       })
     }
