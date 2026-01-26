@@ -8694,6 +8694,13 @@ export const $InteractionType = {
   title: "InteractionType",
 } as const
 
+export const $InvitationStatus = {
+  type: "string",
+  enum: ["pending", "accepted", "revoked"],
+  title: "InvitationStatus",
+  description: "Invitation lifecycle status.",
+} as const
+
 export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
@@ -9144,6 +9151,140 @@ export const $OrgCreate = {
   required: ["name", "slug"],
   title: "OrgCreate",
   description: "Create organization request.",
+} as const
+
+export const $OrgInvitationAccept = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "OrgInvitationAccept",
+  description:
+    "Request body for accepting an organization invitation via token.",
+} as const
+
+export const $OrgInvitationCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+      default: "member",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "OrgInvitationCreate",
+  description: "Request body for creating an organization invitation.",
+} as const
+
+export const $OrgInvitationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    accepted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accepted At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "email",
+    "role",
+    "status",
+    "invited_by",
+    "expires_at",
+    "created_at",
+    "accepted_at",
+  ],
+  title: "OrgInvitationRead",
+  description: "Response model for organization invitation.",
+} as const
+
+export const $OrgInvitationReadMinimal = {
+  properties: {
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: ["organization_id", "role", "status", "expires_at"],
+  title: "OrgInvitationReadMinimal",
+  description: `Minimal response for public token-based invitation lookup.
+
+Excludes sensitive fields like email, invited_by, and timestamps
+to reduce information disclosure when querying by token.`,
 } as const
 
 export const $OrgMemberRead = {

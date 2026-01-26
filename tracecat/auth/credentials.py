@@ -19,6 +19,7 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from pydantic import UUID4
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -34,7 +35,7 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import User
+from tracecat.db.models import OrganizationMembership, User
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -320,11 +321,22 @@ async def _role_dependency(
                     detail="Multiple organizations found. Provide workspace_id to select an organization.",
                 )
 
+        # Fetch org-level role from OrganizationMembership
+        org_role: OrgRole | None = None
+        org_membership_stmt = select(OrganizationMembership.role).where(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+        org_membership_result = await session.execute(org_membership_stmt)
+        if org_role_value := org_membership_result.scalar_one_or_none():
+            org_role = org_role_value
+
         role = get_role_from_user(
             user,
             workspace_id=workspace_id,
             workspace_role=workspace_role,
             organization_id=organization_id,
+            org_role=org_role,
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
@@ -346,8 +358,6 @@ async def _role_dependency(
         # Derive access_level from DB lookup on user_id (prevents privilege escalation)
         access_level = AccessLevel.BASIC  # Default for system/anonymous executions
         if token_payload.user_id is not None:
-            from sqlalchemy import select
-
             stmt = select(User.role).where(User.id == token_payload.user_id)  # pyright: ignore[reportArgumentType]
             result = await session.execute(stmt)
             user_role = result.scalar_one_or_none()
