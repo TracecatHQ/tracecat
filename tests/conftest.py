@@ -22,8 +22,7 @@ from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -753,22 +752,16 @@ async def session(env_sandbox: None) -> AsyncGenerator[AsyncSession, None]:
     This fixture creates a nested transaction using SAVEPOINT, allowing
     each test to commit/rollback without affecting other tests.
 
-    Uses READ COMMITTED isolation to allow parallel tests to see committed
-    workspace data without lock contention that SERIALIZABLE would cause.
-
-    IMPORTANT: Uses config.TRACECAT__DB_URI (after async driver conversion) to ensure
-    this session connects to the same database as the global engine used by services.
+    IMPORTANT: Uses the global engine from get_async_engine() to ensure this session
+    connects to the exact same database as services using get_async_session_context_manager().
+    This is critical for svc_workspace to work correctly - it inserts via the global engine
+    and then reads via this session, which only works if they share the same engine/connection pool.
     """
-    # Use the same URL as the global engine to ensure both point to the same database.
-    # config.TRACECAT__DB_URI is set to the test database URL by env_sandbox.
-    db_uri = config.TRACECAT__DB_URI
-    if "psycopg" in db_uri:
-        db_uri = db_uri.replace("psycopg", "asyncpg")
-    async_engine = create_async_engine(
-        db_uri,
-        isolation_level="READ COMMITTED",
-        poolclass=NullPool,  # Prevent connection accumulation in parallel tests
-    )
+    # Use the SAME engine instance as the global engine used by services.
+    # This ensures both test code and service code see the same database state.
+    # The engine is already configured with the test database URL by env_sandbox
+    # and reset_async_engine() was called to clear any stale cached engine.
+    async_engine = get_async_engine()
 
     # Connect and begin the outer transaction
     async with async_engine.connect() as connection:
@@ -794,11 +787,8 @@ async def session(env_sandbox: None) -> AsyncGenerator[AsyncSession, None]:
                 await connection.rollback()
             except Exception as e:
                 logger.error(f"Error during session cleanup: {e}")
-            finally:
-                try:
-                    await async_engine.dispose()
-                except Exception as e:
-                    logger.error(f"Error disposing engine: {e}")
+            # Note: We do NOT dispose the engine here since it's the shared global engine.
+            # The test_db_engine fixture handles engine disposal after each test.
 
 
 @pytest.fixture(autouse=True, scope="session")
