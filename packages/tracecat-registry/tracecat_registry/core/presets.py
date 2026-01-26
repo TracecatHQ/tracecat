@@ -98,7 +98,7 @@ async def create_preset(
     if actions is not None:
         kwargs["actions"] = actions
 
-    return await get_context().presets.create_preset(**kwargs)
+    return await get_context().agents.create_preset(**kwargs)
 
 
 @registry.register(
@@ -115,7 +115,7 @@ async def get_preset(
         ),
     ],
 ) -> dict[str, Any]:
-    return await get_context().presets.get_preset(slug)
+    return await get_context().agents.get_preset(slug)
 
 
 @registry.register(
@@ -125,7 +125,7 @@ async def get_preset(
     namespace="ai.agent",
 )
 async def list_presets() -> list[dict[str, Any]]:
-    return await get_context().presets.list_presets()
+    return await get_context().agents.list_presets()
 
 
 @registry.register(
@@ -207,7 +207,7 @@ async def update_preset(
     if actions is not None:
         kwargs["actions"] = actions
 
-    return await get_context().presets.update_preset(slug, **kwargs)
+    return await get_context().agents.update_preset(slug, **kwargs)
 
 
 @registry.register(
@@ -222,4 +222,4 @@ async def delete_preset(
         Doc("The slug identifier of the preset to delete (e.g., 'security-analyst')."),
     ],
 ) -> None:
-    await get_context().presets.delete_preset(slug)
+    await get_context().agents.delete_preset(slug)
