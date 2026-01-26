@@ -520,8 +520,11 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.ADMIN
 
-    # Mock session (not used for privileged users, but required parameter)
+    # Mock session - need to properly mock execute() for org membership lookup
     mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_session.execute.return_value = mock_result
 
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
