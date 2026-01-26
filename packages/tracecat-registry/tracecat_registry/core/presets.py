@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.types import OutputType
 from tracecat_registry import registry
+from tracecat_registry.context import get_context
 
 OutputTypeLiteral = Literal[
     "bool",
@@ -81,21 +79,26 @@ async def create_preset(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    async with AgentPresetService.with_session() as service:
-        preset = await service.create_preset(
-            AgentPresetCreate(
-                name=name,
-                slug=slug,
-                description=description,
-                instructions=instructions,
-                model_name=model_name,
-                model_provider=model_provider,
-                base_url=base_url,
-                output_type=cast(OutputType | None, output_type),
-                actions=actions,
-            )
-        )
-    return preset.to_dict()
+    # Build kwargs, only including non-None values
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "model_name": model_name,
+        "model_provider": model_provider,
+    }
+    if slug is not None:
+        kwargs["slug"] = slug
+    if description is not None:
+        kwargs["description"] = description
+    if instructions is not None:
+        kwargs["instructions"] = instructions
+    if base_url is not None:
+        kwargs["base_url"] = base_url
+    if output_type is not None:
+        kwargs["output_type"] = output_type
+    if actions is not None:
+        kwargs["actions"] = actions
+
+    return await get_context().agents.create_preset(**kwargs)
 
 
 @registry.register(
@@ -112,13 +115,7 @@ async def get_preset(
         ),
     ],
 ) -> dict[str, Any]:
-    async with AgentPresetService.with_session() as service:
-        preset = await service.get_preset_by_slug(slug)
-
-        if not preset:
-            raise ValueError(f"Agent preset with slug '{slug}' not found")
-
-    return preset.to_dict()
+    return await get_context().agents.get_preset(slug)
 
 
 @registry.register(
@@ -128,9 +125,7 @@ async def get_preset(
     namespace="ai.agent",
 )
 async def list_presets() -> list[dict[str, Any]]:
-    async with AgentPresetService.with_session() as service:
-        presets = await service.list_presets()
-    return [preset.to_dict() for preset in presets]
+    return await get_context().agents.list_presets()
 
 
 @registry.register(
@@ -191,37 +186,28 @@ async def update_preset(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    async with AgentPresetService.with_session() as service:
-        preset = await service.get_preset_by_slug(slug)
+    # Build kwargs, only including non-None values
+    kwargs: dict[str, Any] = {}
+    if name is not None:
+        kwargs["name"] = name
+    if model_name is not None:
+        kwargs["model_name"] = model_name
+    if model_provider is not None:
+        kwargs["model_provider"] = model_provider
+    if new_slug is not None:
+        kwargs["new_slug"] = new_slug
+    if description is not None:
+        kwargs["description"] = description
+    if instructions is not None:
+        kwargs["instructions"] = instructions
+    if base_url is not None:
+        kwargs["base_url"] = base_url
+    if output_type is not None:
+        kwargs["output_type"] = output_type
+    if actions is not None:
+        kwargs["actions"] = actions
 
-        if not preset:
-            raise ValueError(f"Agent preset with slug '{slug}' not found")
-
-        params: dict[str, Any] = {}
-        if name is not None:
-            params["name"] = name
-        if new_slug is not None:
-            params["slug"] = new_slug
-        if description is not None:
-            params["description"] = description
-        if instructions is not None:
-            params["instructions"] = instructions
-        if model_name is not None:
-            params["model_name"] = model_name
-        if model_provider is not None:
-            params["model_provider"] = model_provider
-        if base_url is not None:
-            params["base_url"] = base_url
-        if output_type is not None:
-            params["output_type"] = cast(OutputType | None, output_type)
-        if actions is not None:
-            params["actions"] = actions
-
-        updated_preset = await service.update_preset(
-            preset, AgentPresetUpdate(**params)
-        )
-
-    return updated_preset.to_dict()
+    return await get_context().agents.update_preset(slug, **kwargs)
 
 
 @registry.register(
@@ -236,10 +222,4 @@ async def delete_preset(
         Doc("The slug identifier of the preset to delete (e.g., 'security-analyst')."),
     ],
 ) -> None:
-    async with AgentPresetService.with_session() as service:
-        preset = await service.get_preset_by_slug(slug)
-
-        if not preset:
-            raise ValueError(f"Agent preset with slug '{slug}' not found")
-
-        await service.delete_preset(preset)
+    await get_context().agents.delete_preset(slug)

@@ -15,12 +15,12 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import UTC
-from unittest.mock import patch
+from typing import get_args
 
 import pytest
 import respx
 import sqlalchemy as sa
-from httpx import Response
+from httpx import ASGITransport
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import types
@@ -46,7 +46,6 @@ from tracecat_registry.core.cases import (
     update_case,
     update_comment,
     upload_attachment,
-    upload_attachment_from_url,
 )
 from tracecat_registry.core.ee.durations import get_case_metrics
 from tracecat_registry.core.ee.tasks import create_task, list_tasks
@@ -59,6 +58,12 @@ from tracecat_registry.sdk.exceptions import (
 
 from tracecat import config
 from tracecat.api.app import app
+from tracecat.auth.dependencies import (
+    ExecutorWorkspaceRole,
+    OrgAdminUser,
+    ServiceRole,
+    WorkspaceUserRole,
+)
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionCreate,
@@ -66,8 +71,10 @@ from tracecat.cases.durations.schemas import (
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType
+from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
+from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import User, Workspace
 
 # Advisory lock ID for serializing case_fields schema creation in tests.
@@ -88,17 +95,10 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
     )
 
 
-@pytest.fixture(params=[False, True], ids=["registry_client_off", "registry_client_on"])
-def registry_client_enabled(request) -> bool:
-    """Toggle the REGISTRY_CLIENT feature flag."""
-    return request.param
-
-
 @pytest.fixture
 async def cases_ctx(
     cases_test_role: Role,
     session: AsyncSession,
-    registry_client_enabled: bool,
 ):
     """Set up the ctx_role and registry context for case UDF tests.
 
@@ -106,6 +106,8 @@ async def cases_ctx(
     to prevent deadlocks when multiple tests run concurrently. The deadlock occurs
     because CREATE TABLE with FK constraints acquires ShareRowExclusiveLock on
     the referenced table, and concurrent schema creations can deadlock.
+
+    Uses SDK path with respx mock to route HTTP calls to the FastAPI app.
     """
     # Acquire advisory lock to serialize schema creation across concurrent tests
     await session.execute(
@@ -127,66 +129,45 @@ async def cases_ctx(
     )
     set_context(registry_ctx)
 
-    respx_mock = None
-    # Patch the module-level constant in core.cases
-    with patch(
-        "tracecat_registry.config.flags.registry_client", registry_client_enabled
-    ):
-        if registry_client_enabled:
-            from typing import get_args
+    # Set up respx mock to route SDK HTTP calls to the FastAPI app
+    respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
+    respx_mock.start()
+    respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
+        side_effect=ASGITransport(app).handle_async_request
+    )
 
-            from httpx import ASGITransport
+    # Override role dependencies to use our test role
+    def override_role():
+        return cases_test_role
 
-            from tracecat.auth.dependencies import (
-                ExecutorWorkspaceRole,
-                OrgAdminUser,
-                ServiceRole,
-                WorkspaceUserRole,
-            )
-            from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
-            from tracecat.db.dependencies import get_async_session
+    role_dependencies = [
+        ExecutorWorkspaceRole,
+        WorkspaceUserRole,
+        WorkspaceUser,
+        WorkspaceAdminUser,
+        ServiceRole,
+        OrgAdminUser,
+    ]
+    for annotated_type in role_dependencies:
+        metadata = get_args(annotated_type)
+        # metadata[0] is Role, metadata[1] is the Depends(...) object
+        if len(metadata) > 1 and hasattr(metadata[1], "dependency"):
+            app.dependency_overrides[metadata[1].dependency] = override_role
 
-            # Mock the API URL to point to the app
-            respx_mock = respx.mock(assert_all_mocked=False, assert_all_called=False)
-            respx_mock.start()
-            respx_mock.route(url__startswith=config.TRACECAT__API_URL).mock(
-                side_effect=ASGITransport(app).handle_async_request
-            )
+    # Also need to override the DB session to use the test session
+    async def override_get_async_session():
+        yield session
 
-            # Override role dependencies to use our test role
-            def override_role():
-                return cases_test_role
+    app.dependency_overrides[get_async_session] = override_get_async_session
 
-            role_dependencies = [
-                ExecutorWorkspaceRole,
-                WorkspaceUserRole,
-                WorkspaceUser,
-                WorkspaceAdminUser,
-                ServiceRole,
-                OrgAdminUser,
-            ]
-            for annotated_type in role_dependencies:
-                metadata = get_args(annotated_type)
-                # metadata[0] is Role, metadata[1] is the Depends(...) object
-                if len(metadata) > 1 and hasattr(metadata[1], "dependency"):
-                    app.dependency_overrides[metadata[1].dependency] = override_role
-
-            # Also need to override the DB session to use the test session
-            async def override_get_async_session():
-                yield session
-
-            app.dependency_overrides[get_async_session] = override_get_async_session
-
-        token = ctx_role.set(cases_test_role)
-        try:
-            yield cases_test_role
-        finally:
-            ctx_role.reset(token)
-            clear_context()
-            if respx_mock is not None:
-                respx_mock.stop()
-            if registry_client_enabled:
-                app.dependency_overrides.clear()
+    token = ctx_role.set(cases_test_role)
+    try:
+        yield cases_test_role
+    finally:
+        ctx_role.reset(token)
+        clear_context()
+        respx_mock.stop()
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -211,61 +192,32 @@ def blob_storage_config(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 async def test_user(
-    db,
+    db,  # noqa: ARG001
     session: AsyncSession,
-    svc_workspace: Workspace,
-    cases_ctx: Role,
-    registry_client_enabled: bool,
+    svc_workspace: Workspace,  # noqa: ARG001
+    cases_ctx: Role,  # noqa: ARG001
 ) -> User:
     """Create a test user for assign_user tests.
 
-    This fixture handles both registry_client modes:
-    - registry_client_off: Uses a separate session with commit so the user is visible
-      to CasesService which creates its own session.
-    - registry_client_on: Uses the test session (which is injected into the app via
-      dependency override) so the user is visible to API calls.
+    Uses the test session which is shared with the API via dependency override.
 
     IMPORTANT: This fixture must depend on cases_ctx to ensure the session override
-    is in place before the user is created (for registry_client_on mode).
+    is in place before the user is created.
     """
     user_id = uuid.uuid4()
     user_email = f"test-user-{uuid.uuid4().hex[:8]}@example.com"
 
-    if registry_client_enabled:
-        # For SDK client mode, use the test session which is shared with the API
-        user = User(
-            id=user_id,
-            email=user_email,
-            hashed_password="hashed",
-            first_name="Test",
-            last_name="User",
-        )
-        session.add(user)
-        await session.flush()
-        return user
-    else:
-        # For direct service mode, use a separate session with commit
-        from tracecat.db.engine import get_async_session_context_manager
-
-        async with get_async_session_context_manager() as user_session:
-            user = User(
-                id=user_id,
-                email=user_email,
-                hashed_password="hashed",
-                first_name="Test",
-                last_name="User",
-            )
-            user_session.add(user)
-            await user_session.commit()
-
-        # Return a fresh reference to avoid detached instance issues
-        return User(
-            id=user_id,
-            email=user_email,
-            hashed_password="hashed",
-            first_name="Test",
-            last_name="User",
-        )
+    # Use the test session which is shared with the API
+    user = User(
+        id=user_id,
+        email=user_email,
+        hashed_password="hashed",
+        first_name="Test",
+        last_name="User",
+    )
+    session.add(user)
+    await session.flush()
+    return user
 
 
 # =============================================================================
@@ -1040,16 +992,8 @@ class TestListCaseEvents:
 
 @pytest.mark.anyio
 class TestCaseTasks:
-    """Characterization tests for case task UDFs.
+    """Characterization tests for case task UDFs."""
 
-    NOTE: These tests are only run with registry_client_on because task UDFs are
-    SDK-only (no direct service fallback). They require the HTTP API mock to be
-    set up by the cases_ctx fixture.
-    """
-
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [True], ids=["registry_client_on"], indirect=True
-    )
     async def test_create_task_returns_task(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
@@ -1074,9 +1018,6 @@ class TestCaseTasks:
         assert result["status"] == "todo"
         assert str(result["case_id"]) == str(case["id"])
 
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [True], ids=["registry_client_on"], indirect=True
-    )
     async def test_list_tasks_returns_tasks(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
@@ -1111,16 +1052,8 @@ class TestCaseTasks:
 
 @pytest.mark.anyio
 class TestCaseDurationMetrics:
-    """Characterization tests for case duration metrics UDF.
+    """Characterization tests for case duration metrics UDF."""
 
-    NOTE: These tests are only run with registry_client_on because duration UDFs
-    are SDK-only (no direct service fallback). They require the HTTP API mock to
-    be set up by the cases_ctx fixture.
-    """
-
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [True], ids=["registry_client_on"], indirect=True
-    )
     async def test_get_case_metrics_returns_metrics(
         self,
         db,
@@ -1139,7 +1072,7 @@ class TestCaseDurationMetrics:
             ),
         )
 
-        # Use the test session since we're always in registry_client_on mode
+        # Use the test session (SDK path)
         definition_service = CaseDurationDefinitionService(
             session=session, role=cases_ctx
         )
@@ -1498,144 +1431,6 @@ class TestAssignUserByEmail:
                 case_id=str(case["id"]),
                 assignee_email="nonexistent@example.com",
             )
-
-
-# =============================================================================
-# upload_attachment_from_url characterization tests
-# =============================================================================
-
-
-@pytest.mark.anyio
-class TestUploadAttachmentFromUrl:
-    """Characterization tests for upload_attachment_from_url UDF.
-
-    NOTE: These tests are only run with registry_client_off because:
-    1. The upload_attachment_from_url function fetches content from an external URL
-       using httpx.AsyncClient() which needs respx mocking
-    2. When registry_client_on, there's already a respx mock active from cases_ctx
-       that intercepts localhost requests, and nested respx mocks don't work correctly
-    3. The registry_client_on path is tested by other attachment tests that don't
-       require external URL mocking
-    """
-
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
-    )
-    async def test_upload_attachment_from_url_uploads_content(
-        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
-    ):
-        """Upload attachment from URL downloads and uploads content."""
-        case = await create_case(
-            summary="Case for URL Upload",
-            description="Test case",
-        )
-
-        test_content = b"Content downloaded from URL"
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
-            mock.get("https://example.com/test-file.txt").mock(
-                return_value=Response(
-                    200,
-                    content=test_content,
-                    headers={"Content-Type": "text/plain"},
-                )
-            )
-
-            result = await upload_attachment_from_url(
-                case_id=str(case["id"]),
-                url="https://example.com/test-file.txt",
-            )
-
-        assert "id" in result
-        assert result["file_name"] == "test-file.txt"
-        assert result["content_type"] == "text/plain"
-        assert result["size"] == len(test_content)
-
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
-    )
-    async def test_upload_attachment_from_url_with_custom_filename(
-        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
-    ):
-        """Upload attachment from URL uses custom filename when provided."""
-        case = await create_case(
-            summary="Case for Custom Filename",
-            description="Test case",
-        )
-
-        test_content = b"Custom filename content"
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
-            mock.get("https://example.com/some/path").mock(
-                return_value=Response(
-                    200,
-                    content=test_content,
-                    headers={"Content-Type": "text/plain"},
-                )
-            )
-
-            result = await upload_attachment_from_url(
-                case_id=str(case["id"]),
-                url="https://example.com/some/path",
-                file_name="custom-name.txt",
-            )
-
-        assert result["file_name"] == "custom-name.txt"
-
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
-    )
-    async def test_upload_attachment_from_url_http_error_raises(
-        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
-    ):
-        """Upload attachment from URL with HTTP error raises exception."""
-        import httpx
-
-        case = await create_case(
-            summary="Case for URL Error",
-            description="Test case",
-        )
-
-        # Mock a 404 response
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
-            mock.get("https://example.com/not-found.txt").mock(
-                return_value=Response(404, content=b"Not Found")
-            )
-
-            with pytest.raises(httpx.HTTPStatusError):
-                await upload_attachment_from_url(
-                    case_id=str(case["id"]),
-                    url="https://example.com/not-found.txt",
-                )
-
-    @pytest.mark.parametrize(
-        "registry_client_enabled", [False], ids=["registry_client_off"], indirect=True
-    )
-    async def test_upload_attachment_from_url_with_headers(
-        self, db, session: AsyncSession, cases_ctx: Role, blob_storage_config
-    ):
-        """Upload attachment from URL passes custom headers."""
-        case = await create_case(
-            summary="Case for Headers Test",
-            description="Test case",
-        )
-
-        test_content = b"Authenticated content"
-        with respx.mock(assert_all_mocked=False, assert_all_called=False) as mock:
-            mock.get("https://example.com/protected-file.txt").mock(
-                return_value=Response(
-                    200,
-                    content=test_content,
-                    headers={"Content-Type": "text/plain"},
-                )
-            )
-
-            result = await upload_attachment_from_url(
-                case_id=str(case["id"]),
-                url="https://example.com/protected-file.txt",
-                headers={"Authorization": "Bearer token123"},
-            )
-
-        assert "id" in result
-        assert result["file_name"] == "protected-file.txt"
 
 
 # =============================================================================

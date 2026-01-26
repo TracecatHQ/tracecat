@@ -17,6 +17,9 @@ from tracecat_ee.agent.approvals.router import router as approvals_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.preset.internal_router import (
+    router as internal_agent_preset_router,
+)
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
@@ -97,6 +100,7 @@ from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exis
 from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.variables.internal_router import router as internal_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
@@ -373,12 +377,14 @@ def create_app(**kwargs) -> FastAPI:
         tags=["users"],
     )
     # Internal routers
+    app.include_router(internal_agent_preset_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)
     app.include_router(internal_case_tag_definitions_router)
     app.include_router(internal_tables_router)
+    app.include_router(internal_variables_router)
     app.include_router(internal_workflows_router)
 
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:

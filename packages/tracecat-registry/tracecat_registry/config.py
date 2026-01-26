@@ -66,8 +66,6 @@ class _FeatureFlags:
 
     def __init__(self) -> None:
         _flags = os.environ.get("TRACECAT__FEATURE_FLAGS", "")
-        self.registry_client: bool = "registry-client" in _flags
-        """Use SDK/API client instead of direct DB access in sandbox mode."""
         self.case_tasks: bool = "case-tasks" in _flags
         """Enable case tasks (enterprise feature)."""
         self.case_durations: bool = "case-durations" in _flags

@@ -119,28 +119,15 @@ async def test_action_primitives(output_type: Any, test_role: Role) -> None:
         "Draft a brief, empathetic customer update about a resolved incident.",
     )
 
-    result = await action(
-        user_prompt=user_prompt,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        instructions="Be empathetic and concise.",
-        output_type=output_type,
-        max_requests=3,
-    )
-
-    assert isinstance(result, dict)
-    assert "output" in result
-    assert "message_history" in result
-    assert isinstance(result["message_history"], list)
-
-    output = result["output"]
-    if output_type is None:
-        assert isinstance(output, str)
-        assert len(output) > 0
-    elif output_type == "list[str]":
-        assert isinstance(output, list)
-        assert len(output) >= 1
-        assert all(isinstance(x, str) and x for x in output)
+    with pytest.raises(ActionIsInterfaceError):
+        await action(
+            user_prompt=user_prompt,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="Be empathetic and concise.",
+            output_type=output_type,
+            max_requests=3,
+        )
 
 
 @pytest.mark.anyio
@@ -152,20 +139,12 @@ async def test_action_json_schema(output_type: Any, test_role: Role) -> None:
         "Draft a brief, empathetic customer update about a resolved incident.",
     )
 
-    result = await action(
-        user_prompt=user_prompt,
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        instructions="Be empathetic and concise.",
-        output_type=output_type,
-        max_requests=3,
-    )
-
-    assert isinstance(result, dict)
-    assert "output" in result
-    assert "message_history" in result
-    assert isinstance(result["message_history"], list)
-
-    output = result["output"]
-    assert isinstance(output, dict)
-    assert "summary" in output and isinstance(output["summary"], str)
+    with pytest.raises(ActionIsInterfaceError):
+        await action(
+            user_prompt=user_prompt,
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="Be empathetic and concise.",
+            output_type=output_type,
+            max_requests=3,
+        )

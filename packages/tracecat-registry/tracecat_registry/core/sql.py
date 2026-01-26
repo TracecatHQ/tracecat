@@ -45,9 +45,8 @@ def _validate_connection_url(connection_url: URL) -> None:
     We only compare against the configured internal database endpoint/port and never
     surface credentials from the internal URI to the user.
 
-    In registry-client mode (sandboxed execution), this validation is skipped as
-    network isolation is the primary security control. The internal DB config is
-    intentionally not passed to the sandbox.
+    In sandboxed execution, network isolation is the primary security control.
+    The internal DB config is intentionally not passed to the sandbox.
 
     Args:
         connection_url: SQLAlchemy URL object
@@ -55,11 +54,6 @@ def _validate_connection_url(connection_url: URL) -> None:
     Raises:
         SQLConnectionValidationError: If connection attempts to access Tracecat's database
     """
-    # Skip validation in registry-client mode - network isolation is the primary control
-    # and internal DB config should not be exposed to the sandbox
-    if config.flags.registry_client:
-        return
-
     # Parse internal database URL
     try:
         internal_url = make_url(config.TRACECAT__DB_URI)

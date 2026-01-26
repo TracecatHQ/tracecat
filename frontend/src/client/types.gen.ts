@@ -2237,8 +2237,6 @@ export type FeatureFlag =
   | "agent-presets"
   | "case-durations"
   | "case-tasks"
-  | "registry-client"
-  | "registry-sync-v2"
 
 /**
  * Response model for feature flags.

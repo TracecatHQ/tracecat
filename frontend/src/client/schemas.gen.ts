@@ -7201,8 +7201,6 @@ export const $FeatureFlag = {
     "agent-presets",
     "case-durations",
     "case-tasks",
-    "registry-client",
-    "registry-sync-v2",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
