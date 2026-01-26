@@ -806,8 +806,16 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
     # Use per-worker test database for all global engine sessions.
+    # Clear individual DB component configs to ensure _get_db_uri() uses TRACECAT__DB_URI
+    # instead of constructing a URL from TRACECAT__DB_USER/PASS/ENDPOINT/PORT/NAME.
     db_uri = TEST_DB_CONFIG.test_url_sync
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
+    monkeysession.setattr(config, "TRACECAT__DB_USER", None)
+    monkeysession.setattr(config, "TRACECAT__DB_PASS", None)
+    monkeysession.setattr(config, "TRACECAT__DB_PASS__ARN", None)
+    monkeysession.setattr(config, "TRACECAT__DB_ENDPOINT", None)
+    monkeysession.setattr(config, "TRACECAT__DB_PORT", None)
+    monkeysession.setattr(config, "TRACECAT__DB_NAME", None)
     monkeysession.setattr(
         config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
     )
