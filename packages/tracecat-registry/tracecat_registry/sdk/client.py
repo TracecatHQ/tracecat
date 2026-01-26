@@ -18,6 +18,7 @@ from tracecat_registry.sdk.exceptions import (
 if TYPE_CHECKING:
     from tracecat_registry.sdk.cases import CasesClient
     from tracecat_registry.sdk.tables import TablesClient
+    from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
 
 
@@ -64,6 +65,7 @@ class TracecatClient:
         # Lazily initialized sub-clients
         self._cases: CasesClient | None = None
         self._tables: TablesClient | None = None
+        self._variables: VariablesClient | None = None
         self._workflows: WorkflowsClient | None = None
 
     @property
@@ -93,6 +95,15 @@ class TracecatClient:
 
             self._tables = TablesClient(self)
         return self._tables
+
+    @property
+    def variables(self) -> VariablesClient:
+        """Variables API client."""
+        if self._variables is None:
+            from tracecat_registry.sdk.variables import VariablesClient
+
+            self._variables = VariablesClient(self)
+        return self._variables
 
     @property
     def workflows(self) -> WorkflowsClient:

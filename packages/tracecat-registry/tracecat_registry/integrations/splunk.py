@@ -10,6 +10,7 @@ import httpx
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry.context import get_context
 
 
 splunk_secret = RegistrySecret(
@@ -197,7 +198,7 @@ async def upload_csv_to_kv_collection(
         str | None,
         Doc(
             "Splunk base URL (e.g. https://localhost:8089 or https://example.splunkcloud.com:8089). "
-            "This parameter is required."
+            "If not provided, falls back to the workspace variable `splunk.base_url`."
         ),
     ] = None,
     verify_ssl: Annotated[
@@ -207,9 +208,16 @@ async def upload_csv_to_kv_collection(
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
 
-    if not base_url:
+    # Resolve base_url: parameter takes precedence, then workspace variable
+    resolved_base_url = base_url
+    if not resolved_base_url:
+        resolved_base_url = await get_context().variables.get_or_default(
+            "splunk", "base_url", None
+        )
+    if not resolved_base_url:
         raise SplunkKVStoreError(
-            "Splunk base_url is required. Pass it directly as a parameter."
+            "Splunk base_url is required. Either pass it directly as a parameter "
+            "or set the workspace variable `splunk.base_url`."
         )
 
     token = secrets.get("SPLUNK_API_KEY")
@@ -222,7 +230,7 @@ async def upload_csv_to_kv_collection(
     }
 
     async with httpx.AsyncClient(
-        base_url=base_url,
+        base_url=resolved_base_url,
         follow_redirects=True,
         verify=verify_ssl,
         timeout=httpx.Timeout(10.0, read=60.0),
