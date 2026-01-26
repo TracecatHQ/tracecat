@@ -626,6 +626,27 @@ class TestOrganizationServiceInvitations:
         assert invitation.role == OrgRole.ADMIN
 
     @pytest.mark.anyio
+    async def test_create_invitation_owner_role_requires_owner(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation with OWNER role requires OWNER permission."""
+        # Admin role (not owner) should not be able to create OWNER invitations
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Only organization owners can create owner invitations",
+        ):
+            await service.create_invitation(
+                email="newowner@example.com",
+                role=OrgRole.OWNER,
+            )
+
+    @pytest.mark.anyio
     async def test_create_invitation_duplicate_raises(
         self,
         session: AsyncSession,
@@ -669,6 +690,24 @@ class TestOrganizationServiceInvitations:
         assert new_invitation.id != old_id
         assert new_invitation.email == "expired@example.com"
         assert new_invitation.expires_at > datetime.now(UTC)
+
+    @pytest.mark.anyio
+    async def test_create_invitation_existing_member_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test create_invitation raises error when email is already a member."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        # admin_in_org1 is already a member of org1, try to invite their email
+        with pytest.raises(
+            TracecatValidationError,
+            match="is already a member of this organization",
+        ):
+            await service.create_invitation(email=admin_in_org1.email)
 
     @pytest.mark.anyio
     async def test_list_invitations_returns_org_invitations(
@@ -905,6 +944,53 @@ class TestOrganizationServiceInvitations:
         # Try to accept again with the same user
         with pytest.raises(TracecatAuthorizationError, match="already been accepted"):
             await user_service.accept_invitation(invitation.token)
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_email_mismatch_raises(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        user_in_org2: User,
+    ):
+        """Test accept_invitation raises error when user email doesn't match invitation."""
+        # Create invitation for user_in_org2
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        invitation = await admin_service.create_invitation(
+            email=user_in_org2.email,
+            role=OrgRole.MEMBER,
+        )
+
+        # Create a different user with different email
+        different_user = User(
+            id=uuid.uuid4(),
+            email=f"different-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(different_user)
+        await session.commit()
+
+        # Try to accept with different user (email mismatch)
+        different_role = Role(
+            type="user",
+            user_id=different_user.id,
+            organization_id=org2.id,
+            access_level=AccessLevel.BASIC,
+            service_id="tracecat-api",
+        )
+        different_service = OrgService(session, role=different_role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="invitation was sent to a different email address",
+        ):
+            await different_service.accept_invitation(invitation.token)
 
     @pytest.mark.anyio
     async def test_accept_invitation_revoked_raises(
