@@ -274,11 +274,15 @@ class OrgService(BaseOrgService):
         existing = existing_result.scalar_one_or_none()
 
         if existing:
-            if existing.expires_at >= datetime.now(UTC):
+            # Only block if invitation is pending and not expired
+            if (
+                existing.status == InvitationStatus.PENDING
+                and existing.expires_at >= datetime.now(UTC)
+            ):
                 raise TracecatValidationError(
                     f"An invitation already exists for {email} in this organization"
                 )
-            # Expired - delete it
+            # Expired or revoked/accepted - delete it to allow new invitation
             await self.session.delete(existing)
             await self.session.flush()
 
