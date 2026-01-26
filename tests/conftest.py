@@ -262,6 +262,25 @@ def persistent_workspace(db: None, env_sandbox: None) -> Iterator[Workspace]:
     )
 
     with Session(sync_engine) as session:
+        # First ensure the organization exists (required for FK constraint)
+        session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
+                VALUES (
+                    '00000000-0000-0000-0000-000000000000',
+                    'Default Organization',
+                    'default',
+                    true,
+                    now(),
+                    now()
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+        )
+        session.commit()
+
         # Check if workspace already exists (shouldn't happen but be safe)
         existing = session.query(Workspace).filter_by(id=_TEST_WORKSPACE_ID).first()
         if existing is None:
