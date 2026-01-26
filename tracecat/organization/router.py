@@ -7,7 +7,11 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.schemas import (
@@ -183,10 +187,15 @@ async def create_invitation(
 ):
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
-    invitation = await service.create_invitation(
-        email=params.email,
-        role=params.role,
-    )
+    try:
+        invitation = await service.create_invitation(
+            email=params.email,
+            role=params.role,
+        )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     return OrgInvitationRead(
         id=invitation.id,
         organization_id=invitation.organization_id,
