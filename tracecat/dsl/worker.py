@@ -28,6 +28,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.storage.collection import CollectionActivities
+    from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
         resolve_registry_lock_activity,
@@ -90,6 +91,7 @@ def get_activities() -> list[Callable]:
         resolve_time_anchor_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
+        *TierActivities.get_activities(),
     ]
     return activities
 
