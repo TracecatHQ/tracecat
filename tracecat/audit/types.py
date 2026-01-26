@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 
-AuditAction = Literal["create", "update", "delete"]
+AuditAction = Literal["create", "update", "delete", "accept", "revoke"]
 AuditResourceType = Literal[
     "workspace",
     "workflow",
