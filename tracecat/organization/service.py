@@ -446,17 +446,22 @@ class OrgService(BaseOrgService):
             )
 
         try:
-            # Create membership
-            membership = await self.add_member(
+            # Create membership directly (not via add_member which commits separately)
+            # to ensure atomicity with invitation status update
+            membership = OrganizationMembership(
                 user_id=self.role.user_id,
                 organization_id=invitation.organization_id,
                 role=invitation.role,
             )
+            self.session.add(membership)
 
             # Mark invitation as accepted
             invitation.status = InvitationStatus.ACCEPTED
             invitation.accepted_at = datetime.now(UTC)
+
+            # Single atomic commit for both membership and invitation update
             await self.session.commit()
+            await self.session.refresh(membership)
 
             # Log audit success to the invitation's organization
             async with AuditService.with_session(
