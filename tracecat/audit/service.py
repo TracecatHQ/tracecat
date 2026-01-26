@@ -9,10 +9,10 @@ from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
 from tracecat.contexts import ctx_client_ip
 from tracecat.db.models import User
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 
 
-class AuditService(BaseService):
+class AuditService(BaseOrgService):
     """Stream user-driven events to an audit webhook if configured."""
 
     service_name = "audit"
@@ -64,9 +64,11 @@ class AuditService(BaseService):
         resource_id: uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
     ) -> None:
-        role = self.role
-        if role is None or role.user_id is None or role.organization_id is None:
-            self.logger.debug("Skipping audit log", reason="non_user_role", role=role)
+        # Note: role and organization_id are guaranteed non-None by BaseOrgService
+        if self.role.user_id is None:
+            self.logger.debug(
+                "Skipping audit log", reason="non_user_role", role=self.role
+            )
             return
 
         webhook_url = await self._get_webhook_url()
@@ -77,7 +79,7 @@ class AuditService(BaseService):
         actor_label: str | None = None
         try:
             result = await self.session.execute(
-                select(User).where(User.id == role.user_id)  # pyright: ignore[reportArgumentType]
+                select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
             )
             user = result.scalar_one_or_none()
             if user:
@@ -86,10 +88,10 @@ class AuditService(BaseService):
             self.logger.warning("Failed to fetch actor email", error=str(exc))
 
         payload = AuditEvent(
-            organization_id=role.organization_id,
-            workspace_id=role.workspace_id,
+            organization_id=self.organization_id,
+            workspace_id=self.role.workspace_id,
             actor_type=AuditEventActor.USER,
-            actor_id=role.user_id,
+            actor_id=self.role.user_id,
             actor_label=actor_label,
             resource_type=resource_type,
             resource_id=resource_id,

@@ -942,7 +942,7 @@ async def test_validate_dsl_with_optional_oauth_credentials(
 
     # Validate the DSL - this should NOT fail for optional OAuth credentials
     # BUG: Currently this will fail because validate_workspace_integration doesn't check optional field
-    validation_results = await validate_dsl(session, dsl)
+    validation_results = await validate_dsl(session, dsl, role=test_role)
 
     # Filter for secret validation errors
     secret_errors = [
@@ -1001,7 +1001,7 @@ async def test_agent_tool_approvals_requires_feature_flag(
         ],
     )
 
-    validation_results = await validate_dsl(session, dsl)
+    validation_results = await validate_dsl(session, dsl, role=test_role)
     action_errors = [
         r for r in validation_results if r.root.type == ValidationResultType.ACTION
     ]
@@ -1064,7 +1064,7 @@ async def test_agent_tool_approvals_passes_with_feature_flag(
         ],
     )
 
-    validation_results = await validate_dsl(session, dsl)
+    validation_results = await validate_dsl(session, dsl, role=test_role)
     action_errors = [
         r for r in validation_results if r.root.type == ValidationResultType.ACTION
     ]

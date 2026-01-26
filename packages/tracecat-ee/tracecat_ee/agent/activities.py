@@ -18,12 +18,14 @@ from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
+from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 
 
 class BuildToolDefsArgs(BaseModel):
+    role: Role
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
@@ -78,6 +80,9 @@ class AgentActivities:
         self,
         args: BuildToolDefsArgs,
     ) -> BuildToolDefsResult:
+        # Set role context for services that require organization context
+        ctx_role.set(args.role)
+
         # Check if this is a builder assistant session
         is_builder = (
             args.internal_tool_context is not None

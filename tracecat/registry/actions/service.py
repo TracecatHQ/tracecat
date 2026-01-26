@@ -72,7 +72,7 @@ from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
@@ -160,7 +160,7 @@ class SecretAggregate(TypedDict):
     actions: set[str]
 
 
-class RegistryActionsService(BaseService):
+class RegistryActionsService(BaseOrgService):
     """Registry actions service."""
 
     service_name = "registry_actions"

@@ -240,6 +240,7 @@ class DurableAgentWorkflow:
         build_result = await workflow.execute_activity_method(
             AgentActivities.build_tool_definitions,
             arg=BuildToolDefsArgs(
+                role=self.role,
                 tool_filters=ToolFilters(
                     namespaces=cfg.namespaces,
                     actions=cfg.actions,

@@ -565,7 +565,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
         if dsl is None:
             raise ValueError("dsl should be defined if no construction errors")
         if not skip_secret_validation:
-            if val_errors := await validate_dsl(session=self.session, dsl=dsl):
+            if val_errors := await validate_dsl(
+                session=self.session, dsl=dsl, role=self.role
+            ):
                 self.logger.info("Validation errors", errors=val_errors)
                 return WorkflowDSLCreateResponse(errors=list(val_errors))
 

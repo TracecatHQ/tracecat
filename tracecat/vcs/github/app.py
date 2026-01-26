@@ -16,7 +16,7 @@ from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
@@ -27,7 +27,7 @@ class GitHubAppError(TracecatException):
     """GitHub App operation error."""
 
 
-class GitHubAppService(BaseService):
+class GitHubAppService(BaseOrgService):
     """GitHub App service for workflow store integration (organization-level)."""
 
     service_name = "github_app"

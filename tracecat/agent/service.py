@@ -24,12 +24,12 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
 
 
-class AgentManagementService(BaseService):
+class AgentManagementService(BaseOrgService):
     """Service for managing agent configuration at the organization level."""
 
     service_name = "agent-management"
