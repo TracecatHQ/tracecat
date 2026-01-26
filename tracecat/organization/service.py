@@ -265,6 +265,21 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
+        # Check if user with this email is already a member
+        existing_member_stmt = (
+            select(OrganizationMembership)
+            .join(User, OrganizationMembership.user_id == User.id)
+            .where(
+                OrganizationMembership.organization_id == self.organization_id,
+                User.email == email,
+            )
+        )
+        existing_member_result = await self.session.execute(existing_member_stmt)
+        if existing_member_result.scalar_one_or_none() is not None:
+            raise TracecatValidationError(
+                f"{email} is already a member of this organization"
+            )
+
         # Check for existing invitation
         existing_stmt = select(OrganizationInvitation).where(
             OrganizationInvitation.organization_id == self.organization_id,
