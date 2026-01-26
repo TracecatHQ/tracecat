@@ -267,6 +267,12 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
+        # Prevent privilege escalation: only OWNER can create OWNER invitations
+        if role == OrgRole.OWNER and self.role.org_role != OrgRole.OWNER:
+            raise TracecatAuthorizationError(
+                "Only organization owners can create owner invitations"
+            )
+
         # Check if user with this email is already a member
         existing_member_stmt = (
             select(OrganizationMembership)
