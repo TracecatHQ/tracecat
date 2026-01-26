@@ -34,11 +34,16 @@ import "@xyflow/react/dist/style.css"
 
 import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
-import type { GraphOperation, GraphResponse } from "@/client"
+import type {
+  GraphOperation,
+  GraphResponse,
+  RegistryActionReadMinimal,
+} from "@/client"
 import actionNode, {
   type ActionNodeData,
   type ActionNodeType,
 } from "@/components/builder/canvas/action-node"
+import { CanvasToolbar } from "@/components/builder/canvas/canvas-toolbar"
 import { DeleteActionNodeDialog } from "@/components/builder/canvas/delete-node-dialog"
 import selectorNode, {
   type SelectorNodeData,
@@ -828,6 +833,94 @@ export const WorkflowCanvas = React.forwardRef<
     [reactFlowInstance] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
+  // Handle adding action from toolbar
+  const handleToolbarAddAction = useCallback(
+    async (action: RegistryActionReadMinimal) => {
+      if (!workflowId || !reactFlowInstance) return
+
+      // Get the center of the current viewport in screen coordinates
+      const containerBounds = containerRef.current?.getBoundingClientRect()
+      if (!containerBounds) return
+
+      // screenToFlowPosition expects actual screen coordinates (clientX/clientY)
+      // so we need to add the container's position to get the center in screen space
+      const screenCenterX = containerBounds.left + containerBounds.width / 2
+      const screenCenterY = containerBounds.top + containerBounds.height / 2
+
+      // Convert screen position to flow position
+      const position = screenToFlowPosition({
+        x: screenCenterX,
+        y: screenCenterY,
+      })
+
+      try {
+        const addNodeOp: GraphOperation = {
+          type: "add_node",
+          payload: {
+            type: action.action,
+            title: action.default_title ?? action.action,
+            position_x: position.x,
+            position_y: position.y,
+          },
+        }
+
+        const result = await applyGraphOperations({
+          baseVersion: graphVersion,
+          operations: [addNodeOp],
+        })
+
+        updateStateFromGraph(result)
+        toast({
+          title: "Action added",
+          description: `Added "${action.default_title ?? action.action}" to the workflow.`,
+        })
+      } catch (error) {
+        const apiError = error as { status?: number }
+        if (apiError.status === 409) {
+          try {
+            const latestGraph = await refetchGraph()
+            const addNodeOp: GraphOperation = {
+              type: "add_node",
+              payload: {
+                type: action.action,
+                title: action.default_title ?? action.action,
+                position_x: position.x,
+                position_y: position.y,
+              },
+            }
+            const result = await applyGraphOperations({
+              baseVersion: latestGraph.version,
+              operations: [addNodeOp],
+            })
+            updateStateFromGraph(result)
+          } catch (retryError) {
+            console.error("Failed to add action after retry:", retryError)
+            toast({
+              title: "Failed to add action",
+              description: "Could not add action. Please try again.",
+            })
+          }
+        } else {
+          console.error("Failed to add action:", error)
+          toast({
+            title: "Failed to add action",
+            description: "Could not add action. Please try again.",
+          })
+        }
+      }
+    },
+    [
+      workflowId,
+      reactFlowInstance,
+      screenToFlowPosition,
+      graphVersion,
+      applyGraphOperations,
+      updateStateFromGraph,
+      refetchGraph,
+      toast,
+    ]
+  )
+
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
       <ReactFlow
@@ -880,6 +973,9 @@ export const WorkflowCanvas = React.forwardRef<
           >
             <MoveHorizontalIcon className="size-3" strokeWidth={2} />
           </Button>
+        </Panel>
+        <Panel position="bottom-center" className="mb-4">
+          <CanvasToolbar onAddAction={handleToolbarAddAction} />
         </Panel>
         <NodeSilhouette
           position={silhouettePosition}

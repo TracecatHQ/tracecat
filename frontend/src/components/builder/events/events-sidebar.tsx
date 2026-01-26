@@ -5,6 +5,7 @@ import {
   FileInputIcon,
   MessagesSquare,
   ShapesIcon,
+  WorkflowIcon,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ImperativePanelHandle } from "react-resizable-panels"
@@ -18,6 +19,13 @@ import {
 } from "@/components/builder/events/events-workflow"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -121,11 +129,17 @@ export function BuilderSidebarEvents() {
   // If we have no execution ID (neither current nor last), show the empty state
   if (!executionId) {
     return (
-      <EventsSidebarEmpty
-        title="No workflow runs"
-        description="Get started by running your workflow"
-        actionLabel="New workflow"
-      />
+      <Empty className="border-none">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <WorkflowIcon />
+          </EmptyMedia>
+          <EmptyTitle>No workflow runs</EmptyTitle>
+          <EmptyDescription>
+            Get started by running your workflow
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     )
   }
 
