@@ -5,6 +5,10 @@ import {
   SquareStackIcon,
   WorkflowIcon,
 } from "lucide-react"
+import {
+  EventCreatedAt,
+  EventUpdatedAt,
+} from "@/components/cases/cases-feed-event"
 import { Badge } from "@/components/ui/badge"
 import type { AgentSessionWithStatus } from "@/lib/agents"
 import { cn } from "@/lib/utils"
@@ -13,24 +17,6 @@ interface ActivityItemProps {
   session: AgentSessionWithStatus
   isSelected: boolean
   onClick: () => void
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-  const diffWeeks = Math.floor(diffDays / 7)
-  const diffMonths = Math.floor(diffDays / 30)
-
-  if (diffMins < 1) return "now"
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  if (diffDays < 7) return `${diffDays}d`
-  if (diffDays < 30) return `${diffWeeks}w`
-  return `${diffMonths}mo`
 }
 
 type SourceType = "workflow" | "case" | "chat" | "test" | "assistant"
@@ -99,14 +85,18 @@ export function ActivityItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 py-2 pl-6 pr-8 text-left transition-colors",
+        // Use negative margins to extend hover to full width
+        "-ml-[18px] flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 text-left transition-colors",
         "hover:bg-muted/50",
         isSelected && "bg-muted"
       )}
     >
+      {/* Spacer to align with accordion chevron (h-7 w-7) */}
+      <div className="h-7 w-7 shrink-0" />
+
       {/* Agent name + badge */}
-      <div className="flex min-w-0 flex-1 items-center gap-4">
-        <span className="truncate text-sm">{displayName}</span>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="truncate text-xs">{displayName}</span>
         <Badge
           variant="secondary"
           className="shrink-0 gap-1 text-[10px] px-1.5 py-0 h-5 font-normal"
@@ -116,10 +106,11 @@ export function ActivityItem({
         </Badge>
       </div>
 
-      {/* Time */}
-      <span className="shrink-0 text-xs text-muted-foreground">
-        {formatTimeAgo(session.updated_at)}
-      </span>
+      {/* Timestamps */}
+      <div className="flex shrink-0 items-center gap-2">
+        <EventCreatedAt createdAt={session.created_at} />
+        <EventUpdatedAt updatedAt={session.updated_at} />
+      </div>
     </button>
   )
 }

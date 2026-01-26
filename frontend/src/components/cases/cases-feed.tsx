@@ -13,6 +13,7 @@ import {
   CaseUpdatedEvent,
   CaseViewedEvent,
   EventActor,
+  EventCreatedAt,
   EventIcon,
   FieldsChangedEvent,
   PayloadChangedEvent,
@@ -25,8 +26,14 @@ import {
   TaskPriorityChangedEvent,
   TaskStatusChangedEvent,
   TaskWorkflowChangedEvent,
-} from "@/components/cases/case-activity-feed-event"
-import { CaseEventTimestamp } from "@/components/cases/case-panel-common"
+} from "@/components/cases/cases-feed-event"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -143,7 +150,7 @@ function ActivityFeedEvent({
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <CaseEventTimestamp createdAt={event.created_at} showIcon={false} />
+          <EventCreatedAt createdAt={event.created_at} />
           {event.wf_exec_id && (
             <WorkflowExecutionInfo wfExecId={event.wf_exec_id} />
           )}
@@ -271,16 +278,18 @@ export function CaseActivityFeed({
   if (events.length === 0) {
     return (
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
-          <div className="flex flex-col items-center justify-center py-6 text-center">
-            <div className="rounded-full bg-muted p-3">
-              <Clock className="size-6 text-muted-foreground" />
-            </div>
-            <h3 className="mt-2 text-sm font-medium">No activity yet</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Activities will appear here when changes are made to the case.
-            </p>
-          </div>
+        <div className="p-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Clock className="size-6" />
+              </EmptyMedia>
+              <EmptyTitle>No activity yet</EmptyTitle>
+              <EmptyDescription>
+                Activities will appear here when changes are made to the case.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </div>
       </div>
     )

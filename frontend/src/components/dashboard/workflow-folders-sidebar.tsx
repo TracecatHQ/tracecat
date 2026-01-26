@@ -25,6 +25,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -279,15 +286,17 @@ export function WorkflowFoldersSidebar({
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-muted-foreground">
-            <FolderIcon className="size-8" />
-            <div>
-              <p>No folders</p>
-              <p className="text-xs">
+          <Empty className="py-8">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FolderIcon className="size-6" />
+              </EmptyMedia>
+              <EmptyTitle>No folders</EmptyTitle>
+              <EmptyDescription>
                 Create folders to organize your workflows
-              </p>
-            </div>
-          </div>
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </div>

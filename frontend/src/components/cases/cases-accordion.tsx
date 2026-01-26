@@ -2,93 +2,112 @@
 
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
 import {
-  CheckCircle2Icon,
+  CheckCircleIcon,
   ChevronRightIcon,
+  CircleIcon,
   CirclePauseIcon,
-  LoaderCircleIcon,
-  XCircleIcon,
+  FlagTriangleRightIcon,
+  TrafficConeIcon,
 } from "lucide-react"
 import { useMemo } from "react"
+import type { CaseReadMinimal, CaseStatus } from "@/client"
+import { CaseItem } from "@/components/cases/case-item"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import type { AgentDerivedStatus, AgentSessionWithStatus } from "@/lib/agents"
 import { cn } from "@/lib/utils"
-import { ActivityItem } from "./activity-item"
 
 // Define the status groups we want to display
-type StatusGroup = "review_required" | "running" | "error" | "completed"
+type StatusGroup = "new" | "in_progress" | "on_hold" | "resolved" | "other"
 
 interface StatusGroupConfig {
   label: string
   icon: React.ComponentType<{ className?: string }>
-  statuses: AgentDerivedStatus[]
+  statuses: CaseStatus[]
   iconColor: string
 }
 
 const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
-  review_required: {
-    label: "Review required",
-    icon: CirclePauseIcon,
-    statuses: ["PENDING_APPROVAL"],
-    iconColor: "text-primary",
+  new: {
+    label: "New",
+    icon: FlagTriangleRightIcon,
+    statuses: ["new"],
+    iconColor: "text-yellow-600",
   },
-  running: {
+  in_progress: {
     label: "In progress",
-    icon: LoaderCircleIcon,
-    statuses: ["RUNNING", "CONTINUED_AS_NEW"],
-    iconColor: "text-muted-foreground",
+    icon: TrafficConeIcon,
+    statuses: ["in_progress"],
+    iconColor: "text-blue-600",
   },
-  error: {
-    label: "Error",
-    icon: XCircleIcon,
-    statuses: ["FAILED", "TIMED_OUT", "TERMINATED"],
-    iconColor: "text-red-600",
+  on_hold: {
+    label: "On hold",
+    icon: CirclePauseIcon,
+    statuses: ["on_hold"],
+    iconColor: "text-orange-600",
   },
-  completed: {
-    label: "Completed",
-    icon: CheckCircle2Icon,
-    statuses: ["COMPLETED", "CANCELED", "UNKNOWN"],
+  resolved: {
+    label: "Resolved",
+    icon: CheckCircleIcon,
+    statuses: ["resolved", "closed"],
     iconColor: "text-green-600",
+  },
+  other: {
+    label: "Other",
+    icon: CircleIcon,
+    statuses: ["other", "unknown"],
+    iconColor: "text-muted-foreground",
   },
 }
 
 // Order in which groups should appear
 const GROUP_ORDER: StatusGroup[] = [
-  "review_required",
-  "running",
-  "error",
-  "completed",
+  "new",
+  "in_progress",
+  "on_hold",
+  "resolved",
+  "other",
 ]
 
-interface ActivityAccordionProps {
-  sessions: AgentSessionWithStatus[]
+interface CasesAccordionProps {
+  cases: CaseReadMinimal[]
   selectedId: string | null
+  selectedCaseIds: Set<string>
   onSelect: (id: string) => void
+  onCheckChange: (id: string, checked: boolean) => void
 }
 
-export function ActivityAccordion({
-  sessions,
+export function CasesAccordion({
+  cases,
   selectedId,
+  selectedCaseIds,
   onSelect,
-}: ActivityAccordionProps) {
-  // Group sessions by status category
-  const groupedSessions = useMemo(() => {
-    const groups: Record<StatusGroup, AgentSessionWithStatus[]> = {
-      review_required: [],
-      running: [],
-      error: [],
-      completed: [],
+  onCheckChange,
+}: CasesAccordionProps) {
+  // Group cases by status category
+  const groupedCases = useMemo(() => {
+    const groups: Record<StatusGroup, CaseReadMinimal[]> = {
+      new: [],
+      in_progress: [],
+      on_hold: [],
+      resolved: [],
+      other: [],
     }
 
-    for (const session of sessions) {
+    for (const caseData of cases) {
+      let matched = false
       for (const [groupKey, config] of Object.entries(STATUS_GROUPS)) {
-        if (config.statuses.includes(session.derivedStatus)) {
-          groups[groupKey as StatusGroup].push(session)
+        if (config.statuses.includes(caseData.status)) {
+          groups[groupKey as StatusGroup].push(caseData)
+          matched = true
           break
         }
       }
+      // If no match, put in "other"
+      if (!matched) {
+        groups.other.push(caseData)
+      }
     }
 
-    // Sort sessions within each group by updated_at (most recent first)
+    // Sort cases within each group by updated_at (most recent first)
     for (const groupKey of Object.keys(groups) as StatusGroup[]) {
       groups[groupKey].sort(
         (a, b) =>
@@ -97,12 +116,12 @@ export function ActivityAccordion({
     }
 
     return groups
-  }, [sessions])
+  }, [cases])
 
   // Calculate which groups have items and should be expanded by default
   const defaultExpandedGroups = useMemo(() => {
-    return GROUP_ORDER.filter((group) => groupedSessions[group].length > 0)
-  }, [groupedSessions])
+    return GROUP_ORDER.filter((group) => groupedCases[group].length > 0)
+  }, [groupedCases])
 
   return (
     <ScrollArea className="h-full">
@@ -113,7 +132,7 @@ export function ActivityAccordion({
       >
         {GROUP_ORDER.map((groupKey) => {
           const config = STATUS_GROUPS[groupKey]
-          const groupSessions = groupedSessions[groupKey]
+          const groupCases = groupedCases[groupKey]
           const StatusIcon = config.icon
 
           return (
@@ -132,14 +151,16 @@ export function ActivityAccordion({
                     "[&[data-state=open]_.chevron]:rotate-90",
                     // Tint backgrounds when open
                     "data-[state=open]:border-l-current",
-                    groupKey === "review_required" &&
-                      "data-[state=open]:bg-primary/[0.03] data-[state=open]:border-l-primary dark:data-[state=open]:bg-primary/[0.08]",
-                    groupKey === "running" &&
-                      "data-[state=open]:bg-muted/50 data-[state=open]:border-l-muted-foreground",
-                    groupKey === "error" &&
-                      "data-[state=open]:bg-red-600/[0.03] data-[state=open]:border-l-red-600 dark:data-[state=open]:bg-red-600/[0.08]",
-                    groupKey === "completed" &&
-                      "data-[state=open]:bg-green-600/[0.03] data-[state=open]:border-l-green-600 dark:data-[state=open]:bg-green-600/[0.08]"
+                    groupKey === "new" &&
+                      "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]",
+                    groupKey === "in_progress" &&
+                      "data-[state=open]:border-l-blue-600 data-[state=open]:bg-blue-600/[0.03] dark:data-[state=open]:bg-blue-600/[0.08]",
+                    groupKey === "on_hold" &&
+                      "data-[state=open]:border-l-orange-600 data-[state=open]:bg-orange-600/[0.03] dark:data-[state=open]:bg-orange-600/[0.08]",
+                    groupKey === "resolved" &&
+                      "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]",
+                    groupKey === "other" &&
+                      "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
                   )}
                 >
                   {/* Match SidebarTrigger dimensions (h-7 w-7) for alignment */}
@@ -152,19 +173,23 @@ export function ActivityAccordion({
                     />
                     <span className="text-xs font-medium">{config.label}</span>
                     <span className="text-xs text-muted-foreground">
-                      {groupSessions.length}
+                      {groupCases.length}
                     </span>
                   </div>
                 </AccordionPrimitive.Trigger>
               </AccordionPrimitive.Header>
               <AccordionPrimitive.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
                 <div className="ml-[18px]">
-                  {groupSessions.map((session) => (
-                    <ActivityItem
-                      key={session.id}
-                      session={session}
-                      isSelected={selectedId === session.id}
-                      onClick={() => onSelect(session.id)}
+                  {groupCases.map((caseData) => (
+                    <CaseItem
+                      key={caseData.id}
+                      caseData={caseData}
+                      isSelected={selectedId === caseData.id}
+                      isChecked={selectedCaseIds.has(caseData.id)}
+                      onCheckChange={(checked) =>
+                        onCheckChange(caseData.id, checked)
+                      }
+                      onClick={() => onSelect(caseData.id)}
                     />
                   ))}
                 </div>

@@ -9,6 +9,13 @@ import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -188,16 +195,18 @@ export function CaseDurationsView() {
   if (!caseDurationDefinitions || caseDurationDefinitions.length === 0) {
     return (
       <div className="size-full overflow-auto">
-        <div className="container flex h-full max-w-[1000px] flex-col items-center justify-center space-y-4 py-8 text-center">
-          <div className="rounded-full bg-muted p-3">
-            <Timer className="size-8 text-muted-foreground" />
-          </div>
-          <div className="space-y-1 text-muted-foreground">
-            <h4 className="text-sm font-semibold">No durations defined yet</h4>
-            <p className="text-xs">
-              Add your first duration metric using the button in the header.
-            </p>
-          </div>
+        <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Timer className="size-6" />
+              </EmptyMedia>
+              <EmptyTitle>No durations defined yet</EmptyTitle>
+              <EmptyDescription>
+                Add your first duration metric using the button in the header.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </div>
       </div>
     )
