@@ -17,6 +17,7 @@ from tracecat_registry.sdk.exceptions import (
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.cases import CasesClient
+    from tracecat_registry.sdk.presets import PresetsClient
     from tracecat_registry.sdk.tables import TablesClient
     from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
@@ -64,6 +65,7 @@ class TracecatClient:
 
         # Lazily initialized sub-clients
         self._cases: CasesClient | None = None
+        self._presets: PresetsClient | None = None
         self._tables: TablesClient | None = None
         self._variables: VariablesClient | None = None
         self._workflows: WorkflowsClient | None = None
@@ -86,6 +88,15 @@ class TracecatClient:
 
             self._cases = CasesClient(self)
         return self._cases
+
+    @property
+    def presets(self) -> PresetsClient:
+        """Agent Presets API client."""
+        if self._presets is None:
+            from tracecat_registry.sdk.presets import PresetsClient
+
+            self._presets = PresetsClient(self)
+        return self._presets
 
     @property
     def tables(self) -> TablesClient:

@@ -17,6 +17,9 @@ from tracecat_ee.agent.approvals.router import router as approvals_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.preset.internal_router import (
+    router as internal_agent_preset_router,
+)
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
@@ -374,6 +377,7 @@ def create_app(**kwargs) -> FastAPI:
         tags=["users"],
     )
     # Internal routers
+    app.include_router(internal_agent_preset_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
     app.include_router(internal_comments_router)
