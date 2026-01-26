@@ -994,8 +994,11 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
         name="test-workspace",
         organization_id=config.TRACECAT__DEFAULT_ORG_ID,
     )
+    # Add to test session first (inside its SERIALIZABLE transaction)
+    session.add(workspace)
+    await session.commit()
 
-    # Persist the workspace in the default engine used by BaseWorkspaceService
+    # Also persist the workspace in the default engine used by BaseWorkspaceService
     # so services that use `with_session()` (and thus `get_async_session_context_manager`)
     # can see the same workspace and satisfy foreign key constraints.
     async with get_async_session_context_manager() as global_session:
@@ -1017,15 +1020,8 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
             )
             await global_session.commit()
 
-    # Load the committed workspace into the test session so FK constraints are satisfied
-    # without a conflicting insert inside the per-test transaction.
-    result = await session.execute(
-        select(Workspace).where(Workspace.id == workspace.id)
-    )
-    session_workspace = result.scalar_one()
-
     try:
-        yield session_workspace
+        yield workspace
     finally:
         logger.debug("Cleaning up test workspace")
         # Clean up workspace from global session (postgres database) first
