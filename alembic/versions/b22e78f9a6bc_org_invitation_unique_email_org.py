@@ -1,7 +1,7 @@
 """org_invitation_unique_email_org
 
 Revision ID: b22e78f9a6bc
-Revises: f4f5b93cbb16
+Revises: a1b2c3d4e5f7
 Create Date: 2026-01-23 12:20:13.748876
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b22e78f9a6bc"
-down_revision: str | None = "f4f5b93cbb16"
+down_revision: str | None = "a1b2c3d4e5f7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
