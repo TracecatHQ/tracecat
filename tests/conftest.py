@@ -747,7 +747,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
 
 
 @pytest.fixture(scope="function")
-async def session() -> AsyncGenerator[AsyncSession, None]:
+async def session(env_sandbox: None) -> AsyncGenerator[AsyncSession, None]:
     """Creates a new database session joined to an external transaction.
 
     This fixture creates a nested transaction using SAVEPOINT, allowing
