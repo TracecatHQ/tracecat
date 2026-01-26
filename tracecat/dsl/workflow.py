@@ -21,6 +21,8 @@ from temporalio.exceptions import (
 )
 
 with workflow.unsafe.imports_passed_through():
+    import random
+
     import dateparser  # noqa: F401  # pyright: ignore[reportUnusedImport]
     import jsonpath_ng.ext.parser  # noqa: F401  # pyright: ignore[reportUnusedImport]
     import jsonpath_ng.lexer  # noqa  # pyright: ignore[reportUnusedImport]
@@ -105,6 +107,8 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
     )
     from tracecat.expressions.eval import is_template_only
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+    from tracecat.identifiers import WorkspaceID
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
@@ -122,6 +126,15 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.tiers.activities import (
+        AcquireWorkflowPermitInput,
+        GetTierLimitsInput,
+        ReleaseWorkflowPermitInput,
+        acquire_workflow_permit_activity,
+        get_tier_limits_activity,
+        release_workflow_permit_activity,
+    )
+    from tracecat.tiers.schemas import EffectiveLimits
     from tracecat.validation.schemas import ValidationDetailListTA
     from tracecat.workflow.executions.enums import (
         ExecutionType,
@@ -198,6 +211,11 @@ class DSLWorkflow:
     run_context: RunContext
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
+
+    # Tier limit tracking
+    _tier_limits: EffectiveLimits | None = None
+    _workflow_permit_acquired: bool = False
+    _action_execution_count: int = 0
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
@@ -347,6 +365,31 @@ class DSLWorkflow:
             dispatch_type=self.dispatch_type,
         )
 
+        # Fetch tier limits for this organization
+        if (
+            is_feature_enabled(FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS)
+            and self.role.organization_id is not None
+        ):
+            self._tier_limits = await workflow.execute_activity(
+                get_tier_limits_activity,
+                arg=GetTierLimitsInput(org_id=str(self.role.organization_id)),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self.logger.debug(
+                "Fetched tier limits",
+                limits=self._tier_limits.model_dump() if self._tier_limits else None,
+            )
+
+            # Acquire workflow permit if limit is set
+            if (
+                self._tier_limits is not None
+                and self._tier_limits.max_concurrent_workflows is not None
+            ):
+                await self._acquire_workflow_permit(
+                    self._tier_limits.max_concurrent_workflows
+                )
+
         # Note that we can't run the error handler above this
         # Run the workflow with error handling
         try:
@@ -418,6 +461,10 @@ class DSLWorkflow:
                 error=e,
             )
             raise e
+        finally:
+            # Release workflow permit if acquired
+            if self._workflow_permit_acquired:
+                await self._release_workflow_permit()
 
     async def _run_workflow(self, args: DSLRunArgs) -> StoredObject:
         """Actual workflow execution logic."""
@@ -672,6 +719,9 @@ class DSLWorkflow:
 
     async def execute_task(self, task: ActionStatement) -> TaskResult:
         """Execute a task and manage the results."""
+        # Check action execution limit before running
+        self._check_action_execution_limit()
+
         if task.action == PlatformAction.TRANSFORM_GATHER:
             return await self._noop_gather_action(task)
         if task.action in (PlatformAction.LOOP_START, PlatformAction.LOOP_END):
@@ -1298,6 +1348,13 @@ class DSLWorkflow:
             LoopStrategy.PARALLEL: total_count,
         }[loop_strategy]
 
+        # Cap batch size based on tier limits for concurrent actions
+        if (
+            self._tier_limits is not None
+            and self._tier_limits.max_concurrent_actions is not None
+        ):
+            batch_size = min(batch_size, self._tier_limits.max_concurrent_actions)
+
         # Process in batches for concurrency control
         all_results: list[StoredObject] = []
         batch_start = 0
@@ -1443,6 +1500,13 @@ class DSLWorkflow:
             LoopStrategy.BATCH: sf_context.batch_size,
             LoopStrategy.PARALLEL: total_count,  # All at once
         }[loop_strategy]
+
+        # Cap batch size based on tier limits for concurrent actions
+        if (
+            self._tier_limits is not None
+            and self._tier_limits.max_concurrent_actions is not None
+        ):
+            batch_size = min(batch_size, self._tier_limits.max_concurrent_actions)
 
         self.logger.trace(
             "Loop execution plan",
@@ -2040,3 +2104,102 @@ class DSLWorkflow:
             memo=memo.model_dump(),
             search_attributes=wf_info.typed_search_attributes,
         )
+
+    # ==================== Tier Limit Enforcement ====================
+
+    async def _acquire_workflow_permit(self, limit: int) -> None:
+        """Acquire a workflow execution permit or wait with exponential backoff.
+
+        Retries indefinitely until a permit is acquired. The workflow will
+        eventually run once other workflows complete and release their permits.
+        """
+        wf_id = workflow.info().workflow_id
+        org_id = str(self.role.organization_id)
+        attempt = 0
+        max_backoff = 30  # Maximum backoff in seconds
+
+        while True:
+            result = await workflow.execute_activity(
+                acquire_workflow_permit_activity,
+                arg=AcquireWorkflowPermitInput(
+                    org_id=org_id,
+                    workflow_id=wf_id,
+                    limit=limit,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
+            if result.acquired:
+                self._workflow_permit_acquired = True
+                self.logger.info(
+                    "Workflow permit acquired",
+                    current_count=result.current_count,
+                    limit=limit,
+                )
+                return
+
+            # Exponential backoff with jitter, capped at max_backoff
+            base = min(2**attempt, max_backoff)
+            jitter = random.uniform(0.8, 1.2)  # +/- 20%
+            sleep_duration = base * jitter
+
+            self.logger.info(
+                "Waiting for workflow permit",
+                current_count=result.current_count,
+                limit=limit,
+                attempt=attempt,
+                sleep_seconds=sleep_duration,
+            )
+
+            # Use asyncio.sleep which becomes a durable timer in Temporal
+            await asyncio.sleep(sleep_duration)
+            attempt += 1
+
+    async def _release_workflow_permit(self) -> None:
+        """Release the workflow execution permit."""
+        if not self._workflow_permit_acquired:
+            return
+
+        wf_id = workflow.info().workflow_id
+        org_id = str(self.role.organization_id)
+
+        try:
+            await workflow.execute_activity(
+                release_workflow_permit_activity,
+                arg=ReleaseWorkflowPermitInput(
+                    org_id=org_id,
+                    workflow_id=wf_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._workflow_permit_acquired = False
+            self.logger.info("Workflow permit released")
+        except Exception as e:
+            # Log but don't fail - permit will expire via TTL
+            self.logger.error(
+                "Failed to release workflow permit",
+                error=e,
+            )
+
+    def _check_action_execution_limit(self) -> None:
+        """Check if action execution limit has been exceeded.
+
+        Raises ApplicationError if the limit is exceeded.
+        """
+        if self._tier_limits is None:
+            return
+
+        max_actions = self._tier_limits.max_action_executions_per_workflow
+        if max_actions is None:
+            return
+
+        self._action_execution_count += 1
+
+        if self._action_execution_count > max_actions:
+            raise ApplicationError(
+                f"Action execution limit exceeded ({self._action_execution_count}/{max_actions})",
+                non_retryable=True,
+                type="ActionExecutionLimitExceeded",
+            )
