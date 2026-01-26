@@ -1,10 +1,12 @@
-from typing import Any, Annotated
+from typing import Annotated
+
 from typing_extensions import Doc
 
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
+from tracecat_registry.context import get_context
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
-from tracecat_registry.sdk.agents import run_agent
-
+from tracecat_registry.sdk.agents import AgentConfig, MCPServerConfig
+from tracecat_registry.types import AgentOutputRead
 
 runreveal_mcp_oauth_secret = RegistryOAuthSecret(
     provider_id="runreveal_mcp",
@@ -31,17 +33,23 @@ async def mcp(
     instructions: Annotated[str, Doc("Instructions for the agent.")],
     model_name: Annotated[str, Doc("Name of the model to use.")],
     model_provider: Annotated[str, Doc("Provider of the model to use.")],
-) -> dict[str, Any]:
+) -> AgentOutputRead:
     """Use AI to interact with RunReveal."""
     token = secrets.get(runreveal_mcp_oauth_secret.token_name)
-    mcp_server_url = "https://api.runreveal.com/mcp"
-    mcp_server_headers = {"Authorization": f"Bearer {token}"}
-    output = await run_agent(
+    ctx = get_context()
+    result = await ctx.agents.run(
         user_prompt=user_prompt,
-        model_name=model_name,
-        model_provider=model_provider,
-        instructions=instructions,
-        mcp_server_url=mcp_server_url,
-        mcp_server_headers=mcp_server_headers,
+        config=AgentConfig(
+            model_name=model_name,
+            model_provider=model_provider,
+            instructions=instructions,
+            mcp_servers=[
+                MCPServerConfig(
+                    name="runreveal",
+                    url="https://api.runreveal.com/mcp",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            ],
+        ),
     )
-    return output.model_dump(mode="json")
+    return result
