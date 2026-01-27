@@ -39,8 +39,9 @@ def upgrade() -> None:
     connection = op.get_bind()
 
     # Check if any organization has the default UUID
+    # Use explicit UUID cast for PostgreSQL
     result = connection.execute(
-        sa.text("SELECT id FROM organization WHERE id = :default_uuid"),
+        sa.text("SELECT id FROM organization WHERE id = :default_uuid::uuid"),
         {"default_uuid": DEFAULT_ORG_UUID},
     )
     row = result.fetchone()
@@ -76,15 +77,15 @@ def upgrade() -> None:
         if table_exists:
             connection.execute(
                 sa.text(
-                    f"UPDATE {table} SET organization_id = :new_uuid "
-                    f"WHERE organization_id = :old_uuid"
+                    f"UPDATE {table} SET organization_id = :new_uuid::uuid "
+                    f"WHERE organization_id = :old_uuid::uuid"
                 ),
                 {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
             )
 
     # Update the organization table itself
     connection.execute(
-        sa.text("UPDATE organization SET id = :new_uuid WHERE id = :old_uuid"),
+        sa.text("UPDATE organization SET id = :new_uuid::uuid WHERE id = :old_uuid::uuid"),
         {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
     )
 
