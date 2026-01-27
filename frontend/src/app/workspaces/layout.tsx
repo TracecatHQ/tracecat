@@ -55,6 +55,7 @@ export default function WorkspaceLayout({
       setLastWorkspaceId(workspaceId)
     }
   }, [setLastWorkspaceId, workspaceId])
+
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
