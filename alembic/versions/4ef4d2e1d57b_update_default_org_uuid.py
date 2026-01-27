@@ -1,7 +1,7 @@
 """update_default_org_uuid
 
 Revision ID: 4ef4d2e1d57b
-Revises: b22e78f9a6bc
+Revises: 49a5c7464ab7
 Create Date: 2026-01-26 00:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4ef4d2e1d57b"
-down_revision: str | None = "b22e78f9a6bc"
+down_revision: str | None = "49a5c7464ab7"
 branch_labels: str | None = None
 depends_on: str | None = None
 
