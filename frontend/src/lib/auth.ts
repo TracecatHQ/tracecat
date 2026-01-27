@@ -6,6 +6,18 @@ import {
   type WorkspaceMembershipRead,
 } from "@/client"
 
+/**
+ * Minimal user info for display purposes (avatars, names).
+ * Does not require platform role since it's not used for display.
+ */
+export interface UserDisplayInfo {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+  settings?: Record<string, unknown>
+}
+
 export const SYSTEM_USER_READ: UserRead = {
   id: "system",
   email: "system@tracecat.com",
@@ -56,8 +68,12 @@ export function getDisplayName(
   }
 }
 
+/**
+ * User class that wraps user data for display and authorization checks.
+ * Accepts either full UserRead or minimal UserDisplayInfo for display-only contexts.
+ */
 export class User {
-  constructor(private user: UserRead) {}
+  constructor(private user: UserRead | UserDisplayInfo) {}
 
   get id(): string {
     return this.user.id
@@ -67,8 +83,8 @@ export class User {
     return this.user.email
   }
 
-  get role(): UserRole {
-    return this.user.role
+  get role(): UserRole | undefined {
+    return "role" in this.user ? this.user.role : undefined
   }
 
   get firstName(): string | null | undefined {
@@ -80,36 +96,42 @@ export class User {
   }
 
   get settings(): Record<string, unknown> {
-    return this.user.settings
+    return this.user.settings ?? {}
   }
 
   get isSuperuser(): boolean {
-    return this.user.is_superuser || false
+    return "is_superuser" in this.user
+      ? (this.user.is_superuser ?? false)
+      : false
   }
 
   get isActive(): boolean {
-    return this.user.is_active || false
+    return "is_active" in this.user ? (this.user.is_active ?? false) : false
   }
 
   get isVerified(): boolean {
-    return this.user.is_verified || false
+    return "is_verified" in this.user ? (this.user.is_verified ?? false) : false
   }
 
-  get unwrap(): UserRead {
+  get unwrap(): UserRead | UserDisplayInfo {
     return this.user
   }
 
   /**
    * Returns true if the user is privileged in the context of this workspace.
+   * Only works with full UserRead data.
    */
   isPrivileged(membership?: WorkspaceMembershipRead): boolean {
+    if (!("role" in this.user)) return false
     return userIsPrivileged(this.user, membership)
   }
 
   /**
    * Returns true if the user is an organization admin.
+   * Only works with full UserRead data.
    */
   isOrgAdmin(): boolean {
+    if (!("role" in this.user)) return false
     return userIsOrgAdmin(this.user)
   }
 

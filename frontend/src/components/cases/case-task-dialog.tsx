@@ -272,10 +272,8 @@ export function CaseTaskDialog({
                             const user = new User({
                               id: member.user_id,
                               email: member.email,
-                              role: "basic", // Default role for display purposes
                               first_name: member.first_name,
                               last_name: member.last_name,
-                              settings: {},
                             })
                             const displayName =
                               user.firstName || user.email.split("@")[0]

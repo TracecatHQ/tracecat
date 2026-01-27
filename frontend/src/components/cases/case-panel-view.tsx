@@ -21,7 +21,6 @@ import type {
   CaseSeverity,
   CaseUpdate,
   SqlType,
-  UserRead,
 } from "@/client"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
@@ -78,6 +77,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
+import type { UserDisplayInfo } from "@/lib/auth"
 import {
   useAddCaseTag,
   useCaseDurationDefinitions,
@@ -692,7 +692,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
-  const handleAssigneeChange = async (newAssignee?: UserRead | null) => {
+  const handleAssigneeChange = async (newAssignee?: UserDisplayInfo | null) => {
     const params: Partial<CaseUpdate> = {
       assignee_id: newAssignee?.id || null,
     }

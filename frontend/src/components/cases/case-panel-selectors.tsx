@@ -5,7 +5,6 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
-  UserRead,
   WorkspaceMember,
 } from "@/client"
 import {
@@ -22,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
+import type { UserDisplayInfo } from "@/lib/auth"
 import { User } from "@/lib/auth"
 import { cn, linearStyles } from "@/lib/utils"
 
@@ -204,9 +204,9 @@ export function SeveritySelect({
 export const UNASSIGNED = "__UNASSIGNED__" as const
 
 interface AssigneeSelectProps {
-  assignee?: UserRead | null
+  assignee?: UserDisplayInfo | null
   workspaceMembers: WorkspaceMember[]
-  onValueChange: (assignee?: UserRead | null) => void
+  onValueChange: (assignee?: UserDisplayInfo | null) => void
 }
 
 export function AssigneeSelect({
@@ -227,8 +227,6 @@ export function AssigneeSelect({
           onValueChange({
             id: user.user_id,
             email: user.email,
-            role: "basic", // Default role for display purposes
-            settings: {},
             first_name: user.first_name,
             last_name: user.last_name,
           })
@@ -247,16 +245,7 @@ export function AssigneeSelect({
               <div className="flex items-center gap-1.5">
                 <UserAvatar
                   alt={assignee.first_name || assignee.email}
-                  user={
-                    new User({
-                      id: assignee.id,
-                      email: assignee.email,
-                      role: assignee.role,
-                      first_name: assignee.first_name,
-                      last_name: assignee.last_name,
-                      settings: assignee.settings || {},
-                    })
-                  }
+                  user={new User(assignee)}
                   className="size-5 text-xs text-foreground"
                 />
                 <span className="text-xs font-medium">
@@ -286,10 +275,8 @@ export function AssigneeSelect({
             const user = new User({
               id: member.user_id,
               email: member.email,
-              role: "basic", // Default role for display purposes
               first_name: member.first_name,
               last_name: member.last_name,
-              settings: {},
             })
             return (
               <SelectItem key={user.id} value={user.id}>
