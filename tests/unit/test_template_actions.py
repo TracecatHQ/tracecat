@@ -59,6 +59,7 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
+    organization_id: UUID,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions.
 
@@ -108,7 +109,7 @@ async def create_manifest_for_actions(
 
     # Create RegistryVersion
     rv = RegistryVersion(
-        organization_id=uuid.uuid4(),
+        organization_id=organization_id,
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,
@@ -370,7 +371,7 @@ async def test_template_action_fetches_nested_secrets(
     # The create_manifest_for_actions helper will properly set up the database
     # with manifest entries and return a RegistryLock that maps actions to origins
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, actions_to_register
+        session, db_repo_id, actions_to_register, test_role.organization_id
     )
 
     # Add secrets to the db
@@ -664,7 +665,7 @@ async def test_template_action_runs(
 
     # Create manifest for the test action (enables production code path)
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [bound_action]
+        session, db_repo_id, [bound_action], test_role.organization_id
     )
 
     # Run the action using production code path
@@ -784,7 +785,7 @@ async def test_template_action_with_enums(
 
     # Create manifest for the test action (enables production code path)
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [bound_action]
+        session, db_repo_id, [bound_action], test_role.organization_id
     )
 
     # Run the action using production code path
@@ -927,7 +928,7 @@ async def test_template_action_with_vars_expressions(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [bound_action]
+        session, db_repo_id, [bound_action], test_role.organization_id
     )
 
     # Test case 1: Without inputs, should use VARS defaults
@@ -1077,7 +1078,7 @@ async def test_template_action_with_multi_level_fallback_chain(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [bound_action]
+        session, db_repo_id, [bound_action], test_role.organization_id
     )
 
     # Test case 1: inputs.url provided -> should use inputs.url (first in chain)

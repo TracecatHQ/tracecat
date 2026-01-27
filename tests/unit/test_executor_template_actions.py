@@ -46,6 +46,7 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
+    organization_id: UUID,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions."""
     from sqlalchemy import select
@@ -90,7 +91,7 @@ async def create_manifest_for_actions(
     manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
     rv = RegistryVersion(
-        organization_id=uuid.uuid4(),
+        organization_id=organization_id,
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,
@@ -205,7 +206,7 @@ async def test_template_action_two_steps_via_direct_backend(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.two_step_math")]
+        session, db_repo_id, [repo.get("testing.two_step_math")], test_role.organization_id
     )
 
     # Create and run the action
@@ -287,7 +288,7 @@ async def test_template_action_step_results_accessible(
     )
 
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.step_data_flow")]
+        session, db_repo_id, [repo.get("testing.step_data_flow")], test_role.organization_id
     )
 
     input = RunActionInput(
@@ -363,7 +364,7 @@ async def test_template_action_returns_expression_evaluated(
     )
 
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.complex_returns")]
+        session, db_repo_id, [repo.get("testing.complex_returns")], test_role.organization_id
     )
 
     input = RunActionInput(
@@ -459,7 +460,7 @@ async def test_template_action_with_secrets_in_top_level_args(
         )
 
         registry_lock = await create_manifest_for_actions(
-            session, db_repo_id, [repo.get("testing.secret_user")]
+            session, db_repo_id, [repo.get("testing.secret_user")], test_role.organization_id
         )
 
         # Pass the secret expression in the top-level args
@@ -564,6 +565,7 @@ async def test_nested_template_actions(
         session,
         db_repo_id,
         [repo.get("testing.inner_double"), repo.get("testing.outer_quad")],
+        test_role.organization_id,
     )
 
     input = RunActionInput(
@@ -628,7 +630,7 @@ async def test_template_action_for_each(
     )
 
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.add_ten")]
+        session, db_repo_id, [repo.get("testing.add_ten")], test_role.organization_id
     )
 
     # Create input with for_each
