@@ -87,12 +87,14 @@ def module_test_role(mock_org_id) -> Role:
     Creates a static role that can be used by module-scoped fixtures
     without depending on function-scoped test_workspace.
     """
-    # Use a static workspace ID for module-scoped fixtures
+    # Use static IDs for module-scoped fixtures
     static_workspace_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    static_organization_id = uuid.UUID("22222222-2222-2222-2222-222222222222")
     return Role(
         type="service",
         user_id=mock_org_id,
         workspace_id=static_workspace_id,
+        organization_id=static_organization_id,
         service_id="tracecat-runner",
     )
 
