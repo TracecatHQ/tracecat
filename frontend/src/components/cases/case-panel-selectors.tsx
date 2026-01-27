@@ -227,7 +227,7 @@ export function AssigneeSelect({
           onValueChange({
             id: user.user_id,
             email: user.email,
-            role: user.org_role,
+            role: "basic", // Default role for display purposes
             settings: {},
             first_name: user.first_name,
             last_name: user.last_name,
@@ -286,7 +286,7 @@ export function AssigneeSelect({
             const user = new User({
               id: member.user_id,
               email: member.email,
-              role: member.org_role,
+              role: "basic", // Default role for display purposes
               first_name: member.first_name,
               last_name: member.last_name,
               settings: {},

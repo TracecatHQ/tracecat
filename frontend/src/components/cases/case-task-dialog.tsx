@@ -272,7 +272,7 @@ export function CaseTaskDialog({
                             const user = new User({
                               id: member.user_id,
                               email: member.email,
-                              role: member.org_role,
+                              role: "basic", // Default role for display purposes
                               first_name: member.first_name,
                               last_name: member.last_name,
                               settings: {},
