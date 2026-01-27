@@ -255,6 +255,13 @@ class InternalRunAgentRequest(BaseModel):
     max_requests: int = Field(default=120, le=120)
     max_tool_calls: int | None = Field(default=None, le=40)
 
+    @model_validator(mode="after")
+    def validate_config_or_preset(self) -> InternalRunAgentRequest:
+        """Ensure either config or preset_slug is provided."""
+        if self.config is None and self.preset_slug is None:
+            raise ValueError("Either 'config' or 'preset_slug' must be provided")
+        return self
+
 
 class InternalRankItemsRequest(BaseModel):
     """Request body for /internal/agent/rank endpoint."""
