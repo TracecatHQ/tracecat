@@ -3073,7 +3073,7 @@ export type OrgMemberRead = {
   first_name: string | null
   last_name: string | null
   email: string
-  role: UserRole
+  role: OrgRole
   is_active: boolean
   is_superuser: boolean
   is_verified: boolean
@@ -5940,7 +5940,7 @@ export type WorkspaceMember = {
   first_name: string | null
   last_name: string | null
   email: string
-  org_role: UserRole
+  org_role: OrgRole
   workspace_role: WorkspaceRole
 }
 

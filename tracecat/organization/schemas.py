@@ -3,7 +3,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.auth.schemas import UserRole
 from tracecat.authz.enums import OrgRole
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
@@ -16,7 +15,7 @@ class OrgMemberRead(BaseModel):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    role: UserRole
+    role: OrgRole
     is_active: bool
     is_superuser: bool
     is_verified: bool

@@ -176,7 +176,7 @@ class TestOrganizationServiceListMembers:
 
         members = await service.list_members()
 
-        member_ids = {m.id for m in members}
+        member_ids = {user.id for user, _ in members}
         assert user_in_org1.id in member_ids
         assert admin_in_org1.id in member_ids
         assert user_in_org2.id not in member_ids
@@ -215,10 +215,11 @@ class TestOrganizationServiceGetMember:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        member = await service.get_member(user_in_org1.id)
+        member, org_role = await service.get_member(user_in_org1.id)
 
         assert member.id == user_in_org1.id
         assert member.email == user_in_org1.email
+        assert org_role == OrgRole.MEMBER
 
     @pytest.mark.anyio
     async def test_get_member_in_different_org_raises(
@@ -591,7 +592,7 @@ class TestOrganizationServiceAddMember:
 
         # Verify they appear in list_members
         members = await service.list_members()
-        member_ids = {m.id for m in members}
+        member_ids = {user.id for user, _ in members}
         assert new_user.id in member_ids
 
 

@@ -5,8 +5,7 @@ from typing import NotRequired, TypedDict
 from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
-from tracecat.auth.schemas import UserRole
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
@@ -116,7 +115,7 @@ class WorkspaceMember(Schema):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    org_role: UserRole
+    org_role: OrgRole
     workspace_role: WorkspaceRole
 
 

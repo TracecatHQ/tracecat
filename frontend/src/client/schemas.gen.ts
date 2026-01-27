@@ -9365,7 +9365,7 @@ export const $OrgMemberRead = {
       title: "Email",
     },
     role: {
-      $ref: "#/components/schemas/UserRole",
+      $ref: "#/components/schemas/OrgRole",
     },
     is_active: {
       type: "boolean",
@@ -19049,7 +19049,7 @@ export const $WorkspaceMember = {
       title: "Email",
     },
     org_role: {
-      $ref: "#/components/schemas/UserRole",
+      $ref: "#/components/schemas/OrgRole",
     },
     workspace_role: {
       $ref: "#/components/schemas/WorkspaceRole",
