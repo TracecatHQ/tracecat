@@ -29,7 +29,7 @@ class Unset:
         ) -> None:
             data: dict[str, Any] = {}
             # Only include if explicitly provided (including None)
-            if assignee_id is not UNSET:
+            if is_set(assignee_id):
                 data["assignee_id"] = assignee_id
     """
 
@@ -52,12 +52,16 @@ def is_set[T](value: T | Unset) -> TypeGuard[T]:
 
     Use this to get proper type narrowing when checking if a value was provided.
 
+    Note: Uses isinstance() instead of identity check (is not UNSET) to handle
+    cases where the UNSET singleton might get pickled/unpickled (e.g., in
+    pytest-xdist workers), creating new Unset instances.
+
     Example:
         if is_set(start_time):
             # start_time is narrowed from datetime | Unset to datetime
             data["start_time"] = start_time.isoformat()
     """
-    return value is not UNSET
+    return not isinstance(value, Unset)
 
 
 # === Case Types === #
