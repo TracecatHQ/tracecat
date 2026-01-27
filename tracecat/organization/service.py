@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, cast, func, select
+from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import contains_eager
 
@@ -402,6 +402,10 @@ class OrgService(BaseOrgService):
         then creates the membership record. Audit events are logged to the
         invitation's target organization, not the user's current organization.
 
+        Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
+        conditions - the status check and update happen atomically in a single
+        database operation.
+
         Args:
             token: The unique invitation token.
 
@@ -419,6 +423,7 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to accept invitation"
             )
 
+        # First fetch to validate email match and get invitation details
         invitation = await self.get_invitation_by_token(token)
 
         # Verify user's email matches invitation email (case-insensitive)
@@ -433,11 +438,7 @@ class OrgService(BaseOrgService):
                 "This invitation was sent to a different email address"
             )
 
-        # Validate invitation state
-        if invitation.status == InvitationStatus.ACCEPTED:
-            raise TracecatAuthorizationError("Invitation has already been accepted")
-        if invitation.status == InvitationStatus.REVOKED:
-            raise TracecatAuthorizationError("Invitation has been revoked")
+        # Check expiry before attempting atomic update
         if invitation.expires_at < datetime.now(UTC):
             raise TracecatAuthorizationError("Invitation has expired")
 
@@ -456,8 +457,32 @@ class OrgService(BaseOrgService):
             )
 
         try:
-            # Create membership directly (not via add_member which commits separately)
-            # to ensure atomicity with invitation status update
+            # Atomically update invitation status only if still PENDING.
+            # This prevents TOCTOU race conditions where an admin might revoke
+            # the invitation between our check and commit.
+            now = datetime.now(UTC)
+            update_result = await self.session.execute(
+                update(OrganizationInvitation)
+                .where(
+                    OrganizationInvitation.id == invitation.id,
+                    OrganizationInvitation.status == InvitationStatus.PENDING,
+                )
+                .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
+            )
+
+            if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
+                # Status changed between fetch and update - re-fetch for accurate error
+                await self.session.refresh(invitation)
+                if invitation.status == InvitationStatus.ACCEPTED:
+                    raise TracecatAuthorizationError(
+                        "Invitation has already been accepted"
+                    )
+                if invitation.status == InvitationStatus.REVOKED:
+                    raise TracecatAuthorizationError("Invitation has been revoked")
+                # Shouldn't reach here, but handle gracefully
+                raise TracecatAuthorizationError("Invitation is no longer valid")
+
+            # Create membership
             membership = OrganizationMembership(
                 user_id=self.role.user_id,
                 organization_id=invitation.organization_id,
@@ -465,13 +490,11 @@ class OrgService(BaseOrgService):
             )
             self.session.add(membership)
 
-            # Mark invitation as accepted
-            invitation.status = InvitationStatus.ACCEPTED
-            invitation.accepted_at = datetime.now(UTC)
-
-            # Single atomic commit for both membership and invitation update
             await self.session.commit()
             await self.session.refresh(membership)
+        except TracecatAuthorizationError:
+            # Re-raise auth errors without logging as failure (expected user errors)
+            raise
         except Exception:
             # Log audit failure to the invitation's organization
             async with AuditService.with_session(

@@ -529,6 +529,8 @@ import type {
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
   WorkspacesCreateWorkspaceData,
+  WorkspacesCreateWorkspaceInvitationData,
+  WorkspacesCreateWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
   WorkspacesCreateWorkspaceResponse,
@@ -540,11 +542,15 @@ import type {
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
+  WorkspacesListWorkspaceInvitationsData,
+  WorkspacesListWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceMembersData,
   WorkspacesListWorkspaceMembershipsData,
   WorkspacesListWorkspaceMembershipsResponse,
   WorkspacesListWorkspaceMembersResponse,
   WorkspacesListWorkspacesResponse,
+  WorkspacesRevokeWorkspaceInvitationData,
+  WorkspacesRevokeWorkspaceInvitationResponse,
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
@@ -1022,6 +1028,96 @@ export const workspacesDeleteWorkspaceMembership = (
     path: {
       workspace_id: data.workspaceId,
       user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Invitation
+ * Create a workspace invitation.
+ *
+ * Access Level
+ * ------------
+ * - Workspace Admin: Can create invitations for their workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const workspacesCreateWorkspaceInvitation = (
+  data: WorkspacesCreateWorkspaceInvitationData
+): CancelablePromise<WorkspacesCreateWorkspaceInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/invitations",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Invitations
+ * List workspace invitations.
+ *
+ * Access Level
+ * ------------
+ * - Workspace Admin: Can list invitations for their workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.status
+ * @returns WorkspaceInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const workspacesListWorkspaceInvitations = (
+  data: WorkspacesListWorkspaceInvitationsData
+): CancelablePromise<WorkspacesListWorkspaceInvitationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/invitations",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Workspace Invitation
+ * Revoke a workspace invitation.
+ *
+ * Access Level
+ * ------------
+ * - Workspace Admin: Can revoke invitations for their workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.invitationId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workspacesRevokeWorkspaceInvitation = (
+  data: WorkspacesRevokeWorkspaceInvitationData
+): CancelablePromise<WorkspacesRevokeWorkspaceInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/invitations/{invitation_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      invitation_id: data.invitationId,
     },
     errors: {
       422: "Validation Error",

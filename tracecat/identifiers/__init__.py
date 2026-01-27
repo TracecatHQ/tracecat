@@ -81,6 +81,7 @@ CaseTagID = uuid.UUID
 TableID = uuid.UUID
 TableColumnID = uuid.UUID
 TableRowID = uuid.UUID
+InvitationID = uuid.UUID
 
 InternalServiceID = Literal[
     "tracecat-api",
@@ -121,6 +122,7 @@ __all__ = [
     "CaseTagID",
     "SessionID",
     "VariableID",
+    "InvitationID",
     "id_factory",
     "action",
     "workflow",
