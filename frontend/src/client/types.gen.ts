@@ -6865,6 +6865,14 @@ export type OrganizationRevokeInvitationData = {
 
 export type OrganizationRevokeInvitationResponse = void
 
+export type OrganizationGetInvitationTokenData = {
+  invitationId: string
+}
+
+export type OrganizationGetInvitationTokenResponse = {
+  [key: string]: string
+}
+
 export type OrganizationAcceptInvitationData = {
   requestBody: OrgInvitationAccept
 }
@@ -9641,6 +9649,23 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/{invitation_id}/token": {
+    get: {
+      req: OrganizationGetInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
         /**
          * Validation Error
          */
