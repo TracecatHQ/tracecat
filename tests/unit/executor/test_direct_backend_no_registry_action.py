@@ -33,6 +33,7 @@ def test_role() -> Role:
         type="service",
         service_id="tracecat-executor",
         workspace_id=uuid.UUID("38be3315-c172-4332-aea6-53fc4b93f053"),
+        organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
     )
 
