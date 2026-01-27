@@ -82,8 +82,10 @@ resource "aws_db_instance" "tracecat" {
   allocated_storage    = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5
 
-  db_name  = "tracecat"
-  username = var.rds_master_username
+  snapshot_identifier = var.rds_snapshot_identifier != "" ? var.rds_snapshot_identifier : null
+
+  db_name  = var.rds_snapshot_identifier == "" ? "tracecat" : null
+  username = var.rds_snapshot_identifier == "" ? var.rds_master_username : null
   manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.tracecat.name

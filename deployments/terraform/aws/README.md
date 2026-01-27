@@ -55,27 +55,11 @@ aws secretsmanager create-secret --name tracecat/secrets \
    "userAuthSecret": "'$(openssl rand -hex 32)'"
 }'
 
-# 3. (Optional) Add Temporal Cloud API key to AWS Secrets Manager
-aws secretsmanager create-secret --name tracecat/temporal-api-key \
-  --secret-string "your-temporal-cloud-api-key"
-
-# 4. Store secret ARNs in variables
+# 3. Store secret ARNs in variables
 tracecat_secrets_arn=$(aws secretsmanager describe-secret --secret-id tracecat/secrets | jq -r '.ARN')
-temporal_cloud_api_key_secret_arn=""
-if aws secretsmanager describe-secret --secret-id tracecat/temporal-api-key >/dev/null 2>&1; then
-  temporal_cloud_api_key_secret_arn=$(aws secretsmanager describe-secret --secret-id tracecat/temporal-api-key | jq -r '.ARN')
-fi
 
-echo "Tracecat secrets ARN: $tracecat_secrets_arn"
-if [ -n "$temporal_cloud_api_key_secret_arn" ]; then
-  echo "Temporal Cloud API key ARN: $temporal_cloud_api_key_secret_arn"
-else
-  echo "Temporal Cloud API key ARN: (not set)"
-fi
-
-# 5. Run Terraform to deploy Tracecat
+# 4. Run Terraform to deploy Tracecat
 export TF_VAR_tracecat_secrets_arn=$tracecat_secrets_arn
-export TF_VAR_temporal_cloud_api_key_secret_arn=$temporal_cloud_api_key_secret_arn
 export TF_VAR_domain_name=$DOMAIN_NAME
 export TF_VAR_hosted_zone_id=$HOSTED_ZONE_ID
 export TF_VAR_aws_region=$AWS_REGION
@@ -86,3 +70,40 @@ export TF_VAR_aws_role_arn=$AWS_ROLE_ARN
 terraform init
 terraform apply
 ```
+
+## Temporal self-hosted vs external cluster
+
+To deploy Temporal in self-hosted mode, set `temporal_mode` to `self-hosted`.
+
+```bash
+export TF_VAR_temporal_mode="self-hosted"
+```
+
+To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
+Then configure the Temporal cluster URL, namespace, and API key (if required).
+
+Create an API key (if required) and store it in AWS Secrets Manager.
+```bash
+aws secretsmanager create-secret --name tracecat/temporal-api-key --secret-string "your-temporal-api-key"
+```
+
+The deployment variables are:
+
+```bash
+export TF_VAR_temporal_cluster_url="us-west-2.aws.api.temporal.io:7233"
+export TF_VAR_temporal_cluster_namespace="my-temporal-namespace"
+export TF_VAR_temporal_cluster_api_key_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-temporal-api-key-secret"
+```
+
+## Snapshots and restore
+
+To restore the RDS instance from an existing snapshot, set `rds_snapshot_identifier` to the snapshot identifier or ARN before running `terraform apply`.
+
+```bash
+export TF_VAR_rds_snapshot_identifier="my-rds-snapshot-id"
+```
+
+Notes:
+- The master username is inherited from the snapshot and cannot be changed. Set `rds_master_username` to match the snapshot's master username so post-restore jobs can connect.
+- `rds_allocated_storage` must be at least the snapshot size. You can't restore with less storage, and increases must be at least 10%.
+- For shared manual snapshots, use the full snapshot ARN as the identifier.
