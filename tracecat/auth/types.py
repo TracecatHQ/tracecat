@@ -76,6 +76,27 @@ class Role(BaseModel):
         return headers
 
 
+class PlatformRole(BaseModel):
+    """Role for platform admin (superuser) operations.
+
+    Used for admin endpoints that operate at the platform level,
+    not scoped to any organization or workspace.
+
+    The user_id is preserved for audit logging purposes.
+    """
+
+    type: Literal["user", "service"] = Field(frozen=True)
+    user_id: UserID = Field(frozen=True)
+    """The superuser's ID - required for audit logging."""
+    access_level: AccessLevel = Field(default=AccessLevel.ADMIN, frozen=True)
+    service_id: InternalServiceID = Field(frozen=True)
+
+    @property
+    def is_platform_superuser(self) -> bool:
+        """Platform roles always have superuser privileges."""
+        return True
+
+
 def system_role() -> Role:
     """Role for system actions."""
     return Role(
