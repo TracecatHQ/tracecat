@@ -132,13 +132,28 @@ async def user_in_org2(session: AsyncSession, org2: Organization) -> User:
 
 
 def create_admin_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Role:
-    """Create an admin role for testing."""
+    """Create an org admin role for testing (not a platform superuser)."""
     return Role(
         type="user",
         user_id=user_id,
         organization_id=organization_id,
         access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.ADMIN,
         service_id="tracecat-api",
+        is_platform_superuser=False,
+    )
+
+
+def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Role:
+    """Create a platform superuser role for testing."""
+    return Role(
+        type="user",
+        user_id=user_id,
+        organization_id=organization_id,
+        access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.OWNER,
+        service_id="tracecat-api",
+        is_platform_superuser=True,
     )
 
 
@@ -626,14 +641,14 @@ class TestOrganizationServiceInvitations:
         assert invitation.role == OrgRole.ADMIN
 
     @pytest.mark.anyio
-    async def test_create_invitation_owner_role_requires_owner(
+    async def test_create_owner_invitation_requires_owner_or_superuser(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
     ):
-        """Test create_invitation with OWNER role requires OWNER permission."""
-        # Admin role (not owner) should not be able to create OWNER invitations
+        """Test that org admins cannot create OWNER invitations."""
+        # Org admin (not superuser) should not be able to create OWNER invitations
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
@@ -645,6 +660,25 @@ class TestOrganizationServiceInvitations:
                 email="newowner@example.com",
                 role=OrgRole.OWNER,
             )
+
+    @pytest.mark.anyio
+    async def test_superuser_can_create_owner_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test that platform superusers can create OWNER invitations."""
+        role = create_superuser_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="newowner@example.com",
+            role=OrgRole.OWNER,
+        )
+
+        assert invitation.role == OrgRole.OWNER
+        assert invitation.email == "newowner@example.com"
 
     @pytest.mark.anyio
     async def test_create_invitation_duplicate_raises(
@@ -795,6 +829,47 @@ class TestOrganizationServiceInvitations:
 
         assert retrieved.id == invitation.id
         assert retrieved.email == invitation.email
+
+    @pytest.mark.anyio
+    async def test_get_invitation_by_token_returns_org_and_inviter_info(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """Test get_invitation_by_token returns org name and inviter info for acceptance page."""
+        # Set inviter's name for test
+        admin_in_org1.first_name = "John"
+        admin_in_org1.last_name = "Doe"
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(email="test@example.com")
+
+        # Get invitation by token
+        retrieved = await service.get_invitation_by_token(invitation.token)
+
+        # Verify organization info is available
+        assert retrieved.organization_id == org1.id
+
+        # Fetch org to verify name can be resolved
+        result = await session.execute(
+            select(Organization).where(Organization.id == retrieved.organization_id)
+        )
+        org = result.scalar_one()
+        assert org.name == "Test Organization 1"
+
+        # Verify inviter info is available
+        assert retrieved.invited_by == admin_in_org1.id
+        result = await session.execute(
+            select(User).where(User.id == retrieved.invited_by)  # pyright: ignore[reportArgumentType]
+        )
+        inviter = result.scalar_one()
+        assert inviter.first_name == "John"
+        assert inviter.last_name == "Doe"
+        assert inviter.email == admin_in_org1.email
 
     @pytest.mark.anyio
     async def test_get_invitation_by_token_not_found(

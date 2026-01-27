@@ -3010,7 +3010,8 @@ export const organizationAcceptInvitation = (
  * Get Invitation By Token
  * Get minimal invitation details by token (public endpoint for UI).
  *
- * Returns only essential fields to reduce information disclosure.
+ * Returns organization name and inviter info for the acceptance page.
+ * If user is authenticated, also returns whether their email matches the invitation.
  * @param data The data for the request.
  * @param data.token
  * @returns OrgInvitationReadMinimal Successful Response

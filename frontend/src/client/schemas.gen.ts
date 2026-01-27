@@ -9264,6 +9264,32 @@ export const $OrgInvitationReadMinimal = {
       format: "uuid",
       title: "Organization Id",
     },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
     role: {
       $ref: "#/components/schemas/OrgRole",
     },
@@ -9275,13 +9301,32 @@ export const $OrgInvitationReadMinimal = {
       format: "date-time",
       title: "Expires At",
     },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
+    },
   },
   type: "object",
-  required: ["organization_id", "role", "status", "expires_at"],
+  required: [
+    "organization_id",
+    "organization_name",
+    "inviter_name",
+    "inviter_email",
+    "role",
+    "status",
+    "expires_at",
+  ],
   title: "OrgInvitationReadMinimal",
   description: `Minimal response for public token-based invitation lookup.
 
-Excludes sensitive fields like email, invited_by, and timestamps
+Excludes sensitive fields like email, invited_by ID, and timestamps
 to reduce information disclosure when querying by token.`,
 } as const
 
@@ -12380,6 +12425,11 @@ export const $Role = {
         "tracecat-ui",
       ],
       title: "Service Id",
+    },
+    is_platform_superuser: {
+      type: "boolean",
+      title: "Is Platform Superuser",
+      default: false,
     },
   },
   type: "object",

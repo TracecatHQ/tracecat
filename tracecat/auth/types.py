@@ -54,6 +54,13 @@ class Role(BaseModel):
     user_id: UserID | None = Field(default=None, frozen=True)
     access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
+    is_platform_superuser: bool = Field(default=False, frozen=True)
+    """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
+
+    @property
+    def is_superuser(self) -> bool:
+        """Check if this role has superuser (platform admin) privileges."""
+        return self.is_platform_superuser
 
     def to_headers(self) -> dict[str, str]:
         headers = {

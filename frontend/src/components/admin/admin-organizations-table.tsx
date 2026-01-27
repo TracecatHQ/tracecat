@@ -1,7 +1,9 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import Cookies from "js-cookie"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { OrgRead } from "@/client"
 import {
@@ -34,6 +36,7 @@ import { useAdminOrganizations } from "@/hooks/use-admin"
 export function AdminOrganizationsTable() {
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const { organizations, deleteOrganization } = useAdminOrganizations()
+  const router = useRouter()
 
   const handleDeleteOrganization = async () => {
     if (selectedOrg) {
@@ -45,6 +48,11 @@ export function AdminOrganizationsTable() {
         setSelectedOrg(null)
       }
     }
+  }
+
+  const handleEnterOrganization = (orgId: string) => {
+    Cookies.set("tracecat-org-id", orgId, { path: "/", sameSite: "lax" })
+    router.push("/organization/invitations")
   }
 
   return (
@@ -183,6 +191,12 @@ export function AdminOrganizationsTable() {
                       >
                         Registry
                       </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => handleEnterOrganization(row.original.id)}
+                    >
+                      Enter organization
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <AlertDialogTrigger asChild>

@@ -122,11 +122,16 @@ import {
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
+  type OrgInvitationCreate,
+  type OrgInvitationRead,
   type OrgMemberRead,
+  organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
+  organizationListInvitations,
   organizationListOrgMembers,
   organizationListSessions,
+  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2067,6 +2072,81 @@ export function useOrgMembers() {
     deleteOrgMember,
     deleteOrgMemberIsPending,
     deleteOrgMemberError,
+  }
+}
+
+export function useOrgInvitations() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: invitations,
+    isLoading,
+    error,
+  } = useQuery<OrgInvitationRead[]>({
+    queryKey: ["org-invitations"],
+    queryFn: async () => await organizationListInvitations({}),
+  })
+
+  const {
+    mutateAsync: createInvitation,
+    isPending: createPending,
+    error: createError,
+  } = useMutation({
+    mutationFn: async (params: OrgInvitationCreate) =>
+      await organizationCreateInvitation({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-invitations"] })
+      toast({
+        title: "Invitation created",
+        description: "Invitation sent successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      const detail = apiError.body?.detail
+      toast({
+        title: "Failed to create invitation",
+        description: typeof detail === "string" ? detail : apiError.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: revokeInvitation,
+    isPending: revokePending,
+    error: revokeError,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await organizationRevokeInvitation({ invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-invitations"] })
+      toast({
+        title: "Invitation revoked",
+        description: "Invitation has been revoked.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      const detail = apiError.body?.detail
+      toast({
+        title: "Failed to revoke invitation",
+        description: typeof detail === "string" ? detail : apiError.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    invitations,
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    createError,
+    revokeInvitation,
+    revokePending,
+    revokeError,
   }
 }
 

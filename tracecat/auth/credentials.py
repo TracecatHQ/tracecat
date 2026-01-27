@@ -65,6 +65,8 @@ USER_ROLE_TO_ACCESS_LEVEL = {
     UserRole.BASIC: AccessLevel.BASIC,
 }
 
+ORG_OVERRIDE_COOKIE = "tracecat-org-id"
+
 
 def get_role_from_user(
     user: User,
@@ -78,6 +80,8 @@ def get_role_from_user(
     access_level = (
         AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
     )
+    if user.is_superuser:
+        org_role = OrgRole.OWNER
     return Role(
         type="user",
         workspace_id=workspace_id,
@@ -87,6 +91,7 @@ def get_role_from_user(
         access_level=access_level,
         workspace_role=workspace_role,
         org_role=org_role,
+        is_platform_superuser=user.is_superuser,
     )
 
 
@@ -308,18 +313,32 @@ async def _role_dependency(
             # No workspace specified; infer org from memberships when possible.
             workspace_role = None
             organization_id = config.TRACECAT__DEFAULT_ORG_ID
-            svc = MembershipService(session)
-            memberships_with_org = await svc.list_user_memberships_with_org(
-                user_id=user.id
-            )
-            org_ids = {m.org_id for m in memberships_with_org}
-            if len(org_ids) == 1:
-                organization_id = next(iter(org_ids))
-            elif len(org_ids) > 1:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Multiple organizations found. Provide workspace_id to select an organization.",
+            override_applied = False
+            org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
+            if org_override and user.is_superuser:
+                try:
+                    organization_id = uuid.UUID(org_override)
+                    override_applied = True
+                except ValueError:
+                    logger.warning(
+                        "Invalid org override cookie, falling back to membership",
+                        user_id=user.id,
+                        org_override=org_override,
+                    )
+
+            if not override_applied:
+                svc = MembershipService(session)
+                memberships_with_org = await svc.list_user_memberships_with_org(
+                    user_id=user.id
                 )
+                org_ids = {m.org_id for m in memberships_with_org}
+                if len(org_ids) == 1:
+                    organization_id = next(iter(org_ids))
+                elif len(org_ids) > 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Multiple organizations found. Provide workspace_id to select an organization.",
+                    )
 
         # Fetch org-level role from OrganizationMembership
         org_role: OrgRole | None = None

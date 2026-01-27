@@ -3054,14 +3054,18 @@ export type OrgInvitationRead = {
 /**
  * Minimal response for public token-based invitation lookup.
  *
- * Excludes sensitive fields like email, invited_by, and timestamps
+ * Excludes sensitive fields like email, invited_by ID, and timestamps
  * to reduce information disclosure when querying by token.
  */
 export type OrgInvitationReadMinimal = {
   organization_id: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
   role: OrgRole
   status: InvitationStatus
   expires_at: string
+  email_matches?: boolean | null
 }
 
 export type OrgMemberRead = {
@@ -4033,6 +4037,7 @@ export type Role = {
     | "tracecat-schedule-runner"
     | "tracecat-service"
     | "tracecat-ui"
+  is_platform_superuser?: boolean
 }
 
 export type type3 = "user" | "service"
