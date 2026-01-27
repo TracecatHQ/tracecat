@@ -20,8 +20,9 @@ async def test_require_superuser_allows_superuser() -> None:
         assert role.user_id == user.id
         assert role.access_level == AccessLevel.ADMIN
         assert role.service_id == "tracecat-api"
-        # Superuser roles are platform-level, not org-scoped
-        assert role.organization_id is None
+        # Superuser roles are platform-level (PlatformRole), not org-scoped (Role)
+        # PlatformRole intentionally has no organization_id attribute
+        assert not hasattr(role, "organization_id")
         assert role.is_platform_superuser is True
         assert ctx_role.get() == role
     finally:

@@ -105,7 +105,7 @@ async def sync_registry_repository(
         400: If there is an error syncing the repository
     """
     # First, check if this is a platform registry repository (base registry)
-    platform_repos_service = PlatformRegistryReposService(session, role)
+    platform_repos_service = PlatformRegistryReposService(session)
     platform_repo = await platform_repos_service.get_repository_by_id(repository_id)
 
     if platform_repo is not None:
@@ -266,7 +266,7 @@ async def _sync_platform_repository(
     last_synced_at = datetime.now(UTC)
     target_commit_sha = sync_params.target_commit_sha if sync_params else None
 
-    platform_sync_service = PlatformRegistrySyncService(session, role)
+    platform_sync_service = PlatformRegistrySyncService(session)
 
     try:
         sync_result = await platform_sync_service.sync_repository_v2(
@@ -340,12 +340,12 @@ async def list_repository_versions(
 ) -> list[RegistryVersionRead]:
     """List all versions for a specific registry repository."""
     # First, check if this is a platform registry repository
-    platform_repos_service = PlatformRegistryReposService(session, role)
+    platform_repos_service = PlatformRegistryReposService(session)
     platform_repo = await platform_repos_service.get_repository_by_id(repository_id)
 
     if platform_repo is not None:
         # This is a platform registry - use platform versions service
-        versions_service = PlatformRegistryVersionsService(session, role)
+        versions_service = PlatformRegistryVersionsService(session)
         versions = await versions_service.list_versions(repository_id=repository_id)
         return [RegistryVersionRead.model_validate(v) for v in versions]
 
@@ -441,7 +441,7 @@ async def get_registry_repository(
     Handles both platform (base) and org-scoped repositories.
     """
     # First check if it's a platform repository
-    platform_service = PlatformRegistryReposService(session, role)
+    platform_service = PlatformRegistryReposService(session)
     platform_repo = await platform_service.get_repository_by_id(repository_id)
 
     if platform_repo is not None:
@@ -717,7 +717,7 @@ async def promote_registry_version(
         400: If version doesn't belong to repository or has no tarball
     """
     # First check if it's a platform repository
-    platform_service = PlatformRegistryReposService(session, role)
+    platform_service = PlatformRegistryReposService(session)
     platform_repo = await platform_service.get_repository_by_id(repository_id)
 
     if platform_repo is not None:
@@ -736,7 +736,7 @@ async def promote_registry_version(
             ) from e
 
         # Get the version string from platform versions service
-        platform_versions_service = PlatformRegistryVersionsService(session, role)
+        platform_versions_service = PlatformRegistryVersionsService(session)
         platform_version = await platform_versions_service.get_version(version_id)
         version_string = (
             platform_version.version if platform_version else str(version_id)

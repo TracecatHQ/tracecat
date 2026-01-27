@@ -79,8 +79,8 @@ async def sync_platform_registry_on_startup() -> None:
 
 async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
     """Leader-only sync logic with retries."""
-    repos_service = PlatformRegistryReposService(session, role=None)
-    versions_service = PlatformRegistryVersionsService(session, role=None)
+    repos_service = PlatformRegistryReposService(session)
+    versions_service = PlatformRegistryVersionsService(session)
 
     # Get or create platform repository
     repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
@@ -125,7 +125,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
         return
 
     # Version doesn't exist - need to sync (with retries)
-    sync_service = PlatformRegistrySyncService(session, role=None)
+    sync_service = PlatformRegistrySyncService(session)
 
     for attempt in range(1, MAX_SYNC_RETRIES + 1):
         try:
