@@ -38,9 +38,9 @@ def upgrade() -> None:
     connection = op.get_bind()
 
     # Check if any organization has the default UUID
-    # Use explicit UUID cast for PostgreSQL
+    # Use CAST() instead of :: to avoid conflicts with SQLAlchemy's :param syntax
     result = connection.execute(
-        sa.text("SELECT id FROM organization WHERE id = :default_uuid::uuid"),
+        sa.text("SELECT id FROM organization WHERE id = CAST(:default_uuid AS uuid)"),
         {"default_uuid": DEFAULT_ORG_UUID},
     )
     row = result.fetchone()
@@ -76,8 +76,8 @@ def upgrade() -> None:
         if table_exists:
             connection.execute(
                 sa.text(
-                    f"UPDATE {table} SET organization_id = :new_uuid::uuid "
-                    f"WHERE organization_id = :old_uuid::uuid"
+                    f"UPDATE {table} SET organization_id = CAST(:new_uuid AS uuid) "
+                    f"WHERE organization_id = CAST(:old_uuid AS uuid)"
                 ),
                 {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
             )
@@ -85,7 +85,8 @@ def upgrade() -> None:
     # Update the organization table itself
     connection.execute(
         sa.text(
-            "UPDATE organization SET id = :new_uuid::uuid WHERE id = :old_uuid::uuid"
+            "UPDATE organization SET id = CAST(:new_uuid AS uuid) "
+            "WHERE id = CAST(:old_uuid AS uuid)"
         ),
         {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
     )
