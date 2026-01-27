@@ -41,7 +41,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseService, BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_select_value,
@@ -1784,18 +1784,25 @@ class TablesService(BaseTablesService):
         return result
 
 
-class TableEditorService(BaseService):
-    """Service for editing tables."""
+class TableEditorService(BaseWorkspaceService):
+    """Service for editing workspace-scoped tables.
+
+    This is a utility service for DDL operations (add/update/delete columns, rows)
+    on tables within a workspace schema.
+
+    The role represents the operator (the user/service performing the action).
+    Authorization is enforced via @require_workspace_role decorators on methods.
+    """
 
     service_name = "table_editor"
 
     def __init__(
         self,
+        session: AsyncSession,
+        role: Role | None = None,
         *,
         table_name: str,
         schema_name: str,
-        session: AsyncSession,
-        role: Role | None = None,
     ):
         super().__init__(session, role)
         self.table_name = sanitize_identifier(table_name)

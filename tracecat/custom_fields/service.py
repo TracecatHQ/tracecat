@@ -39,8 +39,8 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         self._schema_initialized = False
         self.sanitized_table_name = sanitize_identifier(self._table)
         self.editor = TableEditorService(
-            session=self.session,
-            role=self.role,
+            self.session,
+            self.role,
             table_name=self._table,
             schema_name=self.schema_name,
         )
