@@ -319,6 +319,10 @@ async def get_setting(
     """Shorthand to get a setting value from the database."""
     role = role or ctx_role.get()
 
+    # If no role is available, return default or None
+    if role is None:
+        return default if default is not UNSET else None
+
     # If we have an environment override, use it
     if override_val := get_setting_override(key):
         logger.warning(
@@ -347,6 +351,14 @@ async def get_setting(
 
             async with get_async_session_context_manager() as sess:
                 default_org_id = await get_default_organization_id(sess)
+
+        # If no default organization is available, return default
+        if default_org_id is None:
+            logger.debug(
+                "No organization available for setting lookup, using default",
+                key=key,
+            )
+            return default if default is not UNSET else None
 
         # Create a new role with the default org_id
         role = RoleClass(

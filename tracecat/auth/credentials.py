@@ -622,6 +622,7 @@ async def _require_superuser(
         user_id=user.id,
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
+        is_platform_superuser=True,
         # NOTE: Platform routes are not org/workspace-scoped.
         # organization_id is intentionally left as None for superuser roles.
     )
