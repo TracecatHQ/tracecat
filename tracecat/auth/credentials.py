@@ -91,6 +91,7 @@ def get_role_from_user(
         access_level=access_level,
         workspace_role=workspace_role,
         org_role=org_role,
+        is_platform_superuser=user.is_superuser,
     )
 
 

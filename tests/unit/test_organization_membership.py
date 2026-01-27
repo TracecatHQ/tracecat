@@ -476,9 +476,9 @@ class TestGetRoleFromUser:
             org_role=OrgRole.MEMBER,
         )
 
-        # Superuser should get ADMIN access level regardless of other roles
+        # Superuser should get ADMIN access level and OWNER org role
         assert role.access_level == AccessLevel.ADMIN
-        assert role.org_role == OrgRole.MEMBER
+        assert role.org_role == OrgRole.OWNER
 
 
 class TestOrganizationMembershipRelationships:

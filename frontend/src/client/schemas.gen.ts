@@ -12428,6 +12428,11 @@ export const $Role = {
       ],
       title: "Service Id",
     },
+    is_platform_superuser: {
+      type: "boolean",
+      title: "Is Platform Superuser",
+      default: false,
+    },
   },
   type: "object",
   required: ["type", "service_id"],

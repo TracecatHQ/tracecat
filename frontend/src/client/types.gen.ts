@@ -4039,6 +4039,7 @@ export type Role = {
     | "tracecat-schedule-runner"
     | "tracecat-service"
     | "tracecat-ui"
+  is_platform_superuser?: boolean
 }
 
 export type type3 = "user" | "service"
