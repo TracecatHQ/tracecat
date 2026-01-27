@@ -10,7 +10,6 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
@@ -103,7 +102,7 @@ async def create_manifest_for_actions(
 
     # Create RegistryVersion
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,

@@ -28,6 +28,7 @@ import aiofiles
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
@@ -398,7 +399,7 @@ class RegistrySyncRunner:
         await blob.ensure_bucket_exists(bucket)
 
         # Generate S3 key
-        namespace = storage_namespace or str(config.TRACECAT__DEFAULT_ORG_ID)
+        namespace = storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
         s3_key = get_tarball_venv_s3_key(
             organization_id=namespace,
             repository_origin=repository_origin,

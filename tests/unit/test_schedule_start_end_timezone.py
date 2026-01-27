@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.db.models import Schedule, Workspace
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -19,7 +18,7 @@ async def test_schedule_start_end_are_timezone_aware(session: AsyncSession) -> N
     workspace = Workspace(
         id=uuid.uuid4(),
         name="test-schedule-workspace",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
     )
     session.add(workspace)
     await session.flush()

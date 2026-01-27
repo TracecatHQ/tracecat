@@ -48,6 +48,10 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
 from tracecat.workspaces.service import WorkspaceService
 
+# Test-specific organization ID (not UUID(0) since we removed that default)
+# This UUID is deterministic across test runs for fixture seeding
+TEST_ORG_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+
 # Worker-specific configuration for pytest-xdist parallel execution
 # Get xdist worker ID, defaults to "master" if not using xdist
 WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
@@ -270,30 +274,30 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     """
                     INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
                     VALUES (
-                        '00000000-0000-0000-0000-000000000000',
-                        'Default Organization',
-                        'default',
+                        :org_id,
+                        'Test Organization',
+                        'test',
                         true,
                         now(),
                         now()
                     )
                     ON CONFLICT (id) DO NOTHING
                     """
-                )
+                ),
+                {"org_id": str(TEST_ORG_ID)},
             )
             session.commit()
             # Create a registry repository for core actions
             origin = "tracecat_registry"
             repo = session.scalar(
                 select(RegistryRepository).where(
-                    RegistryRepository.organization_id
-                    == config.TRACECAT__DEFAULT_ORG_ID,
+                    RegistryRepository.organization_id == TEST_ORG_ID,
                     RegistryRepository.origin == origin,
                 )
             )
             if repo is None:
                 repo = RegistryRepository(
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    organization_id=TEST_ORG_ID,
                     origin=origin,
                 )
                 session.add(repo)
@@ -303,8 +307,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     session.rollback()
                     repo = session.scalar(
                         select(RegistryRepository).where(
-                            RegistryRepository.organization_id
-                            == config.TRACECAT__DEFAULT_ORG_ID,
+                            RegistryRepository.organization_id == TEST_ORG_ID,
                             RegistryRepository.origin == origin,
                         )
                     )
@@ -578,14 +581,14 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
             version = "test-version"
             rv = session.scalar(
                 select(RegistryVersion).where(
-                    RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+                    RegistryVersion.organization_id == TEST_ORG_ID,
                     RegistryVersion.repository_id == repo.id,
                     RegistryVersion.version == version,
                 )
             )
             if rv is None:
                 rv = RegistryVersion(
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    organization_id=TEST_ORG_ID,
                     repository_id=repo.id,
                     version=version,
                     manifest=manifest,
@@ -598,8 +601,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     session.rollback()
                     rv = session.scalar(
                         select(RegistryVersion).where(
-                            RegistryVersion.organization_id
-                            == config.TRACECAT__DEFAULT_ORG_ID,
+                            RegistryVersion.organization_id == TEST_ORG_ID,
                             RegistryVersion.repository_id == repo.id,
                             RegistryVersion.version == version,
                         )
@@ -974,7 +976,7 @@ async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None
     """Service test fixture. Create a function scoped test workspace."""
     workspace = Workspace(
         name="test-workspace",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=TEST_ORG_ID,
     )
     session.add(workspace)
     await session.commit()

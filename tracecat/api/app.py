@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
@@ -10,6 +11,7 @@ from fastapi.responses import ORJSONResponse
 from httpx_oauth.clients.google import GoogleOAuth2
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
@@ -67,6 +69,7 @@ from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import Organization
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, TracecatException
 from tracecat.feature_flags import (
@@ -75,6 +78,7 @@ from tracecat.feature_flags import (
     is_feature_enabled,
 )
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.identifiers import OrganizationID
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
@@ -122,6 +126,51 @@ from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
 
+async def setup_default_organization(session: AsyncSession) -> OrganizationID:
+    """Ensure a default organization exists.
+
+    If no organizations exist, creates one with a random UUID.
+    This replaces the hardcoded UUID(0) default.
+
+    Args:
+        session: Database session.
+
+    Returns:
+        OrganizationID: The ID of the default (or first) organization.
+    """
+    # Check if any organization exists
+    count_result = await session.execute(select(func.count()).select_from(Organization))
+    org_count = count_result.scalar_one()
+
+    if org_count == 0:
+        # Create a default organization with a random UUID
+        default_org = Organization(
+            id=uuid.uuid4(),
+            name="Default Organization",
+            slug="default",
+            is_active=True,
+        )
+        session.add(default_org)
+        await session.commit()
+        await session.refresh(default_org)
+        logger.info(
+            "Created default organization",
+            organization_id=str(default_org.id),
+            name=default_org.name,
+        )
+        return default_org.id
+
+    # Return the first organization's ID
+    result = await session.execute(select(Organization).limit(1))
+    org = result.scalar_one()
+    logger.debug(
+        "Using existing organization",
+        organization_id=str(org.id),
+        name=org.name,
+    )
+    return org.id
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Temporal
@@ -142,9 +191,11 @@ async def lifespan(app: FastAPI):
         )
 
     # App
-    role = bootstrap_role()
     async with get_async_session_context_manager() as session:
-        # Org
+        # Org - ensure default organization exists first
+        org_id = await setup_default_organization(session)
+        role = bootstrap_role(org_id)
+        # Settings and workspace defaults
         await setup_org_settings(session, role)
         await setup_workspace_defaults(session, role)
 
@@ -516,7 +567,9 @@ async def info(session: AsyncDBSession) -> AppInfo:
 
     keys = {"auth_basic_enabled", "oauth_google_enabled", "saml_enabled"}
 
-    service = SettingsService(session, role=bootstrap_role())
+    # Get the default organization for platform-level settings
+    org_id = await setup_default_organization(session)
+    service = SettingsService(session, role=bootstrap_role(org_id))
     settings = await service.list_org_settings(keys=keys)
     keyvalues = {s.key: service.get_value(s) for s in settings}
     for key in keys:

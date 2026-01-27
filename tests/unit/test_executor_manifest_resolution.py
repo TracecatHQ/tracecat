@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tracecat import config
 from tracecat.db.models import RegistryAction, RegistryRepository, RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -40,7 +39,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
 
     repo = RegistryRepository(
         id=uuid.uuid4(),
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         origin=origin,
     )
     session.add(repo)
@@ -59,7 +58,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
         },
     }
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         repository_id=repo.id,
         version=version,
         manifest=manifest,
@@ -74,7 +73,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
     # Add a conflicting mutable RegistryAction that should NOT be used for locked workflows.
     session.add(
         RegistryAction(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             repository_id=repo.id,
             origin=origin,
             namespace="core",
@@ -143,7 +142,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
 
     repo = RegistryRepository(
         id=uuid.uuid4(),
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         origin=origin,
     )
     session.add(repo)
@@ -162,7 +161,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
         },
     }
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         repository_id=repo.id,
         version=version,
         manifest=manifest,

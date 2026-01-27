@@ -15,7 +15,6 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import RegistryVersion
@@ -91,7 +90,7 @@ async def create_manifest_for_actions(
     manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,

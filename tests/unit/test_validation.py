@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
-import tracecat.config as config
+from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -99,7 +99,7 @@ async def create_manifest_for_actions(
     manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,

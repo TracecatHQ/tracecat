@@ -1,10 +1,10 @@
 """Unit tests for registry resolver module."""
 
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tracecat import config
 from tracecat.exceptions import RegistryError
 from tracecat.executor import registry_resolver
 from tracecat.registry.lock.types import RegistryLock
@@ -135,7 +135,7 @@ class TestResolveAction:
             action_impl = await registry_resolver.resolve_action(
                 "core.transform.reshape",
                 lock,
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
             )
 
         assert action_impl.type == "udf"
@@ -154,7 +154,7 @@ class TestResolveAction:
             await registry_resolver.resolve_action(
                 "core.transform.reshape",
                 lock,
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
             )
 
         assert "not bound in registry_lock" in str(exc_info.value)
@@ -195,7 +195,7 @@ class TestResolveAction:
                 await registry_resolver.resolve_action(
                     "core.transform.reshape",
                     lock,
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    organization_id=uuid.uuid4(),
                 )
 
             assert "Registry version not found" in str(exc_info.value)
@@ -241,7 +241,7 @@ class TestCollectActionSecretsFromManifest:
             secrets = await registry_resolver.collect_action_secrets_from_manifest(
                 "tools.api.call",
                 lock,
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
             )
 
         assert len(secrets) == 1
@@ -260,7 +260,7 @@ class TestCollectActionSecretsFromManifest:
             await registry_resolver.collect_action_secrets_from_manifest(
                 "tools.api.call",
                 lock,
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
             )
 
         assert "not bound in registry_lock" in str(exc_info.value)
