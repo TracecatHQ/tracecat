@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, OrgRole, Role
@@ -358,7 +357,7 @@ class TestRoleWithOrgRole:
         role = Role(
             type="user",
             user_id=uuid.uuid4(),
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             workspace_id=uuid.uuid4(),
             org_role=OrgRole.ADMIN,
             service_id="tracecat-api",
@@ -370,7 +369,7 @@ class TestRoleWithOrgRole:
         role = Role(
             type="user",
             user_id=uuid.uuid4(),
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             service_id="tracecat-api",
         )
         assert role.org_role is None
@@ -380,7 +379,7 @@ class TestRoleWithOrgRole:
         role = Role(
             type="user",
             user_id=uuid.uuid4(),
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             workspace_id=uuid.uuid4(),
             workspace_role=WorkspaceRole.EDITOR,
             org_role=OrgRole.OWNER,
@@ -394,7 +393,7 @@ class TestRoleWithOrgRole:
         role = Role(
             type="user",
             user_id=uuid.uuid4(),
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             service_id="tracecat-api",
         )
         headers = role.to_headers()
@@ -421,7 +420,7 @@ class TestGetRoleFromUser:
 
         role = get_role_from_user(
             user=user,
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             workspace_id=uuid.uuid4(),
             workspace_role=WorkspaceRole.EDITOR,
             org_role=OrgRole.ADMIN,
@@ -450,7 +449,7 @@ class TestGetRoleFromUser:
 
         role = get_role_from_user(
             user=user,
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
         )
 
         assert role.org_role is None
@@ -472,7 +471,7 @@ class TestGetRoleFromUser:
 
         role = get_role_from_user(
             user=user,
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
             org_role=OrgRole.MEMBER,
         )
 

@@ -868,7 +868,7 @@ class TestMultitenantWorkloads:
                 type="service",
                 service_id="tracecat-runner",
                 workspace_id=workspace_id or uuid.uuid4(),
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
                 user_id=uuid.UUID("00000000-0000-4444-aaaa-000000000000"),
             )
 

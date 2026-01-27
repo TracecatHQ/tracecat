@@ -108,7 +108,7 @@ async def create_manifest_for_actions(
 
     # Create RegistryVersion
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=uuid.uuid4(),
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,

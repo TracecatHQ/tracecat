@@ -312,13 +312,13 @@ async def _role_dependency(
         else:
             # No workspace specified; infer org from memberships when possible.
             workspace_role = None
-            organization_id = config.TRACECAT__DEFAULT_ORG_ID
-            override_applied = False
+            organization_id: UUID4 | None = None
+
+            # Superusers can override org via cookie
             org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
             if org_override and user.is_superuser:
                 try:
                     organization_id = uuid.UUID(org_override)
-                    override_applied = True
                 except ValueError:
                     logger.warning(
                         "Invalid org override cookie, falling back to membership",
@@ -326,15 +326,21 @@ async def _role_dependency(
                         org_override=org_override,
                     )
 
-            if not override_applied:
+            # If no override applied, infer from memberships
+            if organization_id is None:
                 svc = MembershipService(session)
                 memberships_with_org = await svc.list_user_memberships_with_org(
                     user_id=user.id
                 )
                 org_ids = {m.org_id for m in memberships_with_org}
-                if len(org_ids) == 1:
+                if len(org_ids) == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="User has no organization memberships",
+                    )
+                elif len(org_ids) == 1:
                     organization_id = next(iter(org_ids))
-                elif len(org_ids) > 1:
+                else:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Multiple organizations found. Provide workspace_id to select an organization.",
@@ -616,9 +622,8 @@ async def _require_superuser(
         user_id=user.id,
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
-        # NOTE: Platform routes are not org/workspace-scoped. Role still requires
-        # organization_id for backwards-compat in Phase 1.
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        # NOTE: Platform routes are not org/workspace-scoped.
+        # organization_id is intentionally left as None for superuser roles.
     )
     ctx_role.set(role)
     return role

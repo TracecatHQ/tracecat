@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat import config
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 
@@ -46,9 +45,7 @@ class Role(BaseModel):
 
     type: Literal["user", "service"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
-    organization_id: OrganizationID = Field(
-        default=config.TRACECAT__DEFAULT_ORG_ID, frozen=True
-    )
+    organization_id: OrganizationID | None = Field(default=None, frozen=True)
     workspace_role: WorkspaceRole | None = Field(default=None, frozen=True)
     org_role: OrgRole | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)

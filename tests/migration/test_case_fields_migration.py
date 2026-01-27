@@ -14,8 +14,10 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from tests.database import TEST_DB_CONFIG
-from tracecat import config
 from tracecat.identifiers.workflow import WorkspaceUUID
+
+# Test-specific organization ID
+TEST_ORG_ID = uuid.uuid4()
 
 # Constants
 PUBLIC_SCHEMA = "public"
@@ -254,7 +256,7 @@ def sample_data(test_db: str) -> dict[str, list[uuid.UUID]]:
                 "name2": "test-workspace-2",
                 "id3": workspace3_id,
                 "name3": "test-workspace-3-empty",
-                "owner_id": config.TRACECAT__DEFAULT_ORG_ID,
+                "owner_id": TEST_ORG_ID,
                 "settings": "{}",
             },
         )
@@ -487,7 +489,7 @@ class TestCaseFieldsMigrationUpgrade:
                     {
                         "id": workspace_id,
                         "name": "test-workspace-custom",
-                        "owner_id": config.TRACECAT__DEFAULT_ORG_ID,
+                        "owner_id": TEST_ORG_ID,
                         "settings": "{}",
                     },
                 )
@@ -700,7 +702,7 @@ class TestCaseFieldsMigrationDowngrade:
                     {
                         "id": workspace_id,
                         "name": "downgrade-custom",
-                        "owner_id": config.TRACECAT__DEFAULT_ORG_ID,
+                        "owner_id": TEST_ORG_ID,
                         "settings": "{}",
                     },
                 )

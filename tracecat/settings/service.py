@@ -20,7 +20,7 @@ from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
-from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
+from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
@@ -38,10 +38,8 @@ from tracecat.settings.schemas import (
 class SettingsService(BaseService):
     """Service for managing platform settings.
 
-    Note: This service intentionally inherits from BaseService (not BaseOrgService)
-    because it supports role-less access to PUBLIC_SETTINGS_KEYS via the
-    get_setting() helper function. The organization_id property has a fallback
-    to TRACECAT__DEFAULT_ORG_ID when role is None.
+    Note: This service requires a role with organization_id for most operations.
+    The bootstrap code paths always provide a role with organization_id.
     """
 
     service_name = "settings"
@@ -65,9 +63,15 @@ class SettingsService(BaseService):
 
     @property
     def organization_id(self) -> OrganizationID:
-        """Get organization ID with fallback for role-less access to public settings."""
+        """Get organization ID from the role.
+
+        Raises:
+            ValueError: If role is None or role has no organization_id.
+        """
         if self.role is None:
-            return config.TRACECAT__DEFAULT_ORG_ID
+            raise ValueError("SettingsService requires a role with organization_id")
+        if self.role.organization_id is None:
+            raise ValueError("Role must have an organization_id")
         return self.role.organization_id
 
     def _serialize_value_bytes(self, value: Any) -> bytes:
@@ -154,11 +158,6 @@ class SettingsService(BaseService):
         Returns:
             Settings: The current organization settings configuration
         """
-        if self.role is None and key not in PUBLIC_SETTINGS_KEYS:
-            # Block access to private settings
-            self.logger.debug("Blocked attempted access to private setting", key=key)
-            return None
-
         statement = select(OrganizationSetting).where(
             OrganizationSetting.organization_id == self.organization_id,
             OrganizationSetting.key == key,

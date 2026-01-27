@@ -3,7 +3,7 @@ import uuid
 import pytest
 from fastapi import HTTPException, status
 
-from tracecat import config
+from tests.conftest import TEST_ORG_ID
 from tracecat.auth.credentials import _require_superuser
 from tracecat.auth.types import AccessLevel
 from tracecat.contexts import ctx_role
@@ -21,7 +21,7 @@ async def test_require_superuser_allows_superuser() -> None:
         assert role.user_id == user.id
         assert role.access_level == AccessLevel.ADMIN
         assert role.service_id == "tracecat-api"
-        assert role.organization_id == config.TRACECAT__DEFAULT_ORG_ID
+        assert role.organization_id == TEST_ORG_ID
         assert ctx_role.get() == role
     finally:
         ctx_role.reset(token)

@@ -11,7 +11,6 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.models import OAuthStateDB, User, Workspace
 from tracecat.integrations.enums import OAuthGrantType
@@ -270,7 +269,7 @@ class TestOAuthState:
         # Create a second workspace for the "wrong workspace" test
         wrong_workspace = Workspace(
             name="wrong-test-workspace",
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=uuid.uuid4(),
         )
         session.add(wrong_workspace)
         await session.commit()

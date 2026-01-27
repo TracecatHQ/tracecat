@@ -18,6 +18,7 @@ from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
@@ -36,12 +37,20 @@ def generic_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
-def bootstrap_role():
-    """Role to bootstrap Tracecat services."""
+def bootstrap_role(organization_id: OrganizationID) -> Role:
+    """Role to bootstrap Tracecat services.
+
+    Args:
+        organization_id: The organization ID to scope the bootstrap role to.
+
+    Returns:
+        Role: A service role with ADMIN access for the specified organization.
+    """
     return Role(
         type="service",
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-bootstrap",
+        organization_id=organization_id,
     )
 
 
