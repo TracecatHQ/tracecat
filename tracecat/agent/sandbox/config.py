@@ -248,18 +248,17 @@ def build_agent_nsjail_config(
     _validate_path(control_socket_path, "control_socket_path")
     # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
-    # Determine network isolation setting
-    # When internet access is enabled, we disable network namespacing to allow
-    # direct network access (required for MCP command servers calling external APIs)
-    clone_newnet = "false" if enable_internet_access else "true"
+    # Network isolation is always enabled (clone_newnet: true)
+    # When internet access is needed, we use pasta for userspace networking
+    # This provides network isolation while still allowing outbound connections
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
         'hostname: "agent"',
         "keep_env: false",
         "",
-        "# Namespace isolation",
-        f"clone_newnet: {clone_newnet}",
+        "# Namespace isolation - network namespace is always isolated",
+        "clone_newnet: true",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
@@ -276,6 +275,24 @@ def build_agent_nsjail_config(
         f'mount {{ src: "{rootfs}/bin" dst: "/bin" is_bind: true rw: false }}',
         f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
     ]
+
+    # Userspace networking via pasta (when internet access is enabled)
+    # This provides outbound connectivity while maintaining network namespace isolation
+    if enable_internet_access:
+        lines.extend(
+            [
+                "",
+                "# Userspace networking via pasta - provides internet access with isolation",
+                "user_net {",
+                "  enable: true",
+                '  ip: "10.255.255.2"',
+                '  gw: "10.255.255.1"',
+                '  ip6: "fc00::2"',
+                '  gw6: "fc00::1"',
+                "  enable_dns: true",
+                "}",
+            ]
+        )
 
     # Optional mounts - only include if the directories exist in rootfs
     lib64_path = rootfs / "lib64"
@@ -349,15 +366,17 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # DNS resolution mounts - required when internet access is enabled
+    # DNS resolution: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
+    # when enable_dns: true. Write resolv.conf to socket_dir (not job_dir) because
+    # job_dir is mounted read-write at /work inside the sandbox.
     if enable_internet_access:
+        resolv_conf_path = socket_dir / "resolv.conf"
+        resolv_conf_path.write_text("nameserver 10.255.255.1\n")
         lines.extend(
             [
                 "",
-                "# DNS resolution - required for internet access",
-                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
-                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
-                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
+                "# DNS resolution - point to pasta gateway for DNS forwarding",
+                f'mount {{ src: "{resolv_conf_path}" dst: "/etc/resolv.conf" is_bind: true rw: false }}',
             ]
         )
 

@@ -49,9 +49,10 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# LiteLLM URL - points to LLM bridge inside sandbox (which proxies to host LiteLLM)
-# Must match LLM_BRIDGE_PORT in llm_bridge.py
-LITELLM_URL = "http://127.0.0.1:4100"
+# LiteLLM URL - port 4000 for both:
+# - Network isolated: bridge on 4000 proxies to gateway via Unix socket
+# - Internet enabled: no bridge, SDK hits gateway directly on 4000
+LITELLM_URL = "http://127.0.0.1:4000"
 
 DISALLOWED_TOOLS = [
     "EnterPlanMode",

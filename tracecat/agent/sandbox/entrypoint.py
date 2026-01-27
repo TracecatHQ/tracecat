@@ -68,8 +68,12 @@ async def run_sandboxed_runtime() -> None:
     Connects to orchestrator socket at the well-known jailed path,
     receives init payload, instantiates the runtime, and runs the agent.
 
-    In NSJail mode, also starts the LLM bridge to proxy HTTP traffic
-    to the LiteLLM socket.
+    LLM bridge behavior (SDK always uses localhost:4000):
+    - enable_internet_access=False: Network isolated, bridge on port 4000
+      proxies HTTP to gateway via Unix socket.
+    - enable_internet_access=True: Shares host network, SDK connects directly
+      to gateway on port 4000. No bridge needed (would cause port conflicts
+      across concurrent sandboxes).
     """
     socket_path = JAILED_CONTROL_SOCKET_PATH
     logger.info("Starting sandboxed runtime", socket_path=str(socket_path))
@@ -78,13 +82,7 @@ async def run_sandboxed_runtime() -> None:
     socket_writer: SocketStreamWriter | None = None
 
     try:
-        # Start LLM bridge - we're inside NSJail so network is isolated
-        # The bridge binds localhost:4000 and forwards to the LLM Unix socket
-        llm_bridge = LLMBridge()
-        await llm_bridge.start()
-        logger.info("LLM bridge started")
-
-        # Connect to orchestrator
+        # Connect to orchestrator first to get config
         reader, writer = await asyncio.open_unix_connection(socket_path)
         socket_writer = SocketStreamWriter(writer)
         # Read init payload using typed message protocol
@@ -94,6 +92,14 @@ async def run_sandboxed_runtime() -> None:
 
         # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
         payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
+
+        # Start LLM bridge only when network is isolated (no internet access)
+        # When internet is enabled, sandbox shares host network and SDK connects
+        # directly to gateway on port 4000
+        if not payload.config.enable_internet_access:
+            llm_bridge = LLMBridge()
+            await llm_bridge.start()
+            logger.info("LLM bridge started (network isolated mode)")
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),

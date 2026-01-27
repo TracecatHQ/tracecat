@@ -4,16 +4,18 @@
 FROM debian:bookworm-slim AS nsjail-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV NSJAIL_VERSION=3.4
+# Build from specific commit that includes pasta/user_net support
+ENV NSJAIL_COMMIT=b24be32d38a26656568491c2c5fcffa6e77341d6
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git gcc g++ make pkg-config bison flex \
     libprotobuf-dev protobuf-compiler libnl-route-3-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --recurse-submodules --branch "${NSJAIL_VERSION}" \
-    https://github.com/google/nsjail.git /tmp/nsjail && \
-    cd /tmp/nsjail && make -j"$(nproc)" && \
+RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
+    cd /tmp/nsjail && git checkout "${NSJAIL_COMMIT}" && \
+    git submodule update --init --recursive && \
+    make -j"$(nproc)" && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
     rm -rf /tmp/nsjail
 
@@ -23,7 +25,7 @@ RUN git clone --depth 1 --recurse-submodules --branch "${NSJAIL_VERSION}" \
 FROM python:3.12-slim-bookworm AS sandbox-rootfs
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates && rm -rf /var/lib/apt/lists/*
+    ca-certificates curl wget jq iputils-ping && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
 
@@ -47,6 +49,7 @@ COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/local/bin/nsjail
 RUN apt-get update && apt-get install -y --no-install-recommends \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates \
     libnl-route-3-200 libprotobuf32 \
+    passt \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -86,6 +89,11 @@ RUN mkdir -p /var/lib/tracecat/sandbox-rootfs/tmp \
         /var/lib/tracecat/sandbox-rootfs/home/sandbox && \
     chmod 1777 /var/lib/tracecat/sandbox-rootfs/tmp
 
+# Create apiuser for non-root runtime (required for pasta userspace networking)
+RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser && \
+    mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
+    chown -R apiuser:apiuser /home/apiuser
+
 WORKDIR /app
 
 # ====================
@@ -95,24 +103,36 @@ FROM base AS development
 
 ENV TMPDIR=/tmp TEMP=/tmp TMP=/tmp
 
-# Prime uv cache
+# Set sandbox cache permissions for apiuser
+RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
+    chmod -R 755 /var/lib/tracecat/sandbox-cache
+
+# Create MCP socket directory for apiuser
+RUN mkdir -p /var/run/tracecat && chown 1001:1001 /var/run/tracecat
+
+# Prime uv cache (as root, before switching user)
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=packages,target=packages \
     uv sync --locked --no-install-project --no-dev --no-editable
 
-COPY . /app/
+COPY --chown=apiuser:apiuser . /app/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
+# Fix ownership of /app (uv sync creates .venv as root)
+RUN chown -R apiuser:apiuser /app
+
 ENV PATH="/app/.venv/bin:$PATH"
 
-RUN mkdir -p /root/.local/bin && ln -s $(which uv) /root/.local/bin/uv
-RUN mkdir -p /app/.scripts
+RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
 COPY docker/scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
+
+# Switch to non-root user (matches production, required for pasta userspace networking)
+USER apiuser
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 EXPOSE $PORT
@@ -124,7 +144,7 @@ CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $P
 FROM development AS test
 
 # Install test dependencies
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --group dev
+RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --frozen --group dev
 
 CMD ["python", "-m", "pytest"]
 
@@ -134,11 +154,6 @@ CMD ["python", "-m", "pytest"]
 FROM base AS production
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-
-# Create apiuser
-RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
-    chown -R apiuser:apiuser /home/apiuser
 
 # Set sandbox cache permissions for apiuser
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
