@@ -2836,7 +2836,7 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
     """Invitation to join a workspace."""
 
     __tablename__ = "invitation"
-    __table_args__ = (Index("ix_invitation_email", "email"),)
+    __table_args__ = (UniqueConstraint("workspace_id", "email"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(

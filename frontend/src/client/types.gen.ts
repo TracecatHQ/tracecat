@@ -5935,6 +5935,29 @@ export type WorkspaceCreate = {
   organization_id?: string | null
 }
 
+/**
+ * Request schema for creating a workspace invitation.
+ */
+export type WorkspaceInvitationCreate = {
+  email: string
+  role?: WorkspaceRole
+}
+
+/**
+ * Response schema for a workspace invitation.
+ */
+export type WorkspaceInvitationRead = {
+  id: string
+  workspace_id: string
+  email: string
+  role: WorkspaceRole
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  accepted_at: string | null
+  created_at: string
+}
+
 export type WorkspaceMember = {
   user_id: string
   first_name: string | null
@@ -6231,6 +6254,29 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 }
 
 export type WorkspacesDeleteWorkspaceMembershipResponse = void
+
+export type WorkspacesCreateWorkspaceInvitationData = {
+  requestBody: WorkspaceInvitationCreate
+  workspaceId: string
+}
+
+export type WorkspacesCreateWorkspaceInvitationResponse =
+  WorkspaceInvitationRead
+
+export type WorkspacesListWorkspaceInvitationsData = {
+  status?: InvitationStatus | null
+  workspaceId: string
+}
+
+export type WorkspacesListWorkspaceInvitationsResponse =
+  Array<WorkspaceInvitationRead>
+
+export type WorkspacesRevokeWorkspaceInvitationData = {
+  invitationId: string
+  workspaceId: string
+}
+
+export type WorkspacesRevokeWorkspaceInvitationResponse = void
 
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
@@ -8503,6 +8549,49 @@ export type $OpenApiTs = {
     }
     delete: {
       req: WorkspacesDeleteWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations": {
+    post: {
+      req: WorkspacesCreateWorkspaceInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkspaceInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: WorkspacesListWorkspaceInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceInvitationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations/{invitation_id}": {
+    delete: {
+      req: WorkspacesRevokeWorkspaceInvitationData
       res: {
         /**
          * Successful Response
