@@ -53,7 +53,6 @@ def upgrade() -> None:
     new_uuid = str(uuid4())
 
     # List of tables with organization_id foreign key
-    # Order matters: update child tables before parent
     fk_tables = [
         "organization_setting",
         "organization_membership",
@@ -62,9 +61,32 @@ def upgrade() -> None:
         "workspace",
     ]
 
-    # Update all FK references first
+    # Temporarily disable FK constraint triggers on all affected tables
+    # This allows us to update the PK and FKs without constraint violations
     for table in fk_tables:
-        # Check if table exists (some may not exist in all deployments)
+        table_exists = connection.execute(
+            sa.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables "
+                "WHERE table_name = :table_name)"
+            ),
+            {"table_name": table},
+        ).scalar()
+        if table_exists:
+            connection.execute(sa.text(f"ALTER TABLE {table} DISABLE TRIGGER ALL"))
+
+    connection.execute(sa.text("ALTER TABLE organization DISABLE TRIGGER ALL"))
+
+    # Update the organization table first (parent)
+    connection.execute(
+        sa.text(
+            "UPDATE organization SET id = CAST(:new_uuid AS uuid) "
+            "WHERE id = CAST(:old_uuid AS uuid)"
+        ),
+        {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
+    )
+
+    # Update all FK references in child tables
+    for table in fk_tables:
         table_exists = connection.execute(
             sa.text(
                 "SELECT EXISTS (SELECT FROM information_schema.tables "
@@ -82,14 +104,18 @@ def upgrade() -> None:
                 {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
             )
 
-    # Update the organization table itself
-    connection.execute(
-        sa.text(
-            "UPDATE organization SET id = CAST(:new_uuid AS uuid) "
-            "WHERE id = CAST(:old_uuid AS uuid)"
-        ),
-        {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
-    )
+    # Re-enable FK constraint triggers
+    connection.execute(sa.text("ALTER TABLE organization ENABLE TRIGGER ALL"))
+    for table in fk_tables:
+        table_exists = connection.execute(
+            sa.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables "
+                "WHERE table_name = :table_name)"
+            ),
+            {"table_name": table},
+        ).scalar()
+        if table_exists:
+            connection.execute(sa.text(f"ALTER TABLE {table} ENABLE TRIGGER ALL"))
 
 
 def downgrade() -> None:
