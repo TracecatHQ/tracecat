@@ -103,6 +103,7 @@ class WorkspaceService(BaseOrgService):
         bootstrap_role = Role(
             type="service",
             service_id="tracecat-service",
+            organization_id=self.organization_id,
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.ADMIN,
             access_level=AccessLevel.ADMIN,
@@ -159,6 +160,7 @@ class WorkspaceService(BaseOrgService):
         bootstrap_role = Role(
             type="service",
             service_id="tracecat-service",
+            organization_id=self.organization_id,
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.ADMIN,
             access_level=AccessLevel.ADMIN,
