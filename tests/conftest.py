@@ -1145,6 +1145,7 @@ async def svc_role(svc_workspace: Workspace) -> Role:
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
@@ -1157,6 +1158,7 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
         type="user",
         access_level=AccessLevel.ADMIN,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
