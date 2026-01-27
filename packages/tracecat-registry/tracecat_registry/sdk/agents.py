@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import uuid
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel
 
-from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry import config
+from tracecat_registry import types as registry_types
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
 
 if TYPE_CHECKING:
@@ -83,31 +83,6 @@ class AgentOutput(BaseModel):
     session_id: uuid.UUID
 
 
-async def build_agent(config: AgentConfig) -> object:
-    """The default factory for building an agent.
-
-    NOTE: This function cannot be executed in sandbox mode.
-    It is an interface definition only.
-    """
-    raise ActionIsInterfaceError()
-
-
-async def run_agent_sync(
-    agent: object,
-    user_prompt: str,
-    max_requests: int,
-    max_tools_calls: int | None = None,
-    *,
-    deferred_tool_results: object | None = None,
-) -> AgentOutput:
-    """Run an agent synchronously.
-
-    NOTE: This function cannot be executed in sandbox mode.
-    It is an interface definition only.
-    """
-    raise ActionIsInterfaceError()
-
-
 async def run_agent(
     user_prompt: str,
     model_name: str,
@@ -129,10 +104,73 @@ async def run_agent(
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
-    NOTE: This function cannot be executed in sandbox mode.
-    It is an interface definition only.
+    This function delegates to AgentsClient.run() via HTTP.
+
+    Args:
+        user_prompt: The main prompt/message for the agent.
+        model_name: Name of the LLM model (e.g., "gpt-4", "claude-3").
+        model_provider: Provider of the model (e.g., "openai", "anthropic").
+        actions: List of action names to make available to the agent.
+        namespaces: Optional list of namespaces to restrict available tools.
+        tool_approvals: Optional per-tool approval requirements.
+        mcp_server_url: (Legacy) Optional URL of the MCP server.
+        mcp_server_headers: (Legacy) Optional headers for the MCP server.
+        mcp_servers: Optional list of MCP server configurations.
+        instructions: Optional system instructions for the agent.
+        output_type: Optional specification for the agent's output format.
+        model_settings: Optional model-specific configuration parameters.
+        max_tool_calls: Maximum number of tool calls per agent run.
+        max_requests: Maximum number of LLM requests per agent run.
+        retries: Maximum number of retry attempts.
+        base_url: Optional custom base URL for the model provider's API.
+        deferred_tool_results: Results from deferred tool calls (for continuations).
+
+    Returns:
+        AgentOutput with result, message history, usage, and session ID.
     """
-    raise ActionIsInterfaceError()
+    from tracecat_registry.context import get_context
+
+    # Handle legacy mcp_server_url/headers
+    merged_mcp_servers: list[MCPServerConfig] | None = mcp_servers
+    if mcp_server_url:
+        if merged_mcp_servers is None:
+            merged_mcp_servers = []
+        merged_mcp_servers.append(
+            MCPServerConfig(
+                name="legacy",
+                url=mcp_server_url,
+                headers=mcp_server_headers or {},
+            )
+        )
+
+    ctx = get_context()
+    result = await ctx.agents.run(
+        user_prompt=user_prompt,
+        config=AgentConfig(
+            model_name=model_name,
+            model_provider=model_provider,
+            actions=actions,
+            namespaces=namespaces,
+            tool_approvals=tool_approvals,
+            mcp_servers=merged_mcp_servers,
+            instructions=instructions,
+            output_type=output_type,
+            model_settings=model_settings,
+            retries=retries,
+            base_url=base_url,
+        ),
+        max_requests=max_requests,
+        max_tool_calls=max_tool_calls,
+    )
+    # Convert TypedDict response to AgentOutput
+    message_history = result.get("message_history")
+    return AgentOutput(
+        output=result["output"],
+        message_history=list(message_history) if message_history else None,
+        duration=result["duration"],
+        usage=result.get("usage"),
+        session_id=uuid.UUID(result["session_id"]),
+    )
 
 
 async def rank_items(
@@ -150,10 +188,38 @@ async def rank_items(
 ) -> list[str | int]:
     """Rank items using an LLM based on natural language criteria.
 
-    NOTE: This function cannot be executed in sandbox mode.
-    It is an interface definition only.
+    This function delegates to AgentsClient.rank_items() via HTTP.
+
+    Args:
+        items: List of items to rank (each with 'id' and 'text').
+        criteria_prompt: Natural language criteria for ranking.
+        model_name: LLM model to use.
+        model_provider: LLM provider.
+        model_settings: Optional model settings.
+        max_requests: Maximum number of LLM requests.
+        retries: Number of retries on failure.
+        base_url: Optional base URL for custom providers.
+        min_items: Minimum number of items to return (optional).
+        max_items: Maximum number of items to return (optional).
+
+    Returns:
+        List of item IDs in ranked order (most to least relevant).
     """
-    raise ActionIsInterfaceError()
+    from tracecat_registry.context import get_context
+
+    ctx = get_context()
+    return await ctx.agents.rank_items(
+        items=items,
+        criteria_prompt=criteria_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        model_settings=model_settings,
+        max_requests=max_requests,
+        retries=retries,
+        base_url=base_url,
+        min_items=min_items,
+        max_items=max_items,
+    )
 
 
 async def rank_items_pairwise(
@@ -173,19 +239,205 @@ async def rank_items_pairwise(
     min_items: int | None = None,
     max_items: int | None = None,
 ) -> list[str | int]:
-    """Rank items using LLM pairwise comparisons.
+    """Rank items using multi-pass pairwise ranking with progressive refinement.
 
-    NOTE: This function cannot be executed in sandbox mode.
-    It is an interface definition only.
+    This function delegates to AgentsClient.rank_items_pairwise() via HTTP.
+
+    Args:
+        items: List of items to rank (each with 'id' and 'text').
+        criteria_prompt: Natural language criteria for ranking.
+        model_name: LLM model to use.
+        model_provider: LLM provider.
+        id_field: Field name containing the item ID (default: "id").
+        batch_size: Number of items per batch (default: 10).
+        num_passes: Number of shuffle-batch-rank iterations (default: 10).
+        refinement_ratio: Portion of top items to recursively refine (default: 0.5).
+        model_settings: Optional model settings dict.
+        max_requests: Maximum number of LLM requests per batch (default: 5).
+        retries: Number of retries on failure (default: 3).
+        base_url: Optional base URL for custom providers.
+        min_items: Minimum number of items to return (optional).
+        max_items: Maximum number of items to return (optional).
+
+    Returns:
+        List of item IDs in ranked order (most to least relevant).
     """
-    raise ActionIsInterfaceError()
+    from tracecat_registry.context import get_context
+
+    ctx = get_context()
+    return await ctx.agents.rank_items_pairwise(
+        items=items,
+        criteria_prompt=criteria_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        id_field=id_field,
+        batch_size=batch_size,
+        num_passes=num_passes,
+        refinement_ratio=refinement_ratio,
+        model_settings=model_settings,
+        max_requests=max_requests,
+        retries=retries,
+        base_url=base_url,
+        min_items=min_items,
+        max_items=max_items,
+    )
 
 
 class AgentsClient:
-    """Client for Agent API operations including presets."""
+    """Client for Agent API operations including presets and execution."""
 
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
+
+    # --- Execution methods ---
+
+    async def run(
+        self,
+        *,
+        user_prompt: str,
+        config: AgentConfig | None = None,
+        preset_slug: str | None = None,
+        max_requests: int = 120,
+        max_tool_calls: int | None = None,
+    ) -> registry_types.AgentOutputRead:
+        """Run an AI agent.
+
+        Either config or preset_slug must be provided.
+
+        Args:
+            user_prompt: The prompt for the agent.
+            config: Inline agent configuration.
+            preset_slug: Slug of a preset to use (resolves on server).
+            max_requests: Maximum LLM requests.
+            max_tool_calls: Maximum tool calls.
+
+        Returns:
+            Agent output with result, message history, usage, and session ID.
+        """
+        data: dict[str, Any] = {
+            "user_prompt": user_prompt,
+            "max_requests": max_requests,
+        }
+        if config is not None:
+            data["config"] = asdict(config)
+        if preset_slug is not None:
+            data["preset_slug"] = preset_slug
+        if max_tool_calls is not None:
+            data["max_tool_calls"] = max_tool_calls
+
+        return await self._client.post("/agent/run", json=data)
+
+    async def rank_items(
+        self,
+        *,
+        items: list[RankableItem],
+        criteria_prompt: str,
+        model_name: str,
+        model_provider: str,
+        model_settings: dict[str, object] | None = None,
+        max_requests: int = 5,
+        retries: int = 3,
+        base_url: str | None = None,
+        min_items: int | None = None,
+        max_items: int | None = None,
+    ) -> list[str | int]:
+        """Rank items using an LLM based on natural language criteria.
+
+        Args:
+            items: List of items to rank (each with 'id' and 'text').
+            criteria_prompt: Natural language criteria for ranking.
+            model_name: LLM model name.
+            model_provider: LLM provider.
+            model_settings: Optional model settings.
+            max_requests: Maximum LLM requests.
+            retries: Number of retries on failure.
+            base_url: Optional custom base URL.
+            min_items: Minimum items to return (optional).
+            max_items: Maximum items to return (optional).
+
+        Returns:
+            List of item IDs in ranked order.
+        """
+        data: dict[str, Any] = {
+            "items": items,
+            "criteria_prompt": criteria_prompt,
+            "model_name": model_name,
+            "model_provider": model_provider,
+            "max_requests": max_requests,
+            "retries": retries,
+        }
+        if model_settings is not None:
+            data["model_settings"] = model_settings
+        if base_url is not None:
+            data["base_url"] = base_url
+        if min_items is not None:
+            data["min_items"] = min_items
+        if max_items is not None:
+            data["max_items"] = max_items
+
+        return await self._client.post("/agent/rank", json=data)
+
+    async def rank_items_pairwise(
+        self,
+        *,
+        items: list[RankableItem],
+        criteria_prompt: str,
+        model_name: str,
+        model_provider: str,
+        id_field: str = "id",
+        batch_size: int = 10,
+        num_passes: int = 10,
+        refinement_ratio: float = 0.5,
+        model_settings: dict[str, object] | None = None,
+        max_requests: int = 5,
+        retries: int = 3,
+        base_url: str | None = None,
+        min_items: int | None = None,
+        max_items: int | None = None,
+    ) -> list[str | int]:
+        """Rank items using pairwise LLM comparisons.
+
+        Args:
+            items: List of items to rank.
+            criteria_prompt: Natural language criteria.
+            model_name: LLM model name.
+            model_provider: LLM provider.
+            id_field: Field name for item ID (default: "id").
+            batch_size: Items per batch (default: 10).
+            num_passes: Number of shuffle-rank passes (default: 10).
+            refinement_ratio: Top portion to refine (default: 0.5).
+            model_settings: Optional model settings.
+            max_requests: Maximum LLM requests per batch.
+            retries: Number of retries on failure.
+            base_url: Optional custom base URL.
+            min_items: Minimum items to return (optional).
+            max_items: Maximum items to return (optional).
+
+        Returns:
+            List of item IDs in ranked order.
+        """
+        data: dict[str, Any] = {
+            "items": items,
+            "criteria_prompt": criteria_prompt,
+            "model_name": model_name,
+            "model_provider": model_provider,
+            "id_field": id_field,
+            "batch_size": batch_size,
+            "num_passes": num_passes,
+            "refinement_ratio": refinement_ratio,
+            "max_requests": max_requests,
+            "retries": retries,
+        }
+        if model_settings is not None:
+            data["model_settings"] = model_settings
+        if base_url is not None:
+            data["base_url"] = base_url
+        if min_items is not None:
+            data["min_items"] = min_items
+        if max_items is not None:
+            data["max_items"] = max_items
+
+        return await self._client.post("/agent/rank-pairwise", json=data)
 
     # --- Preset methods ---
 
@@ -333,9 +585,7 @@ __all__ = [
     "MCPServerConfig",
     "OutputType",
     "RankableItem",
-    "build_agent",
     "rank_items",
     "rank_items_pairwise",
     "run_agent",
-    "run_agent_sync",
 ]

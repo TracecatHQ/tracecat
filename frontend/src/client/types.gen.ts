@@ -7579,7 +7579,7 @@ export type CasesListCasesData = {
    */
   reverse?: boolean
   /**
-   * Text to search for in case summary and description
+   * Text to search for in case summary, description, or short ID
    */
   searchTerm?: string | null
   /**
@@ -7634,7 +7634,7 @@ export type CasesSearchCasesData = {
    */
   priority?: Array<CasePriority> | null
   /**
-   * Text to search for in case summary and description
+   * Text to search for in case summary, description, or short ID
    */
   searchTerm?: string | null
   /**

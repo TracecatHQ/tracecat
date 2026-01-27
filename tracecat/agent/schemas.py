@@ -207,3 +207,91 @@ class ModelRequestResult(BaseModel):
 class ToolFilters(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
+
+
+# ============================================================================
+# Internal Request Schemas (for SDK/UDF use via internal router)
+# ============================================================================
+
+
+class MCPServerConfigSchema(TypedDict):
+    """MCP server configuration for request validation."""
+
+    name: str
+    url: str
+    headers: NotRequired[dict[str, str]]
+    transport: NotRequired[Literal["http", "sse"]]
+
+
+class AgentConfigSchema(BaseModel):
+    """Agent configuration for request validation."""
+
+    model_name: str
+    model_provider: str
+    base_url: str | None = None
+    instructions: str | None = None
+    output_type: Any | None = None
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None
+    tool_approvals: dict[str, bool] | None = None
+    model_settings: dict[str, Any] | None = None
+    mcp_servers: list[MCPServerConfigSchema] | None = None
+    retries: int = Field(default=20)
+
+
+class RankableItemSchema(TypedDict):
+    """Item that can be ranked."""
+
+    id: str | int
+    text: str
+
+
+class InternalRunAgentRequest(BaseModel):
+    """Request body for /internal/agent/run endpoint."""
+
+    user_prompt: str
+    config: AgentConfigSchema | None = None
+    preset_slug: str | None = None
+    max_requests: int = Field(default=120, le=120)
+    max_tool_calls: int | None = Field(default=None, le=40)
+
+    @model_validator(mode="after")
+    def validate_config_or_preset(self) -> InternalRunAgentRequest:
+        """Ensure either config or preset_slug is provided."""
+        if self.config is None and self.preset_slug is None:
+            raise ValueError("Either 'config' or 'preset_slug' must be provided")
+        return self
+
+
+class InternalRankItemsRequest(BaseModel):
+    """Request body for /internal/agent/rank endpoint."""
+
+    items: list[RankableItemSchema]
+    criteria_prompt: str
+    model_name: str
+    model_provider: str
+    model_settings: dict[str, Any] | None = None
+    max_requests: int = 5
+    retries: int = 3
+    base_url: str | None = None
+    min_items: int | None = None
+    max_items: int | None = None
+
+
+class InternalRankItemsPairwiseRequest(BaseModel):
+    """Request body for /internal/agent/rank-pairwise endpoint."""
+
+    items: list[RankableItemSchema]
+    criteria_prompt: str
+    model_name: str
+    model_provider: str
+    id_field: str = "id"
+    batch_size: int = 10
+    num_passes: int = 10
+    refinement_ratio: float = 0.5
+    model_settings: dict[str, Any] | None = None
+    max_requests: int = 5
+    retries: int = 3
+    base_url: str | None = None
+    min_items: int | None = None
+    max_items: int | None = None

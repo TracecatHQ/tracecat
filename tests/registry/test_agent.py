@@ -1,5 +1,6 @@
 import textwrap
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
@@ -111,16 +112,25 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
 
 
 @pytest.mark.anyio
-@requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
-async def test_action_primitives(output_type: Any, test_role: Role) -> None:
+async def test_action_primitives(output_type: Any) -> None:
     user_prompt = _prompt_for_output_type(
         output_type,
         "Draft a brief, empathetic customer update about a resolved incident.",
     )
 
-    with pytest.raises(ActionIsInterfaceError):
-        await action(
+    mock_result = {
+        "output": "Test output",
+        "message_history": None,
+        "duration": 1.0,
+        "usage": None,
+        "session_id": "test-session-id",
+    }
+    mock_ctx = MagicMock()
+    mock_ctx.agents.run = AsyncMock(return_value=mock_result)
+
+    with patch("tracecat_registry.core.agent.get_context", return_value=mock_ctx):
+        result = await action(
             user_prompt=user_prompt,
             model_name="gpt-4o-mini",
             model_provider="openai",
@@ -128,19 +138,37 @@ async def test_action_primitives(output_type: Any, test_role: Role) -> None:
             output_type=output_type,
             max_requests=3,
         )
+
+    assert result == mock_result
+    mock_ctx.agents.run.assert_called_once()
+    call_kwargs = mock_ctx.agents.run.call_args.kwargs
+    assert call_kwargs["user_prompt"] == user_prompt
+    assert call_kwargs["config"].model_name == "gpt-4o-mini"
+    assert call_kwargs["config"].model_provider == "openai"
+    assert call_kwargs["config"].output_type == output_type
+    assert call_kwargs["max_requests"] == 3
 
 
 @pytest.mark.anyio
-@requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
-async def test_action_json_schema(output_type: Any, test_role: Role) -> None:
+async def test_action_json_schema(output_type: Any) -> None:
     user_prompt = _prompt_for_output_type(
         output_type,
         "Draft a brief, empathetic customer update about a resolved incident.",
     )
 
-    with pytest.raises(ActionIsInterfaceError):
-        await action(
+    mock_result = {
+        "output": {"summary": "Test summary", "confidence": 0.95},
+        "message_history": None,
+        "duration": 1.0,
+        "usage": None,
+        "session_id": "test-session-id",
+    }
+    mock_ctx = MagicMock()
+    mock_ctx.agents.run = AsyncMock(return_value=mock_result)
+
+    with patch("tracecat_registry.core.agent.get_context", return_value=mock_ctx):
+        result = await action(
             user_prompt=user_prompt,
             model_name="gpt-4o-mini",
             model_provider="openai",
@@ -148,3 +176,12 @@ async def test_action_json_schema(output_type: Any, test_role: Role) -> None:
             output_type=output_type,
             max_requests=3,
         )
+
+    assert result == mock_result
+    mock_ctx.agents.run.assert_called_once()
+    call_kwargs = mock_ctx.agents.run.call_args.kwargs
+    assert call_kwargs["user_prompt"] == user_prompt
+    assert call_kwargs["config"].model_name == "gpt-4o-mini"
+    assert call_kwargs["config"].model_provider == "openai"
+    assert call_kwargs["config"].output_type == output_type
+    assert call_kwargs["max_requests"] == 3
