@@ -372,6 +372,7 @@ import type {
   SecretsSearchSecretsResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
+  SettingsGenerateAuditApiKeyResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
@@ -379,6 +380,7 @@ import type {
   SettingsGetGitSettingsResponse,
   SettingsGetOauthSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsRevokeAuditApiKeyResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
@@ -5159,6 +5161,36 @@ export const settingsUpdateAuditSettings = (
     },
   })
 }
+
+/**
+ * Generate Audit Api Key
+ * Generate a new API key for the audit webhook.
+ *
+ * This replaces any existing key. The raw API key is shown only once.
+ * @returns AuditApiKeyGenerateResponse Successful Response
+ * @throws ApiError
+ */
+export const settingsGenerateAuditApiKey =
+  (): CancelablePromise<SettingsGenerateAuditApiKeyResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/settings/audit/api-key",
+    })
+  }
+
+/**
+ * Revoke Audit Api Key
+ * Revoke the current audit webhook API key.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsRevokeAuditApiKey =
+  (): CancelablePromise<SettingsRevokeAuditApiKeyResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/settings/audit/api-key",
+    })
+  }
 
 /**
  * Get Agent Settings

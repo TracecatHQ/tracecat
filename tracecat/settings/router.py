@@ -14,6 +14,7 @@ from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsRead,
     AppSettingsUpdate,
+    AuditApiKeyGenerateResponse,
     AuditSettingsRead,
     AuditSettingsUpdate,
     AuthSettingsRead,
@@ -207,11 +208,46 @@ async def get_audit_settings(
     role: OrgAdminUserRole,
     session: AsyncDBSession,
 ) -> AuditSettingsRead:
+    from datetime import datetime
+
     service = SettingsService(session, role)
-    keys = AuditSettingsRead.keys()
+    # Get base audit settings
+    keys = AuditSettingsRead.keys(
+        exclude={"audit_webhook_api_key_preview", "audit_webhook_api_key_created_at"}
+    )
     settings = await service.list_org_settings(keys=keys)
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
-    return AuditSettingsRead(**settings_dict)
+
+    # Get API key related settings separately
+    api_key_preview_setting = await service.get_org_setting(
+        "audit_webhook_api_key_preview"
+    )
+    api_key_created_at_setting = await service.get_org_setting(
+        "audit_webhook_api_key_created_at"
+    )
+
+    api_key_preview = (
+        service.get_value(api_key_preview_setting) if api_key_preview_setting else None
+    )
+    api_key_created_at_str = (
+        service.get_value(api_key_created_at_setting)
+        if api_key_created_at_setting
+        else None
+    )
+
+    # Parse created_at from ISO string to datetime
+    api_key_created_at: datetime | None = None
+    if api_key_created_at_str:
+        try:
+            api_key_created_at = datetime.fromisoformat(api_key_created_at_str)
+        except (ValueError, TypeError):
+            pass
+
+    return AuditSettingsRead(
+        **settings_dict,
+        audit_webhook_api_key_preview=api_key_preview,
+        audit_webhook_api_key_created_at=api_key_created_at,
+    )
 
 
 @router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)
@@ -223,6 +259,31 @@ async def update_audit_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_audit_settings(params)
+
+
+@router.post("/audit/api-key", response_model=AuditApiKeyGenerateResponse)
+async def generate_audit_api_key(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+) -> AuditApiKeyGenerateResponse:
+    """Generate a new API key for the audit webhook.
+
+    This replaces any existing key. The raw API key is shown only once.
+    """
+    service = SettingsService(session, role)
+    return await service.generate_audit_api_key()
+
+
+@router.delete("/audit/api-key", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_audit_api_key(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+) -> None:
+    """Revoke the current audit webhook API key."""
+    service = SettingsService(session, role)
+    await service.revoke_audit_api_key()
 
 
 @router.get("/agent", response_model=AgentSettingsRead)
