@@ -19,7 +19,7 @@ from tracecat.db.models import OrganizationSetting
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
     AgentSettingsUpdate,
@@ -35,11 +35,10 @@ from tracecat.settings.schemas import (
 )
 
 
-class SettingsService(BaseService):
-    """Service for managing platform settings.
+class SettingsService(BaseOrgService):
+    """Service for managing organization settings.
 
-    Note: This service requires a role with organization_id for most operations.
-    The bootstrap code paths always provide a role with organization_id.
+    Requires a role with organization_id (enforced by BaseOrgService).
     """
 
     service_name = "settings"
@@ -60,19 +59,6 @@ class SettingsService(BaseService):
         if not encryption_key:
             raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
         self._encryption_key = SecretStr(encryption_key)
-
-    @property
-    def organization_id(self) -> OrganizationID:
-        """Get organization ID from the role.
-
-        Raises:
-            ValueError: If role is None or role has no organization_id.
-        """
-        if self.role is None:
-            raise ValueError("SettingsService requires a role with organization_id")
-        if self.role.organization_id is None:
-            raise ValueError("Role must have an organization_id")
-        return self.role.organization_id
 
     def _serialize_value_bytes(self, value: Any) -> bytes:
         return orjson.dumps(

@@ -34,6 +34,7 @@ class AuditEvent(BaseModel):
     organization_id: uuid.UUID | None = None
     """Organization ID. None for platform-level operations (superuser without org context)."""
     workspace_id: uuid.UUID | None = None
+    """Workspace ID. None for platform/org-level operations."""
     actor_type: AuditEventActor
     actor_id: uuid.UUID
     actor_label: str | None = None
