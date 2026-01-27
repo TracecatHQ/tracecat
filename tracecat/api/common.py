@@ -1,6 +1,8 @@
 from fastapi import Request, Response, status
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
@@ -12,9 +14,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
