@@ -30,8 +30,8 @@ AuditResourceType = Literal[
 
 
 class AuditEvent(BaseModel):
-    organization_id: uuid.UUID
-    workspace_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None  # None for platform operations
+    workspace_id: uuid.UUID | None = None  # None for platform/org operations
     actor_type: AuditEventActor
     actor_id: uuid.UUID
     actor_label: str | None = None
