@@ -13,6 +13,9 @@ from tenacity import (
     wait_exponential,
 )
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
@@ -37,11 +40,12 @@ def generic_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
-def bootstrap_role(organization_id: OrganizationID) -> Role:
+def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:
     """Role to bootstrap Tracecat services.
 
     Args:
-        organization_id: The organization ID to scope the bootstrap role to.
+        organization_id: Optional organization ID to scope the bootstrap role to.
+            If None, creates a role without org scope (for platform-level operations).
 
     Returns:
         Role: A service role with ADMIN access for the specified organization.
@@ -52,6 +56,31 @@ def bootstrap_role(organization_id: OrganizationID) -> Role:
         service_id="tracecat-bootstrap",
         organization_id=organization_id,
     )
+
+
+async def get_default_organization_id(session: AsyncSession) -> OrganizationID:
+    """Get the default (first) organization ID.
+
+    This is used by auth modules that need to read platform-level settings
+    before user authentication provides an org context.
+
+    Args:
+        session: Database session.
+
+    Returns:
+        OrganizationID: The ID of the first organization.
+
+    Raises:
+        ValueError: If no organizations exist.
+    """
+    # Import here to avoid circular imports
+    from tracecat.db.models import Organization
+
+    result = await session.execute(select(Organization).limit(1))
+    org = result.scalar_one_or_none()
+    if org is None:
+        raise ValueError("No organizations exist. Run bootstrap first.")
+    return org.id
 
 
 def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
