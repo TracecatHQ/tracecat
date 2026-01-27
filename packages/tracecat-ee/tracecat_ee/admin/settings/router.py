@@ -21,7 +21,7 @@ async def get_registry_settings(
     session: AsyncDBSession,
 ) -> PlatformRegistrySettingsRead:
     """Get platform registry settings."""
-    service = AdminSettingsService(session, role=role)
+    service = AdminSettingsService(session, role)
     return await service.get_registry_settings()
 
 
@@ -32,5 +32,5 @@ async def update_registry_settings(
     params: PlatformRegistrySettingsUpdate,
 ) -> PlatformRegistrySettingsRead:
     """Update platform registry settings."""
-    service = AdminSettingsService(session, role=role)
+    service = AdminSettingsService(session, role)
     return await service.update_registry_settings(params)

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Organization, OrganizationTier, Tier
-from tracecat.service import BaseService
+from tracecat.service import BasePlatformService
 from tracecat.tiers.exceptions import (
     CannotDeleteDefaultTierError,
     DefaultTierNotConfiguredError,
@@ -27,7 +27,7 @@ from tracecat.tiers.schemas import (
 )
 
 
-class AdminTierService(BaseService):
+class AdminTierService(BasePlatformService):
     """Platform-level tier management."""
 
     service_name = "admin_tier"
