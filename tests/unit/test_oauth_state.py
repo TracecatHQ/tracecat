@@ -269,9 +269,10 @@ class TestOAuthState:
         session.add(expired_state)
 
         # Create a second workspace for the "wrong workspace" test
+        # Use the same organization as the test workspace to satisfy FK constraint
         wrong_workspace = Workspace(
             name="wrong-test-workspace",
-            organization_id=uuid.uuid4(),
+            organization_id=test_role_with_user.organization_id,
         )
         session.add(wrong_workspace)
         await session.commit()
