@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CopyIcon, PencilIcon, Tag, Trash2Icon } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
 import type { CaseTagRead, TagUpdate } from "@/client"
@@ -67,6 +67,8 @@ const updateTagSchema = z.object({
   ),
 })
 
+const DEFAULT_TAG_COLOR = "#aabbcc"
+
 enum TagItemAction {
   Edit = "edit",
   Delete = "delete",
@@ -119,7 +121,7 @@ export function TagsTable({
                     className="size-4"
                     style={{
                       fill: "transparent",
-                      stroke: tag.color || "currentColor",
+                      stroke: tag.color ?? DEFAULT_TAG_COLOR,
                     }}
                   />
                   <span className="text-xs text-foreground/80">{tag.name}</span>
@@ -143,12 +145,12 @@ export function TagsTable({
                 <div
                   className="size-4 rounded border"
                   style={{
-                    backgroundColor: row.original.color || "#aabbcc",
-                    borderColor: row.original.color || "#aabbcc",
+                    backgroundColor: row.original.color ?? DEFAULT_TAG_COLOR,
+                    borderColor: row.original.color ?? DEFAULT_TAG_COLOR,
                   }}
                 />
                 <span className="font-mono text-xs text-foreground/80">
-                  {row.original.color || "#aabbcc"}
+                  {row.original.color ?? DEFAULT_TAG_COLOR}
                 </span>
               </div>
             ),
@@ -293,6 +295,13 @@ function EditTagDialogContent({
     },
   })
 
+  useEffect(() => {
+    methods.reset({
+      name: tag.name,
+      color: tag.color ?? "",
+    })
+  }, [methods, tag.color, tag.name])
+
   const handleEdit = async (params: TagUpdate) => {
     try {
       await onUpdate(tag.id, {
@@ -379,14 +388,14 @@ function EditTagDialogContent({
               <AlertDialogCancel disabled={isUpdating}>
                 Cancel
               </AlertDialogCancel>
-              <AlertDialogAction
+              <Button
                 type="submit"
                 className="flex items-center gap-2"
                 disabled={isUpdating}
               >
                 <PencilIcon className="size-4" />
                 Save changes
-              </AlertDialogAction>
+              </Button>
             </AlertDialogFooter>
           </div>
         </form>
