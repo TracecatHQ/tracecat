@@ -283,6 +283,8 @@ import type {
   OrganizationDeleteSessionResponse,
   OrganizationGetInvitationByTokenData,
   OrganizationGetInvitationByTokenResponse,
+  OrganizationGetInvitationTokenData,
+  OrganizationGetInvitationTokenResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListOrgMembersResponse,
@@ -2975,6 +2977,31 @@ export const organizationRevokeInvitation = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/organization/invitations/{invitation_id}",
+    path: {
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Invitation Token
+ * Get the token for a specific invitation (admin only).
+ *
+ * This endpoint is used to generate shareable invitation links.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const organizationGetInvitationToken = (
+  data: OrganizationGetInvitationTokenData
+): CancelablePromise<OrganizationGetInvitationTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/invitations/{invitation_id}/token",
     path: {
       invitation_id: data.invitationId,
     },
