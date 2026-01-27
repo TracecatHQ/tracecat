@@ -49,12 +49,14 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
-    organization_id: UUID,
+    organization_id: UUID | None,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions.
 
     Returns a RegistryLock that can be used in RunActionInput.
     """
+    assert organization_id is not None, "organization_id must be provided"
+
     from sqlalchemy import select
 
     from tracecat.db.models import RegistryRepository
@@ -236,7 +238,10 @@ async def test_executor_can_run_udf_with_secrets(
 
         # Create manifest for the test actions
         registry_lock = await create_manifest_for_actions(
-            session, db_repo_id, [repo.get("testing.fetch_secret")], test_role.organization_id
+            session,
+            db_repo_id,
+            [repo.get("testing.fetch_secret")],
+            test_role.organization_id,
         )
 
         input = RunActionInput(
@@ -457,7 +462,10 @@ async def test_executor_can_run_template_action_with_oauth(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.oauth.oauth_test")], test_role.organization_id
+        session,
+        db_repo_id,
+        [repo.get("testing.oauth.oauth_test")],
+        test_role.organization_id,
     )
 
     # 5. Create and run the action
@@ -542,7 +550,10 @@ async def test_executor_can_run_udf_with_oauth(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.fetch_oauth_token")], test_role.organization_id
+        session,
+        db_repo_id,
+        [repo.get("testing.fetch_oauth_token")],
+        test_role.organization_id,
     )
 
     # 4. Create and run the action
@@ -597,7 +608,9 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
     )
 
     # Create manifest for core actions
-    registry_lock = await create_manifest_for_actions(session, db_repo_id, [], test_role.organization_id)
+    registry_lock = await create_manifest_for_actions(
+        session, db_repo_id, [], test_role.organization_id
+    )
 
     # 4. Create and run the action
     input = RunActionInput(

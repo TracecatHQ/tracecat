@@ -59,12 +59,14 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
-    organization_id: UUID,
+    organization_id: UUID | None,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions.
 
     Returns a RegistryLock that can be used in RunActionInput.
     """
+    assert organization_id is not None, "organization_id must be provided"
+
     # Query the repository to get the origin
     result = await session.execute(
         select(RegistryRepository).where(RegistryRepository.id == repo_id)

@@ -46,9 +46,11 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
-    organization_id: UUID,
+    organization_id: UUID | None,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions."""
+    assert organization_id is not None, "organization_id must be provided"
+
     from sqlalchemy import select
 
     from tracecat.db.models import RegistryRepository
@@ -206,7 +208,10 @@ async def test_template_action_two_steps_via_direct_backend(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.two_step_math")], test_role.organization_id
+        session,
+        db_repo_id,
+        [repo.get("testing.two_step_math")],
+        test_role.organization_id,
     )
 
     # Create and run the action
@@ -288,7 +293,10 @@ async def test_template_action_step_results_accessible(
     )
 
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.step_data_flow")], test_role.organization_id
+        session,
+        db_repo_id,
+        [repo.get("testing.step_data_flow")],
+        test_role.organization_id,
     )
 
     input = RunActionInput(
@@ -364,7 +372,10 @@ async def test_template_action_returns_expression_evaluated(
     )
 
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.complex_returns")], test_role.organization_id
+        session,
+        db_repo_id,
+        [repo.get("testing.complex_returns")],
+        test_role.organization_id,
     )
 
     input = RunActionInput(
@@ -460,7 +471,10 @@ async def test_template_action_with_secrets_in_top_level_args(
         )
 
         registry_lock = await create_manifest_for_actions(
-            session, db_repo_id, [repo.get("testing.secret_user")], test_role.organization_id
+            session,
+            db_repo_id,
+            [repo.get("testing.secret_user")],
+            test_role.organization_id,
         )
 
         # Pass the secret expression in the top-level args
