@@ -314,7 +314,7 @@ async def get_invitation_by_token(
         inviter_email: str | None = None
         if invitation.invited_by:
             inviter_result = await session.execute(
-                select(User).where(User.id == invitation.invited_by)
+                select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
             )
             inviter = inviter_result.scalar_one_or_none()
             if inviter:

@@ -830,7 +830,7 @@ class TestOrganizationServiceInvitations:
         # Verify inviter info is available
         assert retrieved.invited_by == admin_in_org1.id
         result = await session.execute(
-            select(User).where(User.id == retrieved.invited_by)
+            select(User).where(User.id == retrieved.invited_by)  # pyright: ignore[reportArgumentType]
         )
         inviter = result.scalar_one()
         assert inviter.first_name == "John"
