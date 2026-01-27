@@ -207,27 +207,3 @@ class BaseWorkspaceService(BaseOrgService):
                 f"{self.service_name} service requires workspace"
             )
         self.workspace_id = self.role.workspace_id
-
-
-class BasePlatformService(BaseService):
-    """Base class for platform-wide superuser operations.
-
-    Use this for operations that span across or are outside the org/workspace hierarchy:
-    - Cross-org operations: Managing multiple organizations (create/delete orgs)
-    - Platform-global resources: Tiers, platform settings, global registry
-    - User management across organizations
-
-    Services extending this class require a PlatformRole (from SuperuserRole dependency).
-    This preserves operator context for audit logging while not being scoped to any
-    specific organization or workspace.
-
-    Note: Unlike BaseOrgService, this class does not provide a with_session context
-    manager since admin services are typically instantiated directly in routers with
-    the role from the SuperuserRole dependency.
-    """
-
-    role: PlatformRole  # Always non-None for platform services
-
-    def __init__(self, session: AsyncSession, role: PlatformRole):
-        super().__init__(session)
-        self.role = role

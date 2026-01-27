@@ -84,6 +84,6 @@ async def check_entitlement(
     """
     if role.organization_id is None:
         raise ValueError("Role must have organization_id to check entitlements")
-    tier_svc = TierService(session, role=role)
+    tier_svc = TierService(session)
     entitlement_svc = EntitlementService(tier_svc)
     await entitlement_svc.check_entitlement(role.organization_id, entitlement)
