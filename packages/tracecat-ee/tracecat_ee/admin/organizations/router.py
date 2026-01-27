@@ -29,7 +29,7 @@ async def list_organizations(
     session: AsyncDBSession,
 ) -> list[OrgRead]:
     """List all organizations."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     return list(await service.list_organizations())
 
 
@@ -40,7 +40,7 @@ async def create_organization(
     params: OrgCreate,
 ) -> OrgRead:
     """Create a new organization."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         return await service.create_organization(params)
     except ValueError as e:
@@ -54,7 +54,7 @@ async def get_organization(
     org_id: uuid.UUID,
 ) -> OrgRead:
     """Get organization by ID."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         return await service.get_organization(org_id)
     except ValueError as e:
@@ -69,7 +69,7 @@ async def update_organization(
     params: OrgUpdate,
 ) -> OrgRead:
     """Update organization."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         return await service.update_organization(org_id, params)
     except ValueError as e:
@@ -87,7 +87,7 @@ async def delete_organization(
     org_id: uuid.UUID,
 ) -> None:
     """Delete organization."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         await service.delete_organization(org_id)
     except ValueError as e:
@@ -106,7 +106,7 @@ async def list_org_repositories(
     org_id: uuid.UUID,
 ) -> list[OrgRegistryRepositoryRead]:
     """List registry repositories for an organization."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         return list(await service.list_org_repositories(org_id))
     except ValueError as e:
@@ -124,7 +124,7 @@ async def list_org_repository_versions(
     repository_id: uuid.UUID,
 ) -> list[OrgRegistryVersionRead]:
     """List versions for a specific repository in an organization."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         return list(await service.list_org_repository_versions(org_id, repository_id))
     except ValueError as e:
@@ -143,7 +143,7 @@ async def sync_org_repository(
     params: OrgRegistrySyncRequest | None = None,
 ) -> OrgRegistrySyncResponse:
     """Sync a registry repository for an organization."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     force = params.force if params else False
     try:
         return await service.sync_org_repository(org_id, repository_id, force=force)
@@ -163,7 +163,7 @@ async def promote_org_repository_version(
     version_id: uuid.UUID,
 ) -> OrgRegistryVersionPromoteResponse:
     """Promote a registry version to be the current version for an org repository."""
-    service = AdminOrgService(session, role=role)
+    service = AdminOrgService(session, role)
     try:
         return await service.promote_org_repository_version(
             org_id, repository_id, version_id

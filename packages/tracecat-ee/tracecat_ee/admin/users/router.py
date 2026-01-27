@@ -21,7 +21,7 @@ async def list_users(
     session: AsyncDBSession,
 ) -> list[AdminUserRead]:
     """List all users."""
-    service = AdminUserService(session, role=role)
+    service = AdminUserService(session, role)
     return list(await service.list_users())
 
 
@@ -32,7 +32,7 @@ async def get_user(
     user_id: uuid.UUID,
 ) -> AdminUserRead:
     """Get user by ID."""
-    service = AdminUserService(session, role=role)
+    service = AdminUserService(session, role)
     try:
         return await service.get_user(user_id)
     except ValueError as e:
@@ -46,7 +46,7 @@ async def promote_to_superuser(
     user_id: uuid.UUID,
 ) -> AdminUserRead:
     """Promote a user to superuser status."""
-    service = AdminUserService(session, role=role)
+    service = AdminUserService(session, role)
     try:
         return await service.promote_superuser(user_id)
     except ValueError as e:
@@ -71,7 +71,7 @@ async def demote_from_superuser(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot demote user without authenticated user context",
         )
-    service = AdminUserService(session, role=role)
+    service = AdminUserService(session, role)
     try:
         return await service.demote_superuser(user_id, current_user_id=role.user_id)
     except ValueError as e:
