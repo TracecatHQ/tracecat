@@ -29,7 +29,7 @@ from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
-from tracecat.auth.types import AccessLevel, Role, system_role
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
@@ -950,7 +950,7 @@ async def test_workspace(test_organization, mock_org_id):
     # Use a role with organization_id for the WorkspaceService
     org_role = Role(
         type="service",
-        service_id="tracecat-test",
+        service_id="tracecat-service",
         organization_id=mock_org_id,
         access_level=AccessLevel.ADMIN,
     )
