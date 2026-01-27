@@ -65,6 +65,10 @@ class BaseOrgService(BaseService):
             raise TracecatAuthorizationError(
                 f"{self.service_name} service requires organization context"
             )
+        if self.role.organization_id is None:
+            raise TracecatAuthorizationError(
+                f"{self.service_name} service requires organization_id in role"
+            )
         self.organization_id = self.role.organization_id
 
 
