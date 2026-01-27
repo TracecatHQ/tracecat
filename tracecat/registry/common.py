@@ -25,8 +25,8 @@ async def reload_registry(session: AsyncSession, role: Role) -> None:
     # Setup Tracecat base repository using platform-scoped services
     # The base registry is shared across all organizations and should be
     # stored in platform_registry_* tables, not org-scoped registry_* tables
-    platform_repos_service = PlatformRegistryReposService(session, role=role)
-    platform_sync_service = PlatformRegistrySyncService(session, role=role)
+    platform_repos_service = PlatformRegistryReposService(session)
+    platform_sync_service = PlatformRegistrySyncService(session)
 
     base_origin = DEFAULT_REGISTRY_ORIGIN
     # Check if the base registry repository already exists in platform tables
