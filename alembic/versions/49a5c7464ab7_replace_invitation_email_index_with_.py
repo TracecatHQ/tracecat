@@ -1,7 +1,7 @@
 """replace invitation email index with workspace email unique constraint
 
 Revision ID: 49a5c7464ab7
-Revises: f4f5b93cbb16
+Revises: b22e78f9a6bc
 Create Date: 2026-01-23 11:32:02.933587
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "49a5c7464ab7"
-down_revision: str | None = "f4f5b93cbb16"
+down_revision: str | None = "b22e78f9a6bc"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
