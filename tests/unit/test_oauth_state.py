@@ -86,6 +86,7 @@ async def integration_service(
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=test_user.id,
         service_id="tracecat-api",
     )
@@ -98,6 +99,7 @@ async def test_role_with_user(svc_workspace, test_user: User) -> Role:
     return Role(
         type="user",
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=test_user.id,
         service_id="tracecat-api",
     )
