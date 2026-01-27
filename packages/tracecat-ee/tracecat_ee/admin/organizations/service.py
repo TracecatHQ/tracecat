@@ -16,7 +16,7 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
 )
-from tracecat.service import BaseService
+from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
     OrgRead,
@@ -28,7 +28,7 @@ from tracecat_ee.admin.organizations.schemas import (
 )
 
 
-class AdminOrgService(BaseService):
+class AdminOrgService(BasePlatformService):
     """Platform-level organization management."""
 
     service_name = "admin_org"

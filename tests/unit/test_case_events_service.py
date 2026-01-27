@@ -32,11 +32,12 @@ async def test_events_service_initialization_requires_workspace(
     session: AsyncSession,
 ) -> None:
     """Test that events service initialization requires a workspace ID."""
-    # Create a role without workspace_id
+    # Create a role without workspace_id (but with organization_id to pass org check)
     role_without_workspace = Role(
         type="service",
         user_id=uuid.uuid4(),
         workspace_id=None,
+        organization_id=uuid.uuid4(),
         service_id="tracecat-service",
         access_level=AccessLevel.BASIC,
     )
@@ -380,6 +381,7 @@ class TestCaseEventsService:
             type="service",
             user_id=different_user_id,
             workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
             service_id=svc_role.service_id,
             access_level=AccessLevel.BASIC,
         )

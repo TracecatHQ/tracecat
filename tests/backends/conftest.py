@@ -68,13 +68,12 @@ async def _check_registry_synced() -> bool:
     try:
         from sqlalchemy import select
 
-        from tracecat import config
         from tracecat.db.engine import get_async_session_context_manager
         from tracecat.db.models import RegistryVersion
 
         async with get_async_session_context_manager() as session:
+            # Check if any registry version has a tarball (regardless of org)
             statement = select(RegistryVersion).where(
-                RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
                 RegistryVersion.tarball_uri.isnot(None),  # type: ignore[union-attr]
             )
             result = await session.execute(statement)

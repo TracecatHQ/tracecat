@@ -30,6 +30,7 @@ def mock_role() -> Role:
         type="service",
         service_id="tracecat-executor",
         workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
     )
 

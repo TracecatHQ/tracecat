@@ -657,6 +657,7 @@ class TestMCPIntegrationWorkspaceIsolation:
         role2 = Role(
             type="user",
             workspace_id=workspace2.id,
+            organization_id=svc_workspace.organization_id,
             user_id=svc_role.user_id,
             service_id="tracecat-api",
         )
@@ -709,6 +710,7 @@ class TestMCPIntegrationWorkspaceIsolation:
         role2 = Role(
             type="user",
             workspace_id=workspace2.id,
+            organization_id=svc_workspace.organization_id,
             user_id=svc_role.user_id,
             service_id="tracecat-api",
         )

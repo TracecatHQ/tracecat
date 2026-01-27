@@ -87,12 +87,14 @@ def module_test_role(mock_org_id) -> Role:
     Creates a static role that can be used by module-scoped fixtures
     without depending on function-scoped test_workspace.
     """
-    # Use a static workspace ID for module-scoped fixtures
+    # Use static IDs for module-scoped fixtures
     static_workspace_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    static_organization_id = uuid.UUID("22222222-2222-2222-2222-222222222222")
     return Role(
         type="service",
         user_id=mock_org_id,
         workspace_id=static_workspace_id,
+        organization_id=static_organization_id,
         service_id="tracecat-runner",
     )
 
@@ -345,9 +347,7 @@ async def module_builtin_repo(
         )
 
     # Also create platform-scoped repo (for executor tarball lookups)
-    platform_svc = PlatformRegistryReposService(
-        module_committing_session, role=module_test_role
-    )
+    platform_svc = PlatformRegistryReposService(module_committing_session)
     await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
 
     await module_committing_session.commit()
@@ -387,9 +387,7 @@ async def shared_synced_registry(
         )
 
     # Also sync to platform tables (executor queries platform tables for tracecat_registry)
-    platform_svc = PlatformRegistryReposService(
-        module_committing_session, role=module_test_role
-    )
+    platform_svc = PlatformRegistryReposService(module_committing_session)
     platform_repo = await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
     platform_sync_service = PlatformRegistrySyncService(module_committing_session)
     await platform_sync_service.sync_repository_v2(
@@ -835,6 +833,9 @@ class TestFailureScenarios:
         test_role: Role,
     ):
         """Verify registry lock resolution fails for non-existent version."""
+        # Ensure organization_id is set
+        assert test_role.organization_id is not None
+
         # Try to resolve non-existent version
         registry_lock = {"tracecat_registry": "nonexistent-version-12345"}
 
@@ -868,7 +869,7 @@ class TestMultitenantWorkloads:
                 type="service",
                 service_id="tracecat-runner",
                 workspace_id=workspace_id or uuid.uuid4(),
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
                 user_id=uuid.UUID("00000000-0000-4444-aaaa-000000000000"),
             )
 

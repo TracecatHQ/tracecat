@@ -10,7 +10,6 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
@@ -513,12 +512,15 @@ async def test_cache_size_limit():
 
 @pytest.mark.anyio
 async def test_organization_id_populated_when_require_workspace_no(mocker):
-    """Test that organization_id is populated when require_workspace="no"."""
+    """Test that organization_id is inferred from membership when require_workspace="no"."""
 
     # Create mock user
     mock_user = MagicMock(spec=User)
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.ADMIN
+
+    # Create a mock organization for the user to belong to
+    test_org_id = uuid.uuid4()
 
     # Mock session - need to properly mock execute() for org membership lookup
     mock_session = AsyncMock()
@@ -534,16 +536,19 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
         {UserRole.ADMIN: AccessLevel.ADMIN},
     )
+    # Provide a single membership so the org can be inferred
+    mock_membership = MagicMock()
+    mock_membership.org_id = test_org_id
     mocker.patch(
         "tracecat.auth.credentials.MembershipService.list_user_memberships_with_org",
-        new=AsyncMock(return_value=[]),
+        new=AsyncMock(return_value=[mock_membership]),
     )
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     request.state.auth_cache = None
 
-    # Test with require_workspace="no" - should use default organization_id
+    # Test with require_workspace="no" - organization_id should be inferred from membership
     role = await _role_dependency(
         request=request,
         session=mock_session,
@@ -557,8 +562,8 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         require_workspace_roles=None,
     )
 
-    # Verify organization_id was populated with default
-    assert role.organization_id == config.TRACECAT__DEFAULT_ORG_ID
+    # Verify organization_id was inferred from the user's single membership
+    assert role.organization_id == test_org_id
     assert role.workspace_id is None
     assert role.user_id == mock_user.id
 

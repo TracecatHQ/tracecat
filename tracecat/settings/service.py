@@ -19,8 +19,8 @@ from tracecat.db.models import OrganizationSetting
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
-from tracecat.service import BaseService
-from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
+from tracecat.service import BaseOrgService
+from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
@@ -35,13 +35,10 @@ from tracecat.settings.schemas import (
 )
 
 
-class SettingsService(BaseService):
-    """Service for managing platform settings.
+class SettingsService(BaseOrgService):
+    """Service for managing organization settings.
 
-    Note: This service intentionally inherits from BaseService (not BaseOrgService)
-    because it supports role-less access to PUBLIC_SETTINGS_KEYS via the
-    get_setting() helper function. The organization_id property has a fallback
-    to TRACECAT__DEFAULT_ORG_ID when role is None.
+    Requires a role with organization_id (enforced by BaseOrgService).
     """
 
     service_name = "settings"
@@ -62,13 +59,6 @@ class SettingsService(BaseService):
         if not encryption_key:
             raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
         self._encryption_key = SecretStr(encryption_key)
-
-    @property
-    def organization_id(self) -> OrganizationID:
-        """Get organization ID with fallback for role-less access to public settings."""
-        if self.role is None:
-            return config.TRACECAT__DEFAULT_ORG_ID
-        return self.role.organization_id
 
     def _serialize_value_bytes(self, value: Any) -> bytes:
         return orjson.dumps(
@@ -154,11 +144,6 @@ class SettingsService(BaseService):
         Returns:
             Settings: The current organization settings configuration
         """
-        if self.role is None and key not in PUBLIC_SETTINGS_KEYS:
-            # Block access to private settings
-            self.logger.debug("Blocked attempted access to private setting", key=key)
-            return None
-
         statement = select(OrganizationSetting).where(
             OrganizationSetting.organization_id == self.organization_id,
             OrganizationSetting.key == key,
@@ -320,6 +305,10 @@ async def get_setting(
     """Shorthand to get a setting value from the database."""
     role = role or ctx_role.get()
 
+    # If no role is available, return default or None
+    if role is None:
+        return default if default is not UNSET else None
+
     # If we have an environment override, use it
     if override_val := get_setting_override(key):
         logger.warning(
@@ -335,6 +324,37 @@ async def get_setting(
                 return False
             case _:
                 return override_val
+
+    # If role has no organization_id, fetch the default org
+    if role is not None and role.organization_id is None:
+        from tracecat.api.common import get_default_organization_id
+        from tracecat.auth.types import Role as RoleClass
+
+        if session:
+            default_org_id = await get_default_organization_id(session)
+        else:
+            from tracecat.db.engine import get_async_session_context_manager
+
+            async with get_async_session_context_manager() as sess:
+                default_org_id = await get_default_organization_id(sess)
+
+        # If no default organization is available, return default
+        if default_org_id is None:
+            logger.debug(
+                "No organization available for setting lookup, using default",
+                key=key,
+            )
+            return default if default is not UNSET else None
+
+        # Create a new role with the default org_id
+        role = RoleClass(
+            type=role.type,
+            access_level=role.access_level,
+            service_id=role.service_id,
+            user_id=role.user_id,
+            workspace_id=role.workspace_id,
+            organization_id=default_org_id,
+        )
 
     if session:
         service = SettingsService(session=session, role=role)

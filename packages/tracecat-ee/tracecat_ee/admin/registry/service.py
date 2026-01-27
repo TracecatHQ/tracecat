@@ -12,7 +12,6 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
 from tracecat.db.models import PlatformRegistryRepository, PlatformRegistryVersion
-from tracecat.git.utils import parse_git_url
 from tracecat.parse import safe_url
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
@@ -20,8 +19,7 @@ from tracecat.registry.constants import (
 )
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
-from tracecat.service import BaseService
-from tracecat.ssh import ssh_context
+from tracecat.service import BasePlatformService
 from tracecat_ee.admin.registry.schemas import (
     RegistryStatusResponse,
     RegistrySyncResponse,
@@ -33,7 +31,7 @@ from tracecat_ee.admin.registry.schemas import (
 from tracecat_ee.admin.settings.service import AdminSettingsService
 
 
-class AdminRegistryService(BaseService):
+class AdminRegistryService(BasePlatformService):
     """Platform-level registry management."""
 
     service_name: ClassVar[str] = "admin_registry"
@@ -124,20 +122,12 @@ class AdminRegistryService(BaseService):
 
         try:
             if repo.origin.startswith("git+ssh://"):
-                settings_service = AdminSettingsService(self.session, role=self.role)
-                settings = await settings_service.get_registry_settings()
-                allowed_domains = settings.git_allowed_domains or {"github.com"}
-                git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
-
-                async with ssh_context(
-                    role=self.role, git_url=git_url, session=self.session
-                ) as ssh_env:
-                    sync_result = await sync_service.sync_repository_v2(
-                        db_repo=repo,
-                        ssh_env=ssh_env,
-                        git_repo_package_name=settings.git_repo_package_name,
-                        commit=False,
-                    )
+                # NOTE: Platform git+ssh sync is not yet supported.
+                # Platform registry only supports origin=tracecat-registry.
+                raise ValueError(
+                    f"git+ssh origins are not supported for platform registry sync. "
+                    f"Origin: {repo.origin}"
+                )
             else:
                 sync_result = await sync_service.sync_repository_v2(
                     db_repo=repo,

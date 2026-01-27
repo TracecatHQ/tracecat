@@ -8,7 +8,6 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -35,19 +34,6 @@ pytestmark = pytest.mark.usefixtures("db")
 async def service(session: AsyncSession, svc_role: Role) -> WorkspaceService:
     """Create a workspace service instance for testing."""
     return WorkspaceService(session=session, role=svc_role)
-
-
-@pytest.fixture
-async def svc_workspace(session: AsyncSession) -> Workspace:
-    """Create a workspace for testing."""
-
-    workspace = Workspace(
-        name="test-workspace", organization_id=config.TRACECAT__DEFAULT_ORG_ID
-    )
-    session.add(workspace)
-    await session.commit()
-    await session.refresh(workspace)
-    return workspace
 
 
 @pytest.mark.anyio

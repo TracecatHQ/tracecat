@@ -1,21 +1,62 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Self
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
-from tracecat.contexts import ctx_client_ip
+from tracecat.auth.types import PlatformRole, Role
+from tracecat.contexts import ctx_client_ip, ctx_role
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import User
-from tracecat.service import BaseOrgService
+from tracecat.service import BaseService
+
+# Union type for roles that can be used for audit logging
+AuditableRole = Role | PlatformRole
 
 
-class AuditService(BaseOrgService):
-    """Stream user-driven events to an audit webhook if configured."""
+class AuditService(BaseService):
+    """Stream user-driven events to an audit webhook if configured.
+
+    This service accepts an optional role to support both:
+    - Platform operations (PlatformRole - no org/workspace context)
+    - Org-scoped operations (Role - with org context)
+
+    The role is used for audit attribution (who performed the action).
+    """
 
     service_name = "audit"
+    role: AuditableRole | None
+
+    def __init__(self, session: AsyncSession, role: AuditableRole | None = None):
+        super().__init__(session)
+        self.role = role or ctx_role.get()
+        # Don't require organization_id - platform ops won't have one
+
+    @classmethod
+    @asynccontextmanager
+    async def with_session(
+        cls,
+        role: AuditableRole | None = None,
+        *,
+        session: AsyncSession | None = None,
+    ) -> AsyncGenerator[Self, None]:
+        """Create an AuditService instance with a database session.
+
+        Override BaseService.with_session to accept optional role parameter.
+        Accepts both Role (org-scoped) and PlatformRole (platform-scoped).
+        """
+        if session is not None:
+            yield cls(session, role=role)
+        else:
+            async with get_async_session_context_manager() as session:
+                yield cls(session, role=role)
 
     async def _get_webhook_url(self) -> str | None:
         """Fetch the configured audit webhook URL.
@@ -64,8 +105,9 @@ class AuditService(BaseOrgService):
         resource_id: uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
     ) -> None:
-        # Note: role and organization_id are guaranteed non-None by BaseOrgService
-        if self.role.user_id is None:
+        # Skip audit if no role or no user_id (non-user operations)
+        # Note: PlatformRole.user_id is required, Role.user_id is optional
+        if self.role is None or self.role.user_id is None:
             self.logger.debug(
                 "Skipping audit log", reason="non_user_role", role=self.role
             )
@@ -87,9 +129,14 @@ class AuditService(BaseOrgService):
         except Exception as exc:
             self.logger.warning("Failed to fetch actor email", error=str(exc))
 
+        # Extract org/workspace IDs - PlatformRole doesn't have these attributes
+        # For platform operations, these will be None
+        organization_id = getattr(self.role, "organization_id", None)
+        workspace_id = getattr(self.role, "workspace_id", None)
+
         payload = AuditEvent(
-            organization_id=self.organization_id,
-            workspace_id=self.role.workspace_id,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
             actor_type=AuditEventActor.USER,
             actor_id=self.role.user_id,
             actor_label=actor_label,

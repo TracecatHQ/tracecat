@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
 import aiofiles
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 
 from tracecat import config
+from tracecat.auth.types import PlatformRole, Role
+from tracecat.contexts import ctx_role
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
@@ -38,9 +43,6 @@ from tracecat.storage import blob
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from tracecat.auth.types import Role
     from tracecat.ssh import SshEnv
 
 
@@ -57,7 +59,9 @@ class VersionProtocol(Protocol):
 
 
 class VersionsServiceProtocol[VersionT: VersionProtocol](Protocol):
-    def __init__(self, session: AsyncSession, role: Role | None = None) -> None: ...
+    def __init__(
+        self, session: AsyncSession, role: Role | PlatformRole | None = None
+    ) -> None: ...
 
     async def get_version_by_repo_and_version(
         self,
@@ -109,7 +113,39 @@ class BaseRegistrySyncService[
     RepoT: RepositoryProtocol,
     VersionT: VersionProtocol,
 ](BaseService):
-    """Base class for registry sync operations."""
+    """Base class for registry sync operations.
+
+    Optionally accepts a role for org-scoped or platform operations.
+    The role can be either Role (org/workspace context) or PlatformRole (admin context).
+    """
+
+    role: Role | PlatformRole | None
+
+    def __init__(self, session: AsyncSession, role: Role | PlatformRole | None = None):
+        super().__init__(session)
+        self.role = role or ctx_role.get()
+
+    @classmethod
+    @asynccontextmanager
+    async def with_session(
+        cls,
+        role: Role | PlatformRole | None = None,
+        *,
+        session: AsyncSession | None = None,
+    ) -> AsyncGenerator[Self, None]:
+        """Create a service instance with a database session.
+
+        Args:
+            role: Optional role for authorization context.
+            session: Optional existing session.
+        """
+        from tracecat.db.engine import get_async_session_context_manager
+
+        if session is not None:
+            yield cls(session, role=role)
+        else:
+            async with get_async_session_context_manager() as new_session:
+                yield cls(new_session, role=role)
 
     @classmethod
     def _versions_service_cls(cls) -> type[VersionsServiceProtocol[VersionT]]:
@@ -436,7 +472,8 @@ class BaseRegistrySyncService[
         origin_type = self._get_origin_type(origin)
 
         ssh_key: str | None = None
-        if origin_type == "git":
+        if origin_type == "git" and isinstance(self.role, Role):
+            # Only attempt to get SSH key if we have an org-scoped Role
             from tracecat.secrets.service import SecretsService
 
             secrets_service = SecretsService(self.session, role=self.role)
