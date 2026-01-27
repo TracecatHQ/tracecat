@@ -1,12 +1,11 @@
 """update_default_org_uuid
 
 Revision ID: 4ef4d2e1d57b
-Revises: 7aab03def5b6, b22e78f9a6bc
+Revises: b22e78f9a6bc
 Create Date: 2026-01-26 00:00:00.000000
 
 """
 
-from collections.abc import Sequence
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -15,9 +14,9 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4ef4d2e1d57b"
-down_revision: tuple[str, str] | None = ("7aab03def5b6", "b22e78f9a6bc")
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+down_revision: str | None = "b22e78f9a6bc"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 
 # The default organization UUID that was previously hardcoded
@@ -85,7 +84,9 @@ def upgrade() -> None:
 
     # Update the organization table itself
     connection.execute(
-        sa.text("UPDATE organization SET id = :new_uuid::uuid WHERE id = :old_uuid::uuid"),
+        sa.text(
+            "UPDATE organization SET id = :new_uuid::uuid WHERE id = :old_uuid::uuid"
+        ),
         {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
     )
 
