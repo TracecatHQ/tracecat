@@ -19014,6 +19014,103 @@ export const $WorkspaceCreate = {
   title: "WorkspaceCreate",
 } as const
 
+export const $WorkspaceInvitationCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+      default: "editor",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "WorkspaceInvitationCreate",
+  description: "Request schema for creating a workspace invitation.",
+} as const
+
+export const $WorkspaceInvitationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    token: {
+      type: "string",
+      title: "Token",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    accepted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accepted At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "email",
+    "role",
+    "status",
+    "invited_by",
+    "token",
+    "expires_at",
+    "accepted_at",
+    "created_at",
+  ],
+  title: "WorkspaceInvitationRead",
+  description: "Response schema for a workspace invitation.",
+} as const
+
 export const $WorkspaceMember = {
   properties: {
     user_id: {

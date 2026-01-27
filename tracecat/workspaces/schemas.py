@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import NotRequired, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator
@@ -8,7 +9,8 @@ from tracecat import config
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
+from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
+from tracecat.invitations.enums import InvitationStatus
 
 # === Workspace === #
 
@@ -143,3 +145,32 @@ class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
     role: WorkspaceRole
+
+
+# === Invitation === #
+class WorkspaceInvitationCreate(Schema):
+    """Request schema for creating a workspace invitation."""
+
+    email: EmailStr
+    role: WorkspaceRole = WorkspaceRole.EDITOR
+
+
+class WorkspaceInvitationRead(Schema):
+    """Response schema for a workspace invitation."""
+
+    id: InvitationID
+    workspace_id: WorkspaceID
+    email: EmailStr
+    role: WorkspaceRole
+    status: InvitationStatus
+    invited_by: UserID | None
+    token: str
+    expires_at: datetime
+    accepted_at: datetime | None
+    created_at: datetime
+
+
+class WorkspaceInvitationList(Schema):
+    """Query params for listing workspace invitations."""
+
+    status: InvitationStatus | None = None
