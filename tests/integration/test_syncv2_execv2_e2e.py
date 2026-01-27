@@ -347,9 +347,7 @@ async def module_builtin_repo(
         )
 
     # Also create platform-scoped repo (for executor tarball lookups)
-    platform_svc = PlatformRegistryReposService(
-        module_committing_session, role=module_test_role
-    )
+    platform_svc = PlatformRegistryReposService(module_committing_session)
     await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
 
     await module_committing_session.commit()
@@ -389,9 +387,7 @@ async def shared_synced_registry(
         )
 
     # Also sync to platform tables (executor queries platform tables for tracecat_registry)
-    platform_svc = PlatformRegistryReposService(
-        module_committing_session, role=module_test_role
-    )
+    platform_svc = PlatformRegistryReposService(module_committing_session)
     platform_repo = await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
     platform_sync_service = PlatformRegistrySyncService(module_committing_session)
     await platform_sync_service.sync_repository_v2(

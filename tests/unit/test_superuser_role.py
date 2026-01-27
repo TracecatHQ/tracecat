@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException, status
 
 from tracecat.auth.credentials import _require_superuser
-from tracecat.auth.types import AccessLevel
+from tracecat.auth.types import AccessLevel, PlatformRole
 from tracecat.db.models import User
 
 
@@ -13,16 +13,15 @@ async def test_require_superuser_allows_superuser() -> None:
     user = User(id=uuid.uuid4(), is_superuser=True)
     role = await _require_superuser(user=user)
 
+    # Verify PlatformRole is returned
+    assert isinstance(role, PlatformRole)
     assert role.type == "user"
     assert role.user_id == user.id
     assert role.access_level == AccessLevel.ADMIN
     assert role.service_id == "tracecat-api"
-    # Superuser roles are platform-level (PlatformRole), not org-scoped (Role)
-    # PlatformRole intentionally has no organization_id attribute
-    assert not hasattr(role, "organization_id")
+    # PlatformRole is always a platform superuser
     assert role.is_platform_superuser is True
-    # Note: _require_superuser does NOT set ctx_role because PlatformRole
-    # is intentionally separate from Role for platform admin operations
+    # Note: PlatformRole doesn't have organization_id - it's platform-scoped
 
 
 @pytest.mark.anyio
