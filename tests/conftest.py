@@ -36,7 +36,7 @@ from tracecat.db.engine import (
     get_async_session_context_manager,
     reset_async_engine,
 )
-from tracecat.db.models import Base, Workspace
+from tracecat.db.models import Base, Organization, Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -888,6 +888,7 @@ async def test_role(test_workspace, mock_org_id):
     service_role = Role(
         type="service",
         user_id=mock_org_id,
+        organization_id=mock_org_id,
         workspace_id=test_workspace.id,
         service_id="tracecat-runner",
     )
@@ -904,6 +905,7 @@ async def test_admin_role(test_workspace, mock_org_id):
     admin_role = Role(
         type="user",
         user_id=mock_org_id,
+        organization_id=mock_org_id,
         workspace_id=test_workspace.id,
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-runner",
@@ -916,12 +918,44 @@ async def test_admin_role(test_workspace, mock_org_id):
 
 
 @pytest.fixture(scope="function")
-async def test_workspace():
+async def test_organization(mock_org_id):
+    """Create or get a test organization for the test session."""
+    async with get_async_session_context_manager() as session:
+        # Check if organization exists
+        result = await session.execute(
+            select(Organization).where(Organization.id == mock_org_id)
+        )
+        org = result.scalar_one_or_none()
+        if org is None:
+            # Create test organization
+            org = Organization(
+                id=mock_org_id,
+                name="Test Organization",
+                slug=f"test-org-{mock_org_id.hex[:8]}",
+                is_active=True,
+            )
+            session.add(org)
+            await session.commit()
+            await session.refresh(org)
+            logger.debug("Created test organization", organization=org)
+        yield org
+
+
+@pytest.fixture(scope="function")
+async def test_workspace(test_organization, mock_org_id):
     """Create a test workspace for the test session."""
     ws_id = uuid.uuid4()
     workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
-    async with WorkspaceService.with_session(role=system_role()) as svc:
+    # Use a role with organization_id for the WorkspaceService
+    org_role = Role(
+        type="service",
+        service_id="tracecat-test",
+        organization_id=mock_org_id,
+        access_level=AccessLevel.ADMIN,
+    )
+
+    async with WorkspaceService.with_session(role=org_role) as svc:
         # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
