@@ -90,6 +90,7 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
         type="service",
         access_level=AccessLevel.ADMIN,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-runner",
     )
