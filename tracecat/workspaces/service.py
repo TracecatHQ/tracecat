@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from pydantic import UUID4
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
@@ -351,6 +351,10 @@ class WorkspaceService(BaseOrgService):
         This method validates the invitation, creates org membership if needed,
         creates the workspace membership, and updates the invitation status.
 
+        Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
+        conditions - the status check and update happen atomically in a single
+        database operation.
+
         Note: This method does not require workspace role checks as it's called
         by the user accepting their own invitation.
 
@@ -370,13 +374,8 @@ class WorkspaceService(BaseOrgService):
         if invitation is None:
             raise TracecatNotFoundError("Invitation not found")
 
-        # Validate invitation status
-        if invitation.status == InvitationStatus.ACCEPTED:
-            raise TracecatValidationError("Invitation has already been accepted")
-        if invitation.status == InvitationStatus.REVOKED:
-            raise TracecatValidationError("Invitation has been revoked")
+        # Check expiry before attempting atomic update
         if invitation.expires_at < datetime.now(UTC):
-            # Mark as expired if past expiry date
             raise TracecatValidationError("Invitation has expired")
 
         # Get the workspace to find the organization
@@ -410,6 +409,29 @@ class WorkspaceService(BaseOrgService):
         if result.scalar_one_or_none():
             raise TracecatValidationError("User is already a member of this workspace")
 
+        # Atomically update invitation status only if still PENDING.
+        # This prevents TOCTOU race conditions where an admin might revoke
+        # the invitation between our check and commit.
+        now = datetime.now(UTC)
+        update_result = await self.session.execute(
+            update(Invitation)
+            .where(
+                Invitation.id == invitation.id,
+                Invitation.status == InvitationStatus.PENDING,
+            )
+            .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
+        )
+
+        if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
+            # Status changed between fetch and update - re-fetch for accurate error
+            await self.session.refresh(invitation)
+            if invitation.status == InvitationStatus.ACCEPTED:
+                raise TracecatValidationError("Invitation has already been accepted")
+            if invitation.status == InvitationStatus.REVOKED:
+                raise TracecatValidationError("Invitation has been revoked")
+            # Shouldn't reach here, but handle gracefully
+            raise TracecatValidationError("Invitation is no longer valid")
+
         # Create workspace membership
         membership = Membership(
             user_id=user_id,
@@ -417,10 +439,6 @@ class WorkspaceService(BaseOrgService):
             role=invitation.role,
         )
         self.session.add(membership)
-
-        # Update invitation status
-        invitation.status = InvitationStatus.ACCEPTED
-        invitation.accepted_at = datetime.now(UTC)
 
         await self.session.commit()
         await self.session.refresh(membership)
