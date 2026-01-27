@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import AccessLevel, PlatformRole, Role
 from tracecat.auth.users import (
     current_active_user,
     is_unprivileged,
@@ -605,29 +605,71 @@ def RoleACL(
 
 async def _require_superuser(
     user: Annotated[User, Depends(current_active_user)],
-) -> Role:
+) -> PlatformRole:
     """Require superuser access for platform admin operations.
 
     This dependency is used for /admin routes that require platform-level access.
     Superusers can manage organizations, platform settings, and platform-level
     registry sync operations.
+
+    Returns a PlatformRole (not Role) to enforce type separation between
+    platform and org-scoped operations.
     """
     if not user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden",
         )
-    role = Role(
+    return PlatformRole(
         type="user",
         user_id=user.id,
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
-        is_platform_superuser=True,
-        # NOTE: Platform routes are not org/workspace-scoped.
-        # organization_id is intentionally left as None for superuser roles.
+    )
+
+
+SuperuserRole = Annotated[PlatformRole, Depends(_require_superuser)]
+"""Dependency for platform admin (superuser) operations.
+
+Returns a PlatformRole which is distinct from Role - platform operations
+are not scoped to any organization or workspace.
+"""
+
+
+# --- Authenticated User Only (No Organization Context) ---
+
+
+async def _authenticated_user_only(
+    user: Annotated[User, Depends(current_active_user)],
+) -> Role:
+    """Dependency for endpoints requiring only an authenticated user.
+
+    No organization context required. Use this for operations like:
+    - Accepting invitations (user may not belong to any org yet)
+    - User profile operations that don't require org context
+
+    Sets ctx_role for consistency but organization_id will be None.
+    """
+    access_level = (
+        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
+    )
+    role = Role(
+        type="user",
+        user_id=user.id,
+        access_level=access_level,
+        service_id="tracecat-api",
+        is_platform_superuser=user.is_superuser,
+        # organization_id intentionally None - user may not belong to any org
     )
     ctx_role.set(role)
     return role
 
 
-SuperuserRole = Annotated[Role, Depends(_require_superuser)]
+AuthenticatedUserOnly = Annotated[Role, Depends(_authenticated_user_only)]
+"""Dependency for an authenticated user without organization context.
+
+Use this for endpoints where the user is authenticated but may not
+belong to any organization (e.g., accepting invitations).
+
+Sets the `ctx_role` context variable.
+"""

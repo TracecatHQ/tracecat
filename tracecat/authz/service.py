@@ -4,9 +4,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Membership, User, Workspace
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
@@ -26,9 +29,18 @@ class MembershipWithOrg:
 
 
 class MembershipService(BaseService):
-    """Manage workspace memberships."""
+    """Manage workspace memberships.
+
+    This service optionally accepts a role for authorization-controlled methods
+    (like add/update/delete membership). Methods used during the auth flow
+    (like get_membership, list_user_memberships) don't require a role.
+    """
 
     service_name = "membership"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session)
+        self.role = role or ctx_role.get()
 
     async def list_memberships(self, workspace_id: WorkspaceID) -> Sequence[Membership]:
         """List all workspace memberships."""
