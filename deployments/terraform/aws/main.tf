@@ -46,16 +46,17 @@ module "eks" {
   rds_instance_class      = var.rds_instance_class
   rds_allocated_storage   = var.rds_allocated_storage
   rds_master_username     = var.rds_master_username
+  rds_snapshot_identifier = var.rds_snapshot_identifier
   rds_skip_final_snapshot = var.rds_skip_final_snapshot
   rds_deletion_protection = var.rds_deletion_protection
   rds_allow_vpc_cidr_fallback = var.rds_allow_vpc_cidr_fallback
   elasticache_node_type   = var.elasticache_node_type
 
   # Temporal Configuration
-  temporal_mode                          = var.temporal_mode
-  temporal_cloud_url                     = var.temporal_cloud_url
-  temporal_cloud_namespace               = var.temporal_cloud_namespace
-  temporal_cloud_api_key_secret_arn      = var.temporal_cloud_api_key_secret_arn
+  temporal_mode                       = var.temporal_mode
+  temporal_cluster_url                = var.temporal_cluster_url
+  temporal_cluster_namespace          = var.temporal_cluster_namespace
+  temporal_cluster_api_key_secret_arn = var.temporal_cluster_api_key_secret_arn
   external_secrets_namespace             = var.external_secrets_namespace
   external_secrets_service_account_name  = var.external_secrets_service_account_name
 

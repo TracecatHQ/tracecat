@@ -116,6 +116,12 @@ variable "rds_master_username" {
   default     = "tracecat"
 }
 
+variable "rds_snapshot_identifier" {
+  description = "Optional RDS snapshot identifier or ARN to restore from"
+  type        = string
+  default     = ""
+}
+
 variable "rds_skip_final_snapshot" {
   description = "Whether to skip the final RDS snapshot on deletion"
   type        = bool
@@ -142,7 +148,7 @@ variable "elasticache_node_type" {
 
 # Temporal Configuration
 variable "temporal_mode" {
-  description = "Temporal deployment mode: 'self-hosted' or 'cloud'"
+  description = "Temporal deployment mode: 'self-hosted' or external ('cloud')"
   type        = string
   default     = "self-hosted"
 
@@ -152,20 +158,20 @@ variable "temporal_mode" {
   }
 }
 
-variable "temporal_cloud_url" {
-  description = "Temporal Cloud cluster URL (host:port) - required when temporal_mode is 'cloud'"
+variable "temporal_cluster_url" {
+  description = "Temporal cluster URL (host:port) - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
 }
 
-variable "temporal_cloud_namespace" {
-  description = "Temporal Cloud namespace - required when temporal_mode is 'cloud'"
+variable "temporal_cluster_namespace" {
+  description = "Temporal cluster namespace - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
 }
 
-variable "temporal_cloud_api_key_secret_arn" {
-  description = "ARN of AWS Secrets Manager secret containing Temporal Cloud API key (plain text) - required when temporal_mode is 'cloud'"
+variable "temporal_cluster_api_key_secret_arn" {
+  description = "ARN of AWS Secrets Manager secret containing Temporal API key (plain text) - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
 }

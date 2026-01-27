@@ -525,7 +525,7 @@ resource "helm_release" "tracecat" {
     }
   }
 
-  # Temporal Cloud Configuration
+  # External Temporal cluster configuration
   dynamic "set" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
     content {
@@ -538,7 +538,7 @@ resource "helm_release" "tracecat" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
     content {
       name  = "externalTemporal.clusterUrl"
-      value = var.temporal_cloud_url
+      value = var.temporal_cluster_url
     }
   }
 
@@ -546,13 +546,13 @@ resource "helm_release" "tracecat" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
     content {
       name  = "externalTemporal.clusterNamespace"
-      value = var.temporal_cloud_namespace
+      value = var.temporal_cluster_namespace
     }
   }
 
-  # Temporal Cloud uses ESO for API key
+  # External cluster API key via ESO
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalSecrets.temporal.enabled"
       value = "true"
@@ -560,15 +560,15 @@ resource "helm_release" "tracecat" {
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalSecrets.temporal.secretArn"
-      value = var.temporal_cloud_api_key_secret_arn
+      value = var.temporal_cluster_api_key_secret_arn
     }
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"

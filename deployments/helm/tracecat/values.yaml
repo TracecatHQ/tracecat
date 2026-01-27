@@ -311,7 +311,6 @@ externalS3:
 externalTemporal:
   enabled: false
   clusterUrl: ""
-  clusterQueue: ""
   clusterNamespace: ""
   auth:
     existingSecret: null  # Contains `apiKey` (raw string)
