@@ -3112,6 +3112,10 @@ export const organizationGetInvitationToken = (
 /**
  * Accept Invitation
  * Accept an invitation and join the organization.
+ *
+ * This endpoint doesn't require organization context since the user
+ * may not belong to any organization yet. Uses AuthenticatedUserOnly
+ * which only requires an authenticated user (role.organization_id is None).
  * @param data The data for the request.
  * @param data.requestBody
  * @returns string Successful Response
