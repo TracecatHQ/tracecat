@@ -28,9 +28,10 @@ from tracecat.logger import logger
 JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 
 # Bridge listens on this address inside the sandbox
-# Use port 4100 to avoid conflict with LiteLLM proxy (typically on 4000)
+# Port 4000 matches the gateway port - when internet is enabled, SDK hits
+# gateway directly; when disabled, bridge proxies to gateway via Unix socket
 LLM_BRIDGE_HOST = "127.0.0.1"
-LLM_BRIDGE_PORT = 4100
+LLM_BRIDGE_PORT = 4000
 
 # Maximum request body size (10 MB) - prevents memory exhaustion
 MAX_BODY_SIZE = 10 * 1024 * 1024
