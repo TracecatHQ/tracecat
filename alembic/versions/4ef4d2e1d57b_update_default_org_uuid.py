@@ -55,12 +55,11 @@ def upgrade() -> None:
     # List of tables with organization_id foreign key
     fk_tables = [
         # Direct FK to organization.id
-        "organization_setting",
+        "organization_settings",
         "organization_membership",
         "organization_invitation",
         "organization_tier",
         "workspace",
-        "ownership",
         # Tables inheriting from OrganizationModel
         "organization_secret",
         "registry_repository",
