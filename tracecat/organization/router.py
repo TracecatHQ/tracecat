@@ -9,7 +9,7 @@ from tracecat.auth.credentials import OptionalUserDep, RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Organization, User
+from tracecat.db.models import Organization, OrganizationInvitation, User
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -256,6 +256,27 @@ async def revoke_invitation(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
+@router.get("/invitations/{invitation_id}/token")
+async def get_invitation_token(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+    invitation_id: UUID,
+) -> dict[str, str]:
+    """Get the token for a specific invitation (admin only).
+
+    This endpoint is used to generate shareable invitation links.
+    """
+    service = OrgService(session, role=role)
+    try:
+        invitation = await service.get_invitation(invitation_id)
+        return {"token": invitation.token}
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+
+
 @router.post("/invitations/accept")
 async def accept_invitation(
     *,
@@ -293,15 +314,14 @@ async def get_invitation_by_token(
     Returns organization name and inviter info for the acceptance page.
     If user is authenticated, also returns whether their email matches the invitation.
     """
-    # Create a minimal role for unauthenticated access
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        access_level=AccessLevel.BASIC,
-    )
-    service = OrgService(session, role=role)
+    # Query invitation directly without OrgService since we don't have org context yet
     try:
-        invitation = await service.get_invitation_by_token(token)
+        result = await session.execute(
+            select(OrganizationInvitation).where(OrganizationInvitation.token == token)
+        )
+        invitation = result.scalar_one_or_none()
+        if invitation is None:
+            raise TracecatNotFoundError("Invitation not found")
 
         # Fetch organization name
         org_result = await session.execute(
