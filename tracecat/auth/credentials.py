@@ -35,7 +35,7 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import OrganizationMembership, User
+from tracecat.db.models import Organization, OrganizationMembership, User
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -319,7 +319,20 @@ async def _role_dependency(
                 org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
                 if org_override:
                     try:
-                        organization_id = uuid.UUID(org_override)
+                        candidate_org_id = uuid.UUID(org_override)
+                        # Validate that the organization actually exists
+                        org_exists_stmt = select(Organization.id).where(
+                            Organization.id == candidate_org_id
+                        )
+                        org_exists_result = await session.execute(org_exists_stmt)
+                        if org_exists_result.scalar_one_or_none() is not None:
+                            organization_id = candidate_org_id
+                        else:
+                            logger.warning(
+                                "Organization from cookie does not exist",
+                                user_id=user.id,
+                                org_id=candidate_org_id,
+                            )
                     except ValueError:
                         logger.warning(
                             "Invalid org override cookie format",
@@ -327,7 +340,7 @@ async def _role_dependency(
                             org_override=org_override,
                         )
                 if organization_id is None:
-                    # No cookie or invalid cookie - prompt for org selection
+                    # No cookie, invalid cookie, or org doesn't exist - prompt for org selection
                     raise HTTPException(
                         status_code=status.HTTP_428_PRECONDITION_REQUIRED,
                         detail="Organization selection required",
