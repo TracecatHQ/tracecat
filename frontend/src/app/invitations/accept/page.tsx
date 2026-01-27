@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertCircle, CheckCircle2, Clock, UserPlus } from "lucide-react"
+import { AlertCircle, CheckCircle2, Clock, UserPlus, UserX } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -22,14 +22,15 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 
 function AcceptInvitationContent() {
   const searchParams = useSearchParams()
-  const token = searchParams.get("token")
+  const token = searchParams?.get("token") ?? null
   const router = useRouter()
   const queryClient = useQueryClient()
   const { user, userIsLoading } = useAuth()
+  const { logout } = useAuthActions()
 
   // Fetch invitation details
   const {
@@ -258,6 +259,52 @@ function AcceptInvitationContent() {
               Sign up
             </Link>
           </p>
+        </CardFooter>
+      </Card>
+    )
+  }
+
+  // User authenticated but email doesn't match
+  if (invitation.email_matches === false) {
+    return (
+      <Card className="w-full max-w-md">
+        <CardHeader className="items-center text-center">
+          <UserX className="mb-4 size-12 text-destructive" />
+          <CardTitle>Wrong account</CardTitle>
+          <CardDescription>
+            This invitation was sent to a different email address. Please sign
+            out and sign in with the correct account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border bg-muted/50 p-4">
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Organization</span>
+                <span className="font-medium">
+                  {invitation.organization_name}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Signed in as</span>
+                <span className="font-medium">{user.email}</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="flex-col gap-3">
+          <Button
+            className="w-full"
+            onClick={() => {
+              const returnUrl = `/invitations/accept?token=${token}`
+              logout(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
+            }}
+          >
+            Sign in with a different account
+          </Button>
+          <Button asChild variant="ghost" className="w-full">
+            <Link href="/workspaces">Go to workspaces</Link>
+          </Button>
         </CardFooter>
       </Card>
     )

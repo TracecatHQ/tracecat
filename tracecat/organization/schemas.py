@@ -69,6 +69,13 @@ class OrgInvitationReadMinimal(BaseModel):
     role: OrgRole
     status: InvitationStatus
     expires_at: datetime
+    email_matches: bool | None = None
+    """Whether the authenticated user's email matches the invitation.
+
+    - None: User is not authenticated
+    - True: User's email matches the invitation
+    - False: User's email does not match the invitation
+    """
 
 
 class OrgInvitationAccept(BaseModel):

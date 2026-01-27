@@ -7,7 +7,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 
 function SignUpContent() {
   const searchParams = useSearchParams()
-  const returnUrl = searchParams.get("returnUrl")
+  const returnUrl = searchParams?.get("returnUrl") ?? null
 
   return (
     <div className="flex size-full items-center justify-center">

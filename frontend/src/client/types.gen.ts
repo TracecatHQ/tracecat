@@ -3067,6 +3067,7 @@ export type OrgInvitationReadMinimal = {
   role: OrgRole
   status: InvitationStatus
   expires_at: string
+  email_matches?: boolean | null
 }
 
 export type OrgMemberRead = {

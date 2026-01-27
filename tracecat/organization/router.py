@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.credentials import OptionalUserDep, RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.dependencies import AsyncDBSession
@@ -286,10 +286,12 @@ async def get_invitation_by_token(
     *,
     session: AsyncDBSession,
     token: str,
+    user: OptionalUserDep = None,
 ) -> OrgInvitationReadMinimal:
     """Get minimal invitation details by token (public endpoint for UI).
 
     Returns organization name and inviter info for the acceptance page.
+    If user is authenticated, also returns whether their email matches the invitation.
     """
     # Create a minimal role for unauthenticated access
     role = Role(
@@ -324,6 +326,11 @@ async def get_invitation_by_token(
                     inviter_name = inviter.email
                 inviter_email = inviter.email
 
+        # Check if authenticated user's email matches the invitation (case-insensitive)
+        email_matches: bool | None = None
+        if user is not None:
+            email_matches = user.email.lower() == invitation.email.lower()
+
         return OrgInvitationReadMinimal(
             organization_id=invitation.organization_id,
             organization_name=org.name,
@@ -332,6 +339,7 @@ async def get_invitation_by_token(
             role=invitation.role,
             status=invitation.status,
             expires_at=invitation.expires_at,
+            email_matches=email_matches,
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

@@ -10,7 +10,7 @@ function SignInContent() {
   const { user, userIsLoading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const returnUrl = searchParams.get("returnUrl")
+  const returnUrl = searchParams?.get("returnUrl") ?? null
 
   useEffect(() => {
     if (user) {

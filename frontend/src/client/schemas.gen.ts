@@ -9303,6 +9303,17 @@ export const $OrgInvitationReadMinimal = {
       format: "date-time",
       title: "Expires At",
     },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
+    },
   },
   type: "object",
   required: [

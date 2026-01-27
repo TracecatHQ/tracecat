@@ -30,14 +30,17 @@ export function useAuthActions() {
     [queryClient]
   )
 
-  const logout = useCallback(async () => {
-    const logoutResponse = await authAuthDatabaseLogout()
-    await queryClient.invalidateQueries({
-      queryKey: ["auth"],
-    })
-    router.push("/sign-in")
-    return logoutResponse
-  }, [queryClient, router])
+  const logout = useCallback(
+    async (redirectUrl?: string) => {
+      const logoutResponse = await authAuthDatabaseLogout()
+      await queryClient.invalidateQueries({
+        queryKey: ["auth"],
+      })
+      router.push(redirectUrl ?? "/sign-in")
+      return logoutResponse
+    },
+    [queryClient, router]
+  )
 
   return {
     login,
