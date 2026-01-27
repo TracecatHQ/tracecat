@@ -1006,11 +1006,54 @@ async def db_session_with_repo(test_role):
 
 
 @pytest.fixture
-async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None]:
+async def svc_organization(session: AsyncSession) -> AsyncGenerator[Organization, None]:
+    """Service test fixture. Create an organization for service tests."""
+    # Check if organization exists
+    result = await session.execute(
+        select(Organization).where(Organization.id == TEST_ORG_ID)
+    )
+    org = result.scalar_one_or_none()
+    if org is None:
+        org = Organization(
+            id=TEST_ORG_ID,
+            name="Test Organization",
+            slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+        await session.commit()
+        await session.refresh(org)
+
+    # Also ensure the organization exists in the default engine
+    async with get_async_session_context_manager() as global_session:
+        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
+        result = await global_session.execute(
+            select(Organization).where(Organization.id == TEST_ORG_ID)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            global_session.add(
+                Organization(
+                    id=TEST_ORG_ID,
+                    name="Test Organization",
+                    slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
+                    is_active=True,
+                )
+            )
+            await global_session.commit()
+
+    yield org
+
+
+@pytest.fixture
+async def svc_workspace(
+    session: AsyncSession, svc_organization: Organization
+) -> AsyncGenerator[Workspace, None]:
     """Service test fixture. Create a function scoped test workspace."""
     workspace = Workspace(
         name="test-workspace",
-        organization_id=TEST_ORG_ID,
+        organization_id=svc_organization.id,
     )
     session.add(workspace)
     await session.commit()

@@ -20,17 +20,6 @@ async def service(session: AsyncSession, svc_role: Role) -> WorkspaceService:
     return WorkspaceService(session=session, role=svc_role)
 
 
-@pytest.fixture
-async def svc_workspace(session: AsyncSession) -> Workspace:
-    """Create a workspace for testing."""
-
-    workspace = Workspace(name="test-workspace", organization_id=uuid.uuid4())
-    session.add(workspace)
-    await session.commit()
-    await session.refresh(workspace)
-    return workspace
-
-
 @pytest.mark.anyio
 class TestWorkspaceService:
     """Test WorkspaceService methods."""
