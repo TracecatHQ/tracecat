@@ -28,6 +28,7 @@ import { CaseWorkflowTriggerButton } from "@/components/cases/case-panel-common"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
+  type AssigneeInfo,
   AssigneeSelect,
   PrioritySelect,
   SeveritySelect,
@@ -77,7 +78,6 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
-import type { UserDisplayInfo } from "@/lib/auth"
 import {
   useAddCaseTag,
   useCaseDurationDefinitions,
@@ -692,7 +692,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
-  const handleAssigneeChange = async (newAssignee?: UserDisplayInfo | null) => {
+  const handleAssigneeChange = async (newAssignee?: AssigneeInfo | null) => {
     const params: Partial<CaseUpdate> = {
       assignee_id: newAssignee?.id || null,
     }

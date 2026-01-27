@@ -45,11 +45,6 @@ export function UserHoverCard({
             <div className="flex items-center gap-2">
               <span className="text-base font-medium">{displayName}</span>
               <span className="text-muted-foreground">({username})</span>
-              {user.role && (
-                <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium capitalize text-primary">
-                  {user.role}
-                </span>
-              )}
             </div>
             <span className="text-xs text-muted-foreground">{user.email}</span>
           </div>
