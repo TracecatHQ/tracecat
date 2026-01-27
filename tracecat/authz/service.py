@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.db.models import Membership, OrganizationMembership, User, Workspace
+from tracecat.db.models import Membership, User, Workspace
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
@@ -39,18 +39,10 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List all workspace members with their organization roles."""
+        """List all workspace members with their workspace roles."""
         statement = (
-            select(User, Membership.role, OrganizationMembership.role)
+            select(User, Membership.role)
             .join(Membership, Membership.user_id == User.id)
-            .join(Workspace, Workspace.id == Membership.workspace_id)
-            .join(
-                OrganizationMembership,
-                and_(
-                    OrganizationMembership.user_id == User.id,
-                    OrganizationMembership.organization_id == Workspace.organization_id,
-                ),
-            )
             .where(Membership.workspace_id == workspace_id)
         )
         result = await self.session.execute(statement)
@@ -60,10 +52,9 @@ class MembershipService(BaseService):
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                org_role=org_role,
                 workspace_role=WorkspaceRole(ws_role),
             )
-            for user, ws_role, org_role in result.tuples().all()
+            for user, ws_role in result.tuples().all()
         ]
 
     async def get_membership(

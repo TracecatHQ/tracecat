@@ -5940,7 +5940,6 @@ export type WorkspaceMember = {
   first_name: string | null
   last_name: string | null
   email: string
-  org_role: OrgRole
   workspace_role: WorkspaceRole
 }
 

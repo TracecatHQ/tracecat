@@ -19048,22 +19048,12 @@ export const $WorkspaceMember = {
       format: "email",
       title: "Email",
     },
-    org_role: {
-      $ref: "#/components/schemas/OrgRole",
-    },
     workspace_role: {
       $ref: "#/components/schemas/WorkspaceRole",
     },
   },
   type: "object",
-  required: [
-    "user_id",
-    "first_name",
-    "last_name",
-    "email",
-    "org_role",
-    "workspace_role",
-  ],
+  required: ["user_id", "first_name", "last_name", "email", "workspace_role"],
   title: "WorkspaceMember",
 } as const
 
