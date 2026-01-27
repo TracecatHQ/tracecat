@@ -321,6 +321,10 @@ class DirectBackend(ExecutorBackend):
             List of tarball URIs in deterministic order (tracecat_registry first,
             then lexicographically by origin).
         """
+        # Ensure organization_id is set (workflows are always org-scoped)
+        if role.organization_id is None:
+            raise ValueError("organization_id is required for registry artifacts lookup")
+
         try:
             artifacts = await get_registry_artifacts_for_lock(
                 input.registry_lock.origins, role.organization_id

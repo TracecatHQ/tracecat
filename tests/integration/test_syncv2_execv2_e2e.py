@@ -835,6 +835,9 @@ class TestFailureScenarios:
         test_role: Role,
     ):
         """Verify registry lock resolution fails for non-existent version."""
+        # Ensure organization_id is set
+        assert test_role.organization_id is not None
+
         # Try to resolve non-existent version
         registry_lock = {"tracecat_registry": "nonexistent-version-12345"}
 

@@ -335,6 +335,29 @@ async def get_setting(
             case _:
                 return override_val
 
+    # If role has no organization_id, fetch the default org
+    if role is not None and role.organization_id is None:
+        from tracecat.api.common import get_default_organization_id
+        from tracecat.auth.types import Role as RoleClass
+
+        if session:
+            default_org_id = await get_default_organization_id(session)
+        else:
+            from tracecat.db.engine import get_async_session_context_manager
+
+            async with get_async_session_context_manager() as sess:
+                default_org_id = await get_default_organization_id(sess)
+
+        # Create a new role with the default org_id
+        role = RoleClass(
+            type=role.type,
+            access_level=role.access_level,
+            service_id=role.service_id,
+            user_id=role.user_id,
+            workspace_id=role.workspace_id,
+            organization_id=default_org_id,
+        )
+
     if session:
         service = SettingsService(session=session, role=role)
         setting = await service.get_org_setting(key)

@@ -693,6 +693,10 @@ async def execute_approved_tools_activity(
         denied_count=len(input.denied_tools),
     )
 
+    # Ensure organization_id is set (agent sessions are always org-scoped)
+    if input.role.organization_id is None:
+        raise ValueError("organization_id is required for agent tool execution")
+
     # Prefetch registry manifests into agent worker's cache for O(1) action resolution
     await registry_resolver.prefetch_lock(
         input.registry_lock, input.role.organization_id
