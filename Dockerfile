@@ -12,9 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libprotobuf-dev protobuf-compiler libnl-route-3-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --recurse-submodules \
-    https://github.com/google/nsjail.git /tmp/nsjail && \
+RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     cd /tmp/nsjail && git checkout "${NSJAIL_COMMIT}" && \
+    git submodule update --init --recursive && \
     make -j"$(nproc)" && \
     install -m 0755 nsjail /usr/local/bin/nsjail && \
     rm -rf /tmp/nsjail
