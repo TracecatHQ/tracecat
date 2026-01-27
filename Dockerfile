@@ -89,6 +89,11 @@ RUN mkdir -p /var/lib/tracecat/sandbox-rootfs/tmp \
         /var/lib/tracecat/sandbox-rootfs/home/sandbox && \
     chmod 1777 /var/lib/tracecat/sandbox-rootfs/tmp
 
+# Create apiuser for non-root runtime (required for pasta userspace networking)
+RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser && \
+    mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
+    chown -R apiuser:apiuser /home/apiuser
+
 WORKDIR /app
 
 # ====================
@@ -97,11 +102,6 @@ WORKDIR /app
 FROM base AS development
 
 ENV TMPDIR=/tmp TEMP=/tmp TMP=/tmp
-
-# Create apiuser (same as production for dev/prod parity)
-RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.local/bin && \
-    chown -R apiuser:apiuser /home/apiuser
 
 # Set sandbox cache permissions for apiuser
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
@@ -144,7 +144,7 @@ CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $P
 FROM development AS test
 
 # Install test dependencies
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --group dev
+RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --frozen --group dev
 
 CMD ["python", "-m", "pytest"]
 
@@ -154,11 +154,6 @@ CMD ["python", "-m", "pytest"]
 FROM base AS production
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-
-# Create apiuser
-RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
-    chown -R apiuser:apiuser /home/apiuser
 
 # Set sandbox cache permissions for apiuser
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \

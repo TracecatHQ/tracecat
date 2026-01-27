@@ -366,12 +366,11 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # DNS resolution: pasta provides DNS forwarding at the gateway IP when
-    # enable_dns: true. The sandbox rootfs has an empty /etc/resolv.conf,
-    # so we need to write one pointing to the pasta gateway.
+    # DNS resolution: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
+    # when enable_dns: true. Write resolv.conf to socket_dir (not job_dir) because
+    # job_dir is mounted read-write at /work inside the sandbox.
     if enable_internet_access:
-        # Create resolv.conf in the job directory and mount it
-        resolv_conf_path = job_dir / "resolv.conf"
+        resolv_conf_path = socket_dir / "resolv.conf"
         resolv_conf_path.write_text("nameserver 10.255.255.1\n")
         lines.extend(
             [
