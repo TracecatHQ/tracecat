@@ -49,6 +49,7 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
+    organization_id: UUID,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions.
 
@@ -102,7 +103,7 @@ async def create_manifest_for_actions(
 
     # Create RegistryVersion
     rv = RegistryVersion(
-        organization_id=uuid.uuid4(),
+        organization_id=organization_id,
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,
@@ -235,7 +236,7 @@ async def test_executor_can_run_udf_with_secrets(
 
         # Create manifest for the test actions
         registry_lock = await create_manifest_for_actions(
-            session, db_repo_id, [repo.get("testing.fetch_secret")]
+            session, db_repo_id, [repo.get("testing.fetch_secret")], test_role.organization_id
         )
 
         input = RunActionInput(
@@ -348,6 +349,7 @@ async def test_executor_can_run_template_action_with_secret(
             session,
             db_repo_id,
             [repo.get("testing.template_action"), repo.get("testing.fetch_secret")],
+            test_role.organization_id,
         )
 
         input = RunActionInput(
@@ -455,7 +457,7 @@ async def test_executor_can_run_template_action_with_oauth(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.oauth.oauth_test")]
+        session, db_repo_id, [repo.get("testing.oauth.oauth_test")], test_role.organization_id
     )
 
     # 5. Create and run the action
@@ -540,7 +542,7 @@ async def test_executor_can_run_udf_with_oauth(
 
     # Create manifest for the test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [repo.get("testing.fetch_oauth_token")]
+        session, db_repo_id, [repo.get("testing.fetch_oauth_token")], test_role.organization_id
     )
 
     # 4. Create and run the action
@@ -595,7 +597,7 @@ async def test_executor_can_run_udf_with_oauth_in_secret_expression(
     )
 
     # Create manifest for core actions
-    registry_lock = await create_manifest_for_actions(session, db_repo_id, [])
+    registry_lock = await create_manifest_for_actions(session, db_repo_id, [], test_role.organization_id)
 
     # 4. Create and run the action
     input = RunActionInput(
@@ -767,6 +769,7 @@ async def test_dispatcher(
         session,
         db_repo_id,
         [repo.get("testing.add_100"), repo.get("testing.add_nums")],
+        test_role.organization_id,
     )
 
     input = RunActionInput(
