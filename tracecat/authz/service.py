@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
@@ -39,12 +39,11 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List all workspace members."""
-        statement = select(User, Membership.role).where(
-            and_(
-                Membership.workspace_id == workspace_id,
-                Membership.user_id == User.id,
-            )
+        """List all workspace members with their workspace roles."""
+        statement = (
+            select(User, Membership.role)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.workspace_id == workspace_id)
         )
         result = await self.session.execute(statement)
         return [
@@ -53,7 +52,6 @@ class MembershipService(BaseService):
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                org_role=user.role,
                 workspace_role=WorkspaceRole(ws_role),
             )
             for user, ws_role in result.tuples().all()

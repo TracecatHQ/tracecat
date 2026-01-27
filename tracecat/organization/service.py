@@ -52,18 +52,19 @@ class OrgService(BaseOrgService):
     # === Manage members ===
 
     @require_access_level(AccessLevel.ADMIN)
-    async def list_members(self) -> Sequence[User]:
+    async def list_members(self) -> Sequence[tuple[User, OrgRole]]:
         """
-        Retrieve a list of all members in the organization.
+        Retrieve a list of all members in the organization with their roles.
 
         This method queries the database to obtain all user records
-        associated with the organization via OrganizationMembership.
+        associated with the organization via OrganizationMembership,
+        along with their organization role.
 
         Returns:
-            Sequence[User]: A sequence containing User objects of all
-            members in the organization.
+            Sequence[tuple[User, OrgRole]]: A sequence of tuples containing
+            User objects and their organization roles.
         """
-        statement = select(User).join(
+        statement = select(User, OrganizationMembership.role).join(
             OrganizationMembership,
             and_(
                 OrganizationMembership.user_id == User.id,
@@ -71,23 +72,23 @@ class OrgService(BaseOrgService):
             ),
         )
         result = await self.session.execute(statement)
-        return result.scalars().all()
+        return result.tuples().all()
 
     @require_access_level(AccessLevel.ADMIN)
-    async def get_member(self, user_id: UserID) -> User:
+    async def get_member(self, user_id: UserID) -> tuple[User, OrgRole]:
         """Retrieve a member of the organization by their user ID.
 
         Args:
             user_id (UserID): The unique identifier of the user.
 
         Returns:
-            User: The user object representing the member of the organization.
+            tuple[User, OrgRole]: The user object and their organization role.
 
         Raises:
             NoResultFound: If no user with the given ID exists in this organization.
         """
         statement = (
-            select(User)
+            select(User, OrganizationMembership.role)
             .join(
                 OrganizationMembership,
                 and_(
@@ -98,7 +99,7 @@ class OrgService(BaseOrgService):
             .where(cast(User.id, UUID) == user_id)
         )
         result = await self.session.execute(statement)
-        return result.scalar_one()
+        return result.tuples().one()
 
     @audit_log(resource_type="organization_member", action="delete")
     @require_access_level(AccessLevel.ADMIN)
@@ -116,7 +117,7 @@ class OrgService(BaseOrgService):
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
         """
-        user = await self.get_member(user_id)
+        user, _ = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
         async with self._manager() as user_manager:
@@ -124,7 +125,9 @@ class OrgService(BaseOrgService):
 
     @audit_log(resource_type="organization_member", action="update")
     @require_access_level(AccessLevel.ADMIN)
-    async def update_member(self, user_id: UserID, params: UserUpdate) -> User:
+    async def update_member(
+        self, user_id: UserID, params: UserUpdate
+    ) -> tuple[User, OrgRole]:
         """
         Update a member of the organization.
 
@@ -136,19 +139,19 @@ class OrgService(BaseOrgService):
             params (UserUpdate): The parameters containing the updated user information.
 
         Returns:
-            User: The updated user object representing the member of the organization.
+            tuple[User, OrgRole]: The updated user object and their organization role.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be updated.
         """
-        user = await self.get_member(user_id)
+        user, org_role = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot update superuser")
         async with self._manager() as user_manager:
             updated_user = await user_manager.update(
                 user_update=params, user=user, safe=True
             )
-        return updated_user
+        return updated_user, org_role
 
     @audit_log(resource_type="organization_member", action="create")
     async def add_member(

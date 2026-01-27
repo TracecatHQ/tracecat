@@ -1,23 +1,25 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import type { User } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
-interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
+export interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
   src?: string
   alt?: string
-  user?: User | null
+  email: string
+  firstName?: string | null
   fallbackClassName?: string
 }
+
 export default function UserAvatar({
   src,
   alt,
-  user,
+  email,
+  firstName,
   className,
   fallbackClassName,
 }: UserAvatarProps) {
-  const initials = user?.firstName
-    ? `${user.firstName[0]}`.toUpperCase()
-    : user?.email[0].toUpperCase()
+  const initials = firstName
+    ? `${firstName[0]}`.toUpperCase()
+    : email[0].toUpperCase()
   return (
     <Avatar className={cn("size-8", className)}>
       <AvatarImage src={src} alt={alt} />

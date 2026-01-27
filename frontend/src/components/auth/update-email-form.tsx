@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { UserRead, UserUpdate } from "@/client"
+import type { UserUpdate } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import type { User } from "@/lib/auth"
 import { useUserManager } from "@/lib/hooks"
 
 const updateEmailSchema = z.object({
@@ -23,7 +24,7 @@ const updateEmailSchema = z.object({
 })
 type UpdateEmail = z.infer<typeof updateEmailSchema>
 
-export function UpdateEmailForm({ user }: { user: UserRead }) {
+export function UpdateEmailForm({ user }: { user: User }) {
   const { updateCurrentUser, updateCurrentUserPending } = useUserManager()
   const methods = useForm<UpdateEmail>({
     resolver: zodResolver(updateEmailSchema),

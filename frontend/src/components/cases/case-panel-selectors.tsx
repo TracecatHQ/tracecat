@@ -5,7 +5,6 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
-  UserRead,
   WorkspaceMember,
 } from "@/client"
 import {
@@ -22,8 +21,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
-import { User } from "@/lib/auth"
+import { getDisplayName } from "@/lib/auth"
 import { cn, linearStyles } from "@/lib/utils"
+
+/**
+ * Minimal user info for display purposes (assignee selection).
+ */
+export interface AssigneeInfo {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
 
 // Color mappings for Linear-style display
 function getPriorityColor(priority: CasePriority): string {
@@ -204,9 +213,9 @@ export function SeveritySelect({
 export const UNASSIGNED = "__UNASSIGNED__" as const
 
 interface AssigneeSelectProps {
-  assignee?: UserRead | null
+  assignee?: AssigneeInfo | null
   workspaceMembers: WorkspaceMember[]
-  onValueChange: (assignee?: UserRead | null) => void
+  onValueChange: (assignee?: AssigneeInfo | null) => void
 }
 
 export function AssigneeSelect({
@@ -227,8 +236,6 @@ export function AssigneeSelect({
           onValueChange({
             id: user.user_id,
             email: user.email,
-            role: user.org_role,
-            settings: {},
             first_name: user.first_name,
             last_name: user.last_name,
           })
@@ -247,16 +254,8 @@ export function AssigneeSelect({
               <div className="flex items-center gap-1.5">
                 <UserAvatar
                   alt={assignee.first_name || assignee.email}
-                  user={
-                    new User({
-                      id: assignee.id,
-                      email: assignee.email,
-                      role: assignee.role,
-                      first_name: assignee.first_name,
-                      last_name: assignee.last_name,
-                      settings: assignee.settings || {},
-                    })
-                  }
+                  email={assignee.email}
+                  firstName={assignee.first_name}
                   className="size-5 text-xs text-foreground"
                 />
                 <span className="text-xs font-medium">
@@ -282,21 +281,15 @@ export function AssigneeSelect({
             No users available to assign
           </div>
         ) : (
-          workspaceMembers.map((member) => {
-            const user = new User({
-              id: member.user_id,
-              email: member.email,
-              role: member.org_role,
-              first_name: member.first_name,
-              last_name: member.last_name,
-              settings: {},
-            })
-            return (
-              <SelectItem key={user.id} value={user.id}>
-                <AssignedUser user={user} />
-              </SelectItem>
-            )
-          })
+          workspaceMembers.map((member) => (
+            <SelectItem key={member.user_id} value={member.user_id}>
+              <AssignedUser
+                email={member.email}
+                firstName={member.first_name}
+                lastName={member.last_name}
+              />
+            </SelectItem>
+          ))
         )}
       </SelectContent>
     </Select>
@@ -326,15 +319,21 @@ export function NoAssignee({
 }
 
 export function AssignedUser({
-  user,
+  email,
+  firstName,
+  lastName,
   className,
-  nameClassName,
 }: {
-  user: User
+  email: string
+  firstName?: string | null
+  lastName?: string | null
   className?: string
-  nameClassName?: string
 }) {
-  const displayName = user.getDisplayName()
+  const displayName = getDisplayName({
+    email,
+    first_name: firstName,
+    last_name: lastName,
+  })
   return (
     <div
       className={cn(
@@ -344,7 +343,8 @@ export function AssignedUser({
     >
       <UserAvatar
         alt={displayName}
-        user={user}
+        email={email}
+        firstName={firstName}
         className="size-4 text-foreground"
         fallbackClassName="text-[10px]"
       />

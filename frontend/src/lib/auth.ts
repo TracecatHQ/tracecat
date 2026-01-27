@@ -1,7 +1,6 @@
 import {
   ApiError,
   type UserRead,
-  type UserRole,
   usersUsersCurrentUser,
   type WorkspaceMembershipRead,
 } from "@/client"
@@ -56,6 +55,9 @@ export function getDisplayName(
   }
 }
 
+/**
+ * User class that wraps UserRead data for authorization checks.
+ */
 export class User {
   constructor(private user: UserRead) {}
 
@@ -67,10 +69,6 @@ export class User {
     return this.user.email
   }
 
-  get role(): UserRole {
-    return this.user.role
-  }
-
   get firstName(): string | null | undefined {
     return this.user.first_name
   }
@@ -80,19 +78,19 @@ export class User {
   }
 
   get settings(): Record<string, unknown> {
-    return this.user.settings
+    return this.user.settings ?? {}
   }
 
   get isSuperuser(): boolean {
-    return this.user.is_superuser || false
+    return this.user.is_superuser ?? false
   }
 
   get isActive(): boolean {
-    return this.user.is_active || false
+    return this.user.is_active ?? false
   }
 
   get isVerified(): boolean {
-    return this.user.is_verified || false
+    return this.user.is_verified ?? false
   }
 
   get unwrap(): UserRead {
@@ -107,7 +105,7 @@ export class User {
   }
 
   /**
-   * Returns true if the user is an organization admin.
+   * Returns true if the user is a platform admin.
    */
   isOrgAdmin(): boolean {
     return userIsOrgAdmin(this.user)

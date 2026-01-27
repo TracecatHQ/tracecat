@@ -72,13 +72,13 @@ async def list_org_members(
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=user.role,
+            role=org_role,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
-        for user in members
+        for user, org_role in members
     ]
 
 
@@ -117,13 +117,13 @@ async def update_org_member(
 ) -> OrgMemberRead:
     service = OrgService(session, role=role)
     try:
-        user = await service.update_member(user_id, params)
+        user, org_role = await service.update_member(user_id, params)
         return OrgMemberRead(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=user.role,
+            role=org_role,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,

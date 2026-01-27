@@ -21,7 +21,6 @@ import type {
   CaseSeverity,
   CaseUpdate,
   SqlType,
-  UserRead,
 } from "@/client"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
@@ -29,6 +28,7 @@ import { CaseWorkflowTriggerButton } from "@/components/cases/case-panel-common"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
+  type AssigneeInfo,
   AssigneeSelect,
   PrioritySelect,
   SeveritySelect,
@@ -692,7 +692,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
-  const handleAssigneeChange = async (newAssignee?: UserRead | null) => {
+  const handleAssigneeChange = async (newAssignee?: AssigneeInfo | null) => {
     const params: Partial<CaseUpdate> = {
       assignee_id: newAssignee?.id || null,
     }

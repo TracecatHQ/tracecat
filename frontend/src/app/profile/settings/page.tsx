@@ -45,14 +45,6 @@ export default function ProfileSettingsPage() {
                 </p>
                 <p className="text-sm">{user.email}</p>
               </div>
-              {user.isPrivileged() && (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Organization role
-                  </p>
-                  <p className="text-sm capitalize">{user.role}</p>
-                </div>
-              )}
             </div>
           </div>
         </div>
