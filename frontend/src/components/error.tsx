@@ -1,14 +1,16 @@
 "use client"
 
 import type { AxiosError } from "axios"
+import Cookies from "js-cookie"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 // Error components must be Client Components
 import { useEffect } from "react"
-import { ApiError } from "@/client"
+import { ApiError, type OrgRead } from "@/client"
 import { type AlertLevel, AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
+import { useAdminOrganizations } from "@/hooks/use-admin"
 
 type ErrorProps = Error & { digest?: string }
 
@@ -54,6 +56,77 @@ function GoHome() {
   )
 }
 
+function OrgSelector() {
+  const router = useRouter()
+  const { organizations, isLoading, error } = useAdminOrganizations()
+
+  const handleSelectOrg = (org: OrgRead) => {
+    Cookies.set("tracecat-org-id", org.id, { path: "/", sameSite: "lax" })
+    // Full page reload to ensure React Query refetches with new cookie
+    window.location.reload()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Loading organizations...
+      </div>
+    )
+  }
+
+  if (error || !organizations) {
+    return (
+      <Button
+        variant="outline"
+        onClick={() => router.replace("/admin/organizations")}
+      >
+        Go to organizations
+      </Button>
+    )
+  }
+
+  if (organizations.length === 0) {
+    return (
+      <div className="flex w-full flex-col items-center gap-4">
+        <div className="text-sm text-muted-foreground">
+          No organizations available
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => router.push("/admin/organizations")}
+        >
+          Go to admin
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-4">
+      <div className="flex w-full flex-col gap-2">
+        {organizations.map((org) => (
+          <Button
+            key={org.id}
+            variant="outline"
+            className="w-full justify-start"
+            onClick={() => handleSelectOrg(org)}
+          >
+            {org.name}
+          </Button>
+        ))}
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground"
+        onClick={() => router.push("/admin/organizations")}
+      >
+        Go to admin
+      </Button>
+    </div>
+  )
+}
+
 function unexpectedError(error: ErrorProps | AxiosError): CustomError {
   console.log("HANDLING ERROR", error)
   return {
@@ -93,6 +166,13 @@ function apiErrorHandler(error: ApiError): CustomError {
         level,
         message: "The resource you are looking for does not exist.",
         action: <GoHome />,
+      }
+    case 428:
+      return {
+        headline: "Organization selection required",
+        level: "info",
+        message: "Please select an organization to continue.",
+        action: <OrgSelector />,
       }
     case 503:
       return {
