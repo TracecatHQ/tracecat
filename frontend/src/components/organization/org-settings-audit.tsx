@@ -292,7 +292,15 @@ export function OrgSettingsAuditForm() {
         </CardContent>
       </Card>
 
-      <Dialog open={showNewApiKey} onOpenChange={setShowNewApiKey}>
+      <Dialog
+        open={showNewApiKey}
+        onOpenChange={(open) => {
+          setShowNewApiKey(open)
+          if (!open) {
+            setNewApiKey(null)
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>API key generated</DialogTitle>

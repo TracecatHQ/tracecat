@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
@@ -208,46 +209,22 @@ async def get_audit_settings(
     role: OrgAdminUserRole,
     session: AsyncDBSession,
 ) -> AuditSettingsRead:
-    from datetime import datetime
-
     service = SettingsService(session, role)
-    # Get base audit settings
-    keys = AuditSettingsRead.keys(
-        exclude={"audit_webhook_api_key_preview", "audit_webhook_api_key_created_at"}
-    )
+    keys = AuditSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
 
-    # Get API key related settings separately
-    api_key_preview_setting = await service.get_org_setting(
-        "audit_webhook_api_key_preview"
-    )
-    api_key_created_at_setting = await service.get_org_setting(
-        "audit_webhook_api_key_created_at"
-    )
-
-    api_key_preview = (
-        service.get_value(api_key_preview_setting) if api_key_preview_setting else None
-    )
-    api_key_created_at_str = (
-        service.get_value(api_key_created_at_setting)
-        if api_key_created_at_setting
-        else None
-    )
-
     # Parse created_at from ISO string to datetime
+    api_key_created_at_str = settings_dict.get("audit_webhook_api_key_created_at")
     api_key_created_at: datetime | None = None
     if api_key_created_at_str:
         try:
             api_key_created_at = datetime.fromisoformat(api_key_created_at_str)
         except (ValueError, TypeError):
             pass
+    settings_dict["audit_webhook_api_key_created_at"] = api_key_created_at
 
-    return AuditSettingsRead(
-        **settings_dict,
-        audit_webhook_api_key_preview=api_key_preview,
-        audit_webhook_api_key_created_at=api_key_created_at,
-    )
+    return AuditSettingsRead(**settings_dict)
 
 
 @router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)

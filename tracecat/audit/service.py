@@ -24,7 +24,8 @@ class AuditService(BaseOrgService):
         1. `AUDIT_WEBHOOK_URL` env var
         2. Organization setting `audit_webhook_url`
         """
-        from tracecat.settings.service import get_setting_cached  # noqa: PLC0415
+
+        from tracecat.settings.service import get_setting_cached
 
         value = await get_setting_cached("audit_webhook_url")
         if value is None:
@@ -41,10 +42,14 @@ class AuditService(BaseOrgService):
         return cleaned or None
 
     async def _get_api_key(self) -> str | None:
-        """Fetch the configured audit webhook API key."""
-        from tracecat.settings.service import get_setting_cached  # noqa: PLC0415
+        """Fetch the configured audit webhook API key.
 
-        value = await get_setting_cached("audit_webhook_api_key")
+        Note: Uses get_setting (uncached) to ensure key rotation/revocation
+        takes effect immediately.
+        """
+        from tracecat.settings.service import get_setting
+
+        value = await get_setting("audit_webhook_api_key", session=self.session)
         if value is None:
             return None
         if not isinstance(value, str):
