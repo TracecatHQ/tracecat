@@ -1,6 +1,13 @@
 "use client"
 
-import { BookText, ExternalLink, LogOut, ShieldIcon, User } from "lucide-react"
+import {
+  BookText,
+  ExternalLink,
+  LogOut,
+  ShieldCheckIcon,
+  ShieldIcon,
+  User,
+} from "lucide-react"
 import Link from "next/link"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
@@ -73,6 +80,20 @@ export function SidebarUserNav() {
                 </DropdownMenuItem>
               </Link>
             </DropdownMenuGroup>
+
+            {user?.isSuperuser && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <Link href="/admin" className="w-full">
+                    <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                      <ShieldCheckIcon className="mr-2 size-4" />
+                      <span>Admin</span>
+                    </DropdownMenuItem>
+                  </Link>
+                </DropdownMenuGroup>
+              </>
+            )}
 
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
