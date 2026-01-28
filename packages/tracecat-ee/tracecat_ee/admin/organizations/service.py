@@ -16,6 +16,7 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
 )
+from tracecat.organization.management import create_organization_with_defaults
 from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
@@ -40,21 +41,12 @@ class AdminOrgService(BasePlatformService):
         return OrgRead.list_adapter().validate_python(result.scalars().all())
 
     async def create_organization(self, params: OrgCreate) -> OrgRead:
-        """Create a new organization."""
-        org = Organization(
-            id=uuid.uuid4(),
+        """Create a new organization with default settings and workspace."""
+        org = await create_organization_with_defaults(
+            self.session,
             name=params.name,
             slug=params.slug,
         )
-        self.session.add(org)
-        try:
-            await self.session.commit()
-        except IntegrityError as e:
-            await self.session.rollback()
-            raise ValueError(
-                f"Organization with slug '{params.slug}' already exists"
-            ) from e
-        await self.session.refresh(org)
         return OrgRead.model_validate(org)
 
     async def get_organization(self, org_id: uuid.UUID) -> OrgRead:
