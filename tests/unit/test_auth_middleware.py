@@ -514,10 +514,11 @@ async def test_cache_size_limit():
 async def test_organization_id_populated_when_require_workspace_no(mocker):
     """Test that organization_id is inferred from membership when require_workspace="no"."""
 
-    # Create mock user
+    # Create mock user (non-superuser to avoid 428 org selection requirement)
     mock_user = MagicMock(spec=User)
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.ADMIN
+    mock_user.is_superuser = False
 
     # Create a mock organization for the user to belong to
     test_org_id = uuid.uuid4()
