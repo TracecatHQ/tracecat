@@ -5,12 +5,12 @@ import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
 import type { AgentSessionEntity } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import type { DateFilterValue, UseInboxFilters } from "@/hooks/use-inbox"
-import type { AgentSessionWithStatus } from "@/lib/agents"
+import type { InboxSessionItem } from "@/lib/agents"
 import { ActivityAccordion } from "./activity-accordion"
 import { InboxHeader } from "./inbox-header"
 
 interface ActivityLayoutProps {
-  sessions: AgentSessionWithStatus[]
+  sessions: InboxSessionItem[]
   selectedId: string | null
   onSelect: (id: string | null) => void
   isLoading: boolean

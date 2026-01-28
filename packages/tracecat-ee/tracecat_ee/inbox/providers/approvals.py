@@ -311,6 +311,8 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
 
             # Build metadata
             metadata: dict[str, Any] = {
+                "entity_type": session.entity_type,
+                "entity_id": str(session.entity_id) if session.entity_id else None,
                 "pending_count": pending_count,
                 "total_approvals": len(session_approvals),
                 "approvals": [
