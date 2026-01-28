@@ -76,7 +76,7 @@ class TestAddHostToKnownHosts:
         env = SshEnv(ssh_auth_sock="/tmp/sock", ssh_agent_pid="123")
         captured_cmd: list[list[str]] = []
 
-        def fake_run(cmd, capture_output, text, env, check):  # noqa: ANN001
+        def fake_run(cmd, capture_output, text, env, check, timeout=None):  # noqa: ANN001
             captured_cmd.append(cmd)
             return SimpleNamespace(
                 returncode=0,
