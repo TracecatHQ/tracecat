@@ -1,6 +1,5 @@
 "use client"
 
-import Cookies from "js-cookie"
 import {
   BotIcon,
   ChevronLeftIcon,
@@ -9,7 +8,6 @@ import {
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
-  LogOutIcon,
   LogsIcon,
   MailIcon,
   SendIcon,
@@ -18,10 +16,9 @@ import {
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import type * as React from "react"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
-import { Button } from "@/components/ui/button"
 import {
   Sidebar,
   SidebarContent,
@@ -35,28 +32,14 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/hooks/use-auth"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceManager } from "@/lib/hooks"
-
-const ORG_OVERRIDE_COOKIE = "tracecat-org-id"
 
 export function OrganizationSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const router = useRouter()
   const { isFeatureEnabled } = useFeatureFlag()
-  const { user } = useAuth()
-
-  // Check if superuser is in org override mode
-  const orgOverrideCookie = Cookies.get(ORG_OVERRIDE_COOKIE)
-  const isInOrgOverrideMode = user?.isSuperuser && !!orgOverrideCookie
-
-  const handleExitOrgContext = () => {
-    Cookies.remove(ORG_OVERRIDE_COOKIE, { path: "/" })
-    router.push("/admin/organizations")
-  }
 
   // Fetch workspaces for the sidebar
   const { workspaces } = useWorkspaceManager()
@@ -162,22 +145,6 @@ export function OrganizationSidebar({
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
-        {isInOrgOverrideMode && (
-          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2">
-            <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-              Viewing as admin
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-              onClick={handleExitOrgContext}
-            >
-              <LogOutIcon className="mr-1 size-3" />
-              Exit
-            </Button>
-          </div>
-        )}
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
