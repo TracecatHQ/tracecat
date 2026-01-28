@@ -68,7 +68,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
-from tracecat.exceptions import EntitlementRequired, TracecatException
+from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import (
     FeatureFlag,
     FlagLike,
@@ -274,6 +274,40 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
+def scope_denied_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle ScopeDeniedError exceptions with a 403 Forbidden response.
+
+    Returns a machine-readable error response with:
+    - code: "insufficient_scope"
+    - message: Human-readable error message
+    - required_scopes: Scopes that were required for the operation
+    - missing_scopes: Scopes that the user was missing
+    """
+    if not isinstance(exc, ScopeDeniedError):
+        return ORJSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": str(exc)},
+        )
+    logger.warning(
+        "Scope denied",
+        required_scopes=exc.required_scopes,
+        missing_scopes=exc.missing_scopes,
+        path=request.url.path,
+        role=ctx_role.get(),
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "error": {
+                "code": "insufficient_scope",
+                "message": str(exc),
+                "required_scopes": exc.required_scopes,
+                "missing_scopes": exc.missing_scopes,
+            }
+        },
+    )
+
+
 def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
     """Check if a feature flag is enabled."""
 
@@ -454,6 +488,7 @@ def create_app(**kwargs) -> FastAPI:
         fastapi_users_auth_exception_handler,
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
+    app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests

@@ -51,6 +51,33 @@ class TracecatAuthorizationError(TracecatException):
     """Tracecat user-facing authorization error"""
 
 
+class ScopeDeniedError(TracecatAuthorizationError):
+    """Raised when a user lacks required scopes for an operation.
+
+    This exception provides detailed information about which scopes were
+    required and which were missing, enabling proper 403 responses with
+    machine-readable error details.
+    """
+
+    def __init__(
+        self,
+        required_scopes: list[str],
+        missing_scopes: list[str],
+        message: str | None = None,
+    ):
+        self.required_scopes = required_scopes
+        self.missing_scopes = missing_scopes
+        default_message = "You don't have permission to perform this action."
+        super().__init__(
+            message or default_message,
+            detail={
+                "code": "insufficient_scope",
+                "required_scopes": required_scopes,
+                "missing_scopes": missing_scopes,
+            },
+        )
+
+
 class TracecatManagementError(TracecatException):
     """Tracecat user-facing management error"""
 
