@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { agentSessionsListSessions } from "@/client"
-import type { AgentSessionWithStatus } from "@/lib/agents"
+import type { InboxSessionItem } from "@/lib/agents"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import { InboxDetail } from "./inbox-detail"
 
 interface InboxChatProps {
-  session: AgentSessionWithStatus
+  session: InboxSessionItem
 }
 
 export function InboxChat({ session }: InboxChatProps) {

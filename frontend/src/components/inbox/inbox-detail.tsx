@@ -9,7 +9,7 @@ import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
-import type { AgentSessionWithStatus } from "@/lib/agents"
+import type { InboxSessionItem } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -17,7 +17,7 @@ interface InboxDetailProps {
   sessionId: string
   /** The original parent session ID - used for forking */
   parentSessionId: string
-  session: AgentSessionWithStatus
+  session: InboxSessionItem
   /** Called after successfully forking, passes the forked session ID and the message to send */
   onForked?: (forkedSessionId: string, pendingMessage: string) => void
   /** Message to send immediately (passed from parent after fork) */
