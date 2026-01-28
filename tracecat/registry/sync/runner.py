@@ -249,9 +249,14 @@ class RegistrySyncRunner:
             ssh_key_path.chmod(0o600)
 
             # Configure SSH to use the key
+            # BatchMode=yes prevents SSH from prompting for input (passphrase, etc.)
+            # which would cause the subprocess to hang indefinitely
             git_env["GIT_SSH_COMMAND"] = (
-                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no"
+                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o BatchMode=yes"
             )
+
+        # Timeout for git operations (clone, fetch, checkout)
+        git_timeout = 120  # 2 minutes
 
         try:
             # Clone the repository
@@ -262,7 +267,16 @@ class RegistrySyncRunner:
                 stderr=asyncio.subprocess.PIPE,
                 env=git_env,
             )
-            _, stderr = await process.communicate()
+            try:
+                _, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=git_timeout
+                )
+            except TimeoutError as e:
+                process.kill()
+                raise GitCloneError(
+                    f"Git clone timed out after {git_timeout}s. "
+                    "Check SSH key permissions and network connectivity."
+                ) from e
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
@@ -278,7 +292,16 @@ class RegistrySyncRunner:
                     cwd=str(clone_path),
                     env=git_env,
                 )
-                _, stderr = await process.communicate()
+                try:
+                    _, stderr = await asyncio.wait_for(
+                        process.communicate(), timeout=git_timeout
+                    )
+                except TimeoutError as e:
+                    process.kill()
+                    raise GitCloneError(
+                        f"Git fetch timed out after {git_timeout}s. "
+                        "Check SSH key permissions and network connectivity."
+                    ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
@@ -292,7 +315,15 @@ class RegistrySyncRunner:
                     cwd=str(clone_path),
                     env=git_env,
                 )
-                _, stderr = await process.communicate()
+                try:
+                    _, stderr = await asyncio.wait_for(
+                        process.communicate(), timeout=git_timeout
+                    )
+                except TimeoutError as e:
+                    process.kill()
+                    raise GitCloneError(
+                        f"Git checkout timed out after {git_timeout}s."
+                    ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
