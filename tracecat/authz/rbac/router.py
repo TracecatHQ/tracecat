@@ -166,7 +166,11 @@ async def list_roles(
     return RoleList(
         items=[
             RoleReadWithScopes(
-                **{k: v for k, v in r.__dict__.items() if not k.startswith("_")},
+                **{
+                    k: v
+                    for k, v in r.__dict__.items()
+                    if not k.startswith("_") and k != "scopes"
+                },
                 scopes=[ScopeRead.model_validate(s) for s in r.scopes],
             )
             for r in roles
