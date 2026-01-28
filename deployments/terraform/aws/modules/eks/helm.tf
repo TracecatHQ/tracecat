@@ -269,7 +269,7 @@ resource "helm_release" "tracecat" {
     value = "tracecat-redis-credentials"
   }
 
-  # External S3
+  # External S3 (uses IRSA - don't set endpoint to use default credential chain)
   set {
     name  = "externalS3.enabled"
     value = "true"
@@ -280,11 +280,6 @@ resource "helm_release" "tracecat" {
     value = local.aws_region
   }
 
-  # Explicit S3 endpoint to override image's default MinIO endpoint
-  set {
-    name  = "externalS3.endpoint"
-    value = "https://s3.${local.aws_region}.amazonaws.com"
-  }
 
   set {
     name  = "tracecat.blobStorage.buckets.attachments"
