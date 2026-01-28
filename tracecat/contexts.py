@@ -15,6 +15,7 @@ from tracecat.interactions.schemas import InteractionContext
 __all__ = [
     "ctx_run",
     "ctx_role",
+    "ctx_scopes",
     "ctx_logger",
     "ctx_interaction",
     "ctx_stream_id",
@@ -26,6 +27,8 @@ __all__ = [
 
 ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)
 ctx_role: ContextVar[Role | None] = ContextVar("role", default=None)
+ctx_scopes: ContextVar[frozenset[str]] = ContextVar("scopes", default=frozenset())
+"""Effective scopes for the current request. Computed during authentication."""
 ctx_logger: ContextVar[loguru.Logger | None] = ContextVar("logger", default=None)
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
