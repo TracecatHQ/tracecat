@@ -11,6 +11,7 @@ import tracecat_registry
 from packaging.version import Version
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.authz.seeding import seed_registry_scopes_bulk
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
@@ -154,6 +155,9 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 num_actions=result.num_actions,
                 attempt=attempt,
             )
+
+            # Seed registry scopes for the synced actions
+            await _seed_registry_scopes(session, result.actions)
             return
 
         except Exception as e:
@@ -167,3 +171,32 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
             await session.rollback()
             if attempt == MAX_SYNC_RETRIES:
                 raise
+
+
+async def _seed_registry_scopes(
+    session: AsyncSession,
+    actions: list,
+) -> None:
+    """Seed registry scopes for synced actions.
+
+    Creates `action:{action_key}:execute` scopes for each action.
+    Uses bulk upsert for efficiency.
+
+    Args:
+        session: Database session
+        actions: List of RegistryActionCreate objects from sync
+    """
+    if not actions:
+        return
+
+    # Extract action keys from the actions
+    action_keys = [f"{action.namespace}.{action.name}" for action in actions]
+
+    try:
+        inserted = await seed_registry_scopes_bulk(session, action_keys)
+        await session.commit()
+        logger.info("Registry scopes seeded", inserted=inserted, total=len(action_keys))
+    except Exception as e:
+        logger.warning("Failed to seed registry scopes", error=str(e))
+        # Don't fail the sync if scope seeding fails
+        await session.rollback()
