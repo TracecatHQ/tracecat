@@ -18,6 +18,10 @@ spec:
         app.kubernetes.io/component: agent-executor
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
+      {{- if .Values.reloader.enabled }}
+      annotations:
+        reloader.stakater.com/auto: "true"
+      {{- end }}
     spec:
       {{- if not .Values.tracecat.sandbox.disableNsjail }}
       # nsjail requires root to set up mount namespaces

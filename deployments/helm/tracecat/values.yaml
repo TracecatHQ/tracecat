@@ -333,3 +333,9 @@ externalTemporal:
     existingSecret: null  # Contains `apiKey` (raw string)
     # SecretString should be the raw API key.
     secretArn: null
+
+# Stakater Reloader annotations for automatic pod restart on secret changes.
+# When enabled, pods automatically restart when their referenced secrets are updated.
+# This is critical for handling AWS Secrets Manager rotation (e.g., RDS password rotation).
+reloader:
+  enabled: true
