@@ -505,6 +505,9 @@ class BaseRegistrySyncService[
             ssh_key=ssh_key,
             validate_actions=True,
             storage_namespace=self._get_storage_namespace(),
+            organization_id=self.role.organization_id
+            if isinstance(self.role, Role)
+            else None,
         )
 
         client = await get_temporal_client()

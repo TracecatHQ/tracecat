@@ -89,6 +89,10 @@ class RegistrySyncRequest(BaseModel):
             "Defaults to the deployment's default org ID when not provided."
         ),
     )
+    organization_id: UUID4 | None = Field(
+        default=None,
+        description="Organization ID for org-scoped operations (e.g., secrets access).",
+    )
 
 
 class RegistrySyncResult(BaseModel):

@@ -165,6 +165,7 @@ class RegistrySyncRunner:
                 origin=request.origin,
                 validate=request.validate_actions,
                 git_repo_package_name=request.git_repo_package_name,
+                organization_id=request.organization_id,
             )
 
             logger.info(
@@ -366,6 +367,7 @@ class RegistrySyncRunner:
         origin: str,
         validate: bool = False,
         git_repo_package_name: str | None = None,
+        organization_id: UUID | None = None,
     ) -> tuple[
         list[RegistryActionCreate], dict[str, list[RegistryActionValidationErrorInfo]]
     ]:
@@ -395,6 +397,7 @@ class RegistrySyncRunner:
                 validate=validate,
                 git_repo_package_name=git_repo_package_name,
                 timeout=float(self.discover_timeout),
+                organization_id=organization_id,
             )
             return result.actions, result.validation_errors
         except Exception as e:
