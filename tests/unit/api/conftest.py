@@ -34,11 +34,6 @@ from tracecat.tables.router import (
     WorkspaceUser as TablesWorkspaceUser,
 )
 from tracecat.workspaces.router import (
-    OrgAdminUser as WorkspacesOrgAdminUser,
-)
-from tracecat.workspaces.router import (
-    OrgUser,
-    WorkspaceAdminUserInPath,
     WorkspaceUserInPath,
 )
 
@@ -65,13 +60,10 @@ def client() -> Generator[TestClient, None, None]:
         ExecutorWorkspaceRole,
         WorkspaceUser,
         WorkspaceUserInPath,
-        WorkspaceAdminUserInPath,
         SuperuserRole,
         AuthenticatedUserOnly,
         OrganizationUserRole,
         OrganizationAdminUserRole,
-        OrgUser,
-        WorkspacesOrgAdminUser,
         SecretsWorkspaceUser,
         WorkspaceAdminUser,
         OrgAdminUser,

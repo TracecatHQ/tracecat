@@ -26,6 +26,8 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
         "schedule:read",
         "agent:read",
         "secret:read",
+        "tag:read",
+        "variable:read",
         "workspace:read",
         "workspace:member:read",
     }
@@ -45,6 +47,10 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "agent:execute",
         "secret:create",
         "secret:update",
+        "tag:create",
+        "tag:update",
+        "variable:create",
+        "variable:update",
         # Core actions available to editors
         "action:core.*:execute",
     }
@@ -57,6 +63,8 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "table:delete",
         "schedule:delete",
         "secret:delete",
+        "tag:delete",
+        "variable:delete",
         "agent:create",
         "agent:update",
         "agent:delete",
@@ -94,6 +102,9 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         # RBAC management
         "org:rbac:read",
         "org:rbac:manage",
+        # Org settings management
+        "org:settings:read",
+        "org:settings:manage",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -117,6 +128,14 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "table:create",
         "table:update",
         "table:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -150,6 +169,9 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         # RBAC management
         "org:rbac:read",
         "org:rbac:manage",
+        # Org settings management
+        "org:settings:read",
+        "org:settings:manage",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -173,6 +195,14 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "table:create",
         "table:update",
         "table:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",

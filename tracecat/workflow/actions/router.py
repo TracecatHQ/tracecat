@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/actions", tags=["actions"])
 
 
 @router.post("/batch-positions", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("workflow:update")
 async def batch_update_positions(
     role: WorkspaceUserRole,
     workflow_id: AnyWorkflowIDPath,
@@ -47,6 +49,7 @@ async def batch_update_positions(
 
 
 @router.get("")
+@require_scope("workflow:read")
 async def list_actions(
     role: WorkspaceUserRole,
     workflow_id: AnyWorkflowIDPath,
@@ -70,6 +73,7 @@ async def list_actions(
 
 
 @router.post("")
+@require_scope("workflow:create")
 async def create_action(
     role: WorkspaceUserRole,
     params: ActionCreate,
@@ -101,6 +105,7 @@ async def create_action(
 
 
 @router.get("/{action_id}")
+@require_scope("workflow:read")
 async def get_action(
     role: WorkspaceUserRole,
     action_id: AnyActionIDPath,
@@ -170,6 +175,7 @@ async def get_action(
 
 
 @router.post("/{action_id}")
+@require_scope("workflow:update")
 async def update_action(
     role: WorkspaceUserRole,
     action_id: AnyActionIDPath,
@@ -190,6 +196,7 @@ async def update_action(
 
 
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("workflow:delete")
 async def delete_action(
     role: WorkspaceUserRole,
     action_id: AnyActionIDPath,
