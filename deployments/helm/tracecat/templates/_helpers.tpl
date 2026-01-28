@@ -450,6 +450,10 @@ Blob storage environment variables
 - name: TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
   value: {{ .Values.tracecat.blobStorage.buckets.registry | quote }}
 {{- end }}
+{{- if .Values.tracecat.blobStorage.buckets.workflow }}
+- name: TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+  value: {{ .Values.tracecat.blobStorage.buckets.workflow | quote }}
+{{- end }}
 {{- if .Values.minio.enabled }}
 {{- /* Use MinIO credentials from the MinIO secret */}}
 {{- $minioSecret := .Values.minio.auth.existingSecret | default .Values.minio.fullnameOverride | default (printf "%s-minio" .Release.Name) }}

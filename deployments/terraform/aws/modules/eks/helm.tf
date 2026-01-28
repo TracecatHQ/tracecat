@@ -291,6 +291,11 @@ resource "helm_release" "tracecat" {
     value = local.s3_registry_bucket
   }
 
+  set {
+    name  = "tracecat.blobStorage.buckets.workflow"
+    value = local.s3_workflow_bucket
+  }
+
   # Temporal Configuration
   set {
     name  = "temporal.enabled"
