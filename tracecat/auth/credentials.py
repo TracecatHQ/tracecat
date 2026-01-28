@@ -37,7 +37,7 @@ from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import OrganizationMembership, User, Workspace
+from tracecat.db.models import Organization, OrganizationMembership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -326,24 +326,43 @@ async def _role_dependency(
             workspace_role = membership_with_org.membership.role
             organization_id = membership_with_org.org_id
         else:
-            # No workspace specified; infer org from memberships when possible.
+            # No workspace specified; determine org context
             workspace_role = None
             organization_id: UUID4 | None = None
 
-            # Superusers can override org via cookie
-            org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
-            if org_override and user.is_superuser:
-                try:
-                    organization_id = uuid.UUID(org_override)
-                except ValueError:
-                    logger.warning(
-                        "Invalid org override cookie, falling back to membership",
-                        user_id=user.id,
-                        org_override=org_override,
+            if user.is_superuser:
+                # Superusers must explicitly select an organization via cookie
+                org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
+                if org_override:
+                    try:
+                        candidate_org_id = uuid.UUID(org_override)
+                        # Validate that the organization actually exists
+                        org_exists_stmt = select(Organization.id).where(
+                            Organization.id == candidate_org_id
+                        )
+                        org_exists_result = await session.execute(org_exists_stmt)
+                        if org_exists_result.scalar_one_or_none() is not None:
+                            organization_id = candidate_org_id
+                        else:
+                            logger.warning(
+                                "Organization from cookie does not exist",
+                                user_id=user.id,
+                                org_id=candidate_org_id,
+                            )
+                    except ValueError:
+                        logger.warning(
+                            "Invalid org override cookie format",
+                            user_id=user.id,
+                            org_override=org_override,
+                        )
+                if organization_id is None:
+                    # No cookie, invalid cookie, or org doesn't exist - prompt for org selection
+                    raise HTTPException(
+                        status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+                        detail="Organization selection required",
                     )
-
-            # If no override applied, infer from memberships
-            if organization_id is None:
+            else:
+                # Regular users: infer org from memberships
                 svc = MembershipService(session)
                 memberships_with_org = await svc.list_user_memberships_with_org(
                     user_id=user.id

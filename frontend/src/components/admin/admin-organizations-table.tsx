@@ -3,7 +3,6 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import Cookies from "js-cookie"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { OrgRead } from "@/client"
 import {
@@ -36,7 +35,6 @@ import { useAdminOrganizations } from "@/hooks/use-admin"
 export function AdminOrganizationsTable() {
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const { organizations, deleteOrganization } = useAdminOrganizations()
-  const router = useRouter()
 
   const handleDeleteOrganization = async () => {
     if (selectedOrg) {
@@ -51,8 +49,12 @@ export function AdminOrganizationsTable() {
   }
 
   const handleEnterOrganization = (orgId: string) => {
+    // Set the org override cookie
     Cookies.set("tracecat-org-id", orgId, { path: "/", sameSite: "lax" })
-    router.push("/organization/invitations")
+    // Clear the last-viewed workspace cookie to avoid redirecting to a workspace from another org
+    Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
+    // Force a full page reload to clear React Query cache
+    window.location.href = "/workspaces"
   }
 
   return (

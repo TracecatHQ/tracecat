@@ -750,6 +750,7 @@ export function useWorkspaceManager() {
     queryKey: ["workspaces"],
     queryFn: async () => await workspacesListWorkspaces(),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: retryHandler,
   })
 
   // Create workspace
