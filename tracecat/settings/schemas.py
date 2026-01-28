@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -165,6 +166,8 @@ class AuditSettingsRead(BaseSettingsGroup):
     """Settings for audit logging."""
 
     audit_webhook_url: str | None
+    audit_webhook_api_key_preview: str | None = None
+    audit_webhook_api_key_created_at: datetime | None = None
 
 
 class AuditSettingsUpdate(BaseSettingsGroup):
@@ -174,6 +177,14 @@ class AuditSettingsUpdate(BaseSettingsGroup):
         default=None,
         description="Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
     )
+
+
+class AuditApiKeyGenerateResponse(BaseModel):
+    """Response when generating a new audit webhook API key."""
+
+    api_key: str = Field(description="The raw API key. Shown only once.")
+    preview: str = Field(description="A preview of the key (e.g., tc_ak_...XXXX)")
+    created_at: datetime = Field(description="When the key was created")
 
 
 class AgentSettingsRead(BaseSettingsGroup):

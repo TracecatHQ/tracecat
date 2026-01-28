@@ -2798,6 +2798,31 @@ distinguish multiple files.`,
   title: "AudioUrl",
 } as const
 
+export const $AuditApiKeyGenerateResponse = {
+  properties: {
+    api_key: {
+      type: "string",
+      title: "Api Key",
+      description: "The raw API key. Shown only once.",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+      description: "A preview of the key (e.g., tc_ak_...XXXX)",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the key was created",
+    },
+  },
+  type: "object",
+  required: ["api_key", "preview", "created_at"],
+  title: "AuditApiKeyGenerateResponse",
+  description: "Response when generating a new audit webhook API key.",
+} as const
+
 export const $AuditSettingsRead = {
   properties: {
     audit_webhook_url: {
@@ -2810,6 +2835,29 @@ export const $AuditSettingsRead = {
         },
       ],
       title: "Audit Webhook Url",
+    },
+    audit_webhook_api_key_preview: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Api Key Preview",
+    },
+    audit_webhook_api_key_created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Api Key Created At",
     },
   },
   type: "object",

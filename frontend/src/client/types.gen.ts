@@ -726,10 +726,30 @@ export type AudioUrl = {
 }
 
 /**
+ * Response when generating a new audit webhook API key.
+ */
+export type AuditApiKeyGenerateResponse = {
+  /**
+   * The raw API key. Shown only once.
+   */
+  api_key: string
+  /**
+   * A preview of the key (e.g., tc_ak_...XXXX)
+   */
+  preview: string
+  /**
+   * When the key was created
+   */
+  created_at: string
+}
+
+/**
  * Settings for audit logging.
  */
 export type AuditSettingsRead = {
   audit_webhook_url: string | null
+  audit_webhook_api_key_preview?: string | null
+  audit_webhook_api_key_created_at?: string | null
 }
 
 /**
@@ -7427,6 +7447,10 @@ export type SettingsUpdateAuditSettingsData = {
 
 export type SettingsUpdateAuditSettingsResponse = void
 
+export type SettingsGenerateAuditApiKeyResponse = AuditApiKeyGenerateResponse
+
+export type SettingsRevokeAuditApiKeyResponse = void
+
 export type SettingsGetAgentSettingsResponse = AgentSettingsRead
 
 export type SettingsUpdateAgentSettingsData = {
@@ -10829,6 +10853,24 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/audit/api-key": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditApiKeyGenerateResponse
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
       }
     }
   }

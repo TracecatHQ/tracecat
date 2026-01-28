@@ -24,7 +24,8 @@ class AuditService(BaseOrgService):
         1. `AUDIT_WEBHOOK_URL` env var
         2. Organization setting `audit_webhook_url`
         """
-        from tracecat.settings.service import get_setting_cached  # noqa: PLC0415
+
+        from tracecat.settings.service import get_setting_cached
 
         value = await get_setting_cached("audit_webhook_url")
         if value is None:
@@ -40,12 +41,41 @@ class AuditService(BaseOrgService):
         cleaned = value.strip()
         return cleaned or None
 
+    async def _get_api_key(self) -> str | None:
+        """Fetch the configured audit webhook API key.
+
+        Note: Uses get_setting (uncached) to ensure key rotation/revocation
+        takes effect immediately.
+        """
+        from tracecat.settings.service import get_setting
+
+        value = await get_setting("audit_webhook_api_key", session=self.session)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            self.logger.warning(
+                "audit_webhook_api_key must be a string",
+                value_type=type(value),
+            )
+            return None
+
+        cleaned = value.strip()
+        return cleaned or None
+
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
         response: httpx.Response | None = None
         try:
+            # Build headers with optional API key authentication
+            headers: dict[str, str] = {}
+            api_key = await self._get_api_key()
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
-                    webhook_url, json=payload.model_dump(mode="json")
+                    webhook_url,
+                    json=payload.model_dump(mode="json"),
+                    headers=headers if headers else None,
                 )
                 response.raise_for_status()
         except Exception as exc:
