@@ -16,7 +16,7 @@ secrets:
 # When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
 externalSecrets:
   enabled: false
-  refreshInterval: "1h"
+  refreshInterval: "1m"
 
   # Reference to an existing ClusterSecretStore (recommended for AWS with IRSA)
   clusterSecretStoreRef: ""

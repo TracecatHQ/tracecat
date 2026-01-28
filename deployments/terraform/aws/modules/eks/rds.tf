@@ -174,5 +174,5 @@ EOF
     EOT
   }
 
-  depends_on = [aws_db_instance.tracecat, null_resource.postgres_credentials_external_secret, null_resource.tracecat_postgres_sg_policy, kubernetes_namespace.tracecat]
+  depends_on = [aws_db_instance.tracecat, null_resource.tracecat_postgres_sg_policy, kubernetes_namespace.tracecat]
 }
