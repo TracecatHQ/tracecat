@@ -32,6 +32,7 @@ from tracecat.auth.users import (
     optional_current_active_user,
 )
 from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.rbac.service import RBACService
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
@@ -662,6 +663,20 @@ async def _validate_role(
         scope_count=len(scopes),
     )
 
+        async with RBACService.with_session(role, session=session) as rbac_svc:
+            group_scopes = await rbac_svc.get_group_scopes(
+                role.user_id,
+                workspace_id=role.workspace_id,
+            )
+            user_role_scopes = await rbac_svc.get_user_role_scopes(
+                role.user_id,
+                workspace_id=role.workspace_id,
+            )
+
+    # Compute and set effective scopes
+    scopes = compute_effective_scopes(
+        role, group_scopes=group_scopes, user_role_scopes=user_role_scopes
+    )
     return role.model_copy(update={"scopes": scopes})
 
 

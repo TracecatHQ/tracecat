@@ -30,6 +30,13 @@ AuditResourceType = Literal[
     "organization_session",
     "organization_invitation",
     "workspace_invitation",
+    # RBAC resources
+    "rbac_scope",
+    "rbac_role",
+    "rbac_group",
+    "rbac_group_member",
+    "rbac_assignment",
+    "rbac_user_assignment",
 ]
 
 

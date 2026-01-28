@@ -2737,6 +2737,130 @@ export type GraphResponse = {
   }
 }
 
+/**
+ * Create schema for a group assignment.
+ */
+export type GroupAssignmentCreate = {
+  /**
+   * Group ID to assign
+   */
+  group_id: string
+  /**
+   * Role ID to assign to the group
+   */
+  role_id: string
+  /**
+   * Workspace ID for workspace-level assignment. If None, creates org-wide assignment.
+   */
+  workspace_id?: string | null
+}
+
+/**
+ * Response schema for listing group assignments.
+ */
+export type GroupAssignmentList = {
+  items: Array<GroupAssignmentReadWithDetails>
+  total: number
+}
+
+/**
+ * Read schema for a group assignment with group and role details.
+ */
+export type GroupAssignmentReadWithDetails = {
+  id: string
+  organization_id: string
+  group_id: string
+  workspace_id?: string | null
+  role_id: string
+  assigned_at: string
+  assigned_by?: string | null
+  group_name: string
+  role_name: string
+  workspace_name?: string | null
+}
+
+/**
+ * Update schema for a group assignment (change role only).
+ */
+export type GroupAssignmentUpdate = {
+  /**
+   * New role ID to assign
+   */
+  role_id: string
+}
+
+/**
+ * Create schema for a group.
+ */
+export type GroupCreate = {
+  /**
+   * Group name
+   */
+  name: string
+  /**
+   * Optional description of the group
+   */
+  description?: string | null
+}
+
+/**
+ * Response schema for listing groups.
+ */
+export type GroupList = {
+  items: Array<GroupReadWithMembers>
+  total: number
+}
+
+/**
+ * Schema for adding a member to a group.
+ */
+export type GroupMemberAdd = {
+  /**
+   * User ID to add to the group
+   */
+  user_id: string
+}
+
+/**
+ * Read schema for a group member.
+ */
+export type GroupMemberRead = {
+  user_id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+  added_at: string
+}
+
+/**
+ * Read schema for a group with its members.
+ */
+export type GroupReadWithMembers = {
+  id: string
+  name: string
+  description?: string | null
+  organization_id: string
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  members?: Array<GroupMemberRead>
+  member_count?: number
+}
+
+/**
+ * Update schema for a group.
+ */
+export type GroupUpdate = {
+  /**
+   * Group name
+   */
+  name?: string | null
+  /**
+   * Optional description of the group
+   */
+  description?: string | null
+}
+
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
@@ -4362,6 +4486,69 @@ export type service_id =
   | "tracecat-ui"
 
 /**
+ * Create schema for a custom role.
+ */
+export type RoleCreate = {
+  /**
+   * Role name
+   */
+  name: string
+  /**
+   * Optional description of the role
+   */
+  description?: string | null
+  /**
+   * List of scope IDs to assign to the role
+   */
+  scope_ids?: Array<string>
+}
+
+/**
+ * Response schema for listing roles.
+ */
+export type RoleList = {
+  items: Array<RoleReadWithScopes>
+  total: number
+}
+
+/**
+ * Read schema for a role with its scopes.
+ */
+export type RoleReadWithScopes = {
+  id: string
+  name: string
+  slug?: string | null
+  description?: string | null
+  organization_id: string
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  scopes?: Array<ScopeRead>
+  /**
+   * Whether this is a system role (admin, editor, viewer).
+   */
+  readonly is_system: boolean
+}
+
+/**
+ * Update schema for a role.
+ */
+export type RoleUpdate = {
+  /**
+   * Role name
+   */
+  name?: string | null
+  /**
+   * Optional description of the role
+   */
+  description?: string | null
+  /**
+   * List of scope IDs to assign to the role (replaces existing)
+   */
+  scope_ids?: Array<string> | null
+}
+
+/**
  * This object contains all the information needed to execute an action.
  */
 export type RunActionInput = {
@@ -4497,6 +4684,49 @@ export type ScheduleUpdate = {
   end_at?: string | null
   status?: "online" | "offline" | null
 }
+
+/**
+ * Create schema for a custom scope.
+ */
+export type ScopeCreate = {
+  /**
+   * Scope name in format resource:action (e.g., 'custom:read')
+   */
+  name: string
+  /**
+   * Optional description of the scope
+   */
+  description?: string | null
+}
+
+/**
+ * Response schema for listing scopes.
+ */
+export type ScopeList = {
+  items: Array<ScopeRead>
+  total: number
+}
+
+/**
+ * Read schema for a scope.
+ */
+export type ScopeRead = {
+  id: string
+  name: string
+  resource: string
+  action: string
+  description?: string | null
+  source: ScopeSource
+  source_ref?: string | null
+  organization_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Source of a scope definition.
+ */
+export type ScopeSource = "system" | "registry" | "custom"
 
 /**
  * Create a new secret.
@@ -5636,6 +5866,84 @@ export type UserRead = {
 }
 
 export type UserRole = "basic" | "admin"
+
+/**
+ * Create schema for a user role assignment.
+ */
+export type UserRoleAssignmentCreate = {
+  /**
+   * User ID to assign role to
+   */
+  user_id: string
+  /**
+   * Role ID to assign to the user
+   */
+  role_id: string
+  /**
+   * Workspace ID for workspace-level assignment. If None, creates org-wide assignment.
+   */
+  workspace_id?: string | null
+}
+
+/**
+ * Response schema for listing user role assignments.
+ */
+export type UserRoleAssignmentList = {
+  items: Array<UserRoleAssignmentReadWithDetails>
+  total: number
+}
+
+/**
+ * Read schema for a user role assignment with user and role details.
+ */
+export type UserRoleAssignmentReadWithDetails = {
+  id: string
+  organization_id: string
+  user_id: string
+  workspace_id?: string | null
+  role_id: string
+  assigned_at: string
+  assigned_by?: string | null
+  user_email: string
+  role_name: string
+  workspace_name?: string | null
+}
+
+/**
+ * Update schema for a user role assignment (change role only).
+ */
+export type UserRoleAssignmentUpdate = {
+  /**
+   * New role ID to assign
+   */
+  role_id: string
+}
+
+/**
+ * Read schema for a user's effective scopes.
+ */
+export type UserScopesRead = {
+  /**
+   * List of effective scope strings for the user
+   */
+  scopes: Array<string>
+  /**
+   * Scopes from organization role
+   */
+  org_role_scopes?: Array<string>
+  /**
+   * Scopes from workspace role
+   */
+  workspace_role_scopes?: Array<string>
+  /**
+   * Scopes from group memberships
+   */
+  group_scopes?: Array<string>
+  /**
+   * Scopes from direct user role assignments
+   */
+  user_role_scopes?: Array<string>
+}
 
 export type UserUpdate = {
   password?: string | null
@@ -8961,6 +9269,185 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
+
+export type RbacListScopesData = {
+  /**
+   * Include system/registry scopes
+   */
+  includeSystem?: boolean
+  /**
+   * Filter by scope source
+   */
+  source?: ScopeSource | null
+}
+
+export type RbacListScopesResponse = ScopeList
+
+export type RbacCreateScopeData = {
+  requestBody: ScopeCreate
+}
+
+export type RbacCreateScopeResponse = ScopeRead
+
+export type RbacGetScopeData = {
+  scopeId: string
+}
+
+export type RbacGetScopeResponse = ScopeRead
+
+export type RbacDeleteScopeData = {
+  scopeId: string
+}
+
+export type RbacDeleteScopeResponse = void
+
+export type RbacListRolesResponse = RoleList
+
+export type RbacCreateRoleData = {
+  requestBody: RoleCreate
+}
+
+export type RbacCreateRoleResponse = RoleReadWithScopes
+
+export type RbacGetRoleData = {
+  roleId: string
+}
+
+export type RbacGetRoleResponse = RoleReadWithScopes
+
+export type RbacUpdateRoleData = {
+  requestBody: RoleUpdate
+  roleId: string
+}
+
+export type RbacUpdateRoleResponse = RoleReadWithScopes
+
+export type RbacDeleteRoleData = {
+  roleId: string
+}
+
+export type RbacDeleteRoleResponse = void
+
+export type RbacListGroupsResponse = GroupList
+
+export type RbacCreateGroupData = {
+  requestBody: GroupCreate
+}
+
+export type RbacCreateGroupResponse = GroupReadWithMembers
+
+export type RbacGetGroupData = {
+  groupId: string
+}
+
+export type RbacGetGroupResponse = GroupReadWithMembers
+
+export type RbacUpdateGroupData = {
+  groupId: string
+  requestBody: GroupUpdate
+}
+
+export type RbacUpdateGroupResponse = GroupReadWithMembers
+
+export type RbacDeleteGroupData = {
+  groupId: string
+}
+
+export type RbacDeleteGroupResponse = void
+
+export type RbacAddGroupMemberData = {
+  groupId: string
+  requestBody: GroupMemberAdd
+}
+
+export type RbacAddGroupMemberResponse = {
+  [key: string]: string
+}
+
+export type RbacRemoveGroupMemberData = {
+  groupId: string
+  userId: string
+}
+
+export type RbacRemoveGroupMemberResponse = void
+
+export type RbacListAssignmentsData = {
+  /**
+   * Filter by group ID
+   */
+  groupId?: string | null
+  /**
+   * Filter by workspace ID
+   */
+  workspaceId?: string | null
+}
+
+export type RbacListAssignmentsResponse = GroupAssignmentList
+
+export type RbacCreateAssignmentData = {
+  requestBody: GroupAssignmentCreate
+}
+
+export type RbacCreateAssignmentResponse = GroupAssignmentReadWithDetails
+
+export type RbacGetAssignmentData = {
+  assignmentId: string
+}
+
+export type RbacGetAssignmentResponse = GroupAssignmentReadWithDetails
+
+export type RbacUpdateAssignmentData = {
+  assignmentId: string
+  requestBody: GroupAssignmentUpdate
+}
+
+export type RbacUpdateAssignmentResponse = GroupAssignmentReadWithDetails
+
+export type RbacDeleteAssignmentData = {
+  assignmentId: string
+}
+
+export type RbacDeleteAssignmentResponse = void
+
+export type RbacListUserAssignmentsData = {
+  /**
+   * Filter by user ID
+   */
+  userId?: string | null
+  /**
+   * Filter by workspace ID
+   */
+  workspaceId?: string | null
+}
+
+export type RbacListUserAssignmentsResponse = UserRoleAssignmentList
+
+export type RbacCreateUserAssignmentData = {
+  requestBody: UserRoleAssignmentCreate
+}
+
+export type RbacCreateUserAssignmentResponse = UserRoleAssignmentReadWithDetails
+
+export type RbacGetUserAssignmentData = {
+  assignmentId: string
+}
+
+export type RbacGetUserAssignmentResponse = UserRoleAssignmentReadWithDetails
+
+export type RbacUpdateUserAssignmentData = {
+  assignmentId: string
+  requestBody: UserRoleAssignmentUpdate
+}
+
+export type RbacUpdateUserAssignmentResponse = UserRoleAssignmentReadWithDetails
+
+export type RbacDeleteUserAssignmentData = {
+  assignmentId: string
+}
+
+export type RbacDeleteUserAssignmentResponse = void
+
+export type UsersGetMyScopesResponse = UserScopesRead
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -13298,6 +13785,370 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GitHubAppCredentialsStatus
+      }
+    }
+  }
+  "/rbac/scopes": {
+    get: {
+      req: RbacListScopesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScopeList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: RbacCreateScopeData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ScopeRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/scopes/{scope_id}": {
+    get: {
+      req: RbacGetScopeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScopeRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: RbacDeleteScopeData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/roles": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RoleList
+      }
+    }
+    post: {
+      req: RbacCreateRoleData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: RoleReadWithScopes
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/roles/{role_id}": {
+    get: {
+      req: RbacGetRoleData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RoleReadWithScopes
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: RbacUpdateRoleData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RoleReadWithScopes
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: RbacDeleteRoleData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/groups": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GroupList
+      }
+    }
+    post: {
+      req: RbacCreateGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: GroupReadWithMembers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/groups/{group_id}": {
+    get: {
+      req: RbacGetGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GroupReadWithMembers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: RbacUpdateGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GroupReadWithMembers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: RbacDeleteGroupData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/groups/{group_id}/members": {
+    post: {
+      req: RbacAddGroupMemberData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/groups/{group_id}/members/{user_id}": {
+    delete: {
+      req: RbacRemoveGroupMemberData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/assignments": {
+    get: {
+      req: RbacListAssignmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GroupAssignmentList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: RbacCreateAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: GroupAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/assignments/{assignment_id}": {
+    get: {
+      req: RbacGetAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GroupAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: RbacUpdateAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GroupAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: RbacDeleteAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/user-assignments": {
+    get: {
+      req: RbacListUserAssignmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRoleAssignmentList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: RbacCreateUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: UserRoleAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/user-assignments/{assignment_id}": {
+    get: {
+      req: RbacGetUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRoleAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: RbacUpdateUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRoleAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: RbacDeleteUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/users/me/scopes": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserScopesRead
       }
     }
   }
