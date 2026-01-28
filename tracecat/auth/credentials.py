@@ -35,7 +35,7 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import OrganizationMembership, User
+from tracecat.db.models import OrganizationMembership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -391,11 +391,21 @@ async def _role_dependency(
                     user_role, AccessLevel.BASIC
                 )
 
-        # Construct Role from token payload + derived access_level
+        # Look up organization_id from workspace (required for workspace-scoped services)
+        organization_id = None
+        if token_payload.workspace_id is not None:
+            ws_stmt = select(Workspace.organization_id).where(
+                Workspace.id == token_payload.workspace_id
+            )
+            ws_result = await session.execute(ws_stmt)
+            organization_id = ws_result.scalar_one_or_none()
+
+        # Construct Role from token payload + derived access_level + organization_id
         role = Role(
             type="service",
             service_id="tracecat-executor",
             workspace_id=token_payload.workspace_id,
+            organization_id=organization_id,
             user_id=token_payload.user_id,
             access_level=access_level,
         )
