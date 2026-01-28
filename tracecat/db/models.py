@@ -540,6 +540,12 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         back_populates="members",
         lazy="select",
     )
+    role_assignments: Mapped[list[UserRoleAssignment]] = relationship(
+        "UserRoleAssignment",
+        foreign_keys="UserRoleAssignment.user_id",
+        back_populates="user",
+        lazy="select",
+    )
 
 
 class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):

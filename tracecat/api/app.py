@@ -454,6 +454,13 @@ def create_app(**kwargs) -> FastAPI:
         vcs_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.GIT_SYNC))],
     )
+    # RBAC routers
+    app.include_router(rbac_scopes_router)
+    app.include_router(rbac_roles_router)
+    app.include_router(rbac_groups_router)
+    app.include_router(rbac_assignments_router)
+    app.include_router(rbac_user_assignments_router)
+    app.include_router(user_scopes_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

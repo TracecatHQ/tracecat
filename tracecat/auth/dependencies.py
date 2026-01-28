@@ -55,6 +55,19 @@ OrgAdminUser = Annotated[
     ),
 ]
 
+OrgUserRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+]
+"""Dependency for a user role at the organization level (no workspace required).
+
+Sets the `ctx_role` context variable.
+"""
+
 
 async def verify_auth_type(auth_type: AuthType) -> None:
     """Verify if an auth type is enabled and properly configured.
