@@ -6216,7 +6216,7 @@ export type WorkspaceReadMinimal = {
   name: string
 }
 
-export type WorkspaceRole = "editor" | "admin"
+export type WorkspaceRole = "viewer" | "editor" | "admin"
 
 export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
