@@ -17,6 +17,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
+import { ScopeProvider } from "@/providers/scopes"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
@@ -74,13 +75,18 @@ export default function WorkspaceLayout({
 
   return (
     <WorkspaceIdProvider workspaceId={selectedWorkspaceId}>
-      {workflowId ? (
-        <WorkflowView workspaceId={selectedWorkspaceId} workflowId={workflowId}>
+      <ScopeProvider>
+        {workflowId ? (
+          <WorkflowView
+            workspaceId={selectedWorkspaceId}
+            workflowId={workflowId}
+          >
+            <WorkspaceChildren>{children}</WorkspaceChildren>
+          </WorkflowView>
+        ) : (
           <WorkspaceChildren>{children}</WorkspaceChildren>
-        </WorkflowView>
-      ) : (
-        <WorkspaceChildren>{children}</WorkspaceChildren>
-      )}
+        )}
+      </ScopeProvider>
     </WorkspaceIdProvider>
   )
 }
