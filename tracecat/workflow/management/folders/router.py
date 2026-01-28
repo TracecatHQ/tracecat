@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.workflow.management.folders.schemas import (
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/folders", tags=["folders"])
 
 
 @router.get("/directory")
+@require_scope("workflow:read")
 async def get_directory(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -35,6 +37,7 @@ async def get_directory(
 
 
 @router.get("")
+@require_scope("workflow:read")
 async def list_folders(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -57,6 +60,7 @@ async def list_folders(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("workflow:create")
 async def create_folder(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -77,6 +81,7 @@ async def create_folder(
 
 
 @router.get("/{folder_id}")
+@require_scope("workflow:read")
 async def get_folder(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -93,6 +98,7 @@ async def get_folder(
 
 
 @router.patch("/{folder_id}")
+@require_scope("workflow:update")
 async def update_folder(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -123,6 +129,7 @@ async def update_folder(
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("workflow:delete")
 async def delete_folder(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -148,6 +155,7 @@ async def delete_folder(
 
 
 @router.post("/{folder_id}/move")
+@require_scope("workflow:update")
 async def move_folder(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

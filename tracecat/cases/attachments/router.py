@@ -1,7 +1,5 @@
 """Router for case attachments endpoints."""
 
-from __future__ import annotations
-
 import hashlib
 import uuid
 from typing import Annotated
