@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
-from tracecat.auth.types import AccessLevel, system_role
+from tracecat.auth.types import AccessLevel, Role, system_role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
@@ -224,7 +224,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             await self._add_user_to_default_organization(
                 session=session,
                 user=user,
-                role=OrgRole.OWNER if is_first_user else OrgRole.MEMBER,
+                org_role=OrgRole.OWNER if is_first_user else OrgRole.MEMBER,
             )
 
             if len(users) > 1 and await get_setting(
@@ -275,7 +275,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         *,
         session: AsyncSession,
         user: User,
-        role: OrgRole,
+        org_role: OrgRole,
     ) -> None:
         """Add a newly registered user to the default organization.
 
@@ -285,7 +285,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Args:
             session: Database session.
             user: The newly registered user.
-            role: The role to assign (OWNER for first user, MEMBER for others).
+            org_role: The role to assign (OWNER for first user, MEMBER for others).
         """
         # Import here to avoid circular import with organization.service
         from tracecat.organization.service import OrgService
@@ -303,19 +303,27 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 )
                 return
 
+            # Create a role with organization context for the OrgService
+            service_role = Role(
+                type="service",
+                service_id="tracecat-api",
+                access_level=AccessLevel.ADMIN,
+                organization_id=org.id,
+            )
+
             # Add user to organization
-            org_service = OrgService(session, role=system_role())
+            org_service = OrgService(session, role=service_role)
             await org_service.add_member(
                 user_id=user.id,
                 organization_id=org.id,
-                role=role,
+                role=org_role,
             )
             self.logger.info(
                 "Added user to default organization",
                 user_id=str(user.id),
                 user_email=user.email,
                 organization_id=str(org.id),
-                org_role=role.value,
+                org_role=org_role.value,
             )
         except Exception as e:
             self.logger.error(
