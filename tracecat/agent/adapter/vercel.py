@@ -81,6 +81,59 @@ if TYPE_CHECKING:
     from tracecat.chat.schemas import ChatMessage
 # Using a type alias for ProviderMetadata since its structure is not defined.
 ProviderMetadata = dict[str, dict[str, Any]]
+
+
+def _extract_structured_error(output: Any) -> str | None:
+    """Extract error message from structured error format.
+
+    The MCP proxy server returns errors as JSON: {"success": false, "error": "..."}
+    This is a workaround for Claude Agent SDK not propagating is_error flag.
+
+    The output can come in several formats:
+    1. Direct string: '{"success": false, "error": "..."}'
+    2. MCP content array: [{"type": "text", "text": '{"success": false, ...}'}]
+    3. Already parsed dict with success/error keys
+
+    Args:
+        output: Tool output which may contain structured error in various formats.
+
+    Returns:
+        Error message if structured error detected, None otherwise.
+    """
+    text_to_parse: str | None = None
+
+    # Handle MCP content array format: [{"type": "text", "text": "..."}]
+    if isinstance(output, list) and len(output) > 0:
+        first_item = output[0]
+        if isinstance(first_item, dict) and first_item.get("type") == "text":
+            text_to_parse = first_item.get("text")
+
+    # Handle direct string
+    elif isinstance(output, str):
+        text_to_parse = output
+
+    # Handle already-parsed dict
+    elif isinstance(output, dict):
+        if output.get("success") is False and isinstance(output.get("error"), str):
+            return output["error"]
+        return None
+
+    if not text_to_parse:
+        return None
+
+    try:
+        parsed = json.loads(text_to_parse)
+        if (
+            isinstance(parsed, dict)
+            and parsed.get("success") is False
+            and isinstance(parsed.get("error"), str)
+        ):
+            return parsed["error"]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
 AnyToolCallPart = ToolCallPart | BuiltinToolCallPart
 
 # ==============================================================================
@@ -919,14 +972,20 @@ class VercelStreamContext:
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
 
-                if event.is_error:
+                # Check for structured error format from MCP proxy
+                # (workaround for Claude Agent SDK not propagating is_error)
+                structured_error = _extract_structured_error(event.tool_output)
+
+                if event.is_error or structured_error:
+                    error_text = (
+                        structured_error
+                        or event.tool_output
+                        or event.error
+                        or "Unknown error"
+                    )
                     yield ToolOutputAvailableEventPayload(
                         toolCallId=tool_call_id,
-                        output={
-                            "errorText": event.tool_output
-                            or event.error
-                            or "Unknown error"
-                        },
+                        output={"errorText": error_text},
                     )
                 else:
                     yield ToolOutputAvailableEventPayload(
@@ -1107,10 +1166,22 @@ class VercelStreamContext:
                 tool_call_id = event.result.tool_call_id
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
-                yield ToolOutputAvailableEventPayload(
-                    toolCallId=tool_call_id,
-                    output=event.result.model_response_str(),
-                )
+
+                # Check for structured error format from MCP proxy
+                # (workaround for Claude Agent SDK not propagating is_error)
+                output_str = event.result.model_response_str()
+                structured_error = _extract_structured_error(output_str)
+
+                if structured_error:
+                    yield ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output={"errorText": structured_error},
+                    )
+                else:
+                    yield ToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output=output_str,
+                    )
             elif isinstance(event.result, RetryPromptPart):
                 # Validation or runtime error from a tool call.
                 # Do NOT emit a top-level error frame which aborts the stream.
@@ -1144,6 +1215,67 @@ class MutableToolPart:
     input: Any
     output: Any | None = None
     error_text: str | None = None
+
+    def set_result(
+        self,
+        content: Any,
+        structured_error: str | None = None,
+        *,
+        is_error: bool = False,
+    ) -> None:
+        """Set the tool result, detecting structured errors.
+
+        Args:
+            content: The tool output content.
+            structured_error: Pre-extracted error from structured format.
+            is_error: Whether the underlying SDK flagged this as an error.
+        """
+        error_text = structured_error or (
+            (content if isinstance(content, str) else str(content))
+            if is_error
+            else None
+        )
+        if error_text:
+            self.state = "output-error"
+            self.output = None
+            self.error_text = error_text
+        else:
+            self.state = "output-available"
+            self.output = content
+            self.error_text = None
+
+    @classmethod
+    def with_result(
+        cls,
+        type: str,
+        tool_call_id: str,
+        input: Any,
+        content: Any,
+        structured_error: str | None = None,
+        *,
+        is_error: bool = False,
+    ) -> MutableToolPart:
+        """Create a MutableToolPart with result already set."""
+        error_text = structured_error or (
+            (content if isinstance(content, str) else str(content))
+            if is_error
+            else None
+        )
+        if error_text:
+            return cls(
+                type=type,
+                tool_call_id=tool_call_id,
+                state="output-error",
+                input=input,
+                error_text=error_text,
+            )
+        return cls(
+            type=type,
+            tool_call_id=tool_call_id,
+            state="output-available",
+            input=input,
+            output=content,
+        )
 
     def to_ui_part(self) -> ToolUIPart:
         if self.state == "input-available":
@@ -1477,86 +1609,64 @@ def convert_chat_messages_to_ui(
 
                 # --- Tool return parts (pydantic-ai) ---
                 case "ToolReturnPart" | "BuiltinToolReturnPart":
+                    # Check for structured error format from MCP proxy
+                    structured_error = _extract_structured_error(part.content)
+
                     existing = tool_entries.get(part.tool_call_id)
                     if existing is not None:
-                        existing.state = "output-available"
-                        existing.output = part.content
-                        existing.error_text = None
+                        existing.set_result(part.content, structured_error)
                     else:
                         tool_name = normalize_mcp_tool_name(part.tool_name)
-                        tool_part = MutableToolPart(
+                        tool_part = MutableToolPart.with_result(
                             type=f"tool-{tool_name}",
                             tool_call_id=part.tool_call_id,
-                            state="output-available",
                             input={},
-                            output=part.content,
+                            content=part.content,
+                            structured_error=structured_error,
                         )
                         mutable_message.parts.append(tool_part)
                         tool_entries[part.tool_call_id] = tool_part
 
                 # --- Tool result parts (Claude SDK) ---
                 case "ToolResultBlock":
+                    # Check for structured error format from MCP proxy
+                    structured_error = _extract_structured_error(part.content)
+
                     existing = tool_entries.get(part.tool_use_id)
                     if existing is not None:
-                        if part.is_error:
-                            existing.state = "output-error"
-                            existing.error_text = (
-                                part.content
-                                if isinstance(part.content, str)
-                                else str(part.content)
-                            )
-                        else:
-                            existing.state = "output-available"
-                            existing.output = part.content
+                        existing.set_result(
+                            part.content, structured_error, is_error=part.is_error
+                        )
                     else:
                         # Create fallback part when no existing tool entry is found
-                        if part.is_error:
-                            tool_part = MutableToolPart(
-                                type="tool-unknown",
-                                tool_call_id=part.tool_use_id,
-                                state="output-error",
-                                input={},
-                                error_text=(
-                                    part.content
-                                    if isinstance(part.content, str)
-                                    else str(part.content)
-                                ),
-                            )
-                        else:
-                            tool_part = MutableToolPart(
-                                type="tool-unknown",
-                                tool_call_id=part.tool_use_id,
-                                state="output-available",
-                                input={},
-                                output=part.content,
-                            )
+                        tool_part = MutableToolPart.with_result(
+                            type="tool-unknown",
+                            tool_call_id=part.tool_use_id,
+                            input={},
+                            content=part.content,
+                            structured_error=structured_error,
+                            is_error=part.is_error,
+                        )
                         mutable_message.parts.append(tool_part)
                         tool_entries[part.tool_use_id] = tool_part
 
                 # --- Retry/Error parts (pydantic-ai) ---
                 case "RetryPromptPart":
                     tool_call_id = getattr(part, "tool_call_id", None)
-                    tool_name = normalize_mcp_tool_name(
-                        getattr(part, "tool_name", "unknown")
-                    )
                     if tool_call_id:
                         existing = tool_entries.get(tool_call_id)
-                        error_text = (
-                            part.content
-                            if isinstance(part.content, str)
-                            else str(part.content)
-                        )
                         if existing is not None:
-                            existing.state = "output-error"
-                            existing.output = None
-                            existing.error_text = error_text
+                            existing.set_result(part.content, is_error=True)
                         else:
-                            tool_part = MutableToolPart(
+                            tool_name = normalize_mcp_tool_name(
+                                getattr(part, "tool_name", "unknown")
+                            )
+                            tool_part = MutableToolPart.with_result(
                                 type=f"tool-{tool_name}",
                                 tool_call_id=tool_call_id,
-                                state="output-error",
                                 input={},
-                                error_text=error_text,
+                                content=part.content,
+                                is_error=True,
                             )
                             mutable_message.parts.append(tool_part)
                             tool_entries[tool_call_id] = tool_part

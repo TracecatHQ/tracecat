@@ -10,6 +10,7 @@ Handles two types of tools:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -88,29 +89,39 @@ def _make_tool_handler(
                     {**trusted_tool_args, "args": args, "auth_token": auth_token},
                 )
 
-            # Check if the tool call returned an error
-            if call_result.is_error:
-                # Extract error message from content
-                error_text = ""
-                if call_result.content and len(call_result.content) > 0:
-                    first_block = call_result.content[0]
-                    error_text = getattr(first_block, "text", str(first_block))
-                logger.error(
-                    "Tool call returned error", error=error_text, **log_context
-                )
-                raise RuntimeError(error_text or "Tool execution failed")
-
+            # Extract result text from content
+            result_text = ""
             if call_result.content and len(call_result.content) > 0:
                 first_block = call_result.content[0]
                 result_text = getattr(first_block, "text", str(first_block))
-            else:
-                result_text = ""
+
+            # Check if the tool call returned an error
+            # Return structured JSON so frontend can detect errors
+            if call_result.is_error:
+                logger.error(
+                    "Tool call returned error", error=result_text, **log_context
+                )
+                error_response = json.dumps(
+                    {
+                        "success": False,
+                        "error": result_text or "Tool execution failed",
+                    }
+                )
+                return {"content": [{"type": "text", "text": error_response}]}
 
             return {"content": [{"type": "text", "text": result_text}]}
 
         except Exception as e:
-            logger.error("Proxy request failed", error=str(e), **log_context)
-            raise
+            # Unexpected exceptions - return structured error response
+            error_msg = str(e)
+            logger.error("Proxy request failed", error=error_msg, **log_context)
+            error_response = json.dumps(
+                {
+                    "success": False,
+                    "error": error_msg or "Tool execution failed",
+                }
+            )
+            return {"content": [{"type": "text", "text": error_response}]}
 
     return _handler
 

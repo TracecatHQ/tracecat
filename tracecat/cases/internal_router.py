@@ -1003,6 +1003,11 @@ async def create_case_simple(
                 await service.tags.add_case_tag(case.id, tag)
             await session.refresh(case)
 
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -1057,6 +1062,21 @@ async def update_case_simple(
 
     try:
         updated_case = await service.update_case(case, CaseUpdate(**update_params))
+
+        # Update tags if provided (replace all existing tags)
+        if params.tags is not None:
+            existing_tags = await service.tags.list_tags_for_case(case.id)
+            for existing_tag in existing_tags:
+                await service.tags.remove_case_tag(case.id, existing_tag.ref)
+            for tag in params.tags:
+                await service.tags.add_case_tag(case.id, tag)
+            await session.refresh(updated_case)
+
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -1068,15 +1088,6 @@ async def update_case_simple(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database operation failed",
         ) from e
-
-    # Update tags if provided (replace all existing tags)
-    if params.tags is not None:
-        existing_tags = await service.tags.list_tags_for_case(case.id)
-        for existing_tag in existing_tags:
-            await service.tags.remove_case_tag(case.id, existing_tag.ref)
-        for tag in params.tags:
-            await service.tags.add_case_tag(case.id, tag)
-        await session.refresh(updated_case)
 
     return InternalCaseData.model_validate(updated_case, from_attributes=True)
 
