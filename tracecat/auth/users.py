@@ -277,10 +277,15 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user: User,
         org_role: OrgRole,
     ) -> None:
-        """Add a newly registered user to the default organization.
+        """Add a newly registered user to the default organization and workspace.
 
         The default organization is the first organization in the system,
         which is created during app startup via `setup_default_organization`.
+        The default workspace is the first workspace in that organization,
+        created via `setup_workspace_defaults`.
+
+        The auth system determines organization membership via workspace memberships,
+        so users must have a workspace membership to access authenticated endpoints.
 
         Args:
             session: Database session.
@@ -288,6 +293,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             org_role: The role to assign (OWNER for first user, MEMBER for others).
         """
         # Import here to avoid circular import with organization.service
+        from tracecat.db.models import Membership, Workspace
         from tracecat.organization.service import OrgService
 
         try:
@@ -311,7 +317,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 organization_id=org.id,
             )
 
-            # Add user to organization
+            # Add user to organization membership table
             org_service = OrgService(session, role=service_role)
             await org_service.add_member(
                 user_id=user.id,
@@ -325,9 +331,48 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 organization_id=str(org.id),
                 org_role=org_role.value,
             )
+
+            # Also add user to the default workspace in the organization
+            # The auth system checks workspace memberships to determine org context
+            ws_result = await session.execute(
+                select(Workspace).where(Workspace.organization_id == org.id).limit(1)
+            )
+            workspace = ws_result.scalar_one_or_none()
+
+            if workspace is None:
+                self.logger.warning(
+                    "No workspace found in organization, skipping workspace membership",
+                    user_id=str(user.id),
+                    user_email=user.email,
+                    organization_id=str(org.id),
+                )
+                return
+
+            # Add user to workspace with appropriate role
+            workspace_role = (
+                WorkspaceRole.ADMIN
+                if org_role == OrgRole.OWNER
+                else WorkspaceRole.EDITOR
+            )
+            membership = Membership(
+                user_id=user.id,
+                workspace_id=workspace.id,
+                role=workspace_role,
+            )
+            session.add(membership)
+            await session.commit()
+            await session.refresh(membership)
+
+            self.logger.info(
+                "Added user to default workspace",
+                user_id=str(user.id),
+                user_email=user.email,
+                workspace_id=str(workspace.id),
+                workspace_role=workspace_role.value,
+            )
         except Exception as e:
             self.logger.error(
-                "Failed to add user to default organization",
+                "Failed to add user to default organization/workspace",
                 error=str(e),
                 user_id=str(user.id),
                 user_email=user.email,
