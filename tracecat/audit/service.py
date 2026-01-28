@@ -55,7 +55,6 @@ class AuditService(BaseOrgService):
         if not isinstance(value, str):
             self.logger.warning(
                 "audit_webhook_api_key must be a string",
-                value=value,
                 value_type=type(value),
             )
             return None
