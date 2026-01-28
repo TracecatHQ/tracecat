@@ -6,8 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
-from tracecat.db.models import Schedule, Workspace
+from tracecat.db.models import Organization, Schedule, Workspace
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -15,11 +14,20 @@ pytestmark = pytest.mark.usefixtures("db")
 @pytest.mark.anyio
 async def test_schedule_start_end_are_timezone_aware(session: AsyncSession) -> None:
     """Persist and reload Schedule.start_at / end_at with timezone info."""
+    # Create organization first to satisfy FK constraint
+    org = Organization(
+        id=uuid.uuid4(),
+        name="test-schedule-org",
+        slug="test-schedule-org",
+    )
+    session.add(org)
+    await session.flush()
+
     # Create workspace in the same session to ensure it's visible
     workspace = Workspace(
         id=uuid.uuid4(),
         name="test-schedule-workspace",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=org.id,
     )
     session.add(workspace)
     await session.flush()

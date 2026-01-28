@@ -26,7 +26,7 @@ async def sync_all_repositories(
     force: bool = Query(False, description="Force sync by deleting existing version"),
 ) -> RegistrySyncResponse:
     """Trigger sync for all platform registry repositories."""
-    service = AdminRegistryService(session, role=role)
+    service = AdminRegistryService(session, role)
     return await service.sync_all_repositories(force=force)
 
 
@@ -38,7 +38,7 @@ async def sync_repository(
     force: bool = Query(False, description="Force sync by deleting existing version"),
 ) -> RegistrySyncResponse:
     """Trigger sync for a specific platform registry repository."""
-    service = AdminRegistryService(session, role=role)
+    service = AdminRegistryService(session, role)
     try:
         return await service.sync_repository(repository_id, force=force)
     except ValueError as e:
@@ -51,7 +51,7 @@ async def get_registry_status(
     session: AsyncDBSession,
 ) -> RegistryStatusResponse:
     """Get registry sync status and health."""
-    service = AdminRegistryService(session, role=role)
+    service = AdminRegistryService(session, role)
     return await service.get_status()
 
 
@@ -63,7 +63,7 @@ async def list_registry_versions(
     limit: int = Query(50, ge=1, le=100),
 ) -> list[RegistryVersionRead]:
     """List registry versions with optional filtering."""
-    service = AdminRegistryService(session, role=role)
+    service = AdminRegistryService(session, role)
     return list(await service.list_versions(repository_id=repository_id, limit=limit))
 
 
@@ -78,7 +78,7 @@ async def promote_registry_version(
     version_id: uuid.UUID,
 ) -> RegistryVersionPromoteResponse:
     """Promote a registry version to be the current version for a repository."""
-    service = AdminRegistryService(session, role=role)
+    service = AdminRegistryService(session, role)
     try:
         return await service.promote_version(
             repository_id=repository_id, version_id=version_id

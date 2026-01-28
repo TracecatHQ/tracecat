@@ -387,6 +387,10 @@ async def _prepare_step_context(
     from the parent template's prepare_resolved_context() call which fetches
     all secrets recursively.
     """
+    # Ensure organization_id is set (workflows are always org-scoped)
+    if role.organization_id is None:
+        raise ValueError("organization_id is required for template step execution")
+
     # Resolve action implementation via registry resolver (O(1) manifest-based lookup)
     action_impl = await registry_resolver.resolve_action(
         step_action, input.registry_lock, role.organization_id
@@ -620,6 +624,10 @@ async def prepare_resolved_context(
     Returns:
         PreparedContext containing ResolvedContext and mask_values for post-processing.
     """
+    # Ensure organization_id is set (workflows are always org-scoped)
+    if role.organization_id is None:
+        raise ValueError("organization_id is required for action execution")
+
     task = input.task
     action_name = task.action
 
@@ -738,6 +746,10 @@ async def invoke_once(
     role = ctx.role
     action_name = input.task.action
     timeout = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+
+    # Ensure organization_id is set (workflows are always org-scoped)
+    if role.organization_id is None:
+        raise ValueError("organization_id is required for action dispatch")
 
     # Prefetch registry lock manifests into cache for O(1) resolution
     await registry_resolver.prefetch_lock(input.registry_lock, role.organization_id)

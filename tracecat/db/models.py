@@ -219,12 +219,19 @@ class OrganizationModel(RecordModel):
     """Base class for organization-scoped resources.
 
     Used for resources that belong to an organization (e.g., Workspace, OrganizationSecret).
-    The organization_id references the organization's sentinel UUID.
+    The organization_id is a foreign key to the organization table.
+
+    Default ondelete is RESTRICT to prevent accidental data loss when deleting
+    organizations. Override in subclasses to use CASCADE where appropriate.
     """
 
     __abstract__ = True
 
-    organization_id: Mapped[OrganizationID] = mapped_column(UUID, nullable=False)
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
 
 
 class PlatformModel(RecordModel):
@@ -1415,6 +1422,12 @@ class OrganizationSetting(OrganizationModel):
 
     __tablename__ = "organization_settings"
     __table_args__ = (UniqueConstraint("organization_id", "key"),)
+    # Override to CASCADE - settings are meaningless without the org
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         default=uuid.uuid4,

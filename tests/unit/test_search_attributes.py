@@ -41,6 +41,7 @@ def mock_role_with_workspace(svc_workspace: Workspace, mock_user_id: UserID) -> 
     return Role(
         type="service",
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=mock_user_id,
         service_id="tracecat-service",
     )

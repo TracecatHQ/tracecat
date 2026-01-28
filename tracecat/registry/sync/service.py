@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, override
 
+from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.registry.sync.base_service import BaseRegistrySyncService, BaseSyncResult
@@ -46,8 +47,12 @@ class RegistrySyncService(BaseRegistrySyncService[RegistryRepository, RegistryVe
     @override
     def _get_storage_namespace(self) -> str:
         """Get storage namespace from the organization context."""
-        if self.role is None:
+        if self.role is None or not isinstance(self.role, Role):
             raise TracecatAuthorizationError(
                 "RegistrySyncService requires organization context"
+            )
+        if self.role.organization_id is None:
+            raise TracecatAuthorizationError(
+                "RegistrySyncService requires organization_id in role"
             )
         return str(self.role.organization_id)

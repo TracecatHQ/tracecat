@@ -1,15 +1,21 @@
 import asyncio
 import functools
 from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar, cast
+from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
-from tracecat.service import BaseService
 
 T = TypeVar("T", bound=Callable[..., Coroutine[Any, Any, Any] | Any])
+
+
+@runtime_checkable
+class HasRole(Protocol):
+    """Protocol for services that have a role attribute."""
+
+    role: Role
 
 
 def require_access_level(level: AccessLevel) -> Callable[[T], T]:
@@ -18,7 +24,7 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
     If the caller does not have at least the required access level, a TracecatAuthorizationError is raised.
     """
 
-    def check(self: BaseService):
+    def check(self: HasRole):
         if not hasattr(self, "role"):
             raise AttributeError("Service must have a 'role' attribute")
 
@@ -36,7 +42,7 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
         if asyncio.iscoroutinefunction(fn):
 
             @functools.wraps(fn)
-            async def async_wrapper(self: BaseService, *args, **kwargs):
+            async def async_wrapper(self: HasRole, *args, **kwargs):
                 check(self)
                 return await fn(self, *args, **kwargs)
 
@@ -45,7 +51,7 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
         else:
 
             @functools.wraps(fn)
-            def wrapper(self: BaseService, *args, **kwargs):
+            def wrapper(self: HasRole, *args, **kwargs):
                 check(self)
                 return fn(self, *args, **kwargs)
 
@@ -60,8 +66,8 @@ def require_workspace_role(*roles: WorkspaceRole) -> Callable[[T], T]:
     If the caller does not have at least the required access level, a TracecatAuthorizationError is raised.
     """
 
-    def check(self: BaseService):
-        self.logger.debug("Checking workspace role", role=self.role)
+    def check(self: HasRole):
+        logger.debug("Checking workspace role", role=self.role)
         if not hasattr(self, "role"):
             raise AttributeError("Service must have a 'role' attribute")
 

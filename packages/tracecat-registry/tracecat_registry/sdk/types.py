@@ -52,16 +52,16 @@ def is_set[T](value: T | Unset) -> TypeGuard[T]:
 
     Use this to get proper type narrowing when checking if a value was provided.
 
-    Note: Uses isinstance() instead of identity check (is not UNSET) to handle
-    cases where the UNSET singleton might get pickled/unpickled (e.g., in
-    pytest-xdist workers), creating new Unset instances.
+    Uses both isinstance() and identity checks:
+    - isinstance() handles pickled instances (same type, different object)
+    - identity handles cross-import edge cases (same object, isinstance may fail)
 
     Example:
         if is_set(start_time):
             # start_time is narrowed from datetime | Unset to datetime
             data["start_time"] = start_time.isoformat()
     """
-    return not isinstance(value, Unset)
+    return not (isinstance(value, Unset) or value is UNSET)
 
 
 # === Case Types === #

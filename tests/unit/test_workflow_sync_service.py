@@ -67,7 +67,13 @@ def sample_remote_workflow_with_folder(sample_workflow):
 
 
 @pytest.fixture
-def workflow_sync_service(workspace_id):
+def organization_id():
+    """Test organization ID."""
+    return uuid.UUID("550e8400-e29b-41d4-a716-446655440001")
+
+
+@pytest.fixture
+def workflow_sync_service(workspace_id, organization_id):
     """WorkflowSyncService instance for testing."""
     # Use a mock session for unit tests
     mock_session = AsyncMock()
@@ -75,12 +81,13 @@ def workflow_sync_service(workspace_id):
         type="service",
         service_id="tracecat-api",
         workspace_id=workspace_id,
+        organization_id=organization_id,
     )
     return WorkflowSyncService(session=mock_session, role=role)
 
 
 @pytest.fixture
-def workflow_import_service(workspace_id):
+def workflow_import_service(workspace_id, organization_id):
     """WorkflowImportService instance for testing."""
     # Use a mock session for unit tests
     mock_session = AsyncMock()
@@ -88,6 +95,7 @@ def workflow_import_service(workspace_id):
         type="service",
         service_id="tracecat-api",
         workspace_id=workspace_id,
+        organization_id=organization_id,
     )
     return WorkflowImportService(session=mock_session, role=role)
 

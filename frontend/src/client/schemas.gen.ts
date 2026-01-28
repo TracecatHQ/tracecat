@@ -12416,10 +12416,16 @@ export const $Role = {
       title: "Workspace Id",
     },
     organization_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Organization Id",
-      default: "00000000-0000-0000-0000-000000000000",
     },
     workspace_role: {
       anyOf: [

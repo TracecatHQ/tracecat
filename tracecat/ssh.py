@@ -189,6 +189,7 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
             text=True,
             env=env.to_dict(),
             check=False,
+            timeout=30.0,  # Prevent indefinite hang if network is unavailable
         )
 
         if result.returncode != 0:
@@ -246,6 +247,7 @@ def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
             text=True,
             env=env.to_dict(),
             check=False,
+            timeout=30.0,  # Prevent indefinite hang
         )
 
         if result.returncode != 0:

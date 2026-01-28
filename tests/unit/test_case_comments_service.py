@@ -15,11 +15,12 @@ pytestmark = pytest.mark.usefixtures("db")
 @pytest.mark.anyio
 async def test_service_initialization_requires_workspace(session: AsyncSession) -> None:
     """Test that service initialization requires a workspace ID."""
-    # Create a role without workspace_id
+    # Create a role without workspace_id (but with organization_id to pass org check)
     role_without_workspace = Role(
         type="service",
         user_id=uuid.uuid4(),
         workspace_id=None,
+        organization_id=uuid.uuid4(),
         service_id="tracecat-service",
         access_level=AccessLevel.BASIC,
     )
@@ -198,6 +199,7 @@ class TestCaseCommentsService:
             type=svc_role.type,
             user_id=test_user_id,  # Different user ID
             workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
             service_id=svc_role.service_id,
             access_level=svc_role.access_level,
         )
@@ -258,6 +260,7 @@ class TestCaseCommentsService:
             type=svc_role.type,
             user_id=test_user_id,  # Different user ID
             workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
             service_id=svc_role.service_id,
             access_level=svc_role.access_level,
         )

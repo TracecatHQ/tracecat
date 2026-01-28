@@ -32,6 +32,7 @@ async def fetch_actions_from_subprocess(
     validate: bool = False,
     git_repo_package_name: str | None = None,
     timeout: float = 300.0,
+    organization_id: UUID4 | None = None,
 ) -> SyncResultSuccess:
     """Run the sync CLI script in a subprocess and parse its JSON output.
 
@@ -45,6 +46,7 @@ async def fetch_actions_from_subprocess(
         validate: Whether to validate template actions.
         git_repo_package_name: Optional override for the git repository package name.
         timeout: Maximum time to wait for the subprocess (default: 5 minutes).
+        organization_id: Optional organization ID for accessing org-scoped secrets (e.g., SSH keys).
 
     Returns:
         SyncResultSuccess containing parsed actions, commit SHA, and any errors.
@@ -72,11 +74,15 @@ async def fetch_actions_from_subprocess(
     if git_repo_package_name is not None:
         cmd.extend(["--git-repo-package-name", git_repo_package_name])
 
+    if organization_id is not None:
+        cmd.extend(["--organization-id", str(organization_id)])
+
     logger.info(
         "Starting sync subprocess",
         origin=origin,
         repository_id=str(repository_id),
         commit_sha=commit_sha,
+        organization_id=str(organization_id) if organization_id else None,
     )
 
     # Build environment for subprocess

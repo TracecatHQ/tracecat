@@ -117,9 +117,8 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__FEATURE_FLAGS: ""
-          # Disable sandboxed registry sync to use local subprocess instead of Temporal workflow
-          # This avoids the need for Docker executor to handle RegistrySyncWorkflow
-          TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"
+          # Keep sandboxed registry sync enabled (run on executor via Temporal)
+          TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
         run: |
           docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy minio redis
 
@@ -162,11 +161,14 @@ jobs:
         env:
           # Expect a base64 encoded key
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
-          # Use local subprocess sync instead of Temporal workflow (faster, simpler for CI)
-          TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"
+          # Keep sandboxed registry sync enabled (run on executor via Temporal)
+          TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
+          # Tests run on the host, so Temporal must be reachable via localhost
+          TEMPORAL__CLUSTER_URL: "localhost:7233"
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
           # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
+          # faulthandler_timeout=300: dump thread state after 5min for extra debugging
           uv run pytest tests/integration/test_pool_integration.py -ra -v -o faulthandler_timeout=300
 
           # Run other integration tests in parallel with pytest-xdist

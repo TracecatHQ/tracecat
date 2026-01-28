@@ -8,12 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Mapped
 
 from tracecat.db.models import User
-from tracecat.service import BaseService
+from tracecat.service import BasePlatformService
 
 from .schemas import AdminUserRead
 
 
-class AdminUserService(BaseService):
+class AdminUserService(BasePlatformService):
     """Platform-level user management."""
 
     service_name = "admin_user"

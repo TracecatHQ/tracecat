@@ -11,7 +11,6 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.models import OAuthStateDB, User, Workspace
 from tracecat.integrations.enums import OAuthGrantType
@@ -87,6 +86,7 @@ async def integration_service(
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=test_user.id,
         service_id="tracecat-api",
     )
@@ -99,6 +99,7 @@ async def test_role_with_user(svc_workspace, test_user: User) -> Role:
     return Role(
         type="user",
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=test_user.id,
         service_id="tracecat-api",
     )
@@ -268,9 +269,10 @@ class TestOAuthState:
         session.add(expired_state)
 
         # Create a second workspace for the "wrong workspace" test
+        # Use the same organization as the test workspace to satisfy FK constraint
         wrong_workspace = Workspace(
             name="wrong-test-workspace",
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=test_role_with_user.organization_id,
         )
         session.add(wrong_workspace)
         await session.commit()

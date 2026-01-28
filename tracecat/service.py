@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import Role
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.exceptions import TracecatAuthorizationError
@@ -53,6 +53,26 @@ class BaseService:
         ]
 
 
+class BasePlatformService(BaseService):
+    """Base class for platform-wide superuser operations.
+
+    Use this for operations that span across or are outside the org/workspace hierarchy:
+    - Cross-org operations: Managing multiple organizations (create/delete orgs)
+    - Platform-global resources: Tiers, platform settings, global registry
+    - User management across organizations
+
+    Services extending this class require a PlatformRole (from SuperuserRole dependency).
+    This preserves operator context for audit logging while not being scoped to any
+    specific organization or workspace.
+    """
+
+    role: PlatformRole  # Always non-None for platform services
+
+    def __init__(self, session: AsyncSession, role: PlatformRole):
+        super().__init__(session)
+        self.role = role
+
+
 class BaseOrgService(BaseService):
     """Base class for services that require organization context."""
 
@@ -64,6 +84,10 @@ class BaseOrgService(BaseService):
         if self.role is None:
             raise TracecatAuthorizationError(
                 f"{self.service_name} service requires organization context"
+            )
+        if self.role.organization_id is None:
+            raise TracecatAuthorizationError(
+                f"{self.service_name} service requires organization_id in role"
             )
         self.organization_id = self.role.organization_id
 
