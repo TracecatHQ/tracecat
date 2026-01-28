@@ -601,7 +601,7 @@ async def check_ready(session: AsyncDBSession) -> ReadinessResponse:
     expected_version = tracecat_registry.__version__
 
     # Check registry sync status
-    repos_service = PlatformRegistryReposService(session, role=None)
+    repos_service = PlatformRegistryReposService(session)
     repo = await repos_service.get_repository(DEFAULT_REGISTRY_ORIGIN)
 
     if repo is None or repo.current_version is None:
