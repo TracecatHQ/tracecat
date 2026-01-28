@@ -7,6 +7,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import Role
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import AccessLevel
+from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
@@ -73,6 +74,7 @@ async def check_other_auth_enabled(
 
 
 @router.get("/git", response_model=GitSettingsRead)
+@require_scope("org:settings:read")
 async def get_git_settings(
     *,
     role: OrgAdminUserRole,
@@ -86,6 +88,7 @@ async def get_git_settings(
 
 
 @router.patch("/git", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_git_settings(
     *,
     role: OrgAdminUserRole,
@@ -97,6 +100,7 @@ async def update_git_settings(
 
 
 @router.get("/saml", response_model=SAMLSettingsRead)
+@require_scope("org:settings:read")
 async def get_saml_settings(
     *,
     role: OrgAdminUserRole,
@@ -114,6 +118,7 @@ async def get_saml_settings(
 
 
 @router.patch("/saml", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_saml_settings(
     *,
     role: OrgAdminUserRole,
@@ -127,6 +132,7 @@ async def update_saml_settings(
 
 
 @router.get("/auth", response_model=AuthSettingsRead)
+@require_scope("org:settings:read")
 async def get_auth_settings(
     *,
     role: OrgAdminUserRole,
@@ -140,6 +146,7 @@ async def get_auth_settings(
 
 
 @router.patch("/auth", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_auth_settings(
     *,
     role: OrgAdminUserRole,
@@ -153,6 +160,7 @@ async def update_auth_settings(
 
 
 @router.get("/oauth", response_model=OAuthSettingsRead)
+@require_scope("org:settings:read")
 async def get_oauth_settings(
     *,
     role: OrgAdminUserRole,
@@ -166,6 +174,7 @@ async def get_oauth_settings(
 
 
 @router.patch("/oauth", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_oauth_settings(
     *,
     role: OrgAdminUserRole,
@@ -180,6 +189,7 @@ async def update_oauth_settings(
 
 
 @router.get("/app", response_model=AppSettingsRead)
+@require_scope("org:settings:read")
 async def get_app_settings(
     *,
     role: OrgUserRole,
@@ -193,6 +203,7 @@ async def get_app_settings(
 
 
 @router.patch("/app", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_app_settings(
     *,
     role: OrgAdminUserRole,
@@ -204,6 +215,7 @@ async def update_app_settings(
 
 
 @router.get("/audit", response_model=AuditSettingsRead)
+@require_scope("org:settings:read")
 async def get_audit_settings(
     *,
     role: OrgAdminUserRole,
@@ -228,6 +240,7 @@ async def get_audit_settings(
 
 
 @router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_audit_settings(
     *,
     role: OrgAdminUserRole,
@@ -264,6 +277,7 @@ async def revoke_audit_api_key(
 
 
 @router.get("/agent", response_model=AgentSettingsRead)
+@require_scope("org:settings:read")
 async def get_agent_settings(
     *,
     role: OrgAdminUserRole,
@@ -277,6 +291,7 @@ async def get_agent_settings(
 
 
 @router.patch("/agent", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_agent_settings(
     *,
     role: OrgAdminUserRole,
