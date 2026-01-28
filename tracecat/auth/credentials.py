@@ -126,20 +126,29 @@ async def get_user_org_role(
     return SLUG_TO_ORG_ROLE.get(slug)
 
 
-def compute_effective_scopes(role: Role) -> frozenset[str]:
+def compute_effective_scopes(
+    role: Role,
+    group_scopes: frozenset[str] | None = None,
+    user_role_scopes: frozenset[str] | None = None,
+) -> frozenset[str]:
     """Compute the effective scopes for a role.
 
     Scope computation follows this hierarchy:
     1. Platform superusers get "*" (all scopes)
     2. Org OWNER/ADMIN get their org-level scopes (includes full workspace access)
     3. Org MEMBER gets base org scopes + workspace membership scopes (if in workspace)
-    4. Service roles inherit scopes based on the user they're acting on behalf of
+    4. Group scopes are added from group memberships and role assignments
+    5. User role scopes are added from direct user-to-role assignments
+    6. Service roles inherit scopes based on the user they're acting on behalf of
 
     For workspace-scoped requests:
     - Org OWNER/ADMIN: org-level scopes (they can access all workspaces)
     - Workspace members: workspace role scopes from SYSTEM_ROLE_SCOPES
 
-    Note: Group-based scopes will be added in PR 4 (RBAC Service & APIs).
+    Args:
+        role: The Role object containing user/service identity and permissions
+        group_scopes: Optional pre-computed scopes from group memberships
+        user_role_scopes: Optional pre-computed scopes from direct user role assignments
     """
     if role.is_platform_superuser:
         return frozenset({"*"})
@@ -158,8 +167,13 @@ def compute_effective_scopes(role: Role) -> frozenset[str]:
         if role.org_role not in (OrgRole.OWNER, OrgRole.ADMIN):
             scope_set |= SYSTEM_ROLE_SCOPES.get(role.workspace_role, set())
 
-    # Note: Group-based scopes (from group_assignment table) will be added in PR 4
-    # via RBACService.get_group_scopes()
+    # Add group-based scopes (from group memberships and role assignments)
+    if group_scopes:
+        scope_set |= group_scopes
+
+    # Add user role scopes (from direct user-to-role assignments)
+    if user_role_scopes:
+        scope_set |= user_role_scopes
 
     return frozenset(scope_set)
 
@@ -530,8 +544,26 @@ async def _role_dependency(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
 
+    # Compute group and user role scopes if user has an organization context
+    group_scopes: frozenset[str] | None = None
+    user_role_scopes: frozenset[str] | None = None
+    if role.user_id is not None and role.organization_id is not None:
+        from tracecat.authz.rbac.service import RBACService
+
+        async with RBACService.with_session(role, session=session) as rbac_svc:
+            group_scopes = await rbac_svc.get_group_scopes(
+                role.user_id,
+                workspace_id=role.workspace_id,
+            )
+            user_role_scopes = await rbac_svc.get_user_role_scopes(
+                role.user_id,
+                workspace_id=role.workspace_id,
+            )
+
     # Compute and set effective scopes
-    scopes = compute_effective_scopes(role)
+    scopes = compute_effective_scopes(
+        role, group_scopes=group_scopes, user_role_scopes=user_role_scopes
+    )
     ctx_scopes.set(scopes)
     logger.debug(
         "Computed effective scopes",
@@ -540,6 +572,8 @@ async def _role_dependency(
         workspace_role=role.workspace_role,
         is_superuser=role.is_platform_superuser,
         scope_count=len(scopes),
+        group_scope_count=len(group_scopes) if group_scopes else 0,
+        user_role_scope_count=len(user_role_scopes) if user_role_scopes else 0,
     )
 
     ctx_role.set(role)
