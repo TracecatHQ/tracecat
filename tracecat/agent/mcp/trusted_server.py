@@ -30,11 +30,29 @@ from tracecat.agent.mcp.internal_tools import (
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
-from tracecat.agent.tokens import verify_mcp_token
+from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
+from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
+from tracecat.exceptions import ExecutionError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
 mcp = FastMCP("tracecat-actions")
+
+
+def _set_role_context(claims: MCPTokenClaims) -> Role:
+    """Construct Role from claims and set the context variable.
+
+    This must be called before any service that requires organization context.
+    """
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=claims.workspace_id,
+        user_id=claims.user_id,
+    )
+    ctx_role.set(role)
+    return role
 
 
 @mcp.tool
@@ -57,9 +75,12 @@ async def execute_action_tool(
         claims = verify_mcp_token(auth_token)
     except ValueError as e:
         logger.warning("MCP token verification failed", error=str(e))
-        return json.dumps({"error": "Authentication failed"})
+        raise ToolError("Authentication failed") from None
 
     normalized_action_name = normalize_mcp_tool_name(action_name)
+
+    # Set role context before any service calls that require organization context
+    _set_role_context(claims)
 
     try:
         # Resolve registry lock for this action
@@ -76,17 +97,29 @@ async def execute_action_tool(
         )
         return json.dumps(result, default=str)
     except ActionExecutionError as e:
-        # User error
         raise ToolError(str(e)) from e
+    except ExecutionError as e:
+        # ExecutionError contains user-facing error info (validation errors, etc.)
+        # Propagate the actual error message so users can understand what went wrong
+        error_msg = e.info.message if e.info else str(e)
+        logger.warning(
+            "Action execution error",
+            action_name=normalized_action_name,
+            workspace_id=str(claims.workspace_id),
+            error_type=e.info.type if e.info else "unknown",
+            error=error_msg,
+        )
+        raise ToolError(error_msg) from e
     except Exception as e:
-        # Platform error
+        # Unexpected platform errors - log full details but return generic message
         logger.error(
             "Action execution failed",
             action_name=normalized_action_name,
             workspace_id=str(claims.workspace_id),
             error=str(e),
+            error_type=type(e).__name__,
         )
-        raise RuntimeError("Action execution failed") from None
+        raise ToolError("Action execution failed") from None
 
 
 @mcp.tool
@@ -115,7 +148,7 @@ async def execute_user_mcp_tool(
         claims = verify_mcp_token(auth_token)
     except ValueError as e:
         logger.warning("MCP token verification failed", error=str(e))
-        return json.dumps({"error": "Authentication failed"})
+        raise ToolError("Authentication failed") from None
 
     # Find the server config in claims
     server_config = None
@@ -130,7 +163,7 @@ async def execute_user_mcp_tool(
             server_name=server_name,
             available_servers=[s.name for s in claims.user_mcp_servers],
         )
-        return json.dumps({"error": f"User MCP server '{server_name}' not authorized"})
+        raise ToolError(f"User MCP server '{server_name}' not authorized")
 
     try:
         config_dict: MCPServerConfig = {
@@ -161,7 +194,7 @@ async def execute_user_mcp_tool(
             workspace_id=str(claims.workspace_id),
             error=str(e),
         )
-        raise RuntimeError("Tool execution failed") from None
+        raise ToolError("Tool execution failed") from None
 
 
 @mcp.tool
@@ -188,7 +221,7 @@ async def execute_internal_tool(
         claims = verify_mcp_token(auth_token)
     except ValueError as e:
         logger.warning("MCP token verification failed", error=str(e))
-        return json.dumps({"error": "Authentication failed"})
+        raise ToolError("Authentication failed") from None
 
     # Validate tool is in allowed_internal_tools
     if tool_name not in claims.allowed_internal_tools:
@@ -197,13 +230,13 @@ async def execute_internal_tool(
             tool_name=tool_name,
             allowed_internal_tools=claims.allowed_internal_tools,
         )
-        return json.dumps({"error": f"Tool '{tool_name}' not authorized"})
+        raise ToolError(f"Tool '{tool_name}' not authorized")
 
     # Look up handler
     handler = INTERNAL_TOOL_HANDLERS.get(tool_name)
     if not handler:
         logger.warning("Unknown internal tool", tool_name=tool_name)
-        return json.dumps({"error": f"Unknown internal tool: {tool_name}"})
+        raise ToolError(f"Unknown internal tool: {tool_name}")
 
     try:
         result = await handler(args, claims)
@@ -216,7 +249,7 @@ async def execute_internal_tool(
             workspace_id=str(claims.workspace_id),
             error=str(e),
         )
-        return json.dumps({"error": str(e)})
+        raise ToolError(str(e)) from e
 
     except Exception as e:
         logger.error(
@@ -225,7 +258,7 @@ async def execute_internal_tool(
             workspace_id=str(claims.workspace_id),
             error=str(e),
         )
-        return json.dumps({"error": "Tool execution failed"})
+        raise ToolError("Internal tool execution failed") from None
 
 
 app = mcp.http_app(path="/mcp")
