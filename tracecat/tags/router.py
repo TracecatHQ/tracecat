@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 
 
 @router.get("", response_model=list[TagRead])
+@require_scope("tag:read")
 async def list_tags(
     *,
     role: WorkspaceUserRole,
@@ -26,6 +28,7 @@ async def list_tags(
 
 
 @router.get("/{tag_id}", response_model=TagRead)
+@require_scope("tag:read")
 async def get_tag(
     *,
     role: WorkspaceUserRole,
@@ -44,6 +47,7 @@ async def get_tag(
 
 
 @router.post("", response_model=TagRead)
+@require_scope("tag:create")
 async def create_tag(
     *,
     role: WorkspaceUserRole,
@@ -62,6 +66,7 @@ async def create_tag(
 
 
 @router.patch("/{tag_id}", response_model=TagRead)
+@require_scope("tag:update")
 async def update_tag(
     *,
     role: WorkspaceUserRole,
@@ -82,6 +87,7 @@ async def update_tag(
 
 
 @router.delete("/{tag_id}")
+@require_scope("tag:delete")
 async def delete_tag(
     *,
     role: WorkspaceUserRole,

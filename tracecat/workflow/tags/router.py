@@ -3,6 +3,7 @@ from pydantic import UUID4
 from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.tags.schemas import TagRead
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
 @router.get("/{workflow_id}/tags", response_model=list[TagRead])
+@require_scope("workflow:read")
 async def list_tags(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -26,6 +28,7 @@ async def list_tags(
 
 
 @router.post("/{workflow_id}/tags", status_code=status.HTTP_201_CREATED)
+@require_scope("workflow:update")
 async def add_tag(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -38,6 +41,7 @@ async def add_tag(
 
 
 @router.delete("/{workflow_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("workflow:update")
 async def remove_tag(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

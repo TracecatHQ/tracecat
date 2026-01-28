@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -7,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -45,6 +44,7 @@ WorkspaceAdminUser = Annotated[
 
 
 @router.get("/search", response_model=list[VariableRead])
+@require_scope("variable:read")
 async def search_variables(
     *,
     role: WorkspaceUser,
@@ -70,6 +70,7 @@ async def search_variables(
 
 
 @router.get("", response_model=list[VariableReadMinimal])
+@require_scope("variable:read")
 async def list_variables(
     *,
     role: WorkspaceUser,
@@ -91,6 +92,7 @@ async def list_variables(
 
 
 @router.get("/{variable_name}", response_model=VariableRead)
+@require_scope("variable:read")
 async def get_variable_by_name(
     *,
     role: WorkspaceAdminUser,
@@ -111,6 +113,7 @@ async def get_variable_by_name(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=VariableRead)
+@require_scope("variable:create")
 async def create_variable(
     *,
     role: WorkspaceAdminUser,
@@ -130,6 +133,7 @@ async def create_variable(
 
 
 @router.post("/{variable_id}", response_model=VariableRead)
+@require_scope("variable:update")
 async def update_variable_by_id(
     *,
     role: WorkspaceAdminUser,
@@ -155,6 +159,7 @@ async def update_variable_by_id(
 
 
 @router.delete("/{variable_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("variable:delete")
 async def delete_variable_by_id(
     *,
     role: WorkspaceAdminUser,

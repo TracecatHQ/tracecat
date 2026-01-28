@@ -11,6 +11,7 @@ from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OAuthStateDB
@@ -246,6 +247,7 @@ async def oauth_callback(
 
 # Collection-level endpoints
 @integrations_router.get("")
+@require_scope("workflow:read")
 async def list_integrations(
     role: WorkspaceUserRole, session: AsyncDBSession
 ) -> list[IntegrationReadMinimal]:
@@ -272,6 +274,7 @@ async def list_integrations(
 
 
 @integrations_router.get("/{provider_id}")
+@require_scope("workflow:read")
 async def get_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -691,6 +694,7 @@ async def create_custom_provider(
 
 
 @providers_router.get("")
+@require_scope("workflow:read")
 async def list_providers(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -737,6 +741,7 @@ async def list_providers(
 
 
 @providers_router.get("/{provider_id}")
+@require_scope("workflow:read")
 async def get_provider(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -807,6 +812,7 @@ async def create_mcp_integration(
 
 
 @mcp_router.get("")
+@require_scope("workflow:read")
 async def list_mcp_integrations(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -839,6 +845,7 @@ async def list_mcp_integrations(
 
 
 @mcp_router.get("/{mcp_integration_id}")
+@require_scope("workflow:read")
 async def get_mcp_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

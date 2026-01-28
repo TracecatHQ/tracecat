@@ -9,8 +9,9 @@ from fastapi import (
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -40,40 +41,13 @@ from tracecat.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
-OrgUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
-]
-OrgAdminUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
-    ),
-]
+# Workspace role types for path-based workspace access
 WorkspaceUserInPath = Annotated[
     Role,
     RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
-        workspace_id_in_path=True,
-    ),
-]
-WorkspaceAdminUserInPath = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-        require_workspace_roles=WorkspaceRole.ADMIN,
         workspace_id_in_path=True,
     ),
 ]
@@ -81,9 +55,10 @@ WorkspaceAdminUserInPath = Annotated[
 
 
 @router.get("")
+@require_scope("workspace:read")
 async def list_workspaces(
     *,
-    role: OrgUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> list[WorkspaceReadMinimal]:
     """List workspaces.
@@ -109,9 +84,10 @@ async def list_workspaces(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("workspace:create")
 async def create_workspace(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     params: WorkspaceCreate,
     session: AsyncDBSession,
 ) -> WorkspaceReadMinimal:
@@ -141,9 +117,10 @@ async def create_workspace(
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
 @router.get("/search")
+@require_scope("workspace:read")
 async def search_workspaces(
     *,
-    role: OrgUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: WorkspaceSearch = Depends(),
 ) -> list[WorkspaceReadMinimal]:
@@ -154,6 +131,7 @@ async def search_workspaces(
 
 
 @router.get("/{workspace_id}")
+@require_scope("workspace:read")
 async def get_workspace(
     *,
     role: WorkspaceUserInPath,
@@ -177,9 +155,10 @@ async def get_workspace(
 
 
 @router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("workspace:update")
 async def update_workspace(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     params: WorkspaceUpdate,
     session: AsyncDBSession,
@@ -199,9 +178,10 @@ async def update_workspace(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:delete")
 async def delete_workspace(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
 ) -> None:
@@ -223,6 +203,7 @@ async def delete_workspace(
 
 # === Memberships === #
 @router.get("/{workspace_id}/members")
+@require_scope("workspace:member:read")
 async def list_workspace_members(
     *,
     role: WorkspaceUserInPath,
@@ -236,6 +217,7 @@ async def list_workspace_members(
 
 
 @router.get("/{workspace_id}/memberships")
+@require_scope("workspace:member:read")
 async def list_workspace_memberships(
     *,
     role: WorkspaceUserInPath,
@@ -256,9 +238,10 @@ async def list_workspace_memberships(
 
 
 @router.post("/{workspace_id}/memberships", status_code=status.HTTP_201_CREATED)
+@require_scope("workspace:member:invite")
 async def create_workspace_membership(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     params: WorkspaceMembershipCreate,
     session: AsyncDBSession,
@@ -287,9 +270,10 @@ async def create_workspace_membership(
     "/{workspace_id}/memberships/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:member:update")
 async def update_workspace_membership(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     user_id: UserID,
     params: WorkspaceMembershipUpdate,
@@ -319,6 +303,7 @@ async def update_workspace_membership(
 
 
 @router.get("/{workspace_id}/memberships/{user_id}")
+@require_scope("workspace:member:read")
 async def get_workspace_membership(
     *,
     role: WorkspaceUserInPath,
@@ -346,9 +331,10 @@ async def get_workspace_membership(
     "/{workspace_id}/memberships/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:member:remove")
 async def delete_workspace_membership(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncDBSession,
@@ -362,9 +348,10 @@ async def delete_workspace_membership(
 
 
 @router.post("/{workspace_id}/invitations", status_code=status.HTTP_201_CREATED)
+@require_scope("workspace:member:invite")
 async def create_workspace_invitation(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     params: WorkspaceInvitationCreate,
     session: AsyncDBSession,
@@ -402,9 +389,10 @@ async def create_workspace_invitation(
 
 
 @router.get("/{workspace_id}/invitations")
+@require_scope("workspace:member:read")
 async def list_workspace_invitations(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
     params: WorkspaceInvitationList = Depends(),
@@ -443,9 +431,10 @@ async def list_workspace_invitations(
     "/{workspace_id}/invitations/{invitation_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:member:remove")
 async def revoke_workspace_invitation(
     *,
-    role: WorkspaceAdminUserInPath,
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     invitation_id: InvitationID,
     session: AsyncDBSession,

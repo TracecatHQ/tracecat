@@ -4,8 +4,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.controls import require_scope
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import SecretID
@@ -53,12 +54,13 @@ OrgAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
+        min_access_level=AccessLevel.ADMIN,
     ),
 ]
 
 
 @router.get("/search", response_model=list[SecretRead])
+@require_scope("secret:read")
 async def search_secrets(
     *,
     role: WorkspaceUser,
@@ -91,6 +93,7 @@ async def search_secrets(
 
 
 @router.get("")
+@require_scope("secret:read")
 async def list_secrets(
     *,
     role: WorkspaceUser,
@@ -116,6 +119,7 @@ async def list_secrets(
 
 
 @router.get("/definitions", response_model=list[SecretDefinition])
+@require_scope("secret:read")
 async def list_secret_definitions(
     *,
     role: WorkspaceUser,
@@ -127,6 +131,7 @@ async def list_secret_definitions(
 
 
 @router.get("/{secret_name}")
+@require_scope("secret:read")
 async def get_secret_by_name(
     *,
     role: WorkspaceAdminUser,
@@ -146,6 +151,7 @@ async def get_secret_by_name(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("secret:create")
 async def create_secret(
     *,
     role: WorkspaceAdminUser,
@@ -169,6 +175,7 @@ async def create_secret(
 
 
 @router.post("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("secret:update")
 async def update_secret_by_id(
     *,
     role: WorkspaceAdminUser,
@@ -198,6 +205,7 @@ async def update_secret_by_id(
 
 
 @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("secret:delete")
 async def delete_secret_by_id(
     *,
     role: WorkspaceAdminUser,
@@ -217,6 +225,7 @@ async def delete_secret_by_id(
 
 
 @org_router.get("")
+@require_scope("secret:read")
 async def list_org_secrets(
     *,
     role: OrgAdminUser,
@@ -242,6 +251,7 @@ async def list_org_secrets(
 
 
 @org_router.get("/{secret_name}")
+@require_scope("secret:read")
 async def get_org_secret_by_name(
     *,
     role: OrgAdminUser,
@@ -262,6 +272,7 @@ async def get_org_secret_by_name(
 
 
 @org_router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("secret:create")
 async def create_org_secret(
     *,
     role: OrgAdminUser,
@@ -288,6 +299,7 @@ async def create_org_secret(
     "/{secret_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("secret:update")
 async def update_org_secret_by_id(
     *,
     role: OrgAdminUser,
@@ -322,6 +334,7 @@ async def update_org_secret_by_id(
     "/{secret_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("secret:delete")
 async def delete_org_secret_by_id(
     *,
     role: OrgAdminUser,

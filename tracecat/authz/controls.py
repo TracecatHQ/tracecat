@@ -238,6 +238,50 @@ def require_workspace_role(*roles: WorkspaceRole) -> Callable[[T], T]:
 # =============================================================================
 
 
+def require_action_scope(action_key: str) -> None:
+    """Check if the current user has permission to execute a specific action.
+
+    This function checks the context scopes against the required action scope.
+    The required scope is `action:{action_key}:execute`.
+
+    Scope matching supports wildcards:
+    - `action:*:execute` → any action (Admin)
+    - `action:core.*:execute` → core actions (Editor)
+    - `action:tools.okta.*:execute` → okta actions (custom role)
+    - `action:tools.okta.list_users:execute` → specific action
+
+    Args:
+        action_key: The action key (e.g., "core.http_request", "tools.okta.list_users")
+
+    Raises:
+        ScopeDeniedError: If the user doesn't have permission to execute the action
+    """
+    user_scopes = ctx_scopes.get()
+
+    # Platform superuser has "*" scope - bypass all checks
+    if "*" in user_scopes:
+        return
+
+    required_scope = f"action:{action_key}:execute"
+
+    if not has_scope(user_scopes, required_scope):
+        logger.warning(
+            "Action scope check failed",
+            action_key=action_key,
+            required_scope=required_scope,
+        )
+        raise ScopeDeniedError(
+            required_scopes=[required_scope],
+            missing_scopes=[required_scope],
+        )
+
+    logger.debug(
+        "Action scope check passed",
+        action_key=action_key,
+        required_scope=required_scope,
+    )
+
+
 def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
     """Decorator that requires specific scopes to access an endpoint or method.
 

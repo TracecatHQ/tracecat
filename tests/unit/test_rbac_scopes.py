@@ -10,6 +10,7 @@ from tracecat.authz.controls import (
     has_all_scopes,
     has_any_scope,
     has_scope,
+    require_action_scope,
     require_scope,
     scope_matches,
     validate_scope_string,
@@ -344,3 +345,81 @@ class TestRequireScopeDecorator:
 
         with pytest.raises(ScopeDeniedError):
             await async_protected_func()
+
+
+class TestRequireActionScope:
+    """Tests for the require_action_scope function."""
+
+    def test_require_action_scope_with_exact_scope(self):
+        """User with exact action scope can execute."""
+        ctx_scopes.set(frozenset({"action:core.http_request:execute"}))
+        # Should not raise
+        require_action_scope("core.http_request")
+
+    def test_require_action_scope_with_global_wildcard(self):
+        """Superuser with * scope can execute any action."""
+        ctx_scopes.set(frozenset({"*"}))
+        require_action_scope("core.http_request")
+        require_action_scope("tools.okta.list_users")
+
+    def test_require_action_scope_with_action_wildcard(self):
+        """User with action:*:execute can execute any action."""
+        ctx_scopes.set(frozenset({"action:*:execute"}))
+        require_action_scope("core.http_request")
+        require_action_scope("tools.okta.list_users")
+
+    def test_require_action_scope_with_prefix_wildcard(self):
+        """User with action:core.*:execute can execute core actions."""
+        ctx_scopes.set(frozenset({"action:core.*:execute"}))
+        require_action_scope("core.http_request")
+        require_action_scope("core.transform.forward")
+
+        # Should fail for non-core actions
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            require_action_scope("tools.okta.list_users")
+        assert "action:tools.okta.list_users:execute" in exc_info.value.missing_scopes
+
+    def test_require_action_scope_with_integration_wildcard(self):
+        """User with action:tools.okta.*:execute can execute okta actions."""
+        ctx_scopes.set(frozenset({"action:tools.okta.*:execute"}))
+        require_action_scope("tools.okta.list_users")
+        require_action_scope("tools.okta.suspend_user")
+
+        # Should fail for other integrations
+        with pytest.raises(ScopeDeniedError):
+            require_action_scope("tools.slack.send_message")
+
+    def test_require_action_scope_denied(self):
+        """User without action scope gets denied."""
+        ctx_scopes.set(frozenset({"workflow:execute"}))
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            require_action_scope("core.http_request")
+
+        assert exc_info.value.required_scopes == ["action:core.http_request:execute"]
+        assert exc_info.value.missing_scopes == ["action:core.http_request:execute"]
+
+    def test_require_action_scope_empty_scopes(self):
+        """User with no scopes gets denied."""
+        ctx_scopes.set(frozenset())
+
+        with pytest.raises(ScopeDeniedError):
+            require_action_scope("core.http_request")
+
+    def test_require_action_scope_multiple_scopes(self):
+        """User with multiple action scopes can execute matching actions."""
+        ctx_scopes.set(
+            frozenset(
+                {
+                    "action:core.*:execute",
+                    "action:tools.okta.*:execute",
+                    "workflow:execute",
+                }
+            )
+        )
+        require_action_scope("core.http_request")
+        require_action_scope("tools.okta.list_users")
+
+        # Should fail for non-matching actions
+        with pytest.raises(ScopeDeniedError):
+            require_action_scope("tools.slack.send_message")

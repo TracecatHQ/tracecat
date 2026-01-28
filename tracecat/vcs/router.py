@@ -1,12 +1,11 @@
 """VCS integration router for organization-level platform features."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.dependencies import OrgAdminUser
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
@@ -26,6 +25,7 @@ github_router = APIRouter(prefix="/github", tags=["vcs", "github", "organization
 
 
 @github_router.get("/manifest", response_model=GitHubAppManifestResponse)
+@require_scope("org:settings:read")
 async def get_github_app_manifest(
     *,
     _role: OrgAdminUser,
@@ -54,6 +54,7 @@ async def get_github_app_manifest(
 
 
 @github_router.get("/install")
+@require_scope("org:settings:read")
 async def github_app_install_callback(
     *,
     session: AsyncDBSession,
@@ -122,6 +123,7 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
 
 
 @github_router.post("/credentials", status_code=status.HTTP_201_CREATED)
+@require_scope("org:settings:manage")
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
@@ -166,6 +168,7 @@ async def save_github_app_credentials(
 
 
 @github_router.delete("/credentials", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def delete_github_app_credentials(
     *,
     session: AsyncDBSession,
@@ -191,6 +194,7 @@ async def delete_github_app_credentials(
 
 
 @github_router.get("/credentials/status", response_model=GitHubAppCredentialsStatus)
+@require_scope("org:settings:read")
 async def get_github_app_credentials_status(
     *,
     session: AsyncDBSession,

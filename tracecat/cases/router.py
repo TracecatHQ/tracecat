@@ -20,6 +20,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -88,6 +89,7 @@ WorkspaceAdminUser = Annotated[
 
 
 @cases_router.get("")
+@require_scope("case:read")
 async def list_cases(
     *,
     role: WorkspaceUser,
@@ -140,6 +142,7 @@ async def list_cases(
 
 
 @cases_router.get("/search")
+@require_scope("case:read")
 async def search_cases(
     *,
     role: WorkspaceUser,
@@ -282,6 +285,7 @@ async def search_cases(
 
 
 @cases_router.get("/{case_id}")
+@require_scope("case:read")
 async def get_case(
     *,
     role: WorkspaceUser,
@@ -348,6 +352,7 @@ async def get_case(
 
 
 @cases_router.post("", status_code=HTTP_201_CREATED)
+@require_scope("case:create")
 async def create_case(
     *,
     role: WorkspaceUser,
@@ -366,6 +371,7 @@ async def create_case(
 
 
 @cases_router.patch("/{case_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:update")
 async def update_case(
     *,
     role: WorkspaceUser,
@@ -398,6 +404,7 @@ async def update_case(
 
 
 @cases_router.delete("/{case_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
 async def delete_case(
     *,
     role: WorkspaceAdminUser,
@@ -419,6 +426,7 @@ async def delete_case(
 # Support comments as a first class activity type.
 # We anticipate having other complex comment functionality in the future.
 @cases_router.get("/{case_id}/comments", status_code=HTTP_200_OK)
+@require_scope("case:read")
 async def list_comments(
     *,
     role: WorkspaceUser,
@@ -446,6 +454,7 @@ async def list_comments(
 
 
 @cases_router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
+@require_scope("case:create")
 async def create_comment(
     *,
     role: WorkspaceUser,
@@ -469,6 +478,7 @@ async def create_comment(
     "/{case_id}/comments/{comment_id}",
     status_code=HTTP_204_NO_CONTENT,
 )
+@require_scope("case:update")
 async def update_comment(
     *,
     role: WorkspaceUser,
@@ -498,6 +508,7 @@ async def update_comment(
 @cases_router.delete(
     "/{case_id}/comments/{comment_id}", status_code=HTTP_204_NO_CONTENT
 )
+@require_scope("case:delete")
 async def delete_comment(
     *,
     role: WorkspaceUser,
@@ -527,6 +538,7 @@ async def delete_comment(
 
 
 @case_fields_router.get("")
+@require_scope("case:read")
 async def list_fields(
     *,
     role: WorkspaceUser,
@@ -543,6 +555,7 @@ async def list_fields(
 
 
 @case_fields_router.post("", status_code=HTTP_201_CREATED)
+@require_scope("case:create")
 async def create_field(
     *,
     role: WorkspaceAdminUser,
@@ -566,6 +579,7 @@ async def create_field(
 
 
 @case_fields_router.patch("/{field_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:update")
 async def update_field(
     *,
     role: WorkspaceAdminUser,
@@ -579,6 +593,7 @@ async def update_field(
 
 
 @case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
 async def delete_field(
     *,
     role: WorkspaceAdminUser,
@@ -598,6 +613,7 @@ async def delete_field(
     status_code=HTTP_200_OK,
     response_model_exclude_none=True,
 )
+@require_scope("case:read")
 async def list_events_with_users(
     *,
     role: WorkspaceUser,
@@ -661,6 +677,7 @@ async def list_events_with_users(
     "/{case_id}/tasks",
     status_code=HTTP_200_OK,
 )
+@require_scope("case:read")
 async def list_tasks(
     *,
     role: WorkspaceUser,
@@ -696,6 +713,7 @@ async def list_tasks(
     "/{case_id}/tasks",
     status_code=HTTP_201_CREATED,
 )
+@require_scope("case:create")
 async def create_task(
     *,
     role: WorkspaceUser,
@@ -741,6 +759,7 @@ async def create_task(
     "/{case_id}/tasks/{task_id}",
     status_code=HTTP_200_OK,
 )
+@require_scope("case:update")
 async def update_task(
     *,
     role: WorkspaceUser,
@@ -790,6 +809,7 @@ async def update_task(
     "/{case_id}/tasks/{task_id}",
     status_code=HTTP_204_NO_CONTENT,
 )
+@require_scope("case:delete")
 async def delete_task(
     *,
     role: WorkspaceUser,

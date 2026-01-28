@@ -13,6 +13,7 @@ from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowDefinition
 from tracecat.dsl.common import (
@@ -93,6 +94,7 @@ async def _list_interactions(
 
 
 @router.get("")
+@require_scope("workflow:read")
 async def list_workflow_executions(
     role: WorkspaceUserRole,
     # Filters
@@ -139,6 +141,7 @@ async def list_workflow_executions(
 
 
 @router.get("/{execution_id}")
+@require_scope("workflow:read")
 async def get_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
@@ -178,6 +181,7 @@ async def get_workflow_execution(
 
 
 @router.get("/{execution_id:path}/compact")
+@require_scope("workflow:read")
 async def get_workflow_execution_compact(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
@@ -393,6 +397,7 @@ async def get_workflow_execution_object_preview(
 
 
 @router.post("")
+@require_scope("workflow:execute")
 async def create_workflow_execution(
     role: WorkspaceUserRole,
     params: WorkflowExecutionCreate,
@@ -444,6 +449,7 @@ async def create_workflow_execution(
 
 
 @router.post("/draft")
+@require_scope("workflow:execute")
 async def create_draft_workflow_execution(
     role: WorkspaceUserRole,
     params: WorkflowExecutionCreate,
@@ -510,6 +516,7 @@ async def create_draft_workflow_execution(
     "/{execution_id}/cancel",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:execute")
 async def cancel_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
@@ -532,6 +539,7 @@ async def cancel_workflow_execution(
     "/{execution_id}/terminate",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:execute")
 async def terminate_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
