@@ -194,6 +194,23 @@ executor:
     enabled: false
     thresholdKb: 16
 
+agentExecutor:
+  replicas: 1
+  # Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
+  backend: "auto"
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  queue: "shared-agent-queue"
+  workerPoolSize: ""
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
 # CloudNativePG cluster subchart configuration (aliased as postgres)
 postgres:
   enabled: true

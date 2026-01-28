@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracecat.fullname" . }}-agent-executor
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-executor
+spec:
+  replicas: {{ .Values.agentExecutor.replicas }}
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent-executor
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-executor
+        tracecat.com/access-postgres: "true"
+        tracecat.com/access-redis: "true"
+    spec:
+      {{- if not .Values.tracecat.sandbox.disableNsjail }}
+      # nsjail requires root to set up mount namespaces
+      securityContext:
+        fsGroup: 0
+        runAsUser: 0
+      {{- else }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      containers:
+        - name: agent-executor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "tracecat.agent.worker"]
+          {{- if not .Values.tracecat.sandbox.disableNsjail }}
+          securityContext:
+            privileged: true  # Required for nsjail sandbox mount operations
+            capabilities:
+              add:
+                - SYS_ADMIN  # Required for nsjail sandbox
+            seccompProfile:
+              type: Unconfined  # Required for nsjail sandbox
+          {{- end }}
+          env:
+            {{- include "tracecat.env.agentExecutor" . | nindent 12 }}
+            {{- include "tracecat.env.secrets" . | nindent 12 }}
+          volumeMounts:
+            - name: sandbox-cache
+              mountPath: /var/lib/tracecat/sandbox-cache
+            - name: tmp
+              mountPath: /tmp
+            - name: dev-tun
+              mountPath: /dev/net/tun
+          resources:
+            {{- toYaml .Values.agentExecutor.resources | nindent 12 }}
+      volumes:
+        - name: sandbox-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: dev-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice

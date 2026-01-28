@@ -1,8 +1,8 @@
 # Tracecat Helm Release
 resource "helm_release" "tracecat" {
-  name       = "tracecat"
-  chart      = "${path.module}/../../../../helm/tracecat"
-  namespace  = kubernetes_namespace.tracecat.metadata[0].name
+  name      = "tracecat"
+  chart     = "${path.module}/../../../../helm/tracecat"
+  namespace = kubernetes_namespace.tracecat.metadata[0].name
 
   wait          = true
   wait_for_jobs = true
@@ -140,6 +140,22 @@ resource "helm_release" "tracecat" {
     value = var.executor_backend
   }
 
+  # Agent Executor configuration
+  set {
+    name  = "agentExecutor.replicas"
+    value = var.agent_executor_replicas
+  }
+
+  set {
+    name  = "agentExecutor.queue"
+    value = var.agent_executor_queue
+  }
+
+  set {
+    name  = "agentExecutor.backend"
+    value = var.agent_executor_backend
+  }
+
   set {
     name  = "ui.replicas"
     value = var.ui_replicas
@@ -185,6 +201,27 @@ resource "helm_release" "tracecat" {
 
   set {
     name  = "executor.resources.limits.memory"
+    value = "16Gi"
+  }
+
+  # Agent Executor: 4 vCPU, 8GB RAM (same as executor)
+  set {
+    name  = "agentExecutor.resources.requests.cpu"
+    value = "4000m"
+  }
+
+  set {
+    name  = "agentExecutor.resources.requests.memory"
+    value = "8Gi"
+  }
+
+  set {
+    name  = "agentExecutor.resources.limits.cpu"
+    value = "8000m"
+  }
+
+  set {
+    name  = "agentExecutor.resources.limits.memory"
     value = "16Gi"
   }
 

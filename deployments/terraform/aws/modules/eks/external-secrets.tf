@@ -97,9 +97,9 @@ resource "null_resource" "postgres_credentials_external_secret" {
   count = var.temporal_mode == "self-hosted" ? 1 : 0
 
   triggers = {
-    namespace   = kubernetes_namespace.tracecat.metadata[0].name
-    secret_arn  = local.rds_master_secret_arn
-    store_name  = local.external_secrets_store_name
+    namespace  = kubernetes_namespace.tracecat.metadata[0].name
+    secret_arn = local.rds_master_secret_arn
+    store_name = local.external_secrets_store_name
   }
 
   provisioner "local-exec" {

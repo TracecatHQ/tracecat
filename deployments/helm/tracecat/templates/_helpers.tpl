@@ -709,6 +709,44 @@ Merges: common + temporal + postgres + redis + executor-specific
 {{- end }}
 
 {{/*
+Agent Executor service environment variables
+Merges: common + temporal + postgres + redis + agent-executor-specific
+*/}}
+{{- define "tracecat.env.agentExecutor" -}}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
+{{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
+- name: TRACECAT__API_URL
+  value: {{ include "tracecat.internalApiUrl" . | quote }}
+{{- /* Context compression */}}
+- name: TRACECAT__CONTEXT_COMPRESSION_ENABLED
+  value: {{ .Values.agentExecutor.contextCompression.enabled | quote }}
+- name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
+  value: {{ .Values.agentExecutor.contextCompression.thresholdKb | quote }}
+{{- /* Sandbox settings */}}
+- name: TRACECAT__DISABLE_NSJAIL
+  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
+- name: TRACECAT__SANDBOX_NSJAIL_PATH
+  value: "/usr/local/bin/nsjail"
+- name: TRACECAT__SANDBOX_ROOTFS_PATH
+  value: "/var/lib/tracecat/sandbox-rootfs"
+- name: TRACECAT__SANDBOX_CACHE_DIR
+  value: "/var/lib/tracecat/sandbox-cache"
+{{- /* Agent executor settings */}}
+- name: TRACECAT__EXECUTOR_BACKEND
+  value: {{ .Values.agentExecutor.backend | quote }}
+- name: TRACECAT__AGENT_QUEUE
+  value: {{ .Values.agentExecutor.queue | quote }}
+- name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
+  value: {{ .Values.agentExecutor.workerPoolSize | quote }}
+{{- /* Secret masking */}}
+- name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
+  value: "false"
+{{- end }}
+
+{{/*
 UI service environment variables
 */}}
 {{- define "tracecat.env.ui" -}}

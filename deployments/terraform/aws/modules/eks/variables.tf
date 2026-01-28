@@ -219,6 +219,24 @@ variable "executor_backend" {
   default     = "ephemeral"
 }
 
+variable "agent_executor_replicas" {
+  description = "Number of agent-executor replicas"
+  type        = number
+  default     = 1
+}
+
+variable "agent_executor_queue" {
+  description = "Queue name for agent-executor workers"
+  type        = string
+  default     = "shared-agent-queue"
+}
+
+variable "agent_executor_backend" {
+  description = "Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto'"
+  type        = string
+  default     = "ephemeral"
+}
+
 variable "ui_replicas" {
   description = "Number of UI replicas"
   type        = number

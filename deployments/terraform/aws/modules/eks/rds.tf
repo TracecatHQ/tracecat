@@ -76,16 +76,16 @@ resource "aws_db_subnet_group" "tracecat" {
 resource "aws_db_instance" "tracecat" {
   identifier = "${var.cluster_name}-postgres-${local.rds_suffix}"
 
-  engine               = "postgres"
-  engine_version       = "16.6"
-  instance_class       = var.rds_instance_class
-  allocated_storage    = var.rds_allocated_storage
+  engine                = "postgres"
+  engine_version        = "16.6"
+  instance_class        = var.rds_instance_class
+  allocated_storage     = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5
 
   snapshot_identifier = var.rds_snapshot_identifier != "" ? var.rds_snapshot_identifier : null
 
-  db_name  = var.rds_snapshot_identifier == "" ? "tracecat" : null
-  username = var.rds_snapshot_identifier == "" ? var.rds_master_username : null
+  db_name                     = var.rds_snapshot_identifier == "" ? "tracecat" : null
+  username                    = var.rds_snapshot_identifier == "" ? var.rds_master_username : null
   manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.tracecat.name
@@ -96,8 +96,8 @@ resource "aws_db_instance" "tracecat" {
   storage_encrypted   = true
 
   backup_retention_period = 7
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "Mon:04:00-Mon:05:00"
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "Mon:04:00-Mon:05:00"
 
   skip_final_snapshot       = var.rds_skip_final_snapshot
   final_snapshot_identifier = var.rds_skip_final_snapshot ? null : "${var.cluster_name}-postgres-${local.rds_suffix}-final"
