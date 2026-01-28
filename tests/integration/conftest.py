@@ -179,6 +179,7 @@ def role_workspace_agent_a() -> Role:
         type="service",
         service_id="tracecat-agent-executor",
         workspace_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        organization_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         user_id=uuid.uuid4(),
     )
 
@@ -190,6 +191,7 @@ def role_workspace_agent_b() -> Role:
         type="service",
         service_id="tracecat-agent-executor",
         workspace_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
+        organization_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         user_id=uuid.uuid4(),
     )
 
