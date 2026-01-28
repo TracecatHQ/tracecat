@@ -9,7 +9,7 @@ resource "helm_release" "reloader" {
   name             = "reloader"
   repository       = "https://stakater.github.io/stakater-charts"
   chart            = "reloader"
-  version          = "1.4.12" # Pinned stable version
+  version          = "2.2.7" # Chart version for app v1.4.12
   namespace        = "reloader"
   create_namespace = true
 
