@@ -31,7 +31,7 @@ def _manifest_action(*, action: str, action_type: str, implementation: dict) -> 
 
 @pytest.mark.anyio
 async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
-    db, session, test_role, mocker
+    db, session, test_role, session_test_organization, mocker
 ):
     origin = "core-registry"
     version = "v1"
@@ -134,7 +134,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
 
 @pytest.mark.anyio
 async def test_prepare_step_context_uses_manifest_for_template_steps(
-    db, session, test_role, mocker
+    db, session, test_role, session_test_organization, mocker
 ):
     origin = "core-registry"
     version = "v1"

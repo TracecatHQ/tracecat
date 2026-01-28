@@ -942,6 +942,32 @@ async def test_organization(mock_org_id):
 
 
 @pytest.fixture(scope="function")
+async def session_test_organization(session, mock_org_id):
+    """Create a test organization in the test's session.
+
+    Use this fixture when the test needs an organization that's visible
+    within the test's isolated database session (e.g., for FK constraints).
+    """
+    # Check if organization exists in this session
+    result = await session.execute(
+        select(Organization).where(Organization.id == mock_org_id)
+    )
+    org = result.scalar_one_or_none()
+    if org is None:
+        # Create test organization in the test's session
+        org = Organization(
+            id=mock_org_id,
+            name="Test Organization",
+            slug=f"test-org-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+        await session.flush()  # Make visible in session without committing
+        logger.debug("Created test organization in session", organization=org)
+    return org
+
+
+@pytest.fixture(scope="function")
 async def test_workspace(test_organization, mock_org_id):
     """Create a test workspace for the test session."""
     ws_id = uuid.uuid4()
