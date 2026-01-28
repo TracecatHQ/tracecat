@@ -54,7 +54,7 @@ dependencies = [
     "loguru==0.7.3",
     "marshmallow==3.26.2",
     "minio==7.2.18",
-    "orjson==3.10.3",
+    "orjson==3.11.5",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
     "pip==25.3",
@@ -90,7 +90,6 @@ Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
-
 [tool.uv.sources]
 tracecat = { workspace = true }
 tracecat-admin = { workspace = true }
@@ -111,7 +110,7 @@ members = ["packages/*"]
 override-dependencies = [
     "uvicorn==0.35.0",
     "boto3==1.40.61",
-    "python-multipart==0.0.21",
+    "python-multipart==0.0.22",
     "rich==13.9.4",
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",

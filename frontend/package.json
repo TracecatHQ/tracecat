@@ -97,7 +97,7 @@
     "lucide-react": "^0.561.0",
     "motion": "^12.23.22",
     "nanoid": "^5.1.6",
-    "next": "15.5.9",
+    "next": "15.5.10",
     "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
     "papaparse": "^5.5.3",
@@ -117,7 +117,7 @@
     "streamdown": "^1.3.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "tar": "7.5.3",
+    "tar": "7.5.7",
     "tokenlens": "^1.3.1",
     "use-stick-to-bottom": "^1.1.1",
     "uuid": "^10.0.0",
@@ -165,7 +165,9 @@
     "overrides": {
       "prismjs": "1.30.0",
       "glob": "12.0.0",
-      "mdast-util-to-hast": "13.2.1"
+      "mdast-util-to-hast": "13.2.1",
+      "lodash": "4.17.23",
+      "lodash-es": "4.17.23"
     }
   }
 }
