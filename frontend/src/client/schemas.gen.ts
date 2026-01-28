@@ -19303,7 +19303,7 @@ export const $WorkspaceReadMinimal = {
 
 export const $WorkspaceRole = {
   type: "string",
-  enum: ["editor", "admin"],
+  enum: ["viewer", "editor", "admin"],
   title: "WorkspaceRole",
 } as const
 
