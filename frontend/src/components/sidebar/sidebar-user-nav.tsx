@@ -1,15 +1,19 @@
 "use client"
 
+import Cookies from "js-cookie"
 import {
   BookText,
   ExternalLink,
   LogOut,
+  LogOutIcon,
   ShieldCheckIcon,
   ShieldIcon,
   User,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Icons } from "@/components/icons"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -26,9 +30,21 @@ import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 
+const ORG_OVERRIDE_COOKIE = "tracecat-org-id"
+
 export function SidebarUserNav() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
+  const router = useRouter()
+
+  // Check if superuser is in org override mode
+  const orgOverrideCookie = Cookies.get(ORG_OVERRIDE_COOKIE)
+  const isInOrgOverrideMode = user?.isSuperuser && !!orgOverrideCookie
+
+  const handleExitOrgContext = () => {
+    Cookies.remove(ORG_OVERRIDE_COOKIE, { path: "/" })
+    router.push("/admin/organizations")
+  }
 
   const handleLogout = async () => {
     await logout()
@@ -57,9 +73,19 @@ export function SidebarUserNav() {
           >
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">
-                  {displayName}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium leading-none">
+                    {displayName}
+                  </p>
+                  {user?.isSuperuser && (
+                    <Badge
+                      variant="outline"
+                      className="h-4 px-1 text-[10px] font-normal"
+                    >
+                      Superuser
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-xs leading-none text-muted-foreground">
                   {user?.email ?? userDefaults.email}
                 </p>
@@ -91,6 +117,15 @@ export function SidebarUserNav() {
                       <span>Admin</span>
                     </DropdownMenuItem>
                   </Link>
+                  {isInOrgOverrideMode && (
+                    <DropdownMenuItem
+                      className="text-xs hover:cursor-pointer"
+                      onClick={handleExitOrgContext}
+                    >
+                      <LogOutIcon className="mr-2 size-4" />
+                      <span>Exit org context</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
               </>
             )}
