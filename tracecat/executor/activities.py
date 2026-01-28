@@ -18,8 +18,9 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.contexts import ctx_logger, ctx_role, ctx_run, ctx_scopes
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
@@ -27,6 +28,7 @@ from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
     RateLimitExceeded,
+    ScopeDeniedError,
 )
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
@@ -69,6 +71,27 @@ class ExecutorActivities:
         """
         ctx_run.set(input.run_context)
         ctx_role.set(role)
+
+        # Compute and set effective scopes for action scope enforcement
+        # This enables per-action authorization checks in dispatch_action
+        group_scopes: frozenset[str] | None = None
+        user_role_scopes: frozenset[str] | None = None
+        if role.user_id is not None and role.organization_id is not None:
+            from tracecat_ee.rbac.service import RBACService
+
+            async with RBACService.with_session(role) as rbac_svc:
+                group_scopes = await rbac_svc.get_group_scopes(
+                    role.user_id,
+                    workspace_id=role.workspace_id,
+                )
+                user_role_scopes = await rbac_svc.get_user_role_scopes(
+                    role.user_id,
+                    workspace_id=role.workspace_id,
+                )
+        scopes = compute_effective_scopes(
+            role, group_scopes=group_scopes, user_role_scopes=user_role_scopes
+        )
+        ctx_scopes.set(scopes)
 
         task = input.task
         environment = input.run_context.environment
@@ -123,6 +146,28 @@ class ExecutorActivities:
                     )
                     stored = await get_object_storage().store(key, result)
                     return stored
+        except ScopeDeniedError as e:
+            # ScopeDeniedError from dispatch_action (user lacks action permission)
+            kind = e.__class__.__name__
+            msg = f"Permission denied: missing scope(s) {e.missing_scopes} to execute action '{action_name}'"
+            log.warning(
+                "Action scope denied",
+                action=action_name,
+                required_scopes=e.required_scopes,
+                missing_scopes=e.missing_scopes,
+            )
+            err_info = ActionErrorInfo(
+                ref=task.ref,
+                message=msg,
+                type=kind,
+                attempt=act_attempt,
+                stream_id=input.stream_id,
+            )
+            err_msg = err_info.format("execute_action")
+            # Non-retryable: retrying won't help if user lacks permission
+            raise ApplicationError(
+                err_msg, err_info, type=kind, non_retryable=True
+            ) from e
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__
