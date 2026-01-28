@@ -35,9 +35,6 @@ class Unset:
 
     __slots__ = ()
 
-    # Unique marker to identify Unset instances across module reloads
-    _is_unset_sentinel = True
-
     def __repr__(self) -> str:
         return "<UNSET>"
 
@@ -55,16 +52,16 @@ def is_set[T](value: T | Unset) -> TypeGuard[T]:
 
     Use this to get proper type narrowing when checking if a value was provided.
 
-    Uses a marker attribute check to handle cases where the Unset class might
-    be imported through different paths or pickled/unpickled (e.g., in
-    pytest-xdist workers), which could cause isinstance() to fail.
+    Uses both isinstance() and identity checks:
+    - isinstance() handles pickled instances (same type, different object)
+    - identity handles cross-import edge cases (same object, isinstance may fail)
 
     Example:
         if is_set(start_time):
             # start_time is narrowed from datetime | Unset to datetime
             data["start_time"] = start_time.isoformat()
     """
-    return not getattr(value, "_is_unset_sentinel", False)
+    return not (isinstance(value, Unset) or value is UNSET)
 
 
 # === Case Types === #
