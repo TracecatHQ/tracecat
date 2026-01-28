@@ -168,13 +168,12 @@ jobs:
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
           # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
-          # --timeout=120: terminate hanging tests after 2min and show actual errors
           # faulthandler_timeout=300: dump thread state after 5min for extra debugging
-          uv run pytest tests/integration/test_pool_integration.py -ra -v --timeout=120 -o faulthandler_timeout=300
+          uv run pytest tests/integration/test_pool_integration.py -ra -v -o faulthandler_timeout=300
 
           # Run other integration tests in parallel with pytest-xdist
           # Worker-specific task queues in conftest.py ensure isolation
-          uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -n auto -ra -v --timeout=120 -o faulthandler_timeout=300
+          uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
         if: failure()
