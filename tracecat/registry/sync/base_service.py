@@ -214,12 +214,15 @@ class BaseRegistrySyncService[
                 commit=commit,
             )
 
+        # Pass organization_id to subprocess so it can access org-scoped secrets (e.g., SSH keys)
+        org_id = self.role.organization_id if isinstance(self.role, Role) else None
         sync_result = await fetch_actions_from_subprocess(
             origin=origin,
             repository_id=repo_id,
             commit_sha=target_commit_sha,
             validate=True,
             git_repo_package_name=git_repo_package_name,
+            organization_id=org_id,
         )
         actions = sync_result.actions
         commit_sha = sync_result.commit_sha
