@@ -33,6 +33,11 @@ def get_connection_string(
 ) -> str:
     base = f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
     if sslmode:
+        # asyncpg uses 'ssl' parameter, psycopg uses 'sslmode'
+        if driver == "asyncpg":
+            # Map PostgreSQL sslmode to asyncpg ssl parameter
+            # asyncpg accepts: 'disable', 'prefer', 'require', 'verify-ca', 'verify-full'
+            return f"{base}?ssl={sslmode}"
         return f"{base}?sslmode={sslmode}"
     return base
 
