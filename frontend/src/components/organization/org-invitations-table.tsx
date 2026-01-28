@@ -5,7 +5,11 @@ import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { OrgInvitationRead, OrgRole } from "@/client"
+import {
+  type OrgInvitationRead,
+  type OrgRole,
+  organizationGetInvitationToken,
+} from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -57,6 +61,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
 import { useOrgInvitations } from "@/lib/hooks"
@@ -355,6 +360,33 @@ export function OrgInvitationsTable() {
                       >
                         Copy invitation ID
                       </DropdownMenuItem>
+                      {user?.isPrivileged() && isPending && (
+                        <DropdownMenuItem
+                          onSelect={async () => {
+                            try {
+                              const { token } =
+                                await organizationGetInvitationToken({
+                                  invitationId: invitation.id,
+                                })
+                              const url = `${window.location.origin}/invitations/accept?token=${token}`
+                              await navigator.clipboard.writeText(url)
+                              toast({
+                                title: "Copied",
+                                description:
+                                  "Invitation link copied to clipboard",
+                              })
+                            } catch {
+                              toast({
+                                title: "Error",
+                                description: "Failed to copy invitation link",
+                                variant: "destructive",
+                              })
+                            }
+                          }}
+                        >
+                          Copy invitation link
+                        </DropdownMenuItem>
+                      )}
                       {user?.isPrivileged() && (
                         <>
                           <DropdownMenuSeparator />
