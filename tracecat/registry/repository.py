@@ -97,6 +97,28 @@ def ensure_custom_registry_path() -> None:
         logger.debug("Added custom registry path via site.addsitedir", path=target_str)
 
 
+DEFAULT_EXCLUDE_DIRNAMES: set[str] = {
+    "cli",
+    "_internal",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv",
+    "env",
+    ".direnv",
+    "build",
+    "dist",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    "eggs",
+    ".eggs",
+    "tests",
+}
+
+
 def iter_valid_files(
     base_path: Path | str,
     file_extensions: tuple[str, ...] = (".py",),
@@ -115,26 +137,7 @@ def iter_valid_files(
         Path objects for valid files
     """
     if exclude_dirnames is None:
-        exclude_dirnames = {
-            "cli",
-            "_internal",
-            ".git",
-            "__pycache__",
-            "node_modules",
-            ".venv",
-            "venv",
-            "env",
-            ".direnv",
-            "build",
-            "dist",
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            ".tox",
-            "eggs",
-            ".eggs",
-            "tests",
-        }
+        exclude_dirnames = set(DEFAULT_EXCLUDE_DIRNAMES)
 
     pkg_path = Path(base_path)
 
@@ -671,25 +674,39 @@ class Repository:
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> None:
         start_time = default_timer()
-        base_path = module.__path__[0]
+        base_path = Path(module.__path__[0])
         base_package = module.__name__
         num_udfs = 0
 
+        # Avoid reloading SDK modules to prevent sentinel/class mismatch
+        exclude_dirnames = None
+        search_paths = [base_path]
+        if module.__name__ == DEFAULT_REGISTRY_ORIGIN:
+            exclude_dirnames = DEFAULT_EXCLUDE_DIRNAMES | {"sdk"}
+            search_paths = [
+                base_path / "core",
+                base_path / "integrations",
+            ]
+
         # Use the new free function to iterate over Python files
-        for file_path in iter_valid_files(
-            base_path,
-            file_extensions=(".py",),
-            exclude_filenames=("__init__", "__main__"),
-        ):
-            logger.info(f"Loading UDFs from {file_path!s}")
+        for search_path in search_paths:
+            if not search_path.exists():
+                continue
+            for file_path in iter_valid_files(
+                search_path,
+                file_extensions=(".py",),
+                exclude_filenames=("__init__", "__main__"),
+                exclude_dirnames=exclude_dirnames,
+            ):
+                logger.info(f"Loading UDFs from {file_path!s}")
 
-            # Convert path to module name
-            relative_path = file_path.relative_to(base_path)
-            parts = (*relative_path.parent.parts, relative_path.stem)
-            udf_module_name = f"{base_package}.{'.'.join(parts)}"
+                # Convert path to module name
+                relative_path = file_path.relative_to(base_path)
+                parts = (*relative_path.parent.parts, relative_path.stem)
+                udf_module_name = f"{base_package}.{'.'.join(parts)}"
 
-            mod = import_and_reload(udf_module_name)
-            num_udfs += self._register_udfs_from_module(mod, origin=origin)
+                mod = import_and_reload(udf_module_name)
+                num_udfs += self._register_udfs_from_module(mod, origin=origin)
         time_elapsed = default_timer() - start_time
         logger.info(
             f"✅ Registered {num_udfs} UDFs in {time_elapsed:.2f}s",
