@@ -8,9 +8,17 @@ class OwnerType(StrEnum):
 
 
 class WorkspaceRole(StrEnum):
-    # VIEWER = "viewer"
+    VIEWER = "viewer"
     EDITOR = "editor"
     ADMIN = "admin"
+
+
+class ScopeSource(StrEnum):
+    """Source of a scope definition."""
+
+    SYSTEM = "system"  # Built-in platform scopes (org/workspace/resources/RBAC admin)
+    REGISTRY = "registry"  # Derived from registry actions
+    CUSTOM = "custom"  # User-created scopes
 
 
 class OrgRole(StrEnum):
