@@ -111,6 +111,13 @@ import {
   type GitCommitInfo,
   type GitSettingsRead,
   type GraphOperation,
+  // RBAC types and functions
+  type GroupRoleAssignmentCreate,
+  type GroupRoleAssignmentReadWithDetails,
+  type GroupRoleAssignmentUpdate,
+  type GroupCreate,
+  type GroupReadWithMembers,
+  type GroupUpdate,
   graphApplyGraphOperations,
   graphGetGraph,
   type IntegrationRead,
@@ -164,6 +171,32 @@ import {
   type RegistryRepositoriesSyncRegistryRepositoryData,
   type RegistryRepositoryErrorDetail,
   type RegistryRepositoryReadMinimal,
+  type RoleCreate,
+  type RoleReadWithScopes,
+  type RoleUpdate,
+  rbacAddGroupMember,
+  rbacCreateAssignment,
+  rbacCreateGroup,
+  rbacCreateRole,
+  rbacCreateScope,
+  rbacCreateUserAssignment,
+  rbacDeleteAssignment,
+  rbacDeleteGroup,
+  rbacDeleteRole,
+  rbacDeleteScope,
+  rbacDeleteUserAssignment,
+  rbacGetGroup,
+  rbacGetRole,
+  rbacListAssignments,
+  rbacListGroups,
+  rbacListRoles,
+  rbacListScopes,
+  rbacListUserAssignments,
+  rbacRemoveGroupMember,
+  rbacUpdateAssignment,
+  rbacUpdateGroup,
+  rbacUpdateRole,
+  rbacUpdateUserAssignment,
   registryActionsCreateRegistryAction,
   registryActionsDeleteRegistryAction,
   registryActionsGetRegistryAction,
@@ -178,6 +211,9 @@ import {
   type SchedulesCreateScheduleData,
   type SchedulesDeleteScheduleData,
   type SchedulesUpdateScheduleData,
+  type ScopeCreate,
+  type ScopeRead,
+  type ScopeSource,
   type SecretCreate,
   type SecretDefinition,
   type SecretReadMinimal,
@@ -256,7 +292,12 @@ import {
   triggersGenerateWebhookApiKey,
   triggersRevokeWebhookApiKey,
   triggersUpdateWebhook,
+  type UserRoleAssignmentCreate,
+  type UserRoleAssignmentReadWithDetails,
+  type UserRoleAssignmentUpdate,
+  type UserScopesRead,
   type UserUpdate,
+  usersGetMyScopes,
   usersUsersPatchCurrentUser,
   type VariableCreate,
   type VariableReadMinimal,
@@ -5449,10 +5490,1008 @@ export function useWorkspaceSettings(
   }
 }
 
-export function useCaseDropdownDefinitions(
-  workspaceId: string,
-  enabled = true
-) {
+// ─────────────────────────────────────────────────────────────────────────────
+// RBAC Hooks
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Hook to fetch the current user's effective scopes.
+ */
+export function useUserScopes() {
+  const {
+    data: userScopes,
+    isLoading,
+    error,
+  } = useQuery<UserScopesRead>({
+    queryKey: ["user-scopes"],
+    queryFn: async () => await usersGetMyScopes(),
+  })
+
+  return {
+    userScopes,
+    isLoading,
+    error,
+  }
+}
+
+/**
+ * Hook to manage RBAC scopes.
+ */
+export function useRbacScopes(options?: {
+  includeSystem?: boolean
+  source?: ScopeSource
+}) {
+  const queryClient = useQueryClient()
+
+  // List scopes
+  const {
+    data: scopes,
+    isLoading,
+    error,
+  } = useQuery<ScopeRead[]>({
+    queryKey: ["rbac-scopes", options?.includeSystem, options?.source],
+    queryFn: async () => {
+      const response = await rbacListScopes({
+        includeSystem: options?.includeSystem ?? true,
+        source: options?.source,
+      })
+      return response.items
+    },
+  })
+
+  // Create scope
+  const {
+    mutateAsync: createScope,
+    isPending: createScopeIsPending,
+    error: createScopeError,
+  } = useMutation({
+    mutationFn: async (params: ScopeCreate) =>
+      await rbacCreateScope({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-scopes"] })
+      toast({
+        title: "Scope created",
+        description: "Custom scope created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Invalid scope",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to create scopes.",
+            variant: "destructive",
+          })
+          break
+        case 409:
+          toast({
+            title: "Scope already exists",
+            description: "A scope with this name already exists.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to create scope",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Delete scope
+  const {
+    mutateAsync: deleteScope,
+    isPending: deleteScopeIsPending,
+    error: deleteScopeError,
+  } = useMutation({
+    mutationFn: async (scopeId: string) => await rbacDeleteScope({ scopeId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-scopes"] })
+      toast({
+        title: "Scope deleted",
+        description: "Custom scope deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete scope",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to delete scopes.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Scope not found",
+            description: "The scope does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete scope",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  return {
+    scopes: scopes ?? [],
+    isLoading,
+    error,
+    createScope,
+    createScopeIsPending,
+    createScopeError,
+    deleteScope,
+    deleteScopeIsPending,
+    deleteScopeError,
+  }
+}
+
+/**
+ * Hook to manage RBAC roles.
+ */
+export function useRbacRoles() {
+  const queryClient = useQueryClient()
+
+  // List roles
+  const {
+    data: roles,
+    isLoading,
+    error,
+  } = useQuery<RoleReadWithScopes[]>({
+    queryKey: ["rbac-roles"],
+    queryFn: async () => {
+      const response = await rbacListRoles()
+      return response.items
+    },
+  })
+
+  // Get single role
+  const getRole = useCallback(
+    async (roleId: string): Promise<RoleReadWithScopes> => {
+      return await rbacGetRole({ roleId })
+    },
+    []
+  )
+
+  // Create role
+  const {
+    mutateAsync: createRole,
+    isPending: createRoleIsPending,
+    error: createRoleError,
+  } = useMutation({
+    mutationFn: async (params: RoleCreate) =>
+      await rbacCreateRole({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-roles"] })
+      toast({
+        title: "Role created",
+        description: "Custom role created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Invalid role",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to create roles.",
+            variant: "destructive",
+          })
+          break
+        case 409:
+          toast({
+            title: "Role already exists",
+            description: "A role with this name already exists.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to create role",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Update role
+  const {
+    mutateAsync: updateRole,
+    isPending: updateRoleIsPending,
+    error: updateRoleError,
+  } = useMutation({
+    mutationFn: async ({
+      roleId,
+      ...params
+    }: RoleUpdate & { roleId: string }) =>
+      await rbacUpdateRole({ roleId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-roles"] })
+      toast({
+        title: "Role updated",
+        description: "Role updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot modify role",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to update roles.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Role not found",
+            description: "The role does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update role",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Delete role
+  const {
+    mutateAsync: deleteRole,
+    isPending: deleteRoleIsPending,
+    error: deleteRoleError,
+  } = useMutation({
+    mutationFn: async (roleId: string) => await rbacDeleteRole({ roleId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-roles"] })
+      toast({
+        title: "Role deleted",
+        description: "Role deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete role",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to delete roles.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Role not found",
+            description: "The role does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete role",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  return {
+    roles: roles ?? [],
+    isLoading,
+    error,
+    getRole,
+    createRole,
+    createRoleIsPending,
+    createRoleError,
+    updateRole,
+    updateRoleIsPending,
+    updateRoleError,
+    deleteRole,
+    deleteRoleIsPending,
+    deleteRoleError,
+  }
+}
+
+/**
+ * Hook to manage RBAC groups.
+ */
+export function useRbacGroups() {
+  const queryClient = useQueryClient()
+
+  // List groups
+  const {
+    data: groups,
+    isLoading,
+    error,
+  } = useQuery<GroupReadWithMembers[]>({
+    queryKey: ["rbac-groups"],
+    queryFn: async () => {
+      const response = await rbacListGroups()
+      return response.items
+    },
+  })
+
+  // Get single group
+  const getGroup = useCallback(
+    async (groupId: string): Promise<GroupReadWithMembers> => {
+      return await rbacGetGroup({ groupId })
+    },
+    []
+  )
+
+  // Create group
+  const {
+    mutateAsync: createGroup,
+    isPending: createGroupIsPending,
+    error: createGroupError,
+  } = useMutation({
+    mutationFn: async (params: GroupCreate) =>
+      await rbacCreateGroup({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      toast({
+        title: "Group created",
+        description: "Group created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Invalid group",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to create groups.",
+            variant: "destructive",
+          })
+          break
+        case 409:
+          toast({
+            title: "Group already exists",
+            description: "A group with this name already exists.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to create group",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Update group
+  const {
+    mutateAsync: updateGroup,
+    isPending: updateGroupIsPending,
+    error: updateGroupError,
+  } = useMutation({
+    mutationFn: async ({
+      groupId,
+      ...params
+    }: GroupUpdate & { groupId: string }) =>
+      await rbacUpdateGroup({ groupId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      toast({
+        title: "Group updated",
+        description: "Group updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to update groups.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Group not found",
+            description: "The group does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update group",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Delete group
+  const {
+    mutateAsync: deleteGroup,
+    isPending: deleteGroupIsPending,
+    error: deleteGroupError,
+  } = useMutation({
+    mutationFn: async (groupId: string) => await rbacDeleteGroup({ groupId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
+      toast({
+        title: "Group deleted",
+        description: "Group deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to delete groups.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Group not found",
+            description: "The group does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete group",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Add group member
+  const {
+    mutateAsync: addGroupMember,
+    isPending: addGroupMemberIsPending,
+    error: addGroupMemberError,
+  } = useMutation({
+    mutationFn: async ({
+      groupId,
+      userId,
+    }: {
+      groupId: string
+      userId: string
+    }) =>
+      await rbacAddGroupMember({ groupId, requestBody: { user_id: userId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      toast({
+        title: "Member added",
+        description: "Member added to the group successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to add group members.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The group or user does not exist.",
+            variant: "destructive",
+          })
+          break
+        case 409:
+          toast({
+            title: "Already a member",
+            description: "This user is already a member of the group.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to add member",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Remove group member
+  const {
+    mutateAsync: removeGroupMember,
+    isPending: removeGroupMemberIsPending,
+    error: removeGroupMemberError,
+  } = useMutation({
+    mutationFn: async ({
+      groupId,
+      userId,
+    }: {
+      groupId: string
+      userId: string
+    }) => await rbacRemoveGroupMember({ groupId, userId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      toast({
+        title: "Member removed",
+        description: "Member removed from the group successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to remove group members.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The group or member does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to remove member",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  return {
+    groups: groups ?? [],
+    isLoading,
+    error,
+    getGroup,
+    createGroup,
+    createGroupIsPending,
+    createGroupError,
+    updateGroup,
+    updateGroupIsPending,
+    updateGroupError,
+    deleteGroup,
+    deleteGroupIsPending,
+    deleteGroupError,
+    addGroupMember,
+    addGroupMemberIsPending,
+    addGroupMemberError,
+    removeGroupMember,
+    removeGroupMemberIsPending,
+    removeGroupMemberError,
+  }
+}
+
+/**
+ * Hook to manage RBAC group assignments.
+ */
+export function useRbacAssignments(options?: {
+  groupId?: string
+  workspaceId?: string
+}) {
+  const queryClient = useQueryClient()
+
+  // List assignments
+  const {
+    data: assignments,
+    isLoading,
+    error,
+  } = useQuery<GroupRoleAssignmentReadWithDetails[]>({
+    queryKey: ["rbac-assignments", options?.groupId, options?.workspaceId],
+    queryFn: async () => {
+      const response = await rbacListAssignments({
+        groupId: options?.groupId,
+        workspaceId: options?.workspaceId,
+      })
+      return response.items
+    },
+  })
+
+  // Create assignment
+  const {
+    mutateAsync: createAssignment,
+    isPending: createAssignmentIsPending,
+    error: createAssignmentError,
+  } = useMutation({
+    mutationFn: async (params: GroupRoleAssignmentCreate) =>
+      await rbacCreateAssignment({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      toast({
+        title: "Assignment created",
+        description: "Role assigned to group successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Invalid assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to create assignments.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The group, role, or workspace does not exist.",
+            variant: "destructive",
+          })
+          break
+        case 409:
+          toast({
+            title: "Assignment already exists",
+            description: "This group already has an assignment for this scope.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to create assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Update assignment
+  const {
+    mutateAsync: updateAssignment,
+    isPending: updateAssignmentIsPending,
+    error: updateAssignmentError,
+  } = useMutation({
+    mutationFn: async ({
+      assignmentId,
+      ...params
+    }: GroupRoleAssignmentUpdate & { assignmentId: string }) =>
+      await rbacUpdateAssignment({ assignmentId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      toast({
+        title: "Assignment updated",
+        description: "Assignment updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to update assignments.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The assignment or role does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Delete assignment
+  const {
+    mutateAsync: deleteAssignment,
+    isPending: deleteAssignmentIsPending,
+    error: deleteAssignmentError,
+  } = useMutation({
+    mutationFn: async (assignmentId: string) =>
+      await rbacDeleteAssignment({ assignmentId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      toast({
+        title: "Assignment deleted",
+        description: "Assignment removed successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description: "You don't have permission to delete assignments.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The assignment does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  return {
+    assignments: assignments ?? [],
+    isLoading,
+    error,
+    createAssignment,
+    createAssignmentIsPending,
+    createAssignmentError,
+    updateAssignment,
+    updateAssignmentIsPending,
+    updateAssignmentError,
+    deleteAssignment,
+    deleteAssignmentIsPending,
+    deleteAssignmentError,
+  }
+}
+
+/**
+ * Hook to manage RBAC user role assignments (direct user-to-role assignments).
+ */
+export function useRbacUserAssignments(options?: {
+  userId?: string
+  workspaceId?: string
+}) {
+  const queryClient = useQueryClient()
+
+  // List user assignments
+  const {
+    data: userAssignments,
+    isLoading,
+    error,
+  } = useQuery<UserRoleAssignmentReadWithDetails[]>({
+    queryKey: ["rbac-user-assignments", options?.userId, options?.workspaceId],
+    queryFn: async () => {
+      const response = await rbacListUserAssignments({
+        userId: options?.userId,
+        workspaceId: options?.workspaceId,
+      })
+      return response.items
+    },
+  })
+
+  // Create user assignment
+  const {
+    mutateAsync: createUserAssignment,
+    isPending: createUserAssignmentIsPending,
+    error: createUserAssignmentError,
+  } = useMutation({
+    mutationFn: async (params: UserRoleAssignmentCreate) =>
+      await rbacCreateUserAssignment({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      toast({
+        title: "User assignment created",
+        description: "Role assigned to user successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Invalid assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+          break
+        case 403:
+          toast({
+            title: "Permission denied",
+            description:
+              "You don't have permission to create user assignments.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The user, role, or workspace does not exist.",
+            variant: "destructive",
+          })
+          break
+        case 409:
+          toast({
+            title: "Assignment already exists",
+            description: "This user already has an assignment for this scope.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to create user assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Update user assignment
+  const {
+    mutateAsync: updateUserAssignment,
+    isPending: updateUserAssignmentIsPending,
+    error: updateUserAssignmentError,
+  } = useMutation({
+    mutationFn: async ({
+      assignmentId,
+      ...params
+    }: UserRoleAssignmentUpdate & { assignmentId: string }) =>
+      await rbacUpdateUserAssignment({ assignmentId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      toast({
+        title: "User assignment updated",
+        description: "User assignment updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description:
+              "You don't have permission to update user assignments.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The assignment or role does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update user assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  // Delete user assignment
+  const {
+    mutateAsync: deleteUserAssignment,
+    isPending: deleteUserAssignmentIsPending,
+    error: deleteUserAssignmentError,
+  } = useMutation({
+    mutationFn: async (assignmentId: string) =>
+      await rbacDeleteUserAssignment({ assignmentId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      toast({
+        title: "User assignment deleted",
+        description: "User assignment removed successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Permission denied",
+            description:
+              "You don't have permission to delete user assignments.",
+            variant: "destructive",
+          })
+          break
+        case 404:
+          toast({
+            title: "Not found",
+            description: "The assignment does not exist.",
+            variant: "destructive",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete user assignment",
+            description: String(error.body?.detail ?? error.message),
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  return {
+    userAssignments: userAssignments ?? [],
+    isLoading,
+    error,
+    createUserAssignment,
+    createUserAssignmentIsPending,
+    createUserAssignmentError,
+    updateUserAssignment,
+    updateUserAssignmentIsPending,
+    updateUserAssignmentError,
+    deleteUserAssignment,
+    deleteUserAssignmentIsPending,
+    deleteUserAssignmentError,
+  }
+}
+
+export function useCaseDropdownDefinitions(workspaceId: string, enabled = true) {
   const queryClient = useQueryClient()
 
   const {
