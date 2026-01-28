@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { useMemo } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import type { AgentDerivedStatus, AgentSessionWithStatus } from "@/lib/agents"
+import type { AgentDerivedStatus, InboxSessionItem } from "@/lib/agents"
 import { cn } from "@/lib/utils"
 import { ActivityItem } from "./activity-item"
 
@@ -60,7 +60,7 @@ const GROUP_ORDER: StatusGroup[] = [
 ]
 
 interface ActivityAccordionProps {
-  sessions: AgentSessionWithStatus[]
+  sessions: InboxSessionItem[]
   selectedId: string | null
   onSelect: (id: string) => void
 }
@@ -72,7 +72,7 @@ export function ActivityAccordion({
 }: ActivityAccordionProps) {
   // Group sessions by status category
   const groupedSessions = useMemo(() => {
-    const groups: Record<StatusGroup, AgentSessionWithStatus[]> = {
+    const groups: Record<StatusGroup, InboxSessionItem[]> = {
       review_required: [],
       running: [],
       error: [],

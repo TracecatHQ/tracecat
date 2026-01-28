@@ -9,11 +9,11 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import type { AgentSessionWithStatus } from "@/lib/agents"
+import type { InboxSessionItem } from "@/lib/agents"
 
 interface InboxChatContextValue {
-  selectedSession: AgentSessionWithStatus | null
-  setSelectedSession: (session: AgentSessionWithStatus | null) => void
+  selectedSession: InboxSessionItem | null
+  setSelectedSession: (session: InboxSessionItem | null) => void
   chatOpen: boolean
   setChatOpen: (open: boolean) => void
   registerOnClose: (callback: () => void) => void
@@ -35,7 +35,7 @@ export default function InboxLayout({
   children: React.ReactNode
 }) {
   const [selectedSession, setSelectedSession] =
-    useState<AgentSessionWithStatus | null>(null)
+    useState<InboxSessionItem | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const onCloseCallbackRef = useRef<(() => void) | null>(null)
 
