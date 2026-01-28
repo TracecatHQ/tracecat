@@ -48,7 +48,7 @@ dependencies = [
     "marshmallow==3.26.2",
     "minio==7.2.18",
     "authlib==1.6.6",
-    "orjson==3.10.3",
+    "orjson==3.11.5",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
     "polyfile>=0.5.5,<0.6.0",
@@ -87,6 +87,11 @@ Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
+
+[tool.uv]
+override-dependencies = [
+    "python-multipart==0.0.22",
+]
 
 [tool.uv.sources]
 tracecat-registry = { workspace = true }
