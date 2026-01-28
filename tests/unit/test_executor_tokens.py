@@ -9,6 +9,7 @@ import pytest
 from starlette.requests import Request
 
 from tracecat import config
+from tracecat.auth import credentials
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.executor_tokens import (
     EXECUTOR_TOKEN_AUDIENCE,
@@ -114,25 +115,17 @@ def test_verify_executor_token_with_null_user_id(monkeypatch: pytest.MonkeyPatch
     assert verified.wf_exec_id == "run-1"
 
 
-def _mock_session_with_user(user_role, organization_id=None):
-    """Create a mock session that returns the given user role and organization_id.
+def _mock_session_with_user(user_role):
+    """Create a mock session that returns the given user role.
 
-    The executor authentication makes two queries:
-    1. User.role lookup (returns user_role)
-    2. Workspace.organization_id lookup (returns organization_id)
+    The executor authentication queries User.role to determine access level.
+    The workspace->org lookup is now cached via _get_workspace_org_id.
     """
-    if organization_id is None:
-        organization_id = uuid.uuid4()
-
-    # Create results for each query in order
     user_role_result = MagicMock()
     user_role_result.scalar_one_or_none.return_value = user_role
 
-    org_id_result = MagicMock()
-    org_id_result.scalar_one_or_none.return_value = organization_id
-
     mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(side_effect=[user_role_result, org_id_result])
+    mock_session.execute = AsyncMock(return_value=user_role_result)
     return mock_session
 
 
@@ -147,6 +140,13 @@ async def test_role_dependency_executor_token_derives_access_level_from_db(
 
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    # Mock the cached workspace->org lookup
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
 
     token = mint_executor_token(
         workspace_id=workspace_id,
@@ -178,6 +178,7 @@ async def test_role_dependency_executor_token_derives_access_level_from_db(
     assert resolved.workspace_id == workspace_id
     assert resolved.user_id == user_id
     assert resolved.access_level == AccessLevel.ADMIN
+    assert resolved.organization_id == organization_id
 
 
 @pytest.mark.anyio
@@ -189,6 +190,13 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_unknown_user
 
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    # Mock the cached workspace->org lookup
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
 
     token = mint_executor_token(
         workspace_id=workspace_id,
@@ -228,6 +236,12 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_null_user(
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
 
+    # Mock the cached workspace->org lookup
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=None,  # System/anonymous execution
@@ -237,12 +251,8 @@ async def test_role_dependency_executor_token_defaults_to_basic_for_null_user(
     )
     request = _make_request(token)
 
-    # No user role lookup, but workspace organization_id lookup still happens
-    org_id_result = MagicMock()
-    org_id_result.scalar_one_or_none.return_value = organization_id
-
+    # No user role lookup needed since user_id is None
     mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(return_value=org_id_result)
 
     resolved = await _role_dependency(
         request=request,
@@ -276,6 +286,12 @@ async def test_role_dependency_executor_uses_jwt_workspace(
     jwt_workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
 
+    # Mock the cached workspace->org lookup
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == jwt_workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+
     token = mint_executor_token(
         workspace_id=jwt_workspace_id,
         user_id=uuid.uuid4(),
@@ -285,8 +301,8 @@ async def test_role_dependency_executor_uses_jwt_workspace(
     )
     request = _make_request(token)
 
-    # Mock session to return user role and organization_id
-    mock_session = _mock_session_with_user(None, organization_id=organization_id)
+    # Mock session to return user role (user not found)
+    mock_session = _mock_session_with_user(None)
 
     # Pass None for workspace_id - it should come from JWT
     resolved = await _role_dependency(

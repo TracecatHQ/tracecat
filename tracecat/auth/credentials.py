@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Any, Literal
 
+from async_lru import alru_cache
 from fastapi import (
     Depends,
     HTTPException,
@@ -35,6 +36,7 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import OrganizationMembership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
@@ -44,6 +46,20 @@ api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=F
 
 # Maximum number of memberships to cache per user to prevent memory exhaustion
 MAX_CACHED_MEMBERSHIPS = 1000
+
+
+@alru_cache(maxsize=10000)
+async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
+    """Get organization_id for a workspace (cached).
+
+    The workspace→organization mapping is immutable, so this can be cached
+    indefinitely without TTL.
+    """
+    async with get_async_session_context_manager() as session:
+        stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
 
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -391,14 +407,10 @@ async def _role_dependency(
                     user_role, AccessLevel.BASIC
                 )
 
-        # Look up organization_id from workspace (required for workspace-scoped services)
+        # Look up organization_id from workspace (cached, immutable relationship)
         organization_id = None
         if token_payload.workspace_id is not None:
-            ws_stmt = select(Workspace.organization_id).where(
-                Workspace.id == token_payload.workspace_id
-            )
-            ws_result = await session.execute(ws_stmt)
-            organization_id = ws_result.scalar_one_or_none()
+            organization_id = await _get_workspace_org_id(token_payload.workspace_id)
 
         # Construct Role from token payload + derived access_level + organization_id
         role = Role(
