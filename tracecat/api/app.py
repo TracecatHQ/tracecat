@@ -237,6 +237,18 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
             logger.info("Default workspace already exists, skipping")
 
 
+async def setup_rbac_defaults(session: AsyncSession):
+    """Seed system scopes and roles for RBAC."""
+    from tracecat.authz.seeding import seed_all_system_data
+
+    try:
+        result = await seed_all_system_data(session)
+        logger.info("RBAC defaults seeded", **result)
+    except Exception as e:
+        logger.warning("Failed to seed RBAC defaults", error=str(e))
+        # Don't fail startup if seeding fails - RBAC tables may not exist yet
+
+
 # Catch-all exception handler to prevent stack traces from leaking
 def validation_exception_handler(request: Request, exc: Exception) -> Response:
     """Improves visiblity of 422 errors."""
