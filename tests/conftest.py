@@ -935,9 +935,22 @@ async def test_organization(mock_org_id):
                 is_active=True,
             )
             session.add(org)
-            await session.commit()
-            await session.refresh(org)
-            logger.debug("Created test organization", organization=org)
+            try:
+                await session.commit()
+                await session.refresh(org)
+                logger.debug("Created test organization", organization=org)
+            except IntegrityError:
+                # Race condition: another test created the org first
+                await session.rollback()
+                result = await session.execute(
+                    select(Organization).where(Organization.id == mock_org_id)
+                )
+                org = result.scalar_one_or_none()
+                if org is None:
+                    raise
+                logger.debug(
+                    "Got existing test organization after race", organization=org
+                )
         yield org
 
 
