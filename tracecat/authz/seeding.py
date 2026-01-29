@@ -1,11 +1,13 @@
-"""RBAC scope and role seeding.
+"""RBAC scope seeding.
 
 This module handles seeding of:
 - System scopes: Built-in platform scopes (org, workspace, resource, RBAC admin)
 - Registry scopes: Auto-generated from registry actions during sync
-- System roles: Viewer, Editor, Admin roles per organization
 
-Seeding is idempotent - existing scopes/roles are not duplicated.
+Seeding is idempotent - existing scopes are not duplicated.
+
+Note: System roles (Viewer, Editor, Admin) are NOT stored in the Role table.
+They are handled via Membership.role enum and SYSTEM_ROLE_SCOPES mapping.
 """
 
 from __future__ import annotations
@@ -16,14 +18,11 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from tracecat.authz.enums import ScopeSource, WorkspaceRole
-from tracecat.authz.scopes import SYSTEM_ROLE_SCOPES
-from tracecat.db.models import Role, RoleScope, Scope
+from tracecat.authz.enums import ScopeSource
+from tracecat.db.models import Scope
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
 # =============================================================================
@@ -120,19 +119,6 @@ SYSTEM_SCOPE_DEFINITIONS: list[tuple[str, str, str, str]] = [
         "Execute core registry actions",
     ),
 ]
-
-# System role definitions: (name, description)
-SYSTEM_ROLE_DEFINITIONS: dict[WorkspaceRole, tuple[str, str]] = {
-    WorkspaceRole.VIEWER: ("Viewer", "Read-only access to workspace resources"),
-    WorkspaceRole.EDITOR: (
-        "Editor",
-        "Can create and edit resources, but not delete or manage workspace",
-    ),
-    WorkspaceRole.ADMIN: (
-        "Admin",
-        "Full workspace control including member management",
-    ),
-}
 
 
 # =============================================================================
@@ -285,158 +271,14 @@ async def seed_registry_scopes_bulk(
 
 
 # =============================================================================
-# Role Seeding Functions
-# =============================================================================
-
-
-async def get_system_scope_ids(
-    session: AsyncSession, scope_names: frozenset[str]
-) -> dict[str, UUID]:
-    """Get scope IDs for a set of scope names.
-
-    For wildcard scopes (containing *), we need to find matching system scopes.
-    For exact scopes, we do a direct lookup.
-
-    Args:
-        session: Database session
-        scope_names: Set of scope names to look up
-
-    Returns:
-        Dict mapping scope name to scope ID
-    """
-    # Get all system scopes
-    stmt = select(Scope).where(Scope.organization_id.is_(None))
-    result = await session.execute(stmt)
-    all_scopes = {s.name: s.id for s in result.scalars().all()}
-
-    # For exact matches, return directly
-    # For wildcards, the wildcard scope itself should exist (e.g., "action:*:execute")
-    scope_ids = {}
-    for name in scope_names:
-        if name in all_scopes:
-            scope_ids[name] = all_scopes[name]
-
-    return scope_ids
-
-
-async def seed_system_roles_for_org(
-    session: AsyncSession,
-    organization_id: UUID,
-) -> int:
-    """Seed system roles (Viewer, Editor, Admin) for an organization.
-
-    Creates the three system roles if they don't exist, and assigns
-    the appropriate scopes to each role based on SYSTEM_ROLE_SCOPES.
-
-    Args:
-        session: Database session
-        organization_id: The organization to seed roles for
-
-    Returns:
-        Number of roles created (0 if all already existed)
-    """
-    logger.info(
-        "Seeding system roles for organization", organization_id=str(organization_id)
-    )
-
-    created_count = 0
-
-    for workspace_role, (role_name, description) in SYSTEM_ROLE_DEFINITIONS.items():
-        # Check if role already exists
-        stmt = select(Role).where(
-            Role.organization_id == organization_id,
-            Role.name == role_name,
-        )
-        result = await session.execute(stmt)
-        existing_role = result.scalar_one_or_none()
-
-        if existing_role:
-            logger.debug(
-                "System role already exists",
-                role_name=role_name,
-                organization_id=str(organization_id),
-            )
-            continue
-
-        # Create the role
-        role = Role(
-            id=uuid4(),
-            name=role_name,
-            description=description,
-            organization_id=organization_id,
-            is_system=True,
-            created_by=None,
-        )
-        session.add(role)
-        await session.flush()
-
-        # Get scope IDs for this role
-        scope_names = SYSTEM_ROLE_SCOPES[workspace_role]
-        scope_ids = await get_system_scope_ids(session, scope_names)
-
-        # Create role-scope associations
-        for scope_id in scope_ids.values():
-            role_scope = RoleScope(role_id=role.id, scope_id=scope_id)
-            session.add(role_scope)
-
-        logger.debug(
-            "System role created",
-            role_name=role_name,
-            organization_id=str(organization_id),
-            num_scopes=len(scope_ids),
-        )
-        created_count += 1
-
-    await session.commit()
-    logger.info(
-        "System roles seeded for organization",
-        organization_id=str(organization_id),
-        created=created_count,
-    )
-    return created_count
-
-
-async def seed_system_roles_for_all_orgs(session: AsyncSession) -> int:
-    """Seed system roles for all existing organizations.
-
-    This should be called during startup to ensure all orgs have system roles.
-
-    Args:
-        session: Database session
-
-    Returns:
-        Total number of roles created across all orgs
-    """
-    from tracecat.db.models import Organization
-
-    # Get all organization IDs
-    stmt = select(Organization.id)
-    result = await session.execute(stmt)
-    org_ids = list(result.scalars().all())
-
-    logger.info("Seeding system roles for all organizations", num_orgs=len(org_ids))
-
-    total_created = 0
-    for org_id in org_ids:
-        created = await seed_system_roles_for_org(session, org_id)
-        total_created += created
-
-    logger.info(
-        "System roles seeded for all organizations", total_created=total_created
-    )
-    return total_created
-
-
-# =============================================================================
 # Combined Seeding Functions
 # =============================================================================
 
 
 async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
-    """Seed all system scopes and roles.
+    """Seed all system scopes.
 
     This is the main entry point for seeding during app startup.
-    It seeds system scopes first, then system roles for all orgs.
 
     Args:
         session: Database session
@@ -446,15 +288,11 @@ async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
     """
     logger.info("Starting system RBAC data seeding")
 
-    # First, seed system scopes (roles depend on these)
+    # Seed system scopes
     scopes_created = await seed_system_scopes(session)
-
-    # Then, seed system roles for all organizations
-    roles_created = await seed_system_roles_for_all_orgs(session)
 
     result = {
         "scopes_created": scopes_created,
-        "roles_created": roles_created,
     }
 
     logger.info("System RBAC data seeding complete", **result)
