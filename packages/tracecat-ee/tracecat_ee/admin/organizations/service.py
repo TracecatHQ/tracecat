@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     Organization,
     RegistryRepository,
@@ -40,7 +41,10 @@ class AdminOrgService(BaseService):
         return OrgRead.list_adapter().validate_python(result.scalars().all())
 
     async def create_organization(self, params: OrgCreate) -> OrgRead:
-        """Create a new organization."""
+        """Create a new organization.
+
+        This method creates the organization and seeds system roles (Admin, Editor, Viewer).
+        """
         org = Organization(
             id=uuid.uuid4(),
             name=params.name,
@@ -55,6 +59,15 @@ class AdminOrgService(BaseService):
                 f"Organization with slug '{params.slug}' already exists"
             ) from e
         await self.session.refresh(org)
+
+        # Seed system roles for the new organization
+        roles_created = await seed_system_roles_for_org(self.session, org.id)
+        self.logger.info(
+            "System roles seeded for new organization",
+            organization_id=str(org.id),
+            roles_created=roles_created,
+        )
+
         return OrgRead.model_validate(org)
 
     async def get_organization(self, org_id: uuid.UUID) -> OrgRead:

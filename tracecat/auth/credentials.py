@@ -36,8 +36,9 @@ from tracecat.authz.scopes import ORG_ROLE_SCOPES, SYSTEM_ROLE_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role, ctx_scopes
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import OrganizationMembership, User
-from tracecat.identifiers import InternalServiceID
+from tracecat.db.models import Role as RoleModel
+from tracecat.db.models import User, UserRoleAssignment
+from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -67,6 +68,62 @@ USER_ROLE_TO_ACCESS_LEVEL = {
 }
 
 ORG_OVERRIDE_COOKIE = "tracecat-org-id"
+
+# Mapping from system role slugs to WorkspaceRole/OrgRole enums
+SLUG_TO_WORKSPACE_ROLE: dict[str, WorkspaceRole] = {
+    "admin": WorkspaceRole.ADMIN,
+    "editor": WorkspaceRole.EDITOR,
+    "viewer": WorkspaceRole.VIEWER,
+}
+
+SLUG_TO_ORG_ROLE: dict[str, OrgRole] = {
+    "owner": OrgRole.OWNER,
+    "admin": OrgRole.ADMIN,
+    "member": OrgRole.MEMBER,
+}
+
+
+async def get_user_workspace_role(
+    session: AsyncSession,
+    user_id: UserID,
+    workspace_id: WorkspaceID,
+) -> WorkspaceRole | None:
+    """Look up a user's workspace role from UserRoleAssignment."""
+    stmt = (
+        select(RoleModel.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+    )
+    result = await session.execute(stmt)
+    slug = result.scalar_one_or_none()
+    if slug is None:
+        return None
+    return SLUG_TO_WORKSPACE_ROLE.get(slug)
+
+
+async def get_user_org_role(
+    session: AsyncSession,
+    user_id: UserID,
+    organization_id: OrganizationID,
+) -> OrgRole | None:
+    """Look up a user's org-level role from UserRoleAssignment (workspace_id=NULL)."""
+    stmt = (
+        select(RoleModel.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    result = await session.execute(stmt)
+    slug = result.scalar_one_or_none()
+    if slug is None:
+        return None
+    return SLUG_TO_ORG_ROLE.get(slug)
 
 
 def compute_effective_scopes(role: Role) -> frozenset[str]:
@@ -328,12 +385,18 @@ async def _role_dependency(
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                 )
+
+            # Look up workspace role from RBAC tables
+            workspace_role = await get_user_workspace_role(
+                session, user.id, workspace_id
+            )
+
             # 2. Check if they have the appropriate workspace role
             if isinstance(require_workspace_roles, WorkspaceRole):
                 require_workspace_roles = [require_workspace_roles]
             if (
                 require_workspace_roles
-                and membership_with_org.membership.role not in require_workspace_roles
+                and workspace_role not in require_workspace_roles
             ):
                 logger.debug(
                     "User does not have the appropriate workspace role",
@@ -345,8 +408,6 @@ async def _role_dependency(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="You cannot perform this operation",
                 )
-            # User has appropriate workspace role
-            workspace_role = membership_with_org.membership.role
             organization_id = membership_with_org.org_id
         else:
             # No workspace specified; infer org from memberships when possible.
@@ -379,15 +440,8 @@ async def _role_dependency(
                         detail="Multiple organizations found. Provide workspace_id to select an organization.",
                     )
 
-        # Fetch org-level role from OrganizationMembership
-        org_role: OrgRole | None = None
-        org_membership_stmt = select(OrganizationMembership.role).where(
-            OrganizationMembership.user_id == user.id,
-            OrganizationMembership.organization_id == organization_id,
-        )
-        org_membership_result = await session.execute(org_membership_stmt)
-        if org_role_value := org_membership_result.scalar_one_or_none():
-            org_role = org_role_value
+        # Fetch org-level role from RBAC tables
+        org_role = await get_user_org_role(session, user.id, organization_id)
 
         role = get_role_from_user(
             user,

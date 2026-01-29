@@ -9220,15 +9220,37 @@ export const $OrgInvitationCreate = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
-      default: "member",
+    role_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Id",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
   },
   type: "object",
   required: ["email"],
   title: "OrgInvitationCreate",
-  description: "Request body for creating an organization invitation.",
+  description: `Request body for creating an organization invitation.
+
+Either role_id or role_slug must be provided to specify the role to grant.
+If both are provided, role_id takes precedence.`,
 } as const
 
 export const $OrgInvitationRead = {
@@ -9248,8 +9270,25 @@ export const $OrgInvitationRead = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
     },
     status: {
       $ref: "#/components/schemas/InvitationStatus",
@@ -9294,7 +9333,9 @@ export const $OrgInvitationRead = {
     "id",
     "organization_id",
     "email",
-    "role",
+    "role_id",
+    "role_slug",
+    "role_name",
     "status",
     "invited_by",
     "expires_at",
@@ -9338,8 +9379,20 @@ export const $OrgInvitationReadMinimal = {
       ],
       title: "Inviter Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
     },
     status: {
       $ref: "#/components/schemas/InvitationStatus",
@@ -9367,7 +9420,8 @@ export const $OrgInvitationReadMinimal = {
     "organization_name",
     "inviter_name",
     "inviter_email",
-    "role",
+    "role_slug",
+    "role_name",
     "status",
     "expires_at",
   ],
@@ -9412,8 +9466,28 @@ export const $OrgMemberRead = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Id",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
     is_active: {
       type: "boolean",
@@ -9446,7 +9520,8 @@ export const $OrgMemberRead = {
     "first_name",
     "last_name",
     "email",
-    "role",
+    "role_id",
+    "role_slug",
     "is_active",
     "is_superuser",
     "is_verified",
