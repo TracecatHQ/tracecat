@@ -372,12 +372,12 @@ Temporal Namespace Retention
 Temporal Queue
 */}}
 {{- define "tracecat.temporalQueue" -}}
-{{- if .Values.temporal.enabled }}
-{{- "tracecat-task-queue" }}
-{{- else if .Values.externalTemporal.enabled }}
-{{- .Values.externalTemporal.clusterQueue | default "tracecat-task-queue" }}
+{{- if .Values.externalTemporal.enabled }}
+{{- .Values.externalTemporal.clusterQueue | default "tracecat-task-queue" -}}
+{{- else if .Values.temporal.enabled }}
+{{- .Values.temporal.clusterQueue | default "tracecat-task-queue" -}}
 {{- else }}
-{{- "tracecat-task-queue" }}
+{{- "tracecat-task-queue" -}}
 {{- end }}
 {{- end }}
 
@@ -455,6 +455,10 @@ Blob storage environment variables
 {{- if .Values.tracecat.blobStorage.buckets.registry }}
 - name: TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
   value: {{ .Values.tracecat.blobStorage.buckets.registry | quote }}
+{{- end }}
+{{- if .Values.tracecat.blobStorage.buckets.workflow }}
+- name: TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+  value: {{ .Values.tracecat.blobStorage.buckets.workflow | quote }}
 {{- end }}
 {{- if .Values.minio.enabled }}
 {{- /* Use MinIO credentials from the MinIO secret */}}
@@ -584,6 +588,22 @@ Constructs REDIS_URL from computed host/port or from external secret
 {{- end }}
 
 {{/*
+Sandbox environment variables (shared by executor + agent executor)
+*/}}
+{{- define "tracecat.env.sandbox" -}}
+- name: TRACECAT__DISABLE_NSJAIL
+  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
+- name: TRACECAT__SANDBOX_NSJAIL_PATH
+  value: "/usr/local/bin/nsjail"
+- name: TRACECAT__SANDBOX_ROOTFS_PATH
+  value: "/var/lib/tracecat/sandbox-rootfs"
+- name: TRACECAT__SANDBOX_CACHE_DIR
+  value: "/var/lib/tracecat/sandbox-cache"
+- name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
+  value: "false"
+{{- end }}
+
+{{/*
 API service environment variables
 Merges: common + temporal + postgres + redis + api-specific
 */}}
@@ -689,15 +709,8 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.contextCompression.enabled | quote }}
 - name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
   value: {{ .Values.executor.contextCompression.thresholdKb | quote }}
-{{- /* Sandbox settings */}}
-- name: TRACECAT__DISABLE_NSJAIL
-  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
-- name: TRACECAT__SANDBOX_NSJAIL_PATH
-  value: "/usr/local/bin/nsjail"
-- name: TRACECAT__SANDBOX_ROOTFS_PATH
-  value: "/var/lib/tracecat/sandbox-rootfs"
-- name: TRACECAT__SANDBOX_CACHE_DIR
-  value: "/var/lib/tracecat/sandbox-cache"
+{{- /* Sandbox + secret masking */}}
+{{ include "tracecat.env.sandbox" . }}
 {{- /* Executor settings */}}
 - name: TRACECAT__EXECUTOR_BACKEND
   value: {{ .Values.executor.backend | quote }}
@@ -705,9 +718,34 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.executor.workerPoolSize | quote }}
-{{- /* Secret masking */}}
-- name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
-  value: "false"
+{{- end }}
+
+{{/*
+Agent Executor service environment variables
+Merges: common + temporal + postgres + redis + agent-executor-specific
+*/}}
+{{- define "tracecat.env.agentExecutor" -}}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
+{{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
+- name: TRACECAT__API_URL
+  value: {{ include "tracecat.internalApiUrl" . | quote }}
+{{- /* Context compression */}}
+- name: TRACECAT__CONTEXT_COMPRESSION_ENABLED
+  value: {{ .Values.agentExecutor.contextCompression.enabled | quote }}
+- name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
+  value: {{ .Values.agentExecutor.contextCompression.thresholdKb | quote }}
+{{- /* Sandbox + secret masking */}}
+{{ include "tracecat.env.sandbox" . }}
+{{- /* Agent executor settings */}}
+- name: TRACECAT__EXECUTOR_BACKEND
+  value: {{ .Values.agentExecutor.backend | quote }}
+- name: TRACECAT__AGENT_QUEUE
+  value: {{ .Values.agentExecutor.queue | quote }}
+- name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
+  value: {{ .Values.agentExecutor.workerPoolSize | quote }}
 {{- end }}
 
 {{/*

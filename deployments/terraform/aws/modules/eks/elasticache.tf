@@ -78,11 +78,11 @@ resource "aws_elasticache_replication_group" "tracecat" {
   replication_group_id = "${var.cluster_name}-redis"
   description          = "Redis cluster for Tracecat"
 
-  engine               = "redis"
-  engine_version       = "7.1"
-  node_type            = var.elasticache_node_type
-  num_cache_clusters   = 1
-  port                 = 6379
+  engine             = "redis"
+  engine_version     = "7.1"
+  node_type          = var.elasticache_node_type
+  num_cache_clusters = 1
+  port               = 6379
 
   subnet_group_name  = aws_elasticache_subnet_group.tracecat.name
   security_group_ids = [aws_security_group.elasticache.id]

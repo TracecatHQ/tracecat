@@ -3,8 +3,8 @@
 
 resource "null_resource" "tracecat_postgres_sg_policy" {
   triggers = {
-    namespace       = kubernetes_namespace.tracecat.metadata[0].name
-    security_group  = aws_security_group.tracecat_postgres_client.id
+    namespace      = kubernetes_namespace.tracecat.metadata[0].name
+    security_group = aws_security_group.tracecat_postgres_client.id
   }
 
   provisioner "local-exec" {
@@ -39,8 +39,8 @@ EOF
 
 resource "null_resource" "tracecat_redis_sg_policy" {
   triggers = {
-    namespace       = kubernetes_namespace.tracecat.metadata[0].name
-    security_group  = aws_security_group.tracecat_redis_client.id
+    namespace      = kubernetes_namespace.tracecat.metadata[0].name
+    security_group = aws_security_group.tracecat_redis_client.id
   }
 
   provisioner "local-exec" {

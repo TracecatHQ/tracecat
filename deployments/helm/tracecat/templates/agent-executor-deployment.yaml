@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "tracecat.fullname" . }}-executor
+  name: {{ include "tracecat.fullname" . }}-agent-executor
   labels:
     {{- include "tracecat.labels" . | nindent 4 }}
-    app.kubernetes.io/component: executor
+    app.kubernetes.io/component: agent-executor
 spec:
-  replicas: {{ .Values.executor.replicas }}
+  replicas: {{ .Values.agentExecutor.replicas }}
   selector:
     matchLabels:
       {{- include "tracecat.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: executor
+      app.kubernetes.io/component: agent-executor
   template:
     metadata:
       labels:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: executor
+        app.kubernetes.io/component: agent-executor
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
       {{- if .Values.reloader.enabled }}
@@ -34,10 +34,10 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       containers:
-        - name: executor
+        - name: agent-executor
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python", "-m", "tracecat.executor.worker"]
+          command: ["python", "-m", "tracecat.agent.worker"]
           {{- if not .Values.tracecat.sandbox.disableNsjail }}
           securityContext:
             privileged: true  # Required for nsjail sandbox mount operations
@@ -48,17 +48,27 @@ spec:
               type: Unconfined  # Required for nsjail sandbox
           {{- end }}
           env:
-            {{- include "tracecat.env.executor" . | nindent 12 }}
+            {{- include "tracecat.env.agentExecutor" . | nindent 12 }}
             {{- include "tracecat.env.secrets" . | nindent 12 }}
           volumeMounts:
             - name: sandbox-cache
               mountPath: /var/lib/tracecat/sandbox-cache
             - name: tmp
               mountPath: /tmp
+            {{- if not .Values.tracecat.sandbox.disableNsjail }}
+            - name: dev-tun
+              mountPath: /dev/net/tun
+            {{- end }}
           resources:
-            {{- toYaml .Values.executor.resources | nindent 12 }}
+            {{- toYaml .Values.agentExecutor.resources | nindent 12 }}
       volumes:
         - name: sandbox-cache
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if not .Values.tracecat.sandbox.disableNsjail }}
+        - name: dev-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+        {{- end }}

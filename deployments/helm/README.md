@@ -208,6 +208,7 @@ Configure these when using managed services (RDS, ElastiCache, etc.):
 | `externalS3.auth.existingSecret` | Secret with `accessKeyId` and `secretAccessKey` (optional for IRSA) |
 | `externalTemporal.enabled` | Use external Temporal |
 | `externalTemporal.clusterUrl` | Temporal frontend host:port |
+| `externalTemporal.clusterQueue` | Temporal task queue for Tracecat workers |
 | `externalTemporal.auth.existingSecret` | Secret with `apiKey` |
 | `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with `apiKey` |
 
@@ -259,7 +260,7 @@ secrets:
 
 externalSecrets:
   enabled: true
-  refreshInterval: "1h"
+  refreshInterval: "1m"
   clusterSecretStoreRef: "your-cluster-store-name"
 
   coreSecrets:
@@ -279,7 +280,7 @@ See `examples/values-aws.yaml` for a complete example.
 | Parameter | Description |
 |-----------|-------------|
 | `externalSecrets.enabled` | Enable ESO integration |
-| `externalSecrets.refreshInterval` | How often to sync secrets (default: 1h) |
+| `externalSecrets.refreshInterval` | How often to sync secrets (default: 1m) |
 | `externalSecrets.clusterSecretStoreRef` | Name of existing ClusterSecretStore |
 | `externalSecrets.coreSecrets.secretArn` | AWS Secrets Manager ARN for core secrets |
 | `externalSecrets.postgres.secretArn` | ARN for PostgreSQL credentials (JSON with `username`, `password`) |

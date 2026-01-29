@@ -18,6 +18,10 @@ spec:
         app.kubernetes.io/component: worker
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
+      {{- if .Values.reloader.enabled }}
+      annotations:
+        reloader.stakater.com/auto: "true"
+      {{- end }}
     spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}

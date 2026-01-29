@@ -438,13 +438,18 @@ resource "aws_iam_role_policy" "tracecat_s3" {
           "s3:GetObject",
           "s3:PutObject",
           "s3:DeleteObject",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:PutLifecycleConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:DeleteLifecycleConfiguration"
         ]
         Resource = [
           aws_s3_bucket.attachments.arn,
           "${aws_s3_bucket.attachments.arn}/*",
           aws_s3_bucket.registry.arn,
-          "${aws_s3_bucket.registry.arn}/*"
+          "${aws_s3_bucket.registry.arn}/*",
+          aws_s3_bucket.workflow.arn,
+          "${aws_s3_bucket.workflow.arn}/*"
         ]
       }
     ]

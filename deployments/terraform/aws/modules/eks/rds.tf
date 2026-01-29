@@ -76,14 +76,16 @@ resource "aws_db_subnet_group" "tracecat" {
 resource "aws_db_instance" "tracecat" {
   identifier = "${var.cluster_name}-postgres-${local.rds_suffix}"
 
-  engine               = "postgres"
-  engine_version       = "16.6"
-  instance_class       = var.rds_instance_class
-  allocated_storage    = var.rds_allocated_storage
+  engine                = "postgres"
+  engine_version        = "16.6"
+  instance_class        = var.rds_instance_class
+  allocated_storage     = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5
 
-  db_name  = "tracecat"
-  username = var.rds_master_username
+  snapshot_identifier = var.rds_snapshot_identifier != "" ? var.rds_snapshot_identifier : null
+
+  db_name                     = var.rds_snapshot_identifier == "" ? "tracecat" : null
+  username                    = var.rds_snapshot_identifier == "" ? var.rds_master_username : null
   manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.tracecat.name
@@ -94,8 +96,8 @@ resource "aws_db_instance" "tracecat" {
   storage_encrypted   = true
 
   backup_retention_period = 7
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "Mon:04:00-Mon:05:00"
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "Mon:04:00-Mon:05:00"
 
   skip_final_snapshot       = var.rds_skip_final_snapshot
   final_snapshot_identifier = var.rds_skip_final_snapshot ? null : "${var.cluster_name}-postgres-${local.rds_suffix}-final"
@@ -120,6 +122,22 @@ resource "null_resource" "create_temporal_databases" {
   provisioner "local-exec" {
     command = <<-EOT
       set -euo pipefail
+      # Wait for ExternalSecret to exist and sync the credentials before creating the job.
+      for i in $(seq 1 12); do
+        if kubectl get externalsecrets.external-secrets.io tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} >/dev/null 2>&1; then
+          break
+        fi
+        echo "Waiting for tracecat-postgres-secrets ExternalSecret... ($i/12)"
+        sleep 5
+      done
+
+      echo "Waiting for tracecat-postgres-secrets to be ready..."
+      if ! kubectl wait --for=condition=Ready externalsecrets.external-secrets.io/tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} --timeout=120s; then
+        echo "ExternalSecret tracecat-postgres-secrets did not become ready"
+        kubectl describe externalsecrets.external-secrets.io tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} || true
+        exit 1
+      fi
+
       kubectl delete job temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} --ignore-not-found
 
       cat <<EOF | kubectl apply -f -
@@ -172,5 +190,10 @@ EOF
     EOT
   }
 
-  depends_on = [aws_db_instance.tracecat, null_resource.postgres_credentials_external_secret, null_resource.tracecat_postgres_sg_policy, kubernetes_namespace.tracecat]
+  depends_on = [
+    aws_db_instance.tracecat,
+    null_resource.tracecat_postgres_sg_policy,
+    null_resource.postgres_credentials_external_secret,
+    kubernetes_namespace.tracecat
+  ]
 }

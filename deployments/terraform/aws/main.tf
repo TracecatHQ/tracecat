@@ -43,29 +43,37 @@ module "eks" {
   tracecat_secrets_arn = var.tracecat_secrets_arn
 
   # Data Services Configuration
-  rds_instance_class      = var.rds_instance_class
-  rds_allocated_storage   = var.rds_allocated_storage
-  rds_master_username     = var.rds_master_username
-  rds_skip_final_snapshot = var.rds_skip_final_snapshot
-  rds_deletion_protection = var.rds_deletion_protection
+  rds_instance_class          = var.rds_instance_class
+  rds_allocated_storage       = var.rds_allocated_storage
+  rds_master_username         = var.rds_master_username
+  rds_snapshot_identifier     = var.rds_snapshot_identifier
+  rds_skip_final_snapshot     = var.rds_skip_final_snapshot
+  rds_deletion_protection     = var.rds_deletion_protection
   rds_allow_vpc_cidr_fallback = var.rds_allow_vpc_cidr_fallback
-  elasticache_node_type   = var.elasticache_node_type
+  elasticache_node_type       = var.elasticache_node_type
 
   # Temporal Configuration
-  temporal_mode                          = var.temporal_mode
-  temporal_cloud_url                     = var.temporal_cloud_url
-  temporal_cloud_namespace               = var.temporal_cloud_namespace
-  temporal_cloud_api_key_secret_arn      = var.temporal_cloud_api_key_secret_arn
-  external_secrets_namespace             = var.external_secrets_namespace
-  external_secrets_service_account_name  = var.external_secrets_service_account_name
+  temporal_mode                         = var.temporal_mode
+  temporal_cluster_url                  = var.temporal_cluster_url
+  temporal_cluster_namespace            = var.temporal_cluster_namespace
+  temporal_cluster_api_key_secret_arn   = var.temporal_cluster_api_key_secret_arn
+  external_secrets_namespace            = var.external_secrets_namespace
+  external_secrets_service_account_name = var.external_secrets_service_account_name
 
   # Replica Counts
-  api_replicas      = var.api_replicas
-  worker_replicas   = var.worker_replicas
-  executor_replicas = var.executor_replicas
-  executor_queue    = var.executor_queue
-  executor_backend  = var.executor_backend
-  ui_replicas       = var.ui_replicas
+  api_replicas            = var.api_replicas
+  worker_replicas         = var.worker_replicas
+  executor_replicas       = var.executor_replicas
+  executor_queue          = var.executor_queue
+  executor_backend        = var.executor_backend
+  agent_executor_replicas = var.agent_executor_replicas
+  agent_executor_queue    = var.agent_executor_queue
+  agent_executor_backend  = var.agent_executor_backend
+  ui_replicas             = var.ui_replicas
+
+  # WAF Configuration
+  enable_waf     = var.enable_waf
+  waf_rate_limit = var.waf_rate_limit
 
   tags = var.tags
 }
