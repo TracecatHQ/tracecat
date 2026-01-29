@@ -54,6 +54,11 @@ export function InboxDetail({
   // (sessionId differs from parentSessionId when viewing a fork)
   const isForkedSession = sessionId !== parentSessionId
 
+  // Block input when there are pending approvals and we haven't forked yet
+  // User must make an approval decision before they can send messages
+  const hasPendingApprovals = session.pendingApprovalCount > 0
+  const inputDisabled = !isForkedSession && hasPendingApprovals
+
   /**
    * Fork the session and notify parent with the message to send.
    * Parent will switch to the forked session and pass pendingMessage,
@@ -168,6 +173,8 @@ export function InboxDetail({
       onBeforeSend={isForkedSession ? undefined : handleFork}
       pendingMessage={pendingMessage}
       onPendingMessageSent={onPendingMessageSent}
+      inputDisabled={inputDisabled}
+      inputDisabledPlaceholder="Make an approval decision to continue..."
     />
   )
 }

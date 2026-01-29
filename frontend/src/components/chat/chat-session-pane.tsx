@@ -117,6 +117,15 @@ export interface ChatSessionPaneProps {
    * Used to clear the pending message state in the parent.
    */
   onPendingMessageSent?: () => void
+  /**
+   * Disable the input field. Used when user must take an action
+   * (e.g., make an approval decision) before sending messages.
+   */
+  inputDisabled?: boolean
+  /**
+   * Placeholder to show when input is disabled.
+   */
+  inputDisabledPlaceholder?: string
 }
 
 export function ChatSessionPane({
@@ -133,6 +142,8 @@ export function ChatSessionPane({
   onBeforeSend,
   pendingMessage,
   onPendingMessageSent,
+  inputDisabled = false,
+  inputDisabledPlaceholder,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -421,11 +432,13 @@ export function ChatSessionPane({
               placeholder={
                 isReadonly
                   ? "This is a legacy session (read-only)"
-                  : placeholder
+                  : inputDisabled && inputDisabledPlaceholder
+                    ? inputDisabledPlaceholder
+                    : placeholder
               }
               value={input}
-              autoFocus={autoFocusInput && !isReadonly}
-              disabled={isReadonly || !canSubmit}
+              autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
+              disabled={isReadonly || inputDisabled || !canSubmit}
             />
           </PromptInputBody>
           <PromptInputToolbar>
@@ -454,7 +467,7 @@ export function ChatSessionPane({
               </PromptInputTools>
             )}
             <PromptInputSubmit
-              disabled={isReadonly || !canSubmit || !input}
+              disabled={isReadonly || inputDisabled || !canSubmit || !input}
               status={status}
               className="ml-auto text-muted-foreground/80"
             />
