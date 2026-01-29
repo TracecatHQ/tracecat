@@ -224,7 +224,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     refetchInterval: computeRefetchInterval,
   })
 
-  // Apply client-side filtering (search, date filters)
+  // Apply client-side filtering (search, entity type, date filters)
   const filteredSessions = useMemo(() => {
     if (!sessions) return []
 
@@ -233,6 +233,11 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     const query = searchQuery.toLowerCase().trim()
 
     return sessions.filter((session) => {
+      // Entity type filter
+      if (entityType !== "all" && session.entity_type !== entityType) {
+        return false
+      }
+
       // Search filter
       if (query) {
         const title = (
@@ -265,7 +270,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
 
       return true
     })
-  }, [sessions, searchQuery, updatedAfter, createdAfter])
+  }, [sessions, searchQuery, entityType, updatedAfter, createdAfter])
 
   const enrichedSessions = filteredSessions
 
