@@ -4,6 +4,7 @@ import secrets
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, cast, func, select, update
@@ -21,14 +22,18 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_org_role
-from tracecat.authz.enums import OrgRole
+from tracecat.authz.controls import require_access_level
+from tracecat.authz.enums import OrgRole  # Still used for privilege escalation check
 from tracecat.db.models import (
     AccessToken,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import (
+    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -176,6 +181,12 @@ async def accept_invitation_for_user(
         )
 
     return membership
+@dataclass(frozen=True)
+class MemberRoleInfo:
+    """Role information for an organization member."""
+
+    role_id: uuid.UUID | None
+    role_slug: str | None
 
 
 class OrgService(BaseOrgService):
@@ -191,44 +202,78 @@ class OrgService(BaseOrgService):
 
     # === Manage members ===
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
-    async def list_members(self) -> Sequence[tuple[User, OrgRole]]:
+    @require_access_level(AccessLevel.ADMIN)
+    async def list_members(self) -> Sequence[tuple[User, MemberRoleInfo]]:
         """
         Retrieve a list of all members in the organization with their roles.
 
         This method queries the database to obtain all user records
         associated with the organization via OrganizationMembership,
-        along with their organization role.
+        along with their organization role from RBAC tables.
 
         Returns:
-            Sequence[tuple[User, OrgRole]]: A sequence of tuples containing
-            User objects and their organization roles.
+            Sequence[tuple[User, MemberRoleInfo]]: A sequence of tuples containing
+            User objects and their role information.
         """
-        statement = select(User, OrganizationMembership.role).join(
+        # Get all org members
+        members_stmt = select(User).join(
             OrganizationMembership,
             and_(
                 OrganizationMembership.user_id == User.id,
                 OrganizationMembership.organization_id == self.organization_id,
             ),
         )
-        result = await self.session.execute(statement)
-        return result.tuples().all()
+        members_result = await self.session.execute(members_stmt)
+        users = members_result.scalars().all()
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
-    async def get_member(self, user_id: UserID) -> tuple[User, OrgRole]:
+        if not users:
+            return []
+
+        # Get org-level role assignments (workspace_id=NULL) for these users
+        user_ids = [u.id for u in users]
+        role_stmt = (
+            select(
+                UserRoleAssignment.user_id, UserRoleAssignment.role_id, RoleModel.slug
+            )
+            .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+            .where(
+                UserRoleAssignment.user_id.in_(user_ids),
+                UserRoleAssignment.organization_id == self.organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        role_result = await self.session.execute(role_stmt)
+        user_role_map: dict[uuid.UUID, MemberRoleInfo] = {
+            row[0]: MemberRoleInfo(role_id=row[1], role_slug=row[2])
+            for row in role_result.all()
+        }
+
+        return [
+            (
+                user,
+                user_role_map.get(
+                    user.id, MemberRoleInfo(role_id=None, role_slug=None)
+                ),
+            )
+            for user in users
+        ]
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def get_member(self, user_id: UserID) -> tuple[User, MemberRoleInfo]:
         """Retrieve a member of the organization by their user ID.
 
         Args:
             user_id (UserID): The unique identifier of the user.
 
         Returns:
-            tuple[User, OrgRole]: The user object and their organization role.
+            tuple[User, MemberRoleInfo]: The user object and their role information.
 
         Raises:
             NoResultFound: If no user with the given ID exists in this organization.
         """
-        statement = (
-            select(User, OrganizationMembership.role)
+        # Get the user
+        user_stmt = (
+            select(User)
             .join(
                 OrganizationMembership,
                 and_(
@@ -238,8 +283,28 @@ class OrgService(BaseOrgService):
             )
             .where(cast(User.id, UUID) == user_id)
         )
-        result = await self.session.execute(statement)
-        return result.tuples().one()
+        user_result = await self.session.execute(user_stmt)
+        user = user_result.scalar_one()
+
+        # Get their org-level role
+        role_stmt = (
+            select(UserRoleAssignment.role_id, RoleModel.slug)
+            .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == self.organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        role_result = await self.session.execute(role_stmt)
+        row = role_result.one_or_none()
+        role_info = (
+            MemberRoleInfo(role_id=row[0], role_slug=row[1])
+            if row
+            else MemberRoleInfo(role_id=None, role_slug=None)
+        )
+
+        return (user, role_info)
 
     @audit_log(resource_type="organization_member", action="delete")
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
@@ -267,7 +332,7 @@ class OrgService(BaseOrgService):
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_member(
         self, user_id: UserID, params: UserUpdate
-    ) -> tuple[User, OrgRole]:
+    ) -> tuple[User, MemberRoleInfo]:
         """
         Update a member of the organization.
 
@@ -279,19 +344,19 @@ class OrgService(BaseOrgService):
             params (UserUpdate): The parameters containing the updated user information.
 
         Returns:
-            tuple[User, OrgRole]: The updated user object and their organization role.
+            tuple[User, MemberRoleInfo]: The updated user object and their role information.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be updated.
         """
-        user, org_role = await self.get_member(user_id)
+        user, role_info = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot update superuser")
         async with self._manager() as user_manager:
             updated_user = await user_manager.update(
                 user_update=params, user=user, safe=True
             )
-        return updated_user, org_role
+        return updated_user, role_info
 
     @audit_log(resource_type="organization_member", action="create")
     async def add_member(
@@ -304,8 +369,8 @@ class OrgService(BaseOrgService):
         """Add a user to an organization.
 
         This method creates an OrganizationMembership record linking a user
-        to an organization. It is typically called from the invitation flow
-        when a user accepts an invitation.
+        to an organization and assigns the specified org-level role via
+        UserRoleAssignment.
 
         Note: This method does not require access level checks as it is
         intended to be called by internal services (e.g., invitation service).
@@ -319,12 +384,36 @@ class OrgService(BaseOrgService):
         Returns:
             OrganizationMembership: The created membership record.
         """
+        # Look up the role by slug
+        role_slug = role.value
+        role_stmt = select(RoleModel).where(
+            RoleModel.organization_id == organization_id,
+            RoleModel.slug == role_slug,
+        )
+        role_result = await self.session.execute(role_stmt)
+        role_record = role_result.scalar_one_or_none()
+        if role_record is None:
+            raise TracecatValidationError(
+                f"Role '{role_slug}' not found for organization {organization_id}. "
+                "System roles may need to be seeded."
+            )
+
+        # Create membership (just links user to org)
         membership = OrganizationMembership(
             user_id=user_id,
             organization_id=organization_id,
-            role=role,
         )
         self.session.add(membership)
+
+        # Create org-level role assignment (workspace_id=NULL for org-level)
+        role_assignment = UserRoleAssignment(
+            organization_id=organization_id,
+            user_id=user_id,
+            workspace_id=None,  # NULL = org-level assignment
+            role_id=role_record.id,
+        )
+        self.session.add(role_assignment)
+
         await self.session.commit()
         await self.session.refresh(membership)
         return membership
@@ -413,13 +502,16 @@ class OrgService(BaseOrgService):
         self,
         *,
         email: str,
-        role: OrgRole = OrgRole.MEMBER,
+        role_id: uuid.UUID | None = None,
+        role_slug: str | None = None,
     ) -> OrganizationInvitation:
         """Create an invitation to join the organization.
 
         Args:
             email: Email address of the invitee.
-            role: Role to grant upon acceptance. Defaults to MEMBER.
+            role_id: UUID of the role to grant. Takes precedence over role_slug.
+            role_slug: Slug of the role to grant (e.g., 'member', 'admin', 'owner').
+                      Defaults to 'member' if neither role_id nor role_slug provided.
 
         Returns:
             OrganizationInvitation: The created invitation record.
@@ -429,9 +521,36 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
+        # Look up the role
+        if role_id is not None:
+            # Look up by ID
+            role_stmt = select(RoleModel).where(
+                RoleModel.id == role_id,
+                RoleModel.organization_id == self.organization_id,
+            )
+        else:
+            # Look up by slug, default to 'member'
+            slug = role_slug or "member"
+            role_stmt = select(RoleModel).where(
+                RoleModel.organization_id == self.organization_id,
+                RoleModel.slug == slug,
+            )
+
+        role_result = await self.session.execute(role_stmt)
+        role_record = role_result.scalar_one_or_none()
+        if role_record is None:
+            if role_id is not None:
+                raise TracecatValidationError(
+                    f"Role with ID '{role_id}' not found for this organization."
+                )
+            raise TracecatValidationError(
+                f"Role '{role_slug or 'member'}' not found for this organization. "
+                "System roles may need to be seeded."
+            )
+
         # Prevent privilege escalation: only OWNER can create OWNER invitations
         # Superusers can create any invitation regardless of membership
-        if role == OrgRole.OWNER and self.role.org_role != OrgRole.OWNER:
+        if role_record.slug == "owner" and self.role.org_role != OrgRole.OWNER:
             if not self.role.is_superuser:
                 raise TracecatAuthorizationError(
                     "Only organization owners can create owner invitations"
@@ -476,7 +595,7 @@ class OrgService(BaseOrgService):
         invitation = OrganizationInvitation(
             organization_id=self.organization_id,
             email=email,
-            role=role,
+            role_id=role_record.id,
             invited_by=self.role.user_id,
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
@@ -642,13 +761,22 @@ class OrgService(BaseOrgService):
                 # Shouldn't reach here, but handle gracefully
                 raise TracecatAuthorizationError("Invitation is no longer valid")
 
-            # Create membership
+            # Create membership (just links user to org)
             membership = OrganizationMembership(
                 user_id=self.role.user_id,
                 organization_id=invitation.organization_id,
-                role=invitation.role,
             )
             self.session.add(membership)
+
+            # Create org-level role assignment from the invitation's role
+            # workspace_id=NULL means this is an org-level assignment
+            role_assignment = UserRoleAssignment(
+                organization_id=invitation.organization_id,
+                user_id=self.role.user_id,
+                workspace_id=None,
+                role_id=invitation.role_id,
+            )
+            self.session.add(role_assignment)
 
             await self.session.commit()
             await self.session.refresh(membership)

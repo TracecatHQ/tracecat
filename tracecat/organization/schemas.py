@@ -4,7 +4,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.authz.enums import OrgRole
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
 
@@ -39,7 +38,10 @@ class OrgMemberDetail(BaseModel):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    role: OrgRole
+    role_id: UUID | None
+    """The user's org-level role ID, or None if no role assigned."""
+    role_slug: str | None
+    """The role's slug (e.g., 'admin', 'member', 'owner'), or None if no role."""
     is_active: bool
     is_verified: bool
     last_login_at: datetime | None
@@ -70,10 +72,17 @@ class OrgDomainRead(BaseModel):
 
 
 class OrgInvitationCreate(BaseModel):
-    """Request body for creating an organization invitation."""
+    """Request body for creating an organization invitation.
+
+    Either role_id or role_slug must be provided to specify the role to grant.
+    If both are provided, role_id takes precedence.
+    """
 
     email: EmailStr
-    role: OrgRole = OrgRole.MEMBER
+    role_id: UUID | None = None
+    """UUID of the role to grant upon acceptance."""
+    role_slug: str | None = None
+    """Slug of the role to grant (e.g., 'admin', 'member', 'owner')."""
 
 
 class OrgInvitationRead(BaseModel):
@@ -82,7 +91,12 @@ class OrgInvitationRead(BaseModel):
     id: UUID
     organization_id: OrganizationID
     email: EmailStr
-    role: OrgRole
+    role_id: UUID
+    """UUID of the role to be granted upon acceptance."""
+    role_slug: str | None
+    """Slug of the role (e.g., 'admin', 'member'), or None for custom roles."""
+    role_name: str
+    """Display name of the role."""
     status: InvitationStatus
     invited_by: UserID | None
     expires_at: datetime
@@ -101,7 +115,10 @@ class OrgInvitationReadMinimal(BaseModel):
     organization_name: str
     inviter_name: str | None
     inviter_email: str | None
-    role: OrgRole
+    role_slug: str | None
+    """Slug of the role (e.g., 'admin', 'member'), or None for custom roles."""
+    role_name: str
+    """Display name of the role."""
     status: InvitationStatus
     expires_at: datetime
     email_matches: bool | None = None

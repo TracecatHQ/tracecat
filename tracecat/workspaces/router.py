@@ -6,13 +6,16 @@ from fastapi import (
     HTTPException,
     status,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.authz.service import MembershipService
+from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.service import SLUG_TO_WORKSPACE_ROLE, MembershipService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Role as RoleModel
+from tracecat.db.models import UserRoleAssignment
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatManagementError,
@@ -245,11 +248,30 @@ async def list_workspace_memberships(
     """List memberships of a workspace."""
     service = MembershipService(session, role=role)
     memberships = await service.list_memberships(workspace_id)
+
+    if not memberships:
+        return []
+
+    # Look up roles from RBAC tables
+    user_ids = [m.user_id for m in memberships]
+    role_stmt = (
+        select(UserRoleAssignment.user_id, RoleModel.slug)
+        .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+        .where(
+            UserRoleAssignment.user_id.in_(user_ids),
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+    )
+    role_result = await session.execute(role_stmt)
+    user_role_map = {row[0]: row[1] for row in role_result.all()}
+
     return [
         WorkspaceMembershipRead(
             user_id=membership.user_id,
             workspace_id=membership.workspace_id,
-            role=membership.role,
+            role=SLUG_TO_WORKSPACE_ROLE.get(
+                user_role_map.get(membership.user_id, ""), WorkspaceRole.VIEWER
+            ),
         )
         for membership in memberships
     ]
@@ -335,10 +357,24 @@ async def get_workspace_membership(
             detail="Membership not found",
         )
     membership = membership_with_org.membership
+
+    # Look up role from RBAC tables
+    role_stmt = (
+        select(RoleModel.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+    )
+    role_result = await session.execute(role_stmt)
+    slug = role_result.scalar_one_or_none()
+    workspace_role = SLUG_TO_WORKSPACE_ROLE.get(slug or "", WorkspaceRole.VIEWER)
+
     return WorkspaceMembershipRead(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,
-        role=membership.role,
+        role=workspace_role,
     )
 
 
@@ -388,11 +424,15 @@ async def create_workspace_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
+    # Look up role slug from the Role relationship
+    role_slug = invitation.role.slug if invitation.role else None
+    workspace_role = SLUG_TO_WORKSPACE_ROLE.get(role_slug or "", WorkspaceRole.VIEWER)
+
     return WorkspaceInvitationRead(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
         email=invitation.email,
-        role=invitation.role,
+        role=workspace_role,
         status=invitation.status,
         invited_by=invitation.invited_by,
         expires_at=invitation.expires_at,
@@ -428,7 +468,10 @@ async def list_workspace_invitations(
             id=inv.id,
             workspace_id=inv.workspace_id,
             email=inv.email,
-            role=inv.role,
+            role=SLUG_TO_WORKSPACE_ROLE.get(
+                (inv.role.slug if inv.role and inv.role.slug else "") or "",
+                WorkspaceRole.VIEWER,
+            ),
             status=inv.status,
             invited_by=inv.invited_by,
             expires_at=inv.expires_at,

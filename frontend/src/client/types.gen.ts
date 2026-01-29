@@ -3312,10 +3312,14 @@ export type OrgInvitationAccept = {
 
 /**
  * Request body for creating an organization invitation.
+ *
+ * Either role_id or role_slug must be provided to specify the role to grant.
+ * If both are provided, role_id takes precedence.
  */
 export type OrgInvitationCreate = {
   email: string
-  role?: OrgRole
+  role_id?: string | null
+  role_slug?: string | null
 }
 
 /**
@@ -3325,7 +3329,9 @@ export type OrgInvitationRead = {
   id: string
   organization_id: string
   email: string
-  role: OrgRole
+  role_id: string
+  role_slug: string | null
+  role_name: string
   status: InvitationStatus
   invited_by: string | null
   expires_at: string
@@ -3344,7 +3350,8 @@ export type OrgInvitationReadMinimal = {
   organization_name: string
   inviter_name: string | null
   inviter_email: string | null
-  role: OrgRole
+  role_slug: string | null
+  role_name: string
   status: InvitationStatus
   expires_at: string
   email_matches?: boolean | null
@@ -3358,7 +3365,8 @@ export type OrgMemberDetail = {
   first_name: string | null
   last_name: string | null
   email: string
-  role: OrgRole
+  role_id: string | null
+  role_slug: string | null
   is_active: boolean
   is_verified: boolean
   last_login_at: string | null
