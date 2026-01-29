@@ -2859,6 +2859,20 @@ export const $AuditSettingsRead = {
       ],
       title: "Audit Webhook Api Key Created At",
     },
+    audit_webhook_custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Headers",
+    },
   },
   type: "object",
   required: ["audit_webhook_url"],
@@ -2880,6 +2894,22 @@ export const $AuditSettingsUpdate = {
       title: "Audit Webhook Url",
       description:
         "Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    },
+    audit_webhook_custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Headers",
+      description:
+        "Custom headers to include in audit webhook requests. Header names are case-insensitive.",
     },
   },
   type: "object",

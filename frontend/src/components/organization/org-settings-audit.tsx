@@ -2,8 +2,8 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { format } from "date-fns"
-import { Copy, Key, RefreshCw, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { Copy, Key, Plus, RefreshCw, Settings2, Trash2, X } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -75,6 +75,26 @@ export function OrgSettingsAuditForm() {
 
   const [showNewApiKey, setShowNewApiKey] = useState(false)
   const [newApiKey, setNewApiKey] = useState<string | null>(null)
+  const [customHeaders, setCustomHeaders] = useState<
+    Array<{ key: string; value: string }>
+  >([])
+  const [customHeadersChanged, setCustomHeadersChanged] = useState(false)
+
+  // Initialize custom headers from settings, but don't overwrite unsaved edits
+  useEffect(() => {
+    if (customHeadersChanged) {
+      // User has unsaved edits, don't overwrite
+      return
+    }
+    if (auditSettings?.audit_webhook_custom_headers) {
+      const headers = Object.entries(
+        auditSettings.audit_webhook_custom_headers
+      ).map(([key, value]) => ({ key, value: String(value) }))
+      setCustomHeaders(headers)
+    } else {
+      setCustomHeaders([])
+    }
+  }, [auditSettings?.audit_webhook_custom_headers, customHeadersChanged])
 
   const form = useForm<AuditFormValues>({
     resolver: zodResolver(auditFormSchema),
@@ -127,6 +147,51 @@ export function OrgSettingsAuditForm() {
   const handleCloseNewApiKeyDialog = () => {
     setShowNewApiKey(false)
     setNewApiKey(null)
+  }
+
+  const handleAddHeader = useCallback(() => {
+    setCustomHeaders((prev) => [...prev, { key: "", value: "" }])
+    setCustomHeadersChanged(true)
+  }, [])
+
+  const handleRemoveHeader = useCallback((index: number) => {
+    setCustomHeaders((prev) => prev.filter((_, i) => i !== index))
+    setCustomHeadersChanged(true)
+  }, [])
+
+  const handleHeaderChange = useCallback(
+    (index: number, field: "key" | "value", newValue: string) => {
+      setCustomHeaders((prev) =>
+        prev.map((header, i) =>
+          i === index ? { ...header, [field]: newValue } : header
+        )
+      )
+      setCustomHeadersChanged(true)
+    },
+    []
+  )
+
+  const handleSaveCustomHeaders = async () => {
+    // Filter out headers with empty keys
+    const validHeaders = customHeaders.filter((h) => h.key.trim() !== "")
+
+    // Convert array to object
+    const headersObject: Record<string, string> = {}
+    for (const header of validHeaders) {
+      headersObject[header.key.trim()] = header.value
+    }
+
+    try {
+      await updateAuditSettings({
+        requestBody: {
+          audit_webhook_custom_headers:
+            Object.keys(headersObject).length > 0 ? headersObject : null,
+        },
+      })
+      setCustomHeadersChanged(false)
+    } catch {
+      console.error("Failed to update custom headers")
+    }
   }
 
   if (auditSettingsIsLoading) {
@@ -289,6 +354,75 @@ export function OrgSettingsAuditForm() {
                 : "Generate API key"}
             </Button>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Settings2 className="size-4" />
+            Custom headers
+          </CardTitle>
+          <CardDescription>
+            Add custom HTTP headers to include in audit webhook requests. Custom
+            headers override the API key if both set an Authorization header.
+            Header values are encrypted at rest.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {customHeaders.length > 0 ? (
+            <div className="space-y-2">
+              {customHeaders.map((header, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    placeholder="Header name"
+                    value={header.key}
+                    onChange={(e) =>
+                      handleHeaderChange(index, "key", e.target.value)
+                    }
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder="Header value"
+                    value={header.value}
+                    onChange={(e) =>
+                      handleHeaderChange(index, "value", e.target.value)
+                    }
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRemoveHeader(index)}
+                    title="Remove header"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No custom headers configured.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleAddHeader}>
+              <Plus className="mr-2 size-3" />
+              Add header
+            </Button>
+            {customHeadersChanged && (
+              <Button
+                size="sm"
+                onClick={handleSaveCustomHeaders}
+                disabled={updateAuditSettingsIsPending}
+              >
+                {updateAuditSettingsIsPending
+                  ? "Saving..."
+                  : "Save custom headers"}
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
