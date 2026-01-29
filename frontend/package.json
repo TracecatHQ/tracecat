@@ -97,7 +97,7 @@
     "lucide-react": "^0.561.0",
     "motion": "^12.23.22",
     "nanoid": "^5.1.6",
-    "next": "15.6.0-canary.61",
+    "next": "15.5.11",
     "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
     "papaparse": "^5.5.3",
