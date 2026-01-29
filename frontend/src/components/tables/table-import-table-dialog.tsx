@@ -7,6 +7,7 @@ import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
+import { ProtectedColumnsAlert } from "@/components/tables/protected-columns-alert"
 import { CsvPreview } from "@/components/tables/table-import-csv-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -141,11 +142,22 @@ export function TableImportTableDialog({
             : typeof apiError.body.detail === "object"
               ? JSON.stringify(apiError.body.detail)
               : undefined
-        form.setError("file", {
-          type: "manual",
-          message:
-            detail && detail !== "{}" ? detail : "Failed to import table",
-        })
+        let message: string
+        if (
+          detail?.toLowerCase().includes("column") &&
+          detail?.includes("already exists")
+        ) {
+          message =
+            "A column in your CSV conflicts with an existing column. Check for protected names like id, created_at, or updated_at."
+        } else if (detail?.includes("already exists")) {
+          message = "A table with this name already exists."
+        } else if (detail && error.status !== 500) {
+          message = detail
+        } else {
+          message =
+            "Failed to import table. Please check your CSV file and try again."
+        }
+        form.setError("file", { type: "manual", message })
       } else {
         console.error("Unexpected error importing table:", error)
         form.setError("file", {
@@ -159,17 +171,18 @@ export function TableImportTableDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
-        <DialogHeader>
+        <DialogHeader className="space-y-4">
           <DialogTitle>Import table from CSV</DialogTitle>
           <DialogDescription>
             Upload a CSV file to create a new table. Columns and data types will
             be inferred automatically.
           </DialogDescription>
+          <ProtectedColumnsAlert />
         </DialogHeader>
         <FormProvider {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-6"
+            className="min-w-0 space-y-6"
           >
             <FormField
               control={form.control}

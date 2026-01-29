@@ -7,6 +7,7 @@ import { z } from "zod"
 import type { TableColumnCreate } from "@/client"
 import { ApiError } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
+import { ProtectedColumnsAlert } from "@/components/tables/protected-columns-alert"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { TracecatApiError } from "@/lib/errors"
 import { useCreateTable } from "@/lib/hooks"
 import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -58,7 +60,13 @@ const sanitizeColumnOptions = (options?: string[]) => {
 
 const tableColumnSchema = z
   .object({
-    name: z.string().min(1, "Column name is required"),
+    name: z
+      .string()
+      .min(1, "Column name is required")
+      .regex(
+        /^[a-zA-Z_]/,
+        "Column name must start with a letter or underscore"
+      ),
     type: z.enum(SqlTypeCreatableEnum),
     options: z.array(z.string().min(1, "Option cannot be empty")).optional(),
   })
@@ -82,8 +90,8 @@ const createTableSchema = z
       .min(1, "Name is required")
       .max(100, "Name cannot exceed 100 characters")
       .regex(
-        /^[a-zA-Z0-9_]+$/,
-        "Name must contain only letters, numbers, and underscores"
+        /^[a-zA-Z_][a-zA-Z0-9_]*$/,
+        "Name must start with a letter or underscore and contain only letters, numbers, and underscores"
       ),
     columns: z
       .array(tableColumnSchema)
@@ -174,25 +182,41 @@ export function CreateTableDialog({
       form.reset()
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.status === 409) {
+        const apiError = error as TracecatApiError
+        const detail =
+          typeof apiError.body?.detail === "string"
+            ? apiError.body.detail
+            : typeof apiError.body?.detail === "object"
+              ? JSON.stringify(apiError.body.detail)
+              : error.message
+        if (
+          detail?.toLowerCase().includes("column") &&
+          detail?.includes("already exists")
+        ) {
+          form.setError("columns", {
+            type: "manual",
+            message:
+              "A column name conflicts with a protected column (id, created_at, updated_at).",
+          })
+        } else if (error.status === 409) {
           form.setError("name", {
             type: "manual",
             message: "A table with this name already exists",
           })
+        } else if (detail && error.status !== 500) {
+          form.setError("root", { type: "manual", message: detail })
         } else {
           form.setError("root", {
             type: "manual",
-            message: error.message,
+            message: "Failed to create table. Please try again.",
           })
         }
       } else {
         form.setError("root", {
           type: "manual",
-          message:
-            error instanceof Error ? error.message : "Failed to create table",
+          message: "Failed to create table. Please try again.",
         })
         console.error("Error creating table:", error)
-        return
       }
     }
   }
@@ -200,11 +224,12 @@ export function CreateTableDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[625px]">
-        <DialogHeader>
+        <DialogHeader className="space-y-4">
           <DialogTitle>Create new table</DialogTitle>
           <DialogDescription>
             Define your table structure by adding columns and their data types.
           </DialogDescription>
+          <ProtectedColumnsAlert />
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
