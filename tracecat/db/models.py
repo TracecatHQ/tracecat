@@ -46,7 +46,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.schemas import UserRole
-from tracecat.authz.enums import OrgRole, ScopeSource, WorkspaceRole
+from tracecat.authz.enums import ScopeSource
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseEventType,
@@ -327,7 +327,10 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
 
 
 class Membership(Base):
-    """Link table for users and workspaces (many to many)."""
+    """Link table for users and workspaces (many to many).
+
+    Note: Roles are now managed via UserRoleAssignment and GroupAssignment tables.
+    """
 
     __tablename__ = "membership"
     __table_args__ = (
@@ -345,15 +348,13 @@ class Membership(Base):
         ForeignKey("workspace.id"),
         primary_key=True,
     )
-    role: Mapped[WorkspaceRole] = mapped_column(
-        Enum(WorkspaceRole, name="workspacerole"),
-        nullable=False,
-        default=WorkspaceRole.EDITOR,
-    )
 
 
 class OrganizationMembership(Base, TimestampMixin):
-    """Link table for users and organizations (many to many)."""
+    """Link table for users and organizations (many to many).
+
+    Note: Roles are now managed via UserRoleAssignment and GroupAssignment tables.
+    """
 
     __tablename__ = "organization_membership"
     __table_args__ = (
@@ -371,11 +372,6 @@ class OrganizationMembership(Base, TimestampMixin):
         UUID,
         ForeignKey("organization.id", ondelete="CASCADE"),
         primary_key=True,
-    )
-    role: Mapped[OrgRole] = mapped_column(
-        Enum(OrgRole, name="orgrole"),
-        nullable=False,
-        default=OrgRole.MEMBER,
     )
 
 
@@ -3087,15 +3083,17 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    role: Mapped[OrgRole] = mapped_column(
-        Enum(OrgRole, name="orgrole"),
-        default=OrgRole.MEMBER,
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="RESTRICT"),
+        index=True,
         doc="Role to grant upon acceptance",
     )
 
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
     inviter: Mapped[User | None] = relationship("User")
+    role: Mapped[Role] = relationship("Role")
 
 
 class Invitation(InvitationMixin, TimestampMixin, Base):
@@ -3108,15 +3106,17 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
-    role: Mapped[WorkspaceRole] = mapped_column(
-        Enum(WorkspaceRole, name="workspacerole"),
-        default=WorkspaceRole.EDITOR,
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="RESTRICT"),
+        index=True,
         doc="Role to grant upon acceptance",
     )
 
     # Relationships
     workspace: Mapped[Workspace] = relationship("Workspace")
     inviter: Mapped[User | None] = relationship("User")
+    role: Mapped[Role] = relationship("Role")
 
 
 class Tier(Base, TimestampMixin):
