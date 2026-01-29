@@ -75,15 +75,19 @@ resource "helm_release" "tracecat" {
     value = var.tracecat_secrets_arn
   }
 
-  # PostgreSQL credentials via ESO (RDS master user secret)
+  # PostgreSQL credentials via ESO (RDS master user secret).
+  # When Temporal is self-hosted, Terraform pre-creates the ExternalSecret so the DB setup job can run first.
   set {
     name  = "externalSecrets.postgres.enabled"
-    value = "true"
+    value = var.temporal_mode == "self-hosted" ? "false" : "true"
   }
 
-  set {
-    name  = "externalSecrets.postgres.secretArn"
-    value = local.rds_master_secret_arn
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [] : [1]
+    content {
+      name  = "externalSecrets.postgres.secretArn"
+      value = local.rds_master_secret_arn
+    }
   }
 
   # Redis URL via ESO

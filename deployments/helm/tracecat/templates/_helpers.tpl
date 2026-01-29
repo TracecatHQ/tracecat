@@ -588,6 +588,22 @@ Constructs REDIS_URL from computed host/port or from external secret
 {{- end }}
 
 {{/*
+Sandbox environment variables (shared by executor + agent executor)
+*/}}
+{{- define "tracecat.env.sandbox" -}}
+- name: TRACECAT__DISABLE_NSJAIL
+  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
+- name: TRACECAT__SANDBOX_NSJAIL_PATH
+  value: "/usr/local/bin/nsjail"
+- name: TRACECAT__SANDBOX_ROOTFS_PATH
+  value: "/var/lib/tracecat/sandbox-rootfs"
+- name: TRACECAT__SANDBOX_CACHE_DIR
+  value: "/var/lib/tracecat/sandbox-cache"
+- name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
+  value: "false"
+{{- end }}
+
+{{/*
 API service environment variables
 Merges: common + temporal + postgres + redis + api-specific
 */}}
@@ -693,15 +709,8 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.contextCompression.enabled | quote }}
 - name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
   value: {{ .Values.executor.contextCompression.thresholdKb | quote }}
-{{- /* Sandbox settings */}}
-- name: TRACECAT__DISABLE_NSJAIL
-  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
-- name: TRACECAT__SANDBOX_NSJAIL_PATH
-  value: "/usr/local/bin/nsjail"
-- name: TRACECAT__SANDBOX_ROOTFS_PATH
-  value: "/var/lib/tracecat/sandbox-rootfs"
-- name: TRACECAT__SANDBOX_CACHE_DIR
-  value: "/var/lib/tracecat/sandbox-cache"
+{{- /* Sandbox + secret masking */}}
+{{ include "tracecat.env.sandbox" . }}
 {{- /* Executor settings */}}
 - name: TRACECAT__EXECUTOR_BACKEND
   value: {{ .Values.executor.backend | quote }}
@@ -709,9 +718,6 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.executor.workerPoolSize | quote }}
-{{- /* Secret masking */}}
-- name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
-  value: "false"
 {{- end }}
 
 {{/*
@@ -731,15 +737,8 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.contextCompression.enabled | quote }}
 - name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
   value: {{ .Values.agentExecutor.contextCompression.thresholdKb | quote }}
-{{- /* Sandbox settings */}}
-- name: TRACECAT__DISABLE_NSJAIL
-  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
-- name: TRACECAT__SANDBOX_NSJAIL_PATH
-  value: "/usr/local/bin/nsjail"
-- name: TRACECAT__SANDBOX_ROOTFS_PATH
-  value: "/var/lib/tracecat/sandbox-rootfs"
-- name: TRACECAT__SANDBOX_CACHE_DIR
-  value: "/var/lib/tracecat/sandbox-cache"
+{{- /* Sandbox + secret masking */}}
+{{ include "tracecat.env.sandbox" . }}
 {{- /* Agent executor settings */}}
 - name: TRACECAT__EXECUTOR_BACKEND
   value: {{ .Values.agentExecutor.backend | quote }}
@@ -747,9 +746,6 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
-{{- /* Secret masking */}}
-- name: TRACECAT__UNSAFE_DISABLE_SM_MASKING
-  value: "false"
 {{- end }}
 
 {{/*

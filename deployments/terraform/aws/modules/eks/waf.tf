@@ -187,7 +187,7 @@ resource "aws_wafv2_web_acl" "main" {
         statement {
           label_match_statement {
             scope = "LABEL"
-            key   = "awswaf:managed:aws:core-rule-set:CrossSiteScripting_Body"
+            key   = "awswaf:managed:aws:core-rule-set:CrossSiteScripting_BODY"
           }
         }
 
@@ -235,7 +235,7 @@ resource "aws_wafv2_web_acl" "main" {
         statement {
           label_match_statement {
             scope = "LABEL"
-            key   = "awswaf:managed:aws:core-rule-set:GenericLFI_Body"
+            key   = "awswaf:managed:aws:core-rule-set:GenericLFI_BODY"
           }
         }
 
