@@ -372,7 +372,13 @@ Temporal Namespace Retention
 Temporal Queue
 */}}
 {{- define "tracecat.temporalQueue" -}}
+{{- if .Values.externalTemporal.enabled }}
+{{- .Values.externalTemporal.clusterQueue | default "tracecat-task-queue" -}}
+{{- else if .Values.temporal.enabled }}
+{{- .Values.temporal.clusterQueue | default "tracecat-task-queue" -}}
+{{- else }}
 {{- "tracecat-task-queue" -}}
+{{- end }}
 {{- end }}
 
 {{/*

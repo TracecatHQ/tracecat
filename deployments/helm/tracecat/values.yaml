@@ -245,6 +245,8 @@ minio:
 
 temporal:
   enabled: true
+  # Temporal task queue used by Tracecat workers.
+  clusterQueue: tracecat-task-queue
   server:
     config:
       persistence:
@@ -329,6 +331,8 @@ externalTemporal:
   enabled: false
   clusterUrl: ""
   clusterNamespace: ""
+  # Temporal task queue used by Tracecat workers.
+  clusterQueue: tracecat-task-queue
   auth:
     existingSecret: null  # Contains `apiKey` (raw string)
     # SecretString should be the raw API key.

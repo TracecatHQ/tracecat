@@ -208,6 +208,7 @@ Configure these when using managed services (RDS, ElastiCache, etc.):
 | `externalS3.auth.existingSecret` | Secret with `accessKeyId` and `secretAccessKey` (optional for IRSA) |
 | `externalTemporal.enabled` | Use external Temporal |
 | `externalTemporal.clusterUrl` | Temporal frontend host:port |
+| `externalTemporal.clusterQueue` | Temporal task queue for Tracecat workers |
 | `externalTemporal.auth.existingSecret` | Secret with `apiKey` |
 | `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with `apiKey` |
 
