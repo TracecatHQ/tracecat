@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
     Organization,
     RegistryRepository,
@@ -47,6 +48,7 @@ class AdminOrgService(BasePlatformService):
             name=params.name,
             slug=params.slug,
         )
+        await seed_system_roles_for_org(self.session, org.id)
         return OrgRead.model_validate(org)
 
     async def get_organization(self, org_id: uuid.UUID) -> OrgRead:
