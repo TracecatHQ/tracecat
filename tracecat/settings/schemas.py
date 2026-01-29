@@ -168,6 +168,7 @@ class AuditSettingsRead(BaseSettingsGroup):
     audit_webhook_url: str | None
     audit_webhook_api_key_preview: str | None = None
     audit_webhook_api_key_created_at: datetime | None = None
+    audit_webhook_custom_headers: dict[str, str] | None = None
 
 
 class AuditSettingsUpdate(BaseSettingsGroup):
@@ -176,6 +177,10 @@ class AuditSettingsUpdate(BaseSettingsGroup):
     audit_webhook_url: str | None = Field(
         default=None,
         description="Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    )
+    audit_webhook_custom_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers to include in audit webhook requests. Header names are case-insensitive.",
     )
 
 

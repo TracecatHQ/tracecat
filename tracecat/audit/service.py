@@ -103,14 +103,44 @@ class AuditService(BaseService):
         cleaned = value.strip()
         return cleaned or None
 
+    async def _get_custom_headers(self) -> dict[str, str] | None:
+        """Fetch the configured custom headers for the audit webhook.
+
+        Note: Uses get_setting (uncached) to ensure changes take effect immediately.
+        """
+        from tracecat.settings.service import get_setting
+
+        value = await get_setting("audit_webhook_custom_headers", session=self.session)
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            self.logger.warning(
+                "audit_webhook_custom_headers must be a dict",
+                value_type=type(value),
+            )
+            return None
+
+        return value
+
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
         response: httpx.Response | None = None
         try:
-            # Build headers with optional API key authentication
+            # Build headers: API key first, then custom headers can override
             headers: dict[str, str] = {}
+
             api_key = await self._get_api_key()
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
+
+            custom_headers = await self._get_custom_headers()
+            if custom_headers:
+                # HTTP headers are case-insensitive (RFC 7230), but Python dicts are not.
+                # Check if custom headers contain any casing of "authorization" and remove
+                # the API key header to let custom headers fully override it.
+                custom_keys_lower = {k.lower() for k in custom_headers}
+                if "authorization" in custom_keys_lower:
+                    headers.pop("Authorization", None)
+                headers.update(custom_headers)
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
