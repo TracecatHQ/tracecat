@@ -243,6 +243,19 @@ variable "ui_replicas" {
   default     = 1
 }
 
+# WAF Configuration
+variable "enable_waf" {
+  description = "Enable AWS WAFv2 Web ACL for ALB protection"
+  type        = bool
+  default     = true
+}
+
+variable "waf_rate_limit" {
+  description = "Maximum number of requests per 5-minute period per IP before rate limiting (WAF rate-based rule)"
+  type        = number
+  default     = 2000
+}
+
 # Tags
 variable "tags" {
   description = "Tags to apply to all resources"

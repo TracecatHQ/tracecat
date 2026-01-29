@@ -71,5 +71,9 @@ module "eks" {
   agent_executor_backend  = var.agent_executor_backend
   ui_replicas             = var.ui_replicas
 
+  # WAF Configuration
+  enable_waf     = var.enable_waf
+  waf_rate_limit = var.waf_rate_limit
+
   tags = var.tags
 }

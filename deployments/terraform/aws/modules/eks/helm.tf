@@ -25,14 +25,19 @@ resource "helm_release" "tracecat" {
       enabled   = true
       className = "alb"
       host      = var.domain_name
-      annotations = {
-        "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
-        "alb.ingress.kubernetes.io/target-type"      = "ip"
-        "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
-        "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
-        "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
-        "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
-      }
+      annotations = merge(
+        {
+          "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
+          "alb.ingress.kubernetes.io/target-type"      = "ip"
+          "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
+          "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
+          "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
+          "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+        },
+        var.enable_waf ? {
+          "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.main[0].arn
+        } : {}
+      )
     }
     urls = {
       publicApp = "https://${var.domain_name}"
