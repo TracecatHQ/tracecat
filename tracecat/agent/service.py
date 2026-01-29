@@ -281,12 +281,16 @@ class AgentManagementService(BaseOrgService):
             )
 
         # For Bedrock, the model ID must come from credentials
+        # Prefer inference profile ID (required for newer models like Claude 4)
         if provider == "bedrock":
-            model_id = credentials.get("AWS_MODEL_ID")
+            model_id = credentials.get("AWS_INFERENCE_PROFILE_ID") or credentials.get(
+                "AWS_MODEL_ID"
+            )
             if not model_id:
                 raise TracecatNotFoundError(
-                    "AWS_MODEL_ID not found in Bedrock credentials. "
-                    "Please configure the Model ID in your Bedrock credentials."
+                    "No Bedrock model configured. Please set either "
+                    "AWS_INFERENCE_PROFILE_ID (for newer models like Claude 4) or "
+                    "AWS_MODEL_ID (for legacy models) in your Bedrock credentials."
                 )
             model_config = model_config.model_copy(update={"name": model_id})
 

@@ -251,6 +251,13 @@ def _inject_provider_credentials(
         # Legacy: Direct model ID for older models that support on-demand throughput
         elif model_id := creds.get("AWS_MODEL_ID"):
             data["model"] = f"bedrock/{model_id}"
+        else:
+            raise ProxyException(
+                message="No Bedrock model configured. Set AWS_INFERENCE_PROFILE_ID (for newer models) or AWS_MODEL_ID (for legacy models) in your credentials.",
+                type="config_error",
+                param=None,
+                code=400,
+            )
 
     elif provider == "custom-model-provider":
         # Custom provider for OpenAI-compatible endpoints (Ollama, vLLM, etc.)
