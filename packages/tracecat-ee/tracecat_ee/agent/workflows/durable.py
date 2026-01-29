@@ -298,6 +298,7 @@ class DurableAgentWorkflow:
             workspace_id=self.workspace_id,
             session_id=self.session_id,
             model=cfg.model_name,
+            provider=cfg.model_provider,
             model_settings=cfg.model_settings,
             output_type=cfg.output_type,
             use_workspace_credentials=args.agent_args.use_workspace_credentials,

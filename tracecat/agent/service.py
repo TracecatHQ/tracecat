@@ -52,8 +52,14 @@ class AgentManagementService(BaseOrgService):
         return f"agent-{provider}-credentials"
 
     def _get_workspace_credential_secret_name(self, provider: str) -> str:
-        """Get the workspace secret name for a provider's credentials."""
-        return provider
+        """Get the workspace secret name for a provider's credentials.
+
+        Maps agent provider names to workspace secret names used by the registry.
+        """
+        provider_to_secret = {
+            "bedrock": "amazon_bedrock",
+        }
+        return provider_to_secret.get(provider, provider)
 
     async def list_providers(self) -> list[str]:
         """List all available AI model providers."""
@@ -274,15 +280,15 @@ class AgentManagementService(BaseOrgService):
                 f"Please configure credentials for this provider first."
             )
 
-        # For Bedrock, the model name must be the ARN from credentials
+        # For Bedrock, the model ID must come from credentials
         if provider == "bedrock":
-            arn = credentials.get("AWS_MODEL_ARN")
-            if not arn:
+            model_id = credentials.get("AWS_MODEL_ID")
+            if not model_id:
                 raise TracecatNotFoundError(
-                    "AWS_MODEL_ARN not found in Bedrock credentials. "
-                    "Please configure the Model ARN in your Bedrock credentials."
+                    "AWS_MODEL_ID not found in Bedrock credentials. "
+                    "Please configure the Model ID in your Bedrock credentials."
                 )
-            model_config = model_config.model_copy(update={"name": arn})
+            model_config = model_config.model_copy(update={"name": model_id})
 
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):

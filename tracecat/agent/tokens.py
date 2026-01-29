@@ -211,6 +211,7 @@ LLM_REQUIRED_CLAIMS = (
     "workspace_id",
     "session_id",
     "model",
+    "provider",
 )
 
 
@@ -227,6 +228,9 @@ class LLMTokenClaims(BaseModel):
 
     # Model configuration
     model: str = Field(..., description="The model to use for this run")
+    provider: str = Field(
+        ..., description="The provider for the model (e.g., openai, anthropic, bedrock)"
+    )
 
     # Model settings - passed through to LLM provider as-is
     # Supports: temperature, max_tokens, reasoning_effort, etc.
@@ -253,6 +257,7 @@ def mint_llm_token(
     workspace_id: WorkspaceID,
     session_id: uuid.UUID,
     model: str,
+    provider: str,
     model_settings: dict[str, Any] | None = None,
     output_type: OutputType | None = None,
     use_workspace_credentials: bool = False,
@@ -267,6 +272,7 @@ def mint_llm_token(
         workspace_id: The workspace UUID as string
         session_id: The agent session UUID as string
         model: The model to use for this run
+        provider: The provider for the model (e.g., openai, anthropic, bedrock)
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
         output_type: Expected output type for structured outputs
@@ -294,6 +300,7 @@ def mint_llm_token(
         "session_id": str(session_id),
         # Model configuration
         "model": model,
+        "provider": provider,
         "model_settings": model_settings or {},
         # Credential scope
         "use_workspace_credentials": use_workspace_credentials,

@@ -15,22 +15,11 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy.proxy_server import ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
-from tracecat.agent.config import MODEL_CONFIGS
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
-
-# -----------------------------------------------------------------------------
-# Configuration
-# -----------------------------------------------------------------------------
-
-# Allowed providers
-ALLOWED_PROVIDERS = frozenset(
-    {"openai", "anthropic", "bedrock", "custom-model-provider"}
-)
-
 
 # -----------------------------------------------------------------------------
 # Credential Fetching via AgentManagementService
@@ -88,6 +77,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             "session_id": str(claims.session_id),
             "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
+            "provider": claims.provider,
             "model_settings": claims.model_settings,
             "output_type": claims.output_type,
         },
@@ -114,11 +104,15 @@ class TracecatCallbackHandler(CustomLogger):
             "use_workspace_credentials", True
         )
 
-        # Use model from token metadata (trusted, required claim) - ignore request
+        # Use model and provider from token metadata (trusted, required claims)
         model = user_api_key_dict.metadata.get("model")
-        if not model:
+        provider = user_api_key_dict.metadata.get("provider")
+        if not model or not provider:
             logger.warning(
-                "Model not found in token metadata", workspace_id=workspace_id
+                "Model or provider not found in token metadata",
+                workspace_id=workspace_id,
+                model=model,
+                provider=provider,
             )
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -127,9 +121,6 @@ class TracecatCallbackHandler(CustomLogger):
                 code=400,
             )
         data["model"] = model
-
-        # Get provider from model
-        provider = _get_provider_for_model(model)
 
         # Fetch credentials via AgentManagementService
         creds = await get_provider_credentials(
@@ -198,35 +189,6 @@ callback_handler = TracecatCallbackHandler()
 # -----------------------------------------------------------------------------
 
 
-def _get_provider_for_model(model: str) -> str:
-    """Get provider for a model name."""
-    # Handle custom model provider
-    if model == "custom" or model.startswith("custom-model-provider/"):
-        return "custom-model-provider"
-
-    if model not in MODEL_CONFIGS:
-        logger.warning("Model not found in allowed models", model=model)
-        raise ProxyException(
-            message="Invalid model configuration",
-            type="invalid_request_error",
-            param=None,
-            code=400,
-        )
-
-    provider = MODEL_CONFIGS[model].provider
-
-    if provider not in ALLOWED_PROVIDERS:
-        logger.warning("Provider not allowed", provider=provider, model=model)
-        raise ProxyException(
-            message="Invalid model configuration",
-            type="invalid_request_error",
-            param=None,
-            code=400,
-        )
-
-    return provider
-
-
 def _inject_provider_credentials(
     data: dict,
     provider: str,
@@ -281,17 +243,41 @@ def _inject_provider_credentials(
             data["aws_secret_access_key"] = secret_key
         if region := creds.get("AWS_REGION"):
             data["aws_region_name"] = region
-        if arn := creds.get("AWS_MODEL_ARN"):
-            data["model"] = f"bedrock/{arn}"
+
+        # Inference Profile ID takes precedence (required for newer models like Claude 4)
+        # Can be a system profile ID (us.anthropic.claude-sonnet-4-...) or custom ARN
+        if inference_profile_id := creds.get("AWS_INFERENCE_PROFILE_ID"):
+            data["model"] = f"bedrock/{inference_profile_id}"
+        # Legacy: Direct model ID for older models that support on-demand throughput
+        elif model_id := creds.get("AWS_MODEL_ID"):
+            data["model"] = f"bedrock/{model_id}"
 
     elif provider == "custom-model-provider":
-        # Custom provider has flexible requirements - all fields optional
-        if api_key := creds.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
-            data["api_key"] = api_key
-        if base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
+        # Custom provider for OpenAI-compatible endpoints (Ollama, vLLM, etc.)
+        # OpenAI client requires an api_key - use dummy if not provided
+        api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or "not-needed"
+        base_url = creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")
+        model_name = creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
+
+        logger.info(
+            "Custom model provider credentials",
+            api_key_set=bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
+            base_url=base_url,
+            model_name=model_name,
+        )
+
+        data["api_key"] = api_key
+        if base_url:
             data["api_base"] = base_url
-        if model_name := creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
-            data["model"] = model_name
+        if model_name:
+            # Prefix with openai/ for LiteLLM routing
+            data["model"] = f"openai/{model_name}"
+
+        logger.info(
+            "Injected custom model provider config",
+            data_api_base=data.get("api_base"),
+            data_model=data.get("model"),
+        )
 
     else:
         logger.warning("Unsupported provider requested", provider=provider)
