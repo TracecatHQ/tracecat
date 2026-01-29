@@ -451,6 +451,16 @@ resource "aws_iam_role_policy" "tracecat_s3" {
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*"
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [
+          local.rds_master_secret_arn
+        ]
       }
     ]
   })

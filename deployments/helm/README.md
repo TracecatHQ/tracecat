@@ -212,6 +212,8 @@ Configure these when using managed services (RDS, ElastiCache, etc.):
 | `externalTemporal.auth.existingSecret` | Secret with `apiKey` |
 | `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with `apiKey` |
 
+Note: You can set both `externalPostgres.auth.secretArn` and `externalPostgres.auth.existingSecret` to export `TRACECAT__DB_PASS__ARN` and `TRACECAT__DB_PASS` together.
+
 Notes:
 - Postgres Secrets Manager values should be JSON with `username` and `password` (or set `externalPostgres.auth.username` and store just the password as the secret string).
 - Redis and Temporal Secrets Manager values should be raw strings (URL / API key). For Redis with TLS+auth, use `rediss://:password@host:port`.

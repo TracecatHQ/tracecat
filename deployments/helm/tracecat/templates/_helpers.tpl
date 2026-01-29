@@ -519,32 +519,36 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_URI
   value: "postgresql+psycopg://$(TRACECAT__POSTGRES_USER):$(TRACECAT__POSTGRES_PASSWORD)@{{ $host }}:{{ $port }}/{{ $database }}"
 {{- else if .Values.externalPostgres.enabled }}
-{{- if .Values.externalPostgres.auth.secretArn }}
+{{- $hasSecretArn := .Values.externalPostgres.auth.secretArn }}
+{{- $hasExistingSecret := .Values.externalPostgres.auth.existingSecret }}
+{{- if $hasSecretArn }}
 {{- if .Values.externalPostgres.auth.username }}
 - name: TRACECAT__DB_USER
   value: {{ .Values.externalPostgres.auth.username | quote }}
-{{- end }}
-- name: TRACECAT__DB_PASS__ARN
-  value: {{ .Values.externalPostgres.auth.secretArn | quote }}
-- name: TRACECAT__DB_ENDPOINT
-  value: {{ $host | quote }}
-- name: TRACECAT__DB_PORT
-  value: {{ $port | quote }}
-- name: TRACECAT__DB_NAME
-  value: {{ $database | quote }}
-- name: TRACECAT__DB_SSLMODE
-  value: {{ $sslMode | quote }}
-{{- else if .Values.externalPostgres.auth.existingSecret }}
+{{- else if $hasExistingSecret }}
 - name: TRACECAT__DB_USER
   valueFrom:
     secretKeyRef:
       name: {{ .Values.externalPostgres.auth.existingSecret }}
       key: username
+{{- end }}
+- name: TRACECAT__DB_PASS__ARN
+  value: {{ .Values.externalPostgres.auth.secretArn | quote }}
+{{- end }}
+{{- if $hasExistingSecret }}
+{{- if not $hasSecretArn }}
+- name: TRACECAT__DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      key: username
+{{- end }}
 - name: TRACECAT__DB_PASS
   valueFrom:
     secretKeyRef:
       name: {{ .Values.externalPostgres.auth.existingSecret }}
       key: password
+{{- end }}
 - name: TRACECAT__DB_ENDPOINT
   value: {{ $host | quote }}
 - name: TRACECAT__DB_PORT
@@ -553,7 +557,7 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
   value: {{ $database | quote }}
 - name: TRACECAT__DB_SSLMODE
   value: {{ $sslMode | quote }}
-{{- else }}
+{{- if not (or $hasSecretArn $hasExistingSecret) }}
 {{- fail "externalPostgres.auth.existingSecret or externalPostgres.auth.secretArn is required when using external Postgres" }}
 {{- end }}
 {{- else }}

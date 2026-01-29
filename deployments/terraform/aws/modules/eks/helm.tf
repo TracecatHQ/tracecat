@@ -297,10 +297,10 @@ resource "helm_release" "tracecat" {
     value = "require"
   }
 
-  # ESO creates the secret; reference by target name
+  # Use the RDS master user secret directly for app DB connections.
   set {
-    name  = "externalPostgres.auth.existingSecret"
-    value = "tracecat-postgres-credentials"
+    name  = "externalPostgres.auth.secretArn"
+    value = local.rds_master_secret_arn
   }
 
   # External Redis (ElastiCache)

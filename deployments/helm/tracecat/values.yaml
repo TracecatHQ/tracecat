@@ -297,6 +297,7 @@ externalPostgres:
   sslMode: "prefer"
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
+    # You can set both to export TRACECAT__DB_PASS__ARN and TRACECAT__DB_PASS.
     existingSecret: null  # Contains `username` and `password`.
     # Username to use with secretArn (if omitted, the ARN secret must include `username`).
     username: ""
