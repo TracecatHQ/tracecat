@@ -165,6 +165,31 @@ async def save_github_app_credentials(
         ) from e
 
 
+@github_router.delete("/credentials", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_github_app_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgAdminUser,
+) -> None:
+    """Delete GitHub App credentials."""
+    try:
+        github_service = GitHubAppService(session=session, role=role)
+        await github_service.delete_github_app_credentials()
+
+    except GitHubAppError as e:
+        logger.error("Failed to delete GitHub App credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to delete GitHub App credentials: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error("Error deleting GitHub App credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while deleting credentials",
+        ) from e
+
+
 @github_router.get("/credentials/status", response_model=GitHubAppCredentialsStatus)
 async def get_github_app_credentials_status(
     *,

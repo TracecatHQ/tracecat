@@ -32,7 +32,8 @@ class GitHubAppCredentialsStatus(BaseModel):
     exists: bool
     app_id: str | None = None
     has_webhook_secret: bool = False
-    has_client_id: bool = False
+    webhook_secret_preview: str | None = None
+    client_id: str | None = None
     created_at: str | None = None
 
 
