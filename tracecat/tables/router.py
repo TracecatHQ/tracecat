@@ -495,12 +495,10 @@ async def update_row(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        detail = str(e)
-        if isinstance(e.__cause__, Exception):
-            detail = str(e.__cause__)
+        logger.exception("Database error occurred during row update")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database error: {detail}",
+            detail="A database error occurred. Please check your input and try again.",
         ) from e
     return TableRowRead.model_validate(row)
 
@@ -535,13 +533,10 @@ async def batch_insert_rows(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        # Extract useful info from database error
-        detail = str(e)
-        if isinstance(e.__cause__, Exception):
-            detail = str(e.__cause__)
+        logger.exception("Database error occurred during batch row insert")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database error: {detail}",
+            detail="A database error occurred. Please check your input and try again.",
         ) from e
 
 

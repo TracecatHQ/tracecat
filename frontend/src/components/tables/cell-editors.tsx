@@ -112,12 +112,9 @@ function IntegerCellEditor({
   onCommit,
   onCancel,
 }: CellEditorProps) {
-  const numValue =
-    typeof value === "number"
-      ? value
-      : value === null || value === undefined
-        ? ""
-        : Number(value)
+  const [localStr, setLocalStr] = useState(() =>
+    value === null || value === undefined ? "" : String(value)
+  )
   const ref = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -125,20 +122,30 @@ function IntegerCellEditor({
     ref.current?.select()
   }, [])
 
+  const commitValue = useCallback(() => {
+    if (localStr === "" || localStr === "-") {
+      onChange(localStr === "" ? null : value)
+    } else {
+      const parsed = Number.parseInt(localStr, 10)
+      onChange(Number.isNaN(parsed) ? null : parsed)
+    }
+    onCommit()
+  }, [localStr, onChange, onCommit, value])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault()
-        onCommit()
+        commitValue()
       } else if (e.key === "Escape") {
         e.preventDefault()
         onCancel()
       } else if (e.key === "Tab") {
         e.preventDefault()
-        onCommit()
+        commitValue()
       }
     },
-    [onCommit, onCancel]
+    [commitValue, onCancel]
   )
 
   return (
@@ -146,13 +153,10 @@ function IntegerCellEditor({
       ref={ref}
       type="number"
       step="1"
-      value={numValue}
-      onChange={(e) => {
-        const val = e.target.value
-        onChange(val === "" ? null : Number.parseInt(val, 10))
-      }}
+      value={localStr}
+      onChange={(e) => setLocalStr(e.target.value)}
       onKeyDown={handleKeyDown}
-      onBlur={onCommit}
+      onBlur={commitValue}
       className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
     />
   )
@@ -164,12 +168,9 @@ function NumericCellEditor({
   onCommit,
   onCancel,
 }: CellEditorProps) {
-  const numValue =
-    typeof value === "number"
-      ? value
-      : value === null || value === undefined
-        ? ""
-        : Number(value)
+  const [localStr, setLocalStr] = useState(() =>
+    value === null || value === undefined ? "" : String(value)
+  )
   const ref = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -177,20 +178,30 @@ function NumericCellEditor({
     ref.current?.select()
   }, [])
 
+  const commitValue = useCallback(() => {
+    if (localStr === "" || localStr === "-" || localStr === ".") {
+      onChange(localStr === "" ? null : value)
+    } else {
+      const parsed = Number.parseFloat(localStr)
+      onChange(Number.isNaN(parsed) ? null : parsed)
+    }
+    onCommit()
+  }, [localStr, onChange, onCommit, value])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault()
-        onCommit()
+        commitValue()
       } else if (e.key === "Escape") {
         e.preventDefault()
         onCancel()
       } else if (e.key === "Tab") {
         e.preventDefault()
-        onCommit()
+        commitValue()
       }
     },
-    [onCommit, onCancel]
+    [commitValue, onCancel]
   )
 
   return (
@@ -198,13 +209,10 @@ function NumericCellEditor({
       ref={ref}
       type="number"
       step="any"
-      value={numValue}
-      onChange={(e) => {
-        const val = e.target.value
-        onChange(val === "" ? null : Number.parseFloat(val))
-      }}
+      value={localStr}
+      onChange={(e) => setLocalStr(e.target.value)}
       onKeyDown={handleKeyDown}
-      onBlur={onCommit}
+      onBlur={commitValue}
       className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
     />
   )
@@ -657,7 +665,9 @@ function MultiSelectCellEditor({
         align="start"
         sideOffset={6}
         style={{
-          width: cellWidth ? `${cellWidth - 28}px` : "var(--radix-popover-trigger-width)",
+          width: cellWidth
+            ? `${cellWidth - 28}px`
+            : "var(--radix-popover-trigger-width)",
         }}
         onEscapeKeyDown={(e) => {
           e.preventDefault()

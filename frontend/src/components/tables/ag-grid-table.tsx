@@ -58,10 +58,7 @@ const DATE_TYPES = new Set([
   "TIMETZ",
 ])
 const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
-const POPUP_EDITOR_TYPES = new Set([
-  "JSON",
-  "JSONB",
-])
+const POPUP_EDITOR_TYPES = new Set(["JSON", "JSONB"])
 
 function normalizeSqlType(rawType?: string) {
   if (!rawType) return ""
