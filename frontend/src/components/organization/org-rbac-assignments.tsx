@@ -1,14 +1,22 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { FolderIcon, GlobeIcon, PlusIcon, UsersIcon } from "lucide-react"
-import { useState } from "react"
+import {
+  FolderIcon,
+  GlobeIcon,
+  PlusIcon,
+  SearchIcon,
+  UsersIcon,
+} from "lucide-react"
+import { useMemo, useState } from "react"
 import type { GroupAssignmentReadWithDetails } from "@/client"
 import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+  RbacDetailRow,
+  RbacListContainer,
+  RbacListEmpty,
+  RbacListHeader,
+  RbacListItem,
+} from "@/components/organization/rbac-list-item"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +46,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -46,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   useRbacAssignments,
   useRbacGroups,
@@ -56,8 +66,12 @@ import {
 export function OrgRbacAssignments() {
   const [selectedAssignment, setSelectedAssignment] =
     useState<GroupAssignmentReadWithDetails | null>(null)
+  const [expandedAssignmentId, setExpandedAssignmentId] = useState<
+    string | null
+  >(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const {
     assignments,
     isLoading,
@@ -69,6 +83,19 @@ export function OrgRbacAssignments() {
     deleteAssignment,
     deleteAssignmentIsPending,
   } = useRbacAssignments()
+
+  const { roles } = useRbacRoles()
+
+  const filteredAssignments = useMemo(() => {
+    if (!searchQuery.trim()) return assignments
+    const query = searchQuery.toLowerCase()
+    return assignments.filter(
+      (a) =>
+        a.group_name.toLowerCase().includes(query) ||
+        a.role_name.toLowerCase().includes(query) ||
+        a.workspace_name?.toLowerCase().includes(query)
+    )
+  }, [assignments, searchQuery])
 
   const handleCreateAssignment = async (
     groupId: string,
@@ -99,6 +126,20 @@ export function OrgRbacAssignments() {
     }
   }
 
+  // Get role details for expanded view
+  const getRoleScopes = (roleId: string) => {
+    const role = roles.find((r) => r.id === roleId)
+    return role?.scopes ?? []
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-destructive">
+        Failed to load assignments
+      </div>
+    )
+  }
+
   return (
     <Dialog
       open={isCreateOpen || isEditOpen}
@@ -118,106 +159,91 @@ export function OrgRbacAssignments() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Assignments connect groups to roles, optionally scoped to specific
-              workspaces.
-            </p>
-            <DialogTrigger asChild>
-              <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                <PlusIcon className="mr-2 size-4" />
-                Create assignment
-              </Button>
-            </DialogTrigger>
-          </div>
+          <RbacListHeader
+            left={
+              <div className="relative">
+                <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search assignments..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-[250px] pl-8"
+                />
+              </div>
+            }
+            right={
+              <DialogTrigger asChild>
+                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                  <PlusIcon className="mr-2 size-4" />
+                  Create assignment
+                </Button>
+              </DialogTrigger>
+            }
+          />
 
-          <DataTable
-            data={assignments}
-            isLoading={isLoading}
-            error={error as Error | null}
-            emptyMessage="No assignments found"
-            initialSortingState={[{ id: "group_name", desc: false }]}
-            columns={[
-              {
-                accessorKey: "group_name",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Group"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <div className="flex items-center gap-2">
-                    <UsersIcon className="size-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">
-                      {row.getValue<string>("group_name")}
-                    </span>
+          {isLoading ? (
+            <RbacListContainer>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0"
+                >
+                  <Skeleton className="size-6" />
+                  <Skeleton className="size-4" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
                   </div>
-                ),
-                enableSorting: true,
-                enableHiding: false,
-              },
-              {
-                accessorKey: "role_name",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Role"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <Badge variant="secondary">
-                    {row.getValue<string>("role_name")}
-                  </Badge>
-                ),
-                enableSorting: true,
-                enableHiding: false,
-              },
-              {
-                accessorKey: "workspace_name",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Scope"
-                  />
-                ),
-                cell: ({ row }) => {
-                  const workspaceName = row.getValue<string | null>(
-                    "workspace_name"
-                  )
-                  if (!workspaceName) {
-                    return (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <GlobeIcon className="size-3.5 text-blue-500" />
-                        <span className="font-medium text-blue-600 dark:text-blue-400">
+                </div>
+              ))}
+            </RbacListContainer>
+          ) : filteredAssignments.length === 0 ? (
+            <RbacListContainer>
+              <RbacListEmpty
+                message={
+                  searchQuery
+                    ? "No assignments match your search"
+                    : "No assignments found"
+                }
+              />
+            </RbacListContainer>
+          ) : (
+            <RbacListContainer>
+              {filteredAssignments.map((assignment) => (
+                <RbacListItem
+                  key={assignment.id}
+                  icon={<UsersIcon className="size-4" />}
+                  title={assignment.group_name}
+                  subtitle={
+                    <span className="flex items-center gap-1.5">
+                      <Badge variant="secondary" className="text-[10px]">
+                        {assignment.role_name}
+                      </Badge>
+                      <span className="text-muted-foreground">·</span>
+                      {assignment.workspace_name ? (
+                        <span className="flex items-center gap-1">
+                          <FolderIcon className="size-3" />
+                          {assignment.workspace_name}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                          <GlobeIcon className="size-3" />
                           Organization-wide
                         </span>
-                      </div>
-                    )
+                      )}
+                    </span>
                   }
-                  return (
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <FolderIcon className="size-3.5 text-muted-foreground" />
-                      <span>{workspaceName}</span>
-                    </div>
-                  )
-                },
-                enableSorting: true,
-                enableHiding: true,
-              },
-              {
-                id: "actions",
-                enableHiding: false,
-                cell: ({ row }) => {
-                  const assignment = row.original
-
-                  return (
+                  isExpanded={expandedAssignmentId === assignment.id}
+                  onExpandedChange={(expanded) =>
+                    setExpandedAssignmentId(expanded ? assignment.id : null)
+                  }
+                  actions={
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="size-8 p-0">
+                        <Button
+                          variant="ghost"
+                          className="size-8 p-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                        >
                           <span className="sr-only">Open menu</span>
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
@@ -251,12 +277,58 @@ export function OrgRbacAssignments() {
                         </AlertDialogTrigger>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )
-                },
-              },
-            ]}
-            toolbarProps={toolbarProps}
-          />
+                  }
+                >
+                  <div className="space-y-3">
+                    <RbacDetailRow label="Group">
+                      <span className="flex items-center gap-1.5">
+                        <UsersIcon className="size-3 text-muted-foreground" />
+                        {assignment.group_name}
+                      </span>
+                    </RbacDetailRow>
+                    <RbacDetailRow label="Role">
+                      <Badge variant="secondary">{assignment.role_name}</Badge>
+                    </RbacDetailRow>
+                    <RbacDetailRow label="Scope">
+                      {assignment.workspace_name ? (
+                        <span className="flex items-center gap-1.5">
+                          <FolderIcon className="size-3 text-muted-foreground" />
+                          {assignment.workspace_name}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                          <GlobeIcon className="size-3" />
+                          Organization-wide
+                        </span>
+                      )}
+                    </RbacDetailRow>
+                    {getRoleScopes(assignment.role_id).length > 0 && (
+                      <RbacDetailRow label="Permissions">
+                        <div className="flex flex-wrap gap-1">
+                          {getRoleScopes(assignment.role_id)
+                            .slice(0, 5)
+                            .map((scope) => (
+                              <code
+                                key={scope.id}
+                                className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono"
+                              >
+                                {scope.name}
+                              </code>
+                            ))}
+                          {getRoleScopes(assignment.role_id).length > 5 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              +{getRoleScopes(assignment.role_id).length - 5}{" "}
+                              more
+                            </span>
+                          )}
+                        </div>
+                      </RbacDetailRow>
+                    )}
+                  </div>
+                </RbacListItem>
+              ))}
+            </RbacListContainer>
+          )}
         </div>
 
         <AlertDialogContent>
@@ -509,11 +581,4 @@ function AssignmentEditDialog({
       </form>
     </DialogContent>
   )
-}
-
-const toolbarProps: DataTableToolbarProps<GroupAssignmentReadWithDetails> = {
-  filterProps: {
-    placeholder: "Filter assignments...",
-    column: "group_name",
-  },
 }

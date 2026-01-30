@@ -1,7 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
+import { InfoIcon, PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { RoleReadWithScopes } from "@/client"
 import {
@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogTrigger } from "@/components/ui/dialog"
 import {
@@ -35,10 +36,12 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useRbacRoles, useRbacScopes } from "@/lib/hooks"
+import { useRbacAssignments, useRbacRoles, useRbacScopes } from "@/lib/hooks"
 import { groupScopesByResource } from "@/lib/rbac"
 
-export function OrgRbacRoles() {
+const workspaceCategoryFilter = (key: string) => key !== "organization"
+
+export function WorkspaceRbacRoles({ workspaceId }: { workspaceId: string }) {
   const [selectedRole, setSelectedRole] = useState<RoleReadWithScopes | null>(
     null
   )
@@ -59,6 +62,19 @@ export function OrgRbacRoles() {
   } = useRbacRoles()
 
   const { scopes } = useRbacScopes({ includeSystem: true })
+
+  // Get assignments for this workspace to show which roles are in use
+  const { assignments } = useRbacAssignments({ workspaceId })
+  const rolesInUse = useMemo(
+    () => new Set(assignments?.map((a) => a.role_id) ?? []),
+    [assignments]
+  )
+
+  // Filter scopes to workspace-relevant ones (exclude org-level scopes)
+  const workspaceScopes = useMemo(() => {
+    if (!scopes) return []
+    return scopes.filter((scope) => !scope.resource.startsWith("org"))
+  }, [scopes])
 
   const filteredRoles = useMemo(() => {
     if (!searchQuery.trim()) return roles
@@ -155,6 +171,18 @@ export function OrgRbacRoles() {
             }
           />
 
+          <div className="flex items-start gap-3 rounded-md border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">
+            <InfoIcon className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-medium text-foreground">How roles work</p>
+              <p className="mt-1">
+                Roles define permissions and are shared across your
+                organization. To grant access in this workspace, assign roles to
+                groups in the Groups tab.
+              </p>
+            </div>
+          </div>
+
           {isLoading ? (
             <RbacListContainer>
               {[1, 2, 3].map((i) => (
@@ -185,6 +213,7 @@ export function OrgRbacRoles() {
                 <RoleListItem
                   key={role.id}
                   role={role}
+                  isAssigned={rolesInUse.has(role.id)}
                   isExpanded={expandedRoleId === role.id}
                   onExpandedChange={(expanded) =>
                     setExpandedRoleId(expanded ? role.id : null)
@@ -226,21 +255,22 @@ export function OrgRbacRoles() {
       {isCreateOpen && (
         <RoleFormDialog
           title="Create role"
-          description="Create a new role with specific scopes. Roles can be assigned to groups to grant permissions."
-          scopes={scopes ?? []}
+          description="Create a role for your organization. Once created, you can assign it to groups to grant permissions within this workspace."
+          scopes={workspaceScopes}
           onSubmit={handleCreateRole}
           isPending={createRoleIsPending}
           onOpenChange={(open) => {
             if (!open) setIsCreateOpen(false)
           }}
+          categoryFilter={workspaceCategoryFilter}
         />
       )}
 
       {isEditOpen && selectedRole && (
         <RoleFormDialog
           title="Edit role"
-          description="Update the role's name, description, and assigned scopes."
-          scopes={scopes ?? []}
+          description="Update the role's name, description, and permissions. Changes apply organization-wide."
+          scopes={workspaceScopes}
           initialData={selectedRole}
           onSubmit={(name, description, scopeIds) =>
             handleUpdateRole(selectedRole.id, name, description, scopeIds)
@@ -252,6 +282,7 @@ export function OrgRbacRoles() {
               setSelectedRole(null)
             }
           }}
+          categoryFilter={workspaceCategoryFilter}
         />
       )}
     </Dialog>
@@ -260,12 +291,14 @@ export function OrgRbacRoles() {
 
 function RoleListItem({
   role,
+  isAssigned,
   isExpanded,
   onExpandedChange,
   onEdit,
   onDelete,
 }: {
   role: RoleReadWithScopes
+  isAssigned: boolean
   isExpanded: boolean
   onExpandedChange: (expanded: boolean) => void
   onEdit: () => void
@@ -277,7 +310,14 @@ function RoleListItem({
       title={role.name}
       subtitle={role.description || `${role.scopes?.length ?? 0} scopes`}
       badges={
-        role.is_system ? <RbacBadge variant="preset">Preset</RbacBadge> : null
+        <>
+          {role.is_system && <RbacBadge variant="preset">Preset</RbacBadge>}
+          {isAssigned && (
+            <Badge variant="secondary" className="text-[10px]">
+              Assigned
+            </Badge>
+          )}
+        </>
       }
       isExpanded={isExpanded}
       onExpandedChange={onExpandedChange}
@@ -326,9 +366,15 @@ function RoleListItem({
 }
 
 function RoleDetails({ role }: { role: RoleReadWithScopes }) {
+  // Filter to workspace-relevant scopes (exclude org-level)
+  const workspaceScopes = useMemo(() => {
+    if (!role.scopes) return []
+    return role.scopes.filter((scope) => !scope.resource.startsWith("org"))
+  }, [role.scopes])
+
   const groupedScopes = useMemo(
-    () => (role.scopes ? groupScopesByResource(role.scopes) : {}),
-    [role.scopes]
+    () => groupScopesByResource(workspaceScopes),
+    [workspaceScopes]
   )
 
   return (
@@ -336,13 +382,13 @@ function RoleDetails({ role }: { role: RoleReadWithScopes }) {
       {role.description && (
         <RbacDetailRow label="Description">{role.description}</RbacDetailRow>
       )}
-      <RbacDetailRow label="Scopes">
+      <RbacDetailRow label="Workspace scopes">
         <span className="text-muted-foreground">
-          {role.scopes?.length ?? 0} permission
-          {(role.scopes?.length ?? 0) !== 1 && "s"}
+          {workspaceScopes.length} permission
+          {workspaceScopes.length !== 1 && "s"}
         </span>
       </RbacDetailRow>
-      {role.scopes && role.scopes.length > 0 && (
+      {workspaceScopes.length > 0 && (
         <div className="mt-2 space-y-2">
           {Object.entries(groupedScopes).map(([resource, resourceScopes]) => (
             <div key={resource}>

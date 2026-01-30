@@ -49,7 +49,10 @@ class WorkspaceService(BaseOrgService):
     async def admin_list_workspaces(
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
-        """List all workspaces in the organization."""
+        """List all workspaces in the organization.
+
+        Note: Authorization is handled at the router level via scope checks.
+        """
         statement = (
             select(Workspace)
             .options(

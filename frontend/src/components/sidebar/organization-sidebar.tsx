@@ -44,7 +44,6 @@ export function OrganizationSidebar({
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewMembers = useScopeCheck("org:member:read")
-  const canViewRbac = useScopeCheck("org:rbac:read")
 
   const navSettings = [
     {

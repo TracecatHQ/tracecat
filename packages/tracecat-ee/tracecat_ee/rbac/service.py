@@ -768,15 +768,16 @@ class RBACService(BaseOrgService):
 
         # Filter assignments by scope:
         # - Org-wide assignments (workspace_id IS NULL) always apply
-        # - Workspace-specific assignments only apply if requesting that workspace
+        # - Workspace-specific assignments apply when requesting that workspace
+        # - When no workspace context (org-level endpoints), include ALL scopes
+        #   so users can access org-level resources like registry actions
         if workspace_id is not None:
             stmt = stmt.where(
                 (UserRoleAssignment.workspace_id.is_(None))
                 | (UserRoleAssignment.workspace_id == workspace_id)
             )
-        else:
-            # Only org-wide assignments
-            stmt = stmt.where(UserRoleAssignment.workspace_id.is_(None))
+        # When workspace_id is None, include all assignments (org-wide + all workspace-scoped)
+        # This allows workspace-scoped permissions to apply to org-level resources
 
         result = await self.session.execute(stmt)
         scope_names = result.scalars().all()
@@ -825,7 +826,9 @@ class RBACService(BaseOrgService):
 
         # Filter assignments by scope:
         # - Org-wide assignments (workspace_id IS NULL) always apply
-        # - Workspace-specific assignments only apply if requesting that workspace
+        # - Workspace-specific assignments apply when requesting that workspace
+        # - When no workspace context (org-level endpoints), include ALL scopes
+        #   so users can access org-level resources like registry actions
         if workspace_id is not None:
             stmt = stmt.where(
                 (GroupRoleAssignment.workspace_id.is_(None))
