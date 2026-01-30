@@ -116,6 +116,19 @@ SYSTEM_SCOPE_DEFINITIONS: list[tuple[str, str, str, str]] = [
     ("secret:create", "secret", "create", "Create new secrets"),
     ("secret:update", "secret", "update", "Modify existing secrets"),
     ("secret:delete", "secret", "delete", "Delete secrets"),
+    # Tag scopes
+    ("tag:read", "tag", "read", "View tags"),
+    ("tag:create", "tag", "create", "Create new tags"),
+    ("tag:update", "tag", "update", "Modify existing tags"),
+    ("tag:delete", "tag", "delete", "Delete tags"),
+    # Variable scopes
+    ("variable:read", "variable", "read", "View variables"),
+    ("variable:create", "variable", "create", "Create new variables"),
+    ("variable:update", "variable", "update", "Modify existing variables"),
+    ("variable:delete", "variable", "delete", "Delete variables"),
+    # Organization settings scopes
+    ("org:settings:read", "org:settings", "read", "View organization settings"),
+    ("org:settings:manage", "org:settings", "manage", "Manage organization settings"),
     # Wildcard action scopes (for role assignments)
     ("action:*:execute", "action", "execute", "Execute any registry action"),
     (

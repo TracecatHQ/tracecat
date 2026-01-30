@@ -1,13 +1,13 @@
-from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
+from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep
+from tracecat.auth.dependencies import OrgUserRole, OrgAdminUser
 from tracecat.auth.schemas import SessionRead, UserUpdate
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
@@ -33,28 +33,9 @@ from tracecat.organization.service import OrgService, accept_invitation_for_user
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 
-# RoleACL() returns a Depends object, so no need to wrap with Depends()
-OrgUserRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
-]
-
-OrgAdminRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
-]
-
 
 @router.get("", response_model=OrgRead, include_in_schema=False)
+@require_scope("org:read")
 async def get_organization(
     *,
     role: OrgUserRole,
@@ -63,9 +44,10 @@ async def get_organization(
 
 
 @router.get("/members", response_model=list[OrgMemberRead])
+@require_scope("org:member:read")
 async def list_org_members(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> list[OrgMemberRead]:
     service = OrgService(session, role=role)
@@ -88,9 +70,10 @@ async def list_org_members(
 
 
 @router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:member:remove")
 async def delete_org_member(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     user_id: UserID,
 ) -> None:
@@ -113,9 +96,10 @@ async def delete_org_member(
 
 
 @router.patch("/members/{user_id}", response_model=OrgMemberRead)
+@require_scope("org:member:update")
 async def update_org_member(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     user_id: UserID,
     params: UserUpdate,
@@ -146,9 +130,10 @@ async def update_org_member(
 
 
 @router.get("/sessions", response_model=list[SessionRead])
+@require_scope("org:member:read")
 async def list_sessions(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> list[SessionRead]:
     service = OrgService(session, role=role)
@@ -156,9 +141,10 @@ async def list_sessions(
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:member:remove")
 async def delete_session(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     session_id: SessionID,
 ) -> None:
@@ -179,9 +165,10 @@ async def delete_session(
     response_model=OrgInvitationRead,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("org:member:invite")
 async def create_invitation(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: OrgInvitationCreate,
 ) -> OrgInvitationRead:
@@ -221,9 +208,10 @@ async def create_invitation(
 
 
 @router.get("/invitations", response_model=list[OrgInvitationRead])
+@require_scope("org:member:read")
 async def list_invitations(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     invitation_status: InvitationStatus | None = Query(None, alias="status"),
 ) -> list[OrgInvitationRead]:
@@ -249,9 +237,10 @@ async def list_invitations(
 
 
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:member:remove")
 async def revoke_invitation(
     *,
-    role: OrgAdminRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     invitation_id: UUID,
 ) -> None:
@@ -270,7 +259,7 @@ async def revoke_invitation(
 @router.get("/invitations/{invitation_id}/token")
 async def get_invitation_token(
     *,
-    role: OrgAdminRole,
+    role: OrgAdminUser,
     session: AsyncDBSession,
     invitation_id: UUID,
 ) -> dict[str, str]:

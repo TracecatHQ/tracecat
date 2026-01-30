@@ -4,6 +4,7 @@ from tracecat_registry import RegistrySecret
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import RegistryError
 from tracecat.logger import logger
@@ -20,6 +21,7 @@ router = APIRouter(prefix=REGISTRY_ACTIONS_PATH, tags=["registry-actions"])
 
 
 @router.get("")
+@require_scope("workflow:read")
 async def list_registry_actions(
     *,
     role: Role = RoleACL(
@@ -43,6 +45,7 @@ async def list_registry_actions(
     response_model=RegistryActionRead,
     response_model_exclude_unset=True,
 )
+@require_scope("workflow:read")
 async def get_registry_action(
     *,
     role: Role = RoleACL(
@@ -97,6 +100,7 @@ async def get_registry_action(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("org:settings:manage")
 async def create_registry_action(
     *,
     role: Role = RoleACL(
@@ -126,6 +130,7 @@ async def create_registry_action(
 
 
 @router.patch("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def update_registry_action(
     *,
     role: Role = RoleACL(
@@ -148,6 +153,7 @@ async def update_registry_action(
 
 
 @router.delete("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:manage")
 async def delete_registry_action(
     *,
     role: Role = RoleACL(
