@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
 from tracecat.auth.types import AccessLevel, PlatformRole, Role, system_role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -206,8 +207,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.info(f"User {user.id} has registered.")
 
         # Log audit event for user registration
-        from tracecat.audit.service import AuditService
-
         platform_role = PlatformRole(
             type="user", user_id=user.id, service_id="tracecat-api"
         )
