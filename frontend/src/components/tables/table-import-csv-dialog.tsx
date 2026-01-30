@@ -352,7 +352,7 @@ export function CsvPreview({ csvData }: CsvPreviewProps) {
                     typeof cellValue === "object" && cellValue !== null
                   const fullValue = isObject
                     ? JSON.stringify(cellValue)
-                    : String(cellValue || "")
+                    : String(cellValue ?? "")
                   const displayValue =
                     fullValue.length > 80
                       ? `${fullValue.substring(0, 77)}...`
