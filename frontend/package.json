@@ -13,7 +13,7 @@
     "lint:fix": "pnpm exec biome lint --write .",
     "lint": "pnpm exec biome lint .",
     "check": "pnpm exec biome check --write .",
-    "prepare": "cd .. && husky frontend/.husky || true",
+    "prepare": "cd .. && husky install frontend/.husky || true",
     "preview": "next build && next start",
     "start": "next start",
     "typecheck": "tsc --noEmit --incremental",
