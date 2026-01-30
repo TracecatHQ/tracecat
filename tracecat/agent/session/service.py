@@ -371,10 +371,12 @@ class AgentSessionService(BaseWorkspaceService):
 
         # For forked sessions, only fork on the first turn (when child has no sdk_session_id yet)
         # On subsequent turns, child has its own sdk_session_id and should resume normally
+        is_fork = False
         if (
             agent_session.parent_session_id is not None
             and agent_session.sdk_session_id is None
         ):
+            is_fork = True
             parent_session = await self.get_session(agent_session.parent_session_id)
             if parent_session is None:
                 logger.warning(
@@ -428,6 +430,7 @@ class AgentSessionService(BaseWorkspaceService):
         return SessionHistoryData(
             sdk_session_id=sdk_session_id,
             sdk_session_data=sdk_session_data,
+            is_fork=is_fork,
         )
 
     async def get_session_history(

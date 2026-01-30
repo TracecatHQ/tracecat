@@ -9,7 +9,7 @@ import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
-import type { AgentSessionWithStatus } from "@/lib/agents"
+import type { InboxSessionItem } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -17,7 +17,7 @@ interface InboxDetailProps {
   sessionId: string
   /** The original parent session ID - used for forking */
   parentSessionId: string
-  session: AgentSessionWithStatus
+  session: InboxSessionItem
   /** Called after successfully forking, passes the forked session ID and the message to send */
   onForked?: (forkedSessionId: string, pendingMessage: string) => void
   /** Message to send immediately (passed from parent after fork) */
@@ -53,6 +53,11 @@ export function InboxDetail({
   // Check if the current session is already a forked session
   // (sessionId differs from parentSessionId when viewing a fork)
   const isForkedSession = sessionId !== parentSessionId
+
+  // Block input when there are pending approvals and we haven't forked yet
+  // User must make an approval decision before they can send messages
+  const hasPendingApprovals = session.pendingApprovalCount > 0
+  const inputDisabled = !isForkedSession && hasPendingApprovals
 
   /**
    * Fork the session and notify parent with the message to send.
@@ -168,6 +173,8 @@ export function InboxDetail({
       onBeforeSend={isForkedSession ? undefined : handleFork}
       pendingMessage={pendingMessage}
       onPendingMessageSent={onPendingMessageSent}
+      inputDisabled={inputDisabled}
+      inputDisabledPlaceholder="Make an approval decision to continue..."
     />
   )
 }

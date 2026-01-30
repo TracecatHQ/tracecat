@@ -4,10 +4,12 @@ import { type Query, useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
-  type AgentSessionsListSessionsResponse,
-  agentSessionsListSessions,
+  type InboxItemRead,
+  type InboxItemStatus,
+  type InboxListItemsPaginatedResponse,
+  inboxListItemsPaginated,
 } from "@/client"
-import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
+import type { AgentStatusTone, InboxSessionItem } from "@/lib/agents"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -27,7 +29,7 @@ export interface UseInboxFilters {
 }
 
 export interface UseInboxResult {
-  sessions: AgentSessionWithStatus[]
+  sessions: InboxSessionItem[]
   selectedId: string | null
   setSelectedId: (id: string | null) => void
   isLoading: boolean
@@ -39,6 +41,73 @@ export interface UseInboxResult {
   setLimit: (limit: number) => void
   setUpdatedAfter: (value: DateFilterValue) => void
   setCreatedAfter: (value: DateFilterValue) => void
+}
+
+/**
+ * Maps InboxItemStatus to the derived status and display properties used by the UI.
+ */
+function mapInboxStatusToAgentStatus(status: InboxItemStatus): {
+  derivedStatus: InboxSessionItem["derivedStatus"]
+  statusLabel: string
+  statusPriority: number
+  statusTone: AgentStatusTone
+} {
+  switch (status) {
+    case "pending":
+      return {
+        derivedStatus: "PENDING_APPROVAL",
+        statusLabel: "Pending approvals",
+        statusPriority: 0,
+        statusTone: "warning",
+      }
+    case "failed":
+      return {
+        derivedStatus: "FAILED",
+        statusLabel: "Failed",
+        statusPriority: 1,
+        statusTone: "danger",
+      }
+    case "completed":
+      return {
+        derivedStatus: "COMPLETED",
+        statusLabel: "Completed",
+        statusPriority: 7,
+        statusTone: "success",
+      }
+  }
+}
+
+/**
+ * Converts an InboxItemRead to the InboxSessionItem format expected by UI components.
+ * This bridges the inbox API with inbox UI components.
+ */
+function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
+  const statusInfo = mapInboxStatusToAgentStatus(item.status)
+
+  return {
+    // Core session fields - use source_id as the session identifier
+    id: item.source_id,
+    title: item.title,
+    entity_type: (item.metadata?.entity_type as string) ?? "workflow",
+    entity_id: (item.metadata?.entity_id as string) ?? null,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+
+    // Workflow metadata from inbox item
+    parent_workflow: item.workflow
+      ? {
+          id: item.workflow.id,
+          title: item.workflow.title,
+          alias: item.workflow.alias,
+        }
+      : null,
+
+    // Status fields derived from inbox status
+    ...statusInfo,
+    pendingApprovalCount:
+      (item.metadata?.pending_count as number) ??
+      (item.status === "pending" ? 1 : 0),
+  }
 }
 
 function getDateFromFilter(filter: DateFilterValue): Date | null {
@@ -71,22 +140,22 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const [createdAfter, setCreatedAfter] = useState<DateFilterValue>(null)
 
   /**
-   * Computes the refetch interval for sessions based on current state.
+   * Computes the refetch interval for inbox items based on current state.
    *
    * Returns `false` to disable polling when:
    * - Auto-refresh is disabled
    * - The browser tab is hidden
    *
    * Otherwise returns an interval in milliseconds:
-   * - 3000ms (3s): When there are pending approvals or running sessions
-   * - 10000ms (10s): When no sessions exist or all are in terminal states
+   * - 3000ms (3s): When there are pending approvals
+   * - 10000ms (10s): When no items exist or all are in terminal states
    */
   const computeRefetchInterval = useCallback(
     (
       query: Query<
-        AgentSessionsListSessionsResponse,
+        InboxListItemsPaginatedResponse,
         TracecatApiError,
-        AgentSessionsListSessionsResponse,
+        InboxListItemsPaginatedResponse,
         readonly unknown[]
       >
     ) => {
@@ -103,23 +172,14 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
 
       const data = query.state.data
 
-      if (!data || data.length === 0) {
+      if (!data || data.items.length === 0) {
         return 10000
       }
 
-      const enrichedSessions = data.map(enrichAgentSession)
-
-      const hasPendingApproval = enrichedSessions.some(
-        (session) => session.pendingApprovalCount > 0
+      const hasPendingApproval = data.items.some(
+        (item) => item.status === "pending"
       )
       if (hasPendingApproval) {
-        return 3000
-      }
-
-      const hasActiveSession = enrichedSessions.some((session) =>
-        ["RUNNING", "CONTINUED_AS_NEW"].includes(session.derivedStatus)
-      )
-      if (hasActiveSession) {
         return 3000
       }
 
@@ -128,36 +188,29 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     [autoRefresh]
   )
 
-  // Fetch all sessions (excluding approval sessions which are forks)
+  // Fetch inbox items from the unified inbox endpoint
+  // This endpoint properly aggregates approval status from the backend
   const {
     data: sessions,
     isLoading,
     error,
     refetch,
   } = useQuery<
-    AgentSessionsListSessionsResponse,
+    InboxListItemsPaginatedResponse,
     TracecatApiError,
-    AgentSessionWithStatus[]
+    InboxSessionItem[]
   >({
-    queryKey: [
-      "inbox-sessions",
-      workspaceId,
-      entityType === "all" ? null : entityType,
-      limit,
-    ],
+    queryKey: ["inbox-items", workspaceId, limit],
     queryFn: () =>
-      agentSessionsListSessions({
+      inboxListItemsPaginated({
         workspaceId,
-        // Exclude approval sessions (they are forked sessions for inbox replies)
-        excludeEntityTypes: ["approval"],
-        entityType: entityType === "all" ? undefined : entityType,
         limit,
       }),
     select: (data) => {
-      // Enrich sessions with derived status and sort by priority
-      const enriched = data.map(enrichAgentSession)
+      // Convert inbox items to session format and sort by priority
+      const converted = data.items.map(inboxItemToSessionItem)
       // Sort by status priority (pending approvals first), then by updated_at (most recent first)
-      return enriched.sort((a, b) => {
+      return converted.sort((a, b) => {
         if (a.statusPriority !== b.statusPriority) {
           return a.statusPriority - b.statusPriority
         }
@@ -171,7 +224,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     refetchInterval: computeRefetchInterval,
   })
 
-  // Apply client-side filtering (search, date filters)
+  // Apply client-side filtering (search, entity type, date filters)
   const filteredSessions = useMemo(() => {
     if (!sessions) return []
 
@@ -180,6 +233,11 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     const query = searchQuery.toLowerCase().trim()
 
     return sessions.filter((session) => {
+      // Entity type filter
+      if (entityType !== "all" && session.entity_type !== entityType) {
+        return false
+      }
+
       // Search filter
       if (query) {
         const title = (
@@ -212,7 +270,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
 
       return true
     })
-  }, [sessions, searchQuery, updatedAfter, createdAfter])
+  }, [sessions, searchQuery, entityType, updatedAfter, createdAfter])
 
   const enrichedSessions = filteredSessions
 

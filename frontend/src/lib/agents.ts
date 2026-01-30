@@ -137,6 +137,27 @@ export type AgentSessionWithStatus = AgentSessionReadWithMeta & {
   temporalStatus: AgentTemporalStatus | null
 }
 
+/**
+ * Minimal inbox item type for the inbox list view.
+ * This is a simpler type that works with the unified inbox API
+ * while maintaining compatibility with inbox UI components.
+ */
+export interface InboxSessionItem {
+  /** The agent session ID (source_id from inbox API) */
+  id: string
+  title: string
+  entity_type: string
+  entity_id: string | null
+  created_at: string
+  updated_at: string
+  parent_workflow: WorkflowSummary | null
+  derivedStatus: AgentDerivedStatus
+  statusLabel: string
+  statusPriority: number
+  statusTone: AgentStatusTone
+  pendingApprovalCount: number
+}
+
 export function enrichAgentSession(
   session: AgentSessionReadWithMeta
 ): AgentSessionWithStatus {
