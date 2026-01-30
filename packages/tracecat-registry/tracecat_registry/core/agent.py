@@ -62,24 +62,29 @@ bedrock_secret = RegistrySecret(
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
         "AWS_SESSION_TOKEN",
+        "AWS_BEARER_TOKEN_BEDROCK",
+        "AWS_MODEL_ID",
+        "AWS_INFERENCE_PROFILE_ID",
     ],
     optional=True,
 )
-"""AWS credentials.
+"""AWS Bedrock credentials.
 
 - name: `amazon_bedrock`
 - optional_keys:
-    Either:
-        - `AWS_ACCESS_KEY_ID`
-        - `AWS_SECRET_ACCESS_KEY`
-        - `AWS_REGION`
-    Or:
+    Authentication (one of):
+        - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
+        - `AWS_BEARER_TOKEN_BEDROCK`
         - `AWS_PROFILE`
-    Or:
-        - `AWS_ROLE_ARN`
-        - `AWS_ROLE_SESSION_NAME` (optional)
-    Or:
+        - `AWS_ROLE_ARN` + `AWS_ROLE_SESSION_NAME` (optional)
         - `AWS_SESSION_TOKEN`
+    Model configuration (one of):
+        - `AWS_INFERENCE_PROFILE_ID`: Required for newer models (Claude 4, etc.).
+          Use system profile ID like 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+          or custom inference profile ARN for cost tracking.
+        - `AWS_MODEL_ID`: Direct model ID for older models that support on-demand throughput.
+    Region:
+        - `AWS_REGION`: AWS region (e.g., us-east-1)
 """
 
 

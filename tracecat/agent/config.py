@@ -72,7 +72,7 @@ MODEL_CONFIGS = {
         },
     ),
     "bedrock": ModelConfig(
-        name="bedrock",  # Placeholder; actual ARN from AWS_MODEL_ARN credential will be used at runtime
+        name="bedrock",  # Placeholder; actual model ID from AWS_MODEL_ID credential will be used at runtime
         provider="bedrock",
         org_secret_name="agent-bedrock-credentials",
         secrets={
@@ -140,10 +140,18 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 required=False,
             ),
             ProviderCredentialField(
-                key="AWS_MODEL_ARN",
-                label="Model ARN",
+                key="AWS_MODEL_ID",
+                label="Model ID (legacy models only)",
                 type="text",
-                description="Your model ARN for Bedrock access.",
+                description="Direct model ID for older models that support on-demand throughput (e.g., anthropic.claude-3-haiku-20240307-v1:0). Leave empty if using Inference Profile ID.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="AWS_INFERENCE_PROFILE_ID",
+                label="Inference Profile ID",
+                type="text",
+                description="Required for newer models (Claude 4, etc.). Use system profile ID like 'us.anthropic.claude-sonnet-4-20250514-v1:0' or your custom inference profile ARN for cost tracking.",
+                required=False,
             ),
             ProviderCredentialField(
                 key="AWS_REGION",

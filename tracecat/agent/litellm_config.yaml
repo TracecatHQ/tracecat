@@ -32,15 +32,16 @@ model_list:
     litellm_params:
       model: anthropic/claude-opus-4-5-20251101
 
-  # Bedrock (model ARN injected from credentials)
-  - model_name: bedrock
+  # Bedrock wildcard - catches dynamically-set ARN models (bedrock/arn:aws:...)
+  - model_name: bedrock/*
     litellm_params:
-      model: bedrock/placeholder
+      model: bedrock/*
 
-  # Custom model provider (base_url, model injected from credentials)
-  - model_name: custom
+
+  # Catch-all wildcard for any model not explicitly defined, for custom models
+  - model_name: "*"
     litellm_params:
-      model: openai/placeholder
+      model: openai/*
 
 general_settings:
   custom_auth: tracecat.agent.gateway.user_api_key_auth
