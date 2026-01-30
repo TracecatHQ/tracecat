@@ -212,7 +212,7 @@ async def test_remote_custom_registry_repo() -> None:
     # ---------------------------------------------------------------------
     logger.info("Step 6: Executing action via Temporal workflow")
 
-    # Get the workspace ID from the API to create a proper role
+    # Get the workspace ID and organization ID from the API to create a proper role
     workspaces_response = session.get(f"{base_url}/workspaces")
     assert workspaces_response.status_code == 200, (
         f"Failed to get workspaces: {workspaces_response.text}"
@@ -220,13 +220,26 @@ async def test_remote_custom_registry_repo() -> None:
     workspaces = workspaces_response.json()
     assert len(workspaces) > 0, "No workspaces found"
     workspace_id = uuid.UUID(workspaces[0]["id"])
-    logger.info("Using workspace for workflow execution", workspace_id=workspace_id)
+
+    # Fetch full workspace details to get organization_id
+    workspace_response = session.get(f"{base_url}/workspaces/{workspace_id}")
+    assert workspace_response.status_code == 200, (
+        f"Failed to get workspace details: {workspace_response.text}"
+    )
+    workspace_data = workspace_response.json()
+    organization_id = uuid.UUID(workspace_data["organization_id"])
+    logger.info(
+        "Using workspace for workflow execution",
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+    )
 
     # Create a role for workflow execution
     role = Role(
         type="service",
         service_id="tracecat-runner",
         workspace_id=workspace_id,
+        organization_id=organization_id,
         user_id=uuid.UUID(int=0),
     )
     ctx_role.set(role)

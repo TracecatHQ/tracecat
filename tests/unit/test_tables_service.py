@@ -38,6 +38,7 @@ async def svc_editor_role(svc_workspace) -> Role:  # type: ignore[override]
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         workspace_role=WorkspaceRole.EDITOR,
         user_id=uuid4(),
         service_id="tracecat-api",

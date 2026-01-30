@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
-import tracecat.config as config
+from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -59,8 +59,11 @@ async def create_manifest_for_actions(
     session: AsyncSession,
     repo_id: UUID,
     actions: list[BoundRegistryAction],
+    organization_id: UUID | None,
 ) -> RegistryLock:
     """Create a RegistryVersion with manifest for the given actions."""
+    assert organization_id is not None, "organization_id must be provided"
+
     result = await session.execute(
         select(RegistryRepository).where(RegistryRepository.id == repo_id)
     )
@@ -99,7 +102,7 @@ async def create_manifest_for_actions(
     manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=organization_id,
         repository_id=repo_id,
         version=TEST_VERSION,
         manifest=manifest,
@@ -764,7 +767,10 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
 
     # Create manifest for both test actions
     registry_lock = await create_manifest_for_actions(
-        session, db_repo_id, [bound_action, bound_action_required]
+        session,
+        db_repo_id,
+        [bound_action, bound_action_required],
+        test_role.organization_id,
     )
 
     # Helper function to run the optional action
@@ -980,7 +986,9 @@ async def test_agent_tool_approvals_requires_feature_flag(
         await ra_service.create_action(action_create)
 
     # Create manifest for the ai.agent action using the helper
-    await create_manifest_for_actions(session, db_repo_id, [bound_action])
+    await create_manifest_for_actions(
+        session, db_repo_id, [bound_action], test_role.organization_id
+    )
 
     dsl = DSLInput(
         title="Test Workflow",
@@ -1043,7 +1051,9 @@ async def test_agent_tool_approvals_passes_with_feature_flag(
         await ra_service.create_action(action_create)
 
     # Create manifest for the ai.agent action using the helper
-    await create_manifest_for_actions(session, db_repo_id, [bound_action])
+    await create_manifest_for_actions(
+        session, db_repo_id, [bound_action], test_role.organization_id
+    )
 
     dsl = DSLInput(
         title="Test Workflow",

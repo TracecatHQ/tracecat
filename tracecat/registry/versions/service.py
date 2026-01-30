@@ -8,8 +8,10 @@ from uuid import UUID
 
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import (
     PlatformRegistryIndex,
     PlatformRegistryVersion,
@@ -28,6 +30,18 @@ class RegistryVersionsService(BaseOrgService):
     """Service for managing immutable registry versions."""
 
     service_name: ClassVar[str] = "registry_versions"
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        role: Role | PlatformRole | None = None,  # Protocol compatibility
+    ):
+        # Note: PlatformRole will fail BaseOrgService validation since it lacks organization_id
+        if isinstance(role, PlatformRole):
+            raise ValueError(
+                "RegistryVersionsService requires org-scoped Role, not PlatformRole"
+            )
+        super().__init__(session, role)
 
     async def list_versions(
         self,
@@ -209,9 +223,20 @@ class RegistryVersionsService(BaseOrgService):
 
 
 class PlatformRegistryVersionsService(BaseService):
-    """Service for managing platform-owned registry versions."""
+    """Service for managing platform-owned registry versions.
+
+    Note: role parameter is accepted but not used - platform services don't
+    require org context. This is for protocol compatibility with VersionsServiceProtocol.
+    """
 
     service_name: ClassVar[str] = "platform_registry_versions"
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        role: Role | PlatformRole | None = None,  # noqa: ARG002 - unused but required for protocol
+    ):
+        super().__init__(session)
 
     async def list_versions(
         self,

@@ -1,6 +1,8 @@
 from fastapi import Request, Response, status
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
@@ -18,6 +20,7 @@ from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
@@ -36,13 +39,49 @@ def generic_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
-def bootstrap_role():
-    """Role to bootstrap Tracecat services."""
+def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:
+    """Role to bootstrap Tracecat services.
+
+    Args:
+        organization_id: Optional organization ID to scope the bootstrap role to.
+            If None, creates a role without org scope (for platform-level operations).
+
+    Returns:
+        Role: A service role with ADMIN access for the specified organization.
+    """
     return Role(
         type="service",
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-bootstrap",
+        organization_id=organization_id,
     )
+
+
+async def get_default_organization_id(session: AsyncSession) -> OrganizationID:
+    """Get the default (first) organization ID.
+
+    This is used by auth modules that need to read platform-level settings
+    before user authentication provides an org context.
+
+    Args:
+        session: Database session.
+
+    Returns:
+        OrganizationID: The ID of the first organization.
+
+    Raises:
+        ValueError: If no organizations exist.
+    """
+    # Import here to avoid circular imports
+    from tracecat.db.models import Organization
+
+    result = await session.execute(
+        select(Organization).order_by(Organization.created_at).limit(1)
+    )
+    org = result.scalar_one_or_none()
+    if org is None:
+        raise ValueError("No organizations exist. Run bootstrap first.")
+    return org.id
 
 
 def tracecat_exception_handler(request: Request, exc: Exception) -> Response:

@@ -28,6 +28,7 @@ import aiofiles
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
@@ -164,6 +165,7 @@ class RegistrySyncRunner:
                 origin=request.origin,
                 validate=request.validate_actions,
                 git_repo_package_name=request.git_repo_package_name,
+                organization_id=request.organization_id,
             )
 
             logger.info(
@@ -248,9 +250,14 @@ class RegistrySyncRunner:
             ssh_key_path.chmod(0o600)
 
             # Configure SSH to use the key
+            # BatchMode=yes prevents SSH from prompting for input (passphrase, etc.)
+            # which would cause the subprocess to hang indefinitely
             git_env["GIT_SSH_COMMAND"] = (
-                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no"
+                f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o BatchMode=yes"
             )
+
+        # Timeout for git operations (clone, fetch, checkout)
+        git_timeout = 120  # 2 minutes
 
         try:
             # Clone the repository
@@ -261,7 +268,16 @@ class RegistrySyncRunner:
                 stderr=asyncio.subprocess.PIPE,
                 env=git_env,
             )
-            _, stderr = await process.communicate()
+            try:
+                _, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=git_timeout
+                )
+            except TimeoutError as e:
+                process.kill()
+                raise GitCloneError(
+                    f"Git clone timed out after {git_timeout}s. "
+                    "Check SSH key permissions and network connectivity."
+                ) from e
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
@@ -277,7 +293,16 @@ class RegistrySyncRunner:
                     cwd=str(clone_path),
                     env=git_env,
                 )
-                _, stderr = await process.communicate()
+                try:
+                    _, stderr = await asyncio.wait_for(
+                        process.communicate(), timeout=git_timeout
+                    )
+                except TimeoutError as e:
+                    process.kill()
+                    raise GitCloneError(
+                        f"Git fetch timed out after {git_timeout}s. "
+                        "Check SSH key permissions and network connectivity."
+                    ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
@@ -291,7 +316,15 @@ class RegistrySyncRunner:
                     cwd=str(clone_path),
                     env=git_env,
                 )
-                _, stderr = await process.communicate()
+                try:
+                    _, stderr = await asyncio.wait_for(
+                        process.communicate(), timeout=git_timeout
+                    )
+                except TimeoutError as e:
+                    process.kill()
+                    raise GitCloneError(
+                        f"Git checkout timed out after {git_timeout}s."
+                    ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
@@ -334,6 +367,7 @@ class RegistrySyncRunner:
         origin: str,
         validate: bool = False,
         git_repo_package_name: str | None = None,
+        organization_id: UUID | None = None,
     ) -> tuple[
         list[RegistryActionCreate], dict[str, list[RegistryActionValidationErrorInfo]]
     ]:
@@ -363,6 +397,7 @@ class RegistrySyncRunner:
                 validate=validate,
                 git_repo_package_name=git_repo_package_name,
                 timeout=float(self.discover_timeout),
+                organization_id=organization_id,
             )
             return result.actions, result.validation_errors
         except Exception as e:
@@ -398,7 +433,7 @@ class RegistrySyncRunner:
         await blob.ensure_bucket_exists(bucket)
 
         # Generate S3 key
-        namespace = storage_namespace or str(config.TRACECAT__DEFAULT_ORG_ID)
+        namespace = storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
         s3_key = get_tarball_venv_s3_key(
             organization_id=namespace,
             repository_origin=repository_origin,

@@ -34,17 +34,18 @@ from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
-from tracecat.auth.types import AccessLevel, system_role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.auth.types import AccessLevel, Role, system_role
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
-from tracecat.db.models import AccessToken, OAuthAccount, User
+from tracecat.db.models import AccessToken, OAuthAccount, Organization, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
@@ -208,14 +209,26 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         async with get_async_session_context_manager() as session:
             users = await list_users(session=session)
             superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
-            if len(users) == 1 and superadmin_email and user.email == superadmin_email:
+            is_first_user = (
+                len(users) == 1 and superadmin_email and user.email == superadmin_email
+            )
+
+            if is_first_user:
                 # This is the first user and matches the designated superadmin email
                 update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
-                # NOTE(security): Bypass safety to create sueradmin
+                # NOTE(security): Bypass safety to create superadmin
                 await self.admin_update(user_update=update_params, user=user)
                 self.logger.info("First user promoted to superadmin", email=user.email)
 
-            elif len(users) > 1 and await get_setting(
+            # Add user to the default organization
+            # First user becomes OWNER, subsequent users become MEMBER
+            await self._add_user_to_default_organization(
+                session=session,
+                user=user,
+                org_role=OrgRole.OWNER if is_first_user else OrgRole.MEMBER,
+            )
+
+            if len(users) > 1 and await get_setting(
                 "app_create_workspace_on_register", default=False
             ):
                 # Check if we should auto-create a workspace for the user
@@ -257,6 +270,121 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                         user_id=user.id,
                         user_email=user.email,
                     )
+
+    async def _add_user_to_default_organization(
+        self,
+        *,
+        session: AsyncSession,
+        user: User,
+        org_role: OrgRole,
+    ) -> None:
+        """Add a newly registered user to the default organization and workspace.
+
+        The default organization is the first organization in the system,
+        which is created during app startup via `setup_default_organization`.
+        The default workspace is the first workspace in that organization,
+        created via `setup_workspace_defaults`.
+
+        The auth system determines organization membership via workspace memberships,
+        so users must have a workspace membership to access authenticated endpoints.
+
+        Args:
+            session: Database session.
+            user: The newly registered user.
+            org_role: The role to assign (OWNER for first user, MEMBER for others).
+        """
+        # Import here to avoid circular import with organization.service
+        from tracecat.db.models import Membership, Workspace
+        from tracecat.organization.service import OrgService
+
+        try:
+            # Get the default (first) organization, ordered by created_at for determinism
+            result = await session.execute(
+                select(Organization).order_by(Organization.created_at).limit(1)
+            )
+            org = result.scalar_one_or_none()
+
+            if org is None:
+                self.logger.warning(
+                    "No organization found, skipping org membership creation",
+                    user_id=str(user.id),
+                    user_email=user.email,
+                )
+                return
+
+            # Create a role with organization context for the OrgService
+            service_role = Role(
+                type="service",
+                service_id="tracecat-api",
+                access_level=AccessLevel.ADMIN,
+                organization_id=org.id,
+            )
+
+            # Add user to organization membership table
+            org_service = OrgService(session, role=service_role)
+            await org_service.add_member(
+                user_id=user.id,
+                organization_id=org.id,
+                role=org_role,
+            )
+            self.logger.info(
+                "Added user to default organization",
+                user_id=str(user.id),
+                user_email=user.email,
+                organization_id=str(org.id),
+                org_role=org_role.value,
+            )
+
+            # Also add user to the default workspace in the organization
+            # The auth system checks workspace memberships to determine org context
+            ws_result = await session.execute(
+                select(Workspace)
+                .where(Workspace.organization_id == org.id)
+                .order_by(Workspace.created_at)
+                .limit(1)
+            )
+            workspace = ws_result.scalar_one_or_none()
+
+            if workspace is None:
+                self.logger.warning(
+                    "No workspace found in organization, skipping workspace membership",
+                    user_id=str(user.id),
+                    user_email=user.email,
+                    organization_id=str(org.id),
+                )
+                return
+
+            # Add user to workspace with appropriate role
+            workspace_role = (
+                WorkspaceRole.ADMIN
+                if org_role == OrgRole.OWNER
+                else WorkspaceRole.EDITOR
+            )
+            membership = Membership(
+                user_id=user.id,
+                workspace_id=workspace.id,
+                role=workspace_role,
+            )
+            session.add(membership)
+            await session.commit()
+            await session.refresh(membership)
+
+            self.logger.info(
+                "Added user to default workspace",
+                user_id=str(user.id),
+                user_email=user.email,
+                workspace_id=str(workspace.id),
+                workspace_role=workspace_role.value,
+            )
+        except IntegrityError as e:
+            # User may already be a member (e.g., race condition or retry)
+            self.logger.warning(
+                "User may already be a member of default organization/workspace",
+                error=str(e),
+                user_id=str(user.id),
+                user_email=user.email,
+            )
+            await session.rollback()
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None

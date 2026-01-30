@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from tracecat import config
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 
@@ -46,9 +45,7 @@ class Role(BaseModel):
 
     type: Literal["user", "service"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
-    organization_id: OrganizationID = Field(
-        default=config.TRACECAT__DEFAULT_ORG_ID, frozen=True
-    )
+    organization_id: OrganizationID | None = Field(default=None, frozen=True)
     workspace_role: WorkspaceRole | None = Field(default=None, frozen=True)
     org_role: OrgRole | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
@@ -77,6 +74,27 @@ class Role(BaseModel):
         if self.org_role is not None:
             headers["x-tracecat-role-org-role"] = self.org_role.value
         return headers
+
+
+class PlatformRole(BaseModel):
+    """Role for platform admin (superuser) operations.
+
+    Used for admin endpoints that operate at the platform level,
+    not scoped to any organization or workspace.
+
+    The user_id is preserved for audit logging purposes.
+    """
+
+    type: Literal["user", "service"] = Field(frozen=True)
+    user_id: UserID = Field(frozen=True)
+    """The superuser's ID - required for audit logging."""
+    access_level: AccessLevel = Field(default=AccessLevel.ADMIN, frozen=True)
+    service_id: InternalServiceID = Field(frozen=True)
+
+    @property
+    def is_platform_superuser(self) -> bool:
+        """Platform roles always have superuser privileges."""
+        return True
 
 
 def system_role() -> Role:

@@ -4040,7 +4040,7 @@ export type RetryPromptPart = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
-  organization_id?: string
+  organization_id?: string | null
   workspace_role?: WorkspaceRole | null
   org_role?: OrgRole | null
   user_id?: string | null

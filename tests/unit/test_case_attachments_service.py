@@ -365,6 +365,7 @@ async def test_delete_authorization_basic_vs_admin(
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=attachments_service.role.workspace_id,
+        organization_id=attachments_service.role.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )

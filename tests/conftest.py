@@ -29,14 +29,14 @@ from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
-from tracecat.auth.types import AccessLevel, Role, system_role
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
     get_async_session_context_manager,
     reset_async_engine,
 )
-from tracecat.db.models import Base, Workspace
+from tracecat.db.models import Base, Organization, Workspace
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -47,6 +47,10 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
 from tracecat.workspaces.service import WorkspaceService
+
+# Test-specific organization ID (not UUID(0) since we removed that default)
+# This UUID is deterministic across test runs for fixture seeding
+TEST_ORG_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 
 # Worker-specific configuration for pytest-xdist parallel execution
 # Get xdist worker ID, defaults to "master" if not using xdist
@@ -270,30 +274,30 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     """
                     INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
                     VALUES (
-                        '00000000-0000-0000-0000-000000000000',
-                        'Default Organization',
-                        'default',
+                        :org_id,
+                        'Test Organization',
+                        'test',
                         true,
                         now(),
                         now()
                     )
                     ON CONFLICT (id) DO NOTHING
                     """
-                )
+                ),
+                {"org_id": str(TEST_ORG_ID)},
             )
             session.commit()
             # Create a registry repository for core actions
             origin = "tracecat_registry"
             repo = session.scalar(
                 select(RegistryRepository).where(
-                    RegistryRepository.organization_id
-                    == config.TRACECAT__DEFAULT_ORG_ID,
+                    RegistryRepository.organization_id == TEST_ORG_ID,
                     RegistryRepository.origin == origin,
                 )
             )
             if repo is None:
                 repo = RegistryRepository(
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    organization_id=TEST_ORG_ID,
                     origin=origin,
                 )
                 session.add(repo)
@@ -303,8 +307,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     session.rollback()
                     repo = session.scalar(
                         select(RegistryRepository).where(
-                            RegistryRepository.organization_id
-                            == config.TRACECAT__DEFAULT_ORG_ID,
+                            RegistryRepository.organization_id == TEST_ORG_ID,
                             RegistryRepository.origin == origin,
                         )
                     )
@@ -578,14 +581,14 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
             version = "test-version"
             rv = session.scalar(
                 select(RegistryVersion).where(
-                    RegistryVersion.organization_id == config.TRACECAT__DEFAULT_ORG_ID,
+                    RegistryVersion.organization_id == TEST_ORG_ID,
                     RegistryVersion.repository_id == repo.id,
                     RegistryVersion.version == version,
                 )
             )
             if rv is None:
                 rv = RegistryVersion(
-                    organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                    organization_id=TEST_ORG_ID,
                     repository_id=repo.id,
                     version=version,
                     manifest=manifest,
@@ -598,8 +601,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     session.rollback()
                     rv = session.scalar(
                         select(RegistryVersion).where(
-                            RegistryVersion.organization_id
-                            == config.TRACECAT__DEFAULT_ORG_ID,
+                            RegistryVersion.organization_id == TEST_ORG_ID,
                             RegistryVersion.repository_id == repo.id,
                             RegistryVersion.version == version,
                         )
@@ -886,6 +888,7 @@ async def test_role(test_workspace, mock_org_id):
     service_role = Role(
         type="service",
         user_id=mock_org_id,
+        organization_id=mock_org_id,
         workspace_id=test_workspace.id,
         service_id="tracecat-runner",
     )
@@ -902,6 +905,7 @@ async def test_admin_role(test_workspace, mock_org_id):
     admin_role = Role(
         type="user",
         user_id=mock_org_id,
+        organization_id=mock_org_id,
         workspace_id=test_workspace.id,
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-runner",
@@ -914,12 +918,83 @@ async def test_admin_role(test_workspace, mock_org_id):
 
 
 @pytest.fixture(scope="function")
-async def test_workspace():
+async def test_organization(mock_org_id):
+    """Create or get a test organization for the test session."""
+    async with get_async_session_context_manager() as session:
+        # Check if organization exists
+        result = await session.execute(
+            select(Organization).where(Organization.id == mock_org_id)
+        )
+        org = result.scalar_one_or_none()
+        if org is None:
+            # Create test organization
+            org = Organization(
+                id=mock_org_id,
+                name="Test Organization",
+                slug=f"test-org-{mock_org_id.hex[:8]}",
+                is_active=True,
+            )
+            session.add(org)
+            try:
+                await session.commit()
+                await session.refresh(org)
+                logger.debug("Created test organization", organization=org)
+            except IntegrityError:
+                # Race condition: another test created the org first
+                await session.rollback()
+                result = await session.execute(
+                    select(Organization).where(Organization.id == mock_org_id)
+                )
+                org = result.scalar_one_or_none()
+                if org is None:
+                    raise
+                logger.debug(
+                    "Got existing test organization after race", organization=org
+                )
+        yield org
+
+
+@pytest.fixture(scope="function")
+async def session_test_organization(session, mock_org_id):
+    """Create a test organization in the test's session.
+
+    Use this fixture when the test needs an organization that's visible
+    within the test's isolated database session (e.g., for FK constraints).
+    """
+    # Check if organization exists in this session
+    result = await session.execute(
+        select(Organization).where(Organization.id == mock_org_id)
+    )
+    org = result.scalar_one_or_none()
+    if org is None:
+        # Create test organization in the test's session
+        org = Organization(
+            id=mock_org_id,
+            name="Test Organization",
+            slug=f"test-org-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+        await session.flush()  # Make visible in session without committing
+        logger.debug("Created test organization in session", organization=org)
+    return org
+
+
+@pytest.fixture(scope="function")
+async def test_workspace(test_organization, mock_org_id):
     """Create a test workspace for the test session."""
     ws_id = uuid.uuid4()
     workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
-    async with WorkspaceService.with_session(role=system_role()) as svc:
+    # Use a role with organization_id for the WorkspaceService
+    org_role = Role(
+        type="service",
+        service_id="tracecat-service",
+        organization_id=mock_org_id,
+        access_level=AccessLevel.ADMIN,
+    )
+
+    async with WorkspaceService.with_session(role=org_role) as svc:
         # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
@@ -970,11 +1045,54 @@ async def db_session_with_repo(test_role):
 
 
 @pytest.fixture
-async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None]:
+async def svc_organization(session: AsyncSession) -> AsyncGenerator[Organization, None]:
+    """Service test fixture. Create an organization for service tests."""
+    # Check if organization exists
+    result = await session.execute(
+        select(Organization).where(Organization.id == TEST_ORG_ID)
+    )
+    org = result.scalar_one_or_none()
+    if org is None:
+        org = Organization(
+            id=TEST_ORG_ID,
+            name="Test Organization",
+            slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+        await session.commit()
+        await session.refresh(org)
+
+    # Also ensure the organization exists in the default engine
+    async with get_async_session_context_manager() as global_session:
+        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
+        result = await global_session.execute(
+            select(Organization).where(Organization.id == TEST_ORG_ID)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            global_session.add(
+                Organization(
+                    id=TEST_ORG_ID,
+                    name="Test Organization",
+                    slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
+                    is_active=True,
+                )
+            )
+            await global_session.commit()
+
+    yield org
+
+
+@pytest.fixture
+async def svc_workspace(
+    session: AsyncSession, svc_organization: Organization
+) -> AsyncGenerator[Workspace, None]:
     """Service test fixture. Create a function scoped test workspace."""
     workspace = Workspace(
         name="test-workspace",
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=svc_organization.id,
     )
     session.add(workspace)
     await session.commit()
@@ -1066,6 +1184,7 @@ async def svc_role(svc_workspace: Workspace) -> Role:
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
@@ -1078,6 +1197,7 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
         type="user",
         access_level=AccessLevel.ADMIN,
         workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )

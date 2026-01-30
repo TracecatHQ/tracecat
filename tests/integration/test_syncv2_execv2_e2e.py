@@ -18,24 +18,29 @@ from __future__ import annotations
 import importlib
 import uuid
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from minio import Minio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.db.models import Organization
 from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunActionInput,
     RunContext,
 )
+from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
@@ -55,6 +60,10 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.service import RegistrySyncService
+from tracecat.registry.sync.workflow import (
+    RegistrySyncActivities,
+    RegistrySyncWorkflow,
+)
 from tracecat.storage import blob
 
 # =============================================================================
@@ -80,6 +89,37 @@ def anyio_backend():
     return "asyncio"
 
 
+# Static IDs used by module-scoped fixtures
+STATIC_WORKSPACE_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+STATIC_ORGANIZATION_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+
+@pytest.fixture(scope="module")
+async def module_organization(db, module_committing_session: AsyncSession):
+    """Create a static organization for module-scoped fixtures.
+
+    This organization must exist before any RegistryRepository can be created
+    due to FK constraints on organization_id.
+    """
+    # Check if organization exists
+    result = await module_committing_session.execute(
+        select(Organization).where(Organization.id == STATIC_ORGANIZATION_ID)
+    )
+    org = result.scalar_one_or_none()
+    if org is None:
+        # Create the organization
+        org = Organization(
+            id=STATIC_ORGANIZATION_ID,
+            name="Test Organization (Module)",
+            slug=f"test-org-module-{STATIC_ORGANIZATION_ID.hex[:8]}",
+            is_active=True,
+        )
+        module_committing_session.add(org)
+        await module_committing_session.commit()
+        await module_committing_session.refresh(org)
+    return org
+
+
 @pytest.fixture(scope="module")
 def module_test_role(mock_org_id) -> Role:
     """Module-scoped role for shared fixtures.
@@ -87,12 +127,11 @@ def module_test_role(mock_org_id) -> Role:
     Creates a static role that can be used by module-scoped fixtures
     without depending on function-scoped test_workspace.
     """
-    # Use a static workspace ID for module-scoped fixtures
-    static_workspace_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     return Role(
         type="service",
         user_id=mock_org_id,
-        workspace_id=static_workspace_id,
+        workspace_id=STATIC_WORKSPACE_ID,
+        organization_id=STATIC_ORGANIZATION_ID,
         service_id="tracecat-runner",
     )
 
@@ -174,8 +213,27 @@ def configure_minio_for_tests(monkeypatch):
     monkeypatch.setattr(config, "TRACECAT__DISABLE_NSJAIL", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False)
 
+    # Disable registry sync sandbox to use subprocess mode instead of Temporal workflow.
+    # This ensures sync activities run in the same process and see the monkeypatched config.
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+
     # Reload blob module to pick up new config
     importlib.reload(blob)
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def registry_sync_worker(temporal_client):
+    """Start a Temporal worker for registry sync on the test executor queue."""
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        async with Worker(
+            temporal_client,
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            workflows=[RegistrySyncWorkflow],
+            activities=RegistrySyncActivities.get_activities(),
+            activity_executor=executor,
+            workflow_runner=new_sandbox_runner(),
+        ):
+            yield
 
 
 @pytest.fixture
@@ -200,11 +258,14 @@ async def test_bucket(minio_client: Minio):
 
 
 @pytest.fixture
-async def builtin_repo(db, session: AsyncSession, test_role: Role):
+async def builtin_repo(
+    db, session: AsyncSession, test_role: Role, session_test_organization
+):
     """Create builtin registry repository for testing.
 
     Note: depends on `db` fixture to ensure test database is created.
     Uses the test session directly to ensure transaction visibility.
+    Depends on session_test_organization to satisfy FK constraint on organization_id.
     """
     svc = RegistryReposService(session, role=test_role)
     # Get existing or create new builtin repository
@@ -218,13 +279,14 @@ async def builtin_repo(db, session: AsyncSession, test_role: Role):
 
 @pytest.fixture
 async def committing_builtin_repo(
-    db, committing_session: AsyncSession, test_role: Role
+    db, committing_session: AsyncSession, test_role: Role, test_organization
 ):
     """Create builtin registry repository with committing session.
 
     This fixture is for tests that spawn subprocesses that need to see
     the repository data. It uses committing_session to make real commits
     that the subprocess can read.
+    Depends on test_organization to satisfy FK constraint on organization_id.
     """
     svc = RegistryReposService(committing_session, role=test_role)
     # Get existing or create new builtin repository
@@ -328,13 +390,18 @@ async def module_committing_session(db) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(scope="module")
 async def module_builtin_repo(
-    db, module_committing_session: AsyncSession, module_test_role: Role
+    db,
+    module_committing_session: AsyncSession,
+    module_test_role: Role,
+    module_organization,  # Ensures organization exists before creating repos
 ):
     """Module-scoped builtin repository for shared sync.
 
     Creates BOTH org-scoped and platform-scoped repositories:
     - Org repo: Used by RegistrySyncService for version/index sync
     - Platform repo: Used by executor for tarball lookups (via UNION ALL)
+
+    Depends on module_organization to satisfy FK constraint on organization_id.
     """
     # Create org-scoped repo
     org_svc = RegistryReposService(module_committing_session, role=module_test_role)
@@ -835,6 +902,9 @@ class TestFailureScenarios:
         test_role: Role,
     ):
         """Verify registry lock resolution fails for non-existent version."""
+        # Ensure organization_id is set
+        assert test_role.organization_id is not None
+
         # Try to resolve non-existent version
         registry_lock = {"tracecat_registry": "nonexistent-version-12345"}
 
@@ -868,7 +938,7 @@ class TestMultitenantWorkloads:
                 type="service",
                 service_id="tracecat-runner",
                 workspace_id=workspace_id or uuid.uuid4(),
-                organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+                organization_id=uuid.uuid4(),
                 user_id=uuid.UUID("00000000-0000-4444-aaaa-000000000000"),
             )
 

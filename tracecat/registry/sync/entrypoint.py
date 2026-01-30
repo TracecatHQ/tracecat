@@ -51,6 +51,7 @@ async def load_and_serialize_actions(
     commit_sha: str | None = None,
     validate: bool = False,
     git_repo_package_name: str | None = None,
+    organization_id: UUID4 | None = None,
 ) -> SyncResultSuccess:
     """Load a repository and serialize its actions to a typed result.
 
@@ -60,13 +61,17 @@ async def load_and_serialize_actions(
         commit_sha: Optional commit SHA to checkout (for remote repos).
         validate: Whether to validate template actions.
         git_repo_package_name: Optional override for the git repository package name.
+        organization_id: Optional organization ID for accessing org-scoped secrets.
 
     Returns:
         SyncResultSuccess containing actions, commit_sha, and validation_errors.
     """
     # Set up service role for the subprocess
     # Use "tracecat-service" as the service ID (valid InternalServiceID)
-    role = Role(type="service", service_id="tracecat-service")
+    # Include organization_id if provided so we can access org-scoped secrets (e.g., SSH keys)
+    role = Role(
+        type="service", service_id="tracecat-service", organization_id=organization_id
+    )
     ctx_role.set(role)
 
     # Load the repository (this triggers uv install / reload)
@@ -180,6 +185,11 @@ async def main() -> int:
         action="store_true",
         help="Whether to validate template actions.",
     )
+    parser.add_argument(
+        "--organization-id",
+        default=None,
+        help="Optional organization ID for accessing org-scoped secrets (e.g., SSH keys).",
+    )
 
     args = parser.parse_args()
 
@@ -193,6 +203,19 @@ async def main() -> int:
             file=sys.stdout,
         )
         return 1
+
+    # Parse organization ID if provided
+    organization_id: UUID | None = None
+    if args.organization_id:
+        try:
+            organization_id = UUID(args.organization_id)
+        except ValueError as e:
+            logger.error("Invalid organization ID", error=str(e))
+            print(
+                json.dumps({"error": f"Invalid organization ID: {e}"}),
+                file=sys.stdout,
+            )
+            return 1
 
     try:
         # Check if validation is enabled via settings (can override --validate flag)
@@ -210,6 +233,7 @@ async def main() -> int:
             commit_sha=args.commit_sha,
             git_repo_package_name=args.git_repo_package_name,
             validate=should_validate,
+            organization_id=organization_id,
         )
 
         # Output result as JSON to stdout using Pydantic serialization

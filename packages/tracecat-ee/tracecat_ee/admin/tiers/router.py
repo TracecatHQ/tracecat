@@ -38,7 +38,7 @@ async def list_tiers(
     ),
 ) -> list[TierRead]:
     """List all tiers."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     return list(await service.list_tiers(include_inactive=include_inactive))
 
 
@@ -49,7 +49,7 @@ async def create_tier(
     params: TierCreate,
 ) -> TierRead:
     """Create a new tier."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     try:
         return await service.create_tier(params)
     except ValueError as e:
@@ -63,7 +63,7 @@ async def get_tier(
     tier_id: uuid.UUID,
 ) -> TierRead:
     """Get tier by ID."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     try:
         return await service.get_tier(tier_id)
     except TierNotFoundError as e:
@@ -78,7 +78,7 @@ async def update_tier(
     params: TierUpdate,
 ) -> TierRead:
     """Update a tier."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     try:
         return await service.update_tier(tier_id, params)
     except TierNotFoundError as e:
@@ -92,7 +92,7 @@ async def delete_tier(
     tier_id: uuid.UUID,
 ) -> None:
     """Delete a tier (only if no orgs are assigned to it)."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     try:
         await service.delete_tier(tier_id)
     except TierNotFoundError as e:
@@ -111,7 +111,7 @@ async def get_org_tier(
     org_id: uuid.UUID,
 ) -> OrganizationTierRead:
     """Get tier assignment for an organization."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     try:
         return await service.get_org_tier(org_id)
     except (OrganizationNotFoundError, TierNotFoundError) as e:
@@ -126,7 +126,7 @@ async def update_org_tier(
     params: OrganizationTierUpdate,
 ) -> OrganizationTierRead:
     """Update organization's tier assignment and overrides."""
-    service = AdminTierService(session, role=role)
+    service = AdminTierService(session, role)
     try:
         return await service.update_org_tier(org_id, params)
     except (OrganizationNotFoundError, TierNotFoundError) as e:

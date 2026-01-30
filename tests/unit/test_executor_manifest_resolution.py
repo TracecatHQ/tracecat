@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tracecat import config
 from tracecat.db.models import RegistryAction, RegistryRepository, RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
@@ -32,7 +31,7 @@ def _manifest_action(*, action: str, action_type: str, implementation: dict) -> 
 
 @pytest.mark.anyio
 async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
-    db, session, test_role, mocker
+    db, session, test_role, session_test_organization, mocker
 ):
     origin = "core-registry"
     version = "v1"
@@ -40,7 +39,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
 
     repo = RegistryRepository(
         id=uuid.uuid4(),
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=test_role.organization_id,
         origin=origin,
     )
     session.add(repo)
@@ -59,7 +58,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
         },
     }
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=test_role.organization_id,
         repository_id=repo.id,
         version=version,
         manifest=manifest,
@@ -74,7 +73,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
     # Add a conflicting mutable RegistryAction that should NOT be used for locked workflows.
     session.add(
         RegistryAction(
-            organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+            organization_id=test_role.organization_id,
             repository_id=repo.id,
             origin=origin,
             namespace="core",
@@ -135,7 +134,7 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
 
 @pytest.mark.anyio
 async def test_prepare_step_context_uses_manifest_for_template_steps(
-    db, session, test_role, mocker
+    db, session, test_role, session_test_organization, mocker
 ):
     origin = "core-registry"
     version = "v1"
@@ -143,7 +142,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
 
     repo = RegistryRepository(
         id=uuid.uuid4(),
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=test_role.organization_id,
         origin=origin,
     )
     session.add(repo)
@@ -162,7 +161,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
         },
     }
     rv = RegistryVersion(
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+        organization_id=test_role.organization_id,
         repository_id=repo.id,
         version=version,
         manifest=manifest,

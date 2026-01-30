@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from functools import partial
 from typing import Annotated, Any, Literal
 
+from async_lru import alru_cache
 from fastapi import (
     Depends,
     HTTPException,
@@ -25,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import AccessLevel, PlatformRole, Role
 from tracecat.auth.users import (
     current_active_user,
     is_unprivileged,
@@ -35,7 +36,8 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import OrganizationMembership, User
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import OrganizationMembership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 
@@ -44,6 +46,20 @@ api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=F
 
 # Maximum number of memberships to cache per user to prevent memory exhaustion
 MAX_CACHED_MEMBERSHIPS = 1000
+
+
+@alru_cache(maxsize=10000)
+async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
+    """Get organization_id for a workspace (cached).
+
+    The workspace→organization mapping is immutable, so this can be cached
+    indefinitely without TTL.
+    """
+    async with get_async_session_context_manager() as session:
+        stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
 
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -312,13 +328,13 @@ async def _role_dependency(
         else:
             # No workspace specified; infer org from memberships when possible.
             workspace_role = None
-            organization_id = config.TRACECAT__DEFAULT_ORG_ID
-            override_applied = False
+            organization_id: UUID4 | None = None
+
+            # Superusers can override org via cookie
             org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
             if org_override and user.is_superuser:
                 try:
                     organization_id = uuid.UUID(org_override)
-                    override_applied = True
                 except ValueError:
                     logger.warning(
                         "Invalid org override cookie, falling back to membership",
@@ -326,15 +342,21 @@ async def _role_dependency(
                         org_override=org_override,
                     )
 
-            if not override_applied:
+            # If no override applied, infer from memberships
+            if organization_id is None:
                 svc = MembershipService(session)
                 memberships_with_org = await svc.list_user_memberships_with_org(
                     user_id=user.id
                 )
                 org_ids = {m.org_id for m in memberships_with_org}
-                if len(org_ids) == 1:
+                if len(org_ids) == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="User has no organization memberships",
+                    )
+                elif len(org_ids) == 1:
                     organization_id = next(iter(org_ids))
-                elif len(org_ids) > 1:
+                else:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Multiple organizations found. Provide workspace_id to select an organization.",
@@ -385,11 +407,17 @@ async def _role_dependency(
                     user_role, AccessLevel.BASIC
                 )
 
-        # Construct Role from token payload + derived access_level
+        # Look up organization_id from workspace (cached, immutable relationship)
+        organization_id = None
+        if token_payload.workspace_id is not None:
+            organization_id = await _get_workspace_org_id(token_payload.workspace_id)
+
+        # Construct Role from token payload + derived access_level + organization_id
         role = Role(
             type="service",
             service_id="tracecat-executor",
             workspace_id=token_payload.workspace_id,
+            organization_id=organization_id,
             user_id=token_payload.user_id,
             access_level=access_level,
         )
@@ -599,29 +627,71 @@ def RoleACL(
 
 async def _require_superuser(
     user: Annotated[User, Depends(current_active_user)],
-) -> Role:
+) -> PlatformRole:
     """Require superuser access for platform admin operations.
 
     This dependency is used for /admin routes that require platform-level access.
     Superusers can manage organizations, platform settings, and platform-level
     registry sync operations.
+
+    Returns a PlatformRole (not Role) to enforce type separation between
+    platform and org-scoped operations.
     """
     if not user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden",
         )
-    role = Role(
+    return PlatformRole(
         type="user",
         user_id=user.id,
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
-        # NOTE: Platform routes are not org/workspace-scoped. Role still requires
-        # organization_id for backwards-compat in Phase 1.
-        organization_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )
+
+
+SuperuserRole = Annotated[PlatformRole, Depends(_require_superuser)]
+"""Dependency for platform admin (superuser) operations.
+
+Returns a PlatformRole which is distinct from Role - platform operations
+are not scoped to any organization or workspace.
+"""
+
+
+# --- Authenticated User Only (No Organization Context) ---
+
+
+async def _authenticated_user_only(
+    user: Annotated[User, Depends(current_active_user)],
+) -> Role:
+    """Dependency for endpoints requiring only an authenticated user.
+
+    No organization context required. Use this for operations like:
+    - Accepting invitations (user may not belong to any org yet)
+    - User profile operations that don't require org context
+
+    Sets ctx_role for consistency but organization_id will be None.
+    """
+    access_level = (
+        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
+    )
+    role = Role(
+        type="user",
+        user_id=user.id,
+        access_level=access_level,
+        service_id="tracecat-api",
+        is_platform_superuser=user.is_superuser,
+        # organization_id intentionally None - user may not belong to any org
     )
     ctx_role.set(role)
     return role
 
 
-SuperuserRole = Annotated[Role, Depends(_require_superuser)]
+AuthenticatedUserOnly = Annotated[Role, Depends(_authenticated_user_only)]
+"""Dependency for an authenticated user without organization context.
+
+Use this for endpoints where the user is authenticated but may not
+belong to any organization (e.g., accepting invitations).
+
+Sets the `ctx_role` context variable.
+"""
