@@ -21,7 +21,7 @@ from tracecat.authz.scopes import (
     ORG_MEMBER_SCOPES,
     ORG_OWNER_SCOPES,
     ORG_ROLE_SCOPES,
-    SYSTEM_ROLE_SCOPES,
+    PRESET_ROLE_SCOPES,
     VIEWER_SCOPES,
 )
 from tracecat.contexts import ctx_scopes
@@ -195,9 +195,9 @@ class TestSystemRoleScopes:
         assert EDITOR_SCOPES.issubset(ADMIN_SCOPES)
 
     def test_system_role_mapping(self):
-        assert SYSTEM_ROLE_SCOPES[WorkspaceRole.VIEWER] == VIEWER_SCOPES
-        assert SYSTEM_ROLE_SCOPES[WorkspaceRole.EDITOR] == EDITOR_SCOPES
-        assert SYSTEM_ROLE_SCOPES[WorkspaceRole.ADMIN] == ADMIN_SCOPES
+        assert PRESET_ROLE_SCOPES[WorkspaceRole.VIEWER] == VIEWER_SCOPES
+        assert PRESET_ROLE_SCOPES[WorkspaceRole.EDITOR] == EDITOR_SCOPES
+        assert PRESET_ROLE_SCOPES[WorkspaceRole.ADMIN] == ADMIN_SCOPES
 
 
 class TestOrgRoleScopes:
