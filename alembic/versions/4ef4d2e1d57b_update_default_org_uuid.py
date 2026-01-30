@@ -68,41 +68,39 @@ def upgrade() -> None:
         "registry_index",
     ]
 
-    # Temporarily disable FK constraint triggers on all affected tables
-    # This allows us to update the PK and FKs without constraint violations
-    for table in fk_tables:
-        table_exists = connection.execute(
+    # Track which tables had triggers disabled for cleanup
+    disabled_tables: list[str] = []
+
+    try:
+        # Temporarily disable FK constraint triggers on all affected tables
+        # This allows us to update the PK and FKs without constraint violations
+        # Note: DISABLE TRIGGER ALL requires table ownership or superuser privileges.
+        # Alembic migrations typically run with appropriate DB privileges.
+        for table in fk_tables:
+            table_exists = connection.execute(
+                sa.text(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables "
+                    "WHERE table_name = :table_name)"
+                ),
+                {"table_name": table},
+            ).scalar()
+            if table_exists:
+                connection.execute(sa.text(f"ALTER TABLE {table} DISABLE TRIGGER ALL"))
+                disabled_tables.append(table)
+
+        connection.execute(sa.text("ALTER TABLE organization DISABLE TRIGGER ALL"))
+
+        # Update the organization table first (parent)
+        connection.execute(
             sa.text(
-                "SELECT EXISTS (SELECT FROM information_schema.tables "
-                "WHERE table_name = :table_name)"
+                "UPDATE organization SET id = CAST(:new_uuid AS uuid) "
+                "WHERE id = CAST(:old_uuid AS uuid)"
             ),
-            {"table_name": table},
-        ).scalar()
-        if table_exists:
-            connection.execute(sa.text(f"ALTER TABLE {table} DISABLE TRIGGER ALL"))
+            {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
+        )
 
-    connection.execute(sa.text("ALTER TABLE organization DISABLE TRIGGER ALL"))
-
-    # Update the organization table first (parent)
-    connection.execute(
-        sa.text(
-            "UPDATE organization SET id = CAST(:new_uuid AS uuid) "
-            "WHERE id = CAST(:old_uuid AS uuid)"
-        ),
-        {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
-    )
-
-    # Update all FK references in child tables
-    for table in fk_tables:
-        table_exists = connection.execute(
-            sa.text(
-                "SELECT EXISTS (SELECT FROM information_schema.tables "
-                "WHERE table_name = :table_name)"
-            ),
-            {"table_name": table},
-        ).scalar()
-
-        if table_exists:
+        # Update all FK references in child tables
+        for table in disabled_tables:
             connection.execute(
                 sa.text(
                     f"UPDATE {table} SET organization_id = CAST(:new_uuid AS uuid) "
@@ -110,18 +108,10 @@ def upgrade() -> None:
                 ),
                 {"new_uuid": new_uuid, "old_uuid": DEFAULT_ORG_UUID},
             )
-
-    # Re-enable FK constraint triggers
-    connection.execute(sa.text("ALTER TABLE organization ENABLE TRIGGER ALL"))
-    for table in fk_tables:
-        table_exists = connection.execute(
-            sa.text(
-                "SELECT EXISTS (SELECT FROM information_schema.tables "
-                "WHERE table_name = :table_name)"
-            ),
-            {"table_name": table},
-        ).scalar()
-        if table_exists:
+    finally:
+        # Re-enable FK constraint triggers - always run even if migration fails
+        connection.execute(sa.text("ALTER TABLE organization ENABLE TRIGGER ALL"))
+        for table in disabled_tables:
             connection.execute(sa.text(f"ALTER TABLE {table} ENABLE TRIGGER ALL"))
 
 
