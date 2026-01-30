@@ -2390,7 +2390,8 @@ export type GitHubAppCredentialsStatus = {
   exists: boolean
   app_id?: string | null
   has_webhook_secret?: boolean
-  has_client_id?: boolean
+  webhook_secret_preview?: string | null
+  client_id?: string | null
   created_at?: string | null
 }
 
@@ -8261,6 +8262,8 @@ export type VcsSaveGithubAppCredentialsResponse = {
   [key: string]: string
 }
 
+export type VcsDeleteGithubAppCredentialsResponse = void
+
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
 
@@ -12172,6 +12175,14 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
       }
     }
   }

@@ -235,7 +235,8 @@ class TestGitHubAppService:
                 assert status["exists"] is True
                 assert status["app_id"] == mock_credentials.app_id
                 assert status["has_webhook_secret"] is True
-                assert status["has_client_id"] is True
+                assert status["webhook_secret_preview"] == "webh****"
+                assert status["client_id"] == mock_credentials.client_id
 
     @pytest.mark.anyio
     async def test_get_github_app_credentials_status_not_exists(self, github_service):
@@ -250,7 +251,8 @@ class TestGitHubAppService:
             assert status["exists"] is False
             assert status["app_id"] is None
             assert status["has_webhook_secret"] is False
-            assert status["has_client_id"] is False
+            assert status["webhook_secret_preview"] is None
+            assert status["client_id"] is None
 
     # ============================================================================
     # Installation Management Tests

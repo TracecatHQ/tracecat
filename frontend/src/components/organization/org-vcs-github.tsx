@@ -1,21 +1,34 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { CheckCircleIcon, ExternalLinkIcon, GitBranchIcon } from "lucide-react"
+import {
+  CheckCircle2Icon,
+  ExternalLinkIcon,
+  GithubIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
 import { GitHubAppManualForm } from "@/components/organization/org-vcs-github-manual-form"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Form,
   FormControl,
@@ -26,9 +39,9 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import {
+  useDeleteGitHubAppCredentials,
   useGitHubAppCredentialsStatus,
   useGitHubAppManifest,
 } from "@/lib/hooks"
@@ -45,11 +58,9 @@ const gitHubAppFormSchema = z.object({
       (url) => {
         try {
           const urlObj = new URL(url)
-          // Enforce HTTPS and validate against known GitHub hosts
           if (urlObj.protocol !== "https:") {
             return false
           }
-          // Allow github.com and GitHub Enterprise patterns
           const allowedHosts = ["github.com", "www.github.com"]
           const isGitHubEnterprise =
             urlObj.hostname.endsWith(".github.com") ||
@@ -70,14 +81,168 @@ const gitHubAppFormSchema = z.object({
 type GitHubAppFormData = z.infer<typeof gitHubAppFormSchema>
 
 export function GitHubAppSetup() {
-  const { manifest, manifestIsLoading, manifestError } = useGitHubAppManifest()
+  const { manifest } = useGitHubAppManifest()
   const {
     credentialsStatus,
     credentialsStatusIsLoading,
     refetchCredentialsStatus,
   } = useGitHubAppCredentialsStatus()
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
-  const [activeTab, setActiveTab] = useState("manifest")
+  const { deleteCredentials } = useDeleteGitHubAppCredentials()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.has("setup_success")) {
+      toast({
+        title: "GitHub App configured successfully!",
+        description: "Your GitHub App has been created and installed.",
+      })
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [])
+
+  const isConfigured = credentialsStatus?.exists ?? false
+
+  const handleFormSuccess = () => {
+    setDialogOpen(false)
+    refetchCredentialsStatus()
+    toast({
+      title: "GitHub App configured successfully!",
+      description: "Your GitHub App credentials have been saved.",
+    })
+  }
+
+  const handleDelete = async () => {
+    try {
+      await deleteCredentials.mutateAsync()
+      setDeleteDialogOpen(false)
+      toast({
+        title: "GitHub App credentials deleted",
+        description: "Workflow sync has been disconnected.",
+      })
+    } catch (error) {
+      console.error("Failed to delete GitHub App credentials:", error)
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to delete credentials",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (credentialsStatusIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between rounded-lg border p-4">
+        <div className="flex items-center gap-3">
+          {isConfigured ? (
+            <CheckCircle2Icon className="size-5 text-green-500" />
+          ) : (
+            <GithubIcon className="size-5 text-muted-foreground" />
+          )}
+          <div>
+            <p className="text-sm font-medium">GitHub</p>
+            <p className="text-xs text-muted-foreground">
+              {isConfigured ? (
+                <>
+                  App ID: {credentialsStatus?.app_id}
+                  {credentialsStatus?.has_webhook_secret
+                    ? ` · Webhook secret: ${credentialsStatus.webhook_secret_preview}`
+                    : " · Webhook secret: not set"}
+                  {credentialsStatus?.client_id
+                    ? ` · Client ID: ${credentialsStatus.client_id}`
+                    : " · Client ID: not set"}
+                </>
+              ) : (
+                "Not connected"
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isConfigured ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDialogOpen(true)}
+              >
+                Update
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <Trash2Icon className="size-3.5" />
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => setDialogOpen(true)}>
+              Connect
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <GitHubConnectionDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        manifest={manifest}
+        onFormSuccess={handleFormSuccess}
+        existingAppId={
+          isConfigured ? credentialsStatus?.app_id || undefined : undefined
+        }
+      />
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete GitHub App credentials</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the GitHub App credentials? This
+              will disable workflow synchronization with your Git repositories.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteCredentials.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteCredentials.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deleteCredentials.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+function GitHubConnectionDialog({
+  open,
+  onOpenChange,
+  manifest,
+  onFormSuccess,
+  existingAppId,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  manifest: { manifest: Record<string, unknown> } | undefined
+  onFormSuccess: () => void
+  existingAppId?: string
+}) {
   const { toast } = useToast()
 
   const form = useForm<GitHubAppFormData>({
@@ -87,27 +252,6 @@ export function GitHubAppSetup() {
       githubHost: "https://github.com",
     },
   })
-
-  // Check if user just returned from successful GitHub App setup
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    if (urlParams.has("setup_success")) {
-      setShowSuccessMessage(true)
-      toast({
-        title: "GitHub App configured successfully!",
-        description: "Your GitHub App has been created and installed.",
-      })
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname)
-    }
-  }, [])
-
-  // Auto-switch to manual tab if credentials already exist
-  useEffect(() => {
-    if (credentialsStatus?.exists && activeTab === "manifest") {
-      setActiveTab("manual")
-    }
-  }, [credentialsStatus?.exists, activeTab])
 
   const onSubmit = async (data: GitHubAppFormData) => {
     if (!manifest?.manifest) {
@@ -119,7 +263,6 @@ export function GitHubAppSetup() {
       return
     }
 
-    // Additional security validation (redundant with schema but defense in depth)
     try {
       const urlObj = new URL(data.githubHost)
       if (urlObj.protocol !== "https:") {
@@ -134,39 +277,33 @@ export function GitHubAppSetup() {
       return
     }
 
-    // Safely create form with proper escaping
-    const form = document.createElement("form")
-    form.method = "POST"
-    form.target = "_blank"
+    const formEl = document.createElement("form")
+    formEl.method = "POST"
+    formEl.target = "_blank"
 
-    // Use URL constructor for safe URL building
     const targetUrl = new URL(
       `/organizations/${encodeURIComponent(data.organizationName)}/settings/apps/new`,
       data.githubHost
     )
-    form.action = targetUrl.toString()
+    formEl.action = targetUrl.toString()
 
-    // Safely add manifest as hidden field with proper escaping
     const manifestInput = document.createElement("input")
     manifestInput.type = "hidden"
     manifestInput.name = "manifest"
-    // Use setAttribute to safely set the value, which handles escaping
     manifestInput.setAttribute("value", JSON.stringify(manifest.manifest))
-    form.appendChild(manifestInput)
+    formEl.appendChild(manifestInput)
 
-    // Add organization parameter if not default GitHub host
     if (data.githubHost !== "https://github.com") {
       const orgInput = document.createElement("input")
       orgInput.type = "hidden"
       orgInput.name = "organization"
-      // Use setAttribute for safe value setting
       orgInput.setAttribute("value", data.organizationName)
-      form.appendChild(orgInput)
+      formEl.appendChild(orgInput)
     }
 
-    document.body.appendChild(form)
-    form.submit()
-    document.body.removeChild(form)
+    document.body.appendChild(formEl)
+    formEl.submit()
+    document.body.removeChild(formEl)
 
     toast({
       title: "Redirecting to GitHub",
@@ -174,103 +311,26 @@ export function GitHubAppSetup() {
     })
   }
 
-  const handleManualFormSuccess = () => {
-    setShowSuccessMessage(true)
-    refetchCredentialsStatus()
-    toast({
-      title: "GitHub App configured successfully!",
-      description: "Your GitHub App credentials have been saved.",
-    })
-  }
-
-  const normalizeInstruction = (instruction: string) =>
-    instruction.replace(/^\d+[\).\s-]+/, "").trim()
-
-  if (manifestIsLoading || credentialsStatusIsLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (manifestError) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Error loading GitHub App manifest: ${manifestError.message}`}
-      />
-    )
-  }
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <GitBranchIcon className="size-5" />
-          GitHub App Setup
-        </CardTitle>
-        <CardDescription>
-          Create a GitHub App to enable workflow synchronization with your Git
-          repositories
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {showSuccessMessage && (
-          <div className="rounded-md border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950/50">
-            <div className="flex">
-              <CheckCircleIcon className="size-5 text-green-400" />
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-green-800 dark:text-green-200">
-                  GitHub App configured successfully!
-                </h3>
-                <p className="mt-1 text-sm text-green-700 dark:text-green-300">
-                  Your GitHub App has been created and configured. You can now
-                  use it for workflow synchronization.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {credentialsStatus?.exists && (
-          <div className="rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
-            <div className="flex">
-              <CheckCircleIcon className="size-5 text-blue-400" />
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                  GitHub App credentials configured
-                </h3>
-                <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
-                  App ID: {credentialsStatus.app_id} •
-                  {credentialsStatus.has_webhook_secret
-                    ? " Webhook secret: ✓"
-                    : " Webhook secret: ✗"}{" "}
-                  •
-                  {credentialsStatus.has_client_id
-                    ? " Client ID: ✓"
-                    : " Client ID: ✗"}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <Tabs
-          value={activeTab}
-          onValueChange={setActiveTab}
-          className="w-full space-y-4"
-        >
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {existingAppId ? "Update GitHub App" : "Connect GitHub App"}
+          </DialogTitle>
+        </DialogHeader>
+        <Tabs defaultValue="create" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="manifest" disableUnderline>
-              Create new GitHub App
+            <TabsTrigger value="create" disableUnderline>
+              Create new
             </TabsTrigger>
-            <TabsTrigger value="manual" disableUnderline>
-              Use existing GitHub App
+            <TabsTrigger value="existing" disableUnderline>
+              Use existing
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="manifest" className="space-y-4">
+          <TabsContent value="create" className="space-y-4 pt-2">
             <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-2"
-              >
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
                   name="organizationName"
@@ -278,98 +338,47 @@ export function GitHubAppSetup() {
                     <FormItem className="space-y-2">
                       <FormLabel>Organization name</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="My Organization"
-                          className="max-w-md"
-                        />
+                        <Input {...field} placeholder="My Organization" />
                       </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        This will be included in the GitHub App name
-                      </p>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="githubHost"
                   render={({ field }) => (
                     <FormItem className="space-y-2">
-                      <FormLabel>GitHub Host URL</FormLabel>
+                      <FormLabel>GitHub host URL</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="https://github.com"
-                          className="max-w-md"
-                        />
+                        <Input {...field} placeholder="https://github.com" />
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        Use this for GitHub Enterprise or custom GitHub
-                        instances
+                        For GitHub Enterprise, enter your instance URL
                       </p>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                <Button
+                  type="submit"
+                  className="gap-2"
+                  disabled={!manifest?.manifest}
+                >
+                  <ExternalLinkIcon className="size-4" />
+                  Create GitHub App
+                </Button>
               </form>
             </Form>
-
-            {manifest && (
-              <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Instructions</label>
-                  <ul className="space-y-2">
-                    {manifest.instructions.map((instruction, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
-                          {index + 1}
-                        </span>
-                        <p className="text-sm text-muted-foreground">
-                          {normalizeInstruction(instruction)}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="space-y-8">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Generated manifest
-                    </label>
-                    <Textarea
-                      value={JSON.stringify(manifest.manifest, null, 2)}
-                      readOnly
-                      className="h-64 font-mono text-xs"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={form.handleSubmit(onSubmit)}
-                    className="gap-2 self-start"
-                  >
-                    <ExternalLinkIcon className="size-4" />
-                    Create GitHub App
-                  </Button>
-                </div>
-              </>
-            )}
           </TabsContent>
-
-          <TabsContent value="manual" className="space-y-4">
+          <TabsContent value="existing" className="pt-2">
             <GitHubAppManualForm
-              onSuccess={handleManualFormSuccess}
-              existingAppId={
-                credentialsStatus?.exists
-                  ? credentialsStatus.app_id || undefined
-                  : undefined
-              }
+              onSuccess={onFormSuccess}
+              existingAppId={existingAppId}
             />
           </TabsContent>
         </Tabs>
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   )
 }
