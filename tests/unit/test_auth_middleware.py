@@ -207,7 +207,6 @@ async def test_performance_improvement(mocker):
     # Mock membership
     mock_membership = MagicMock(spec=Membership)
     mock_membership.workspace_id = workspace_id
-    mock_membership.role = WorkspaceRole.EDITOR
 
     # Track timing for database calls
     db_delay_ms = 10  # Simulate 10ms database query
@@ -438,7 +437,6 @@ async def test_cache_size_limit():
             spec=Membership,
             user_id=user.id,
             workspace_id=uuid.uuid4(),
-            role=WorkspaceRole.EDITOR,
         )
         for _ in range(1500)
     ]
@@ -602,7 +600,6 @@ async def test_role_dependency_infers_org_from_single_membership(
     membership = Membership(
         user_id=user.id,
         workspace_id=workspace.id,
-        role=WorkspaceRole.EDITOR,
     )
     session.add(membership)
     await session.commit()
@@ -675,12 +672,10 @@ async def test_role_dependency_requires_workspace_for_multi_org(
         Membership(
             user_id=user.id,
             workspace_id=workspace_a.id,
-            role=WorkspaceRole.EDITOR,
         ),
         Membership(
             user_id=user.id,
             workspace_id=workspace_b.id,
-            role=WorkspaceRole.EDITOR,
         ),
     ]
     session.add_all(memberships)

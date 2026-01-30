@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
 from tracecat.db.models import Workspace
 from tracecat.logger import logger
@@ -175,7 +174,6 @@ async def test_get_workspace_success(
         mock_membership = AsyncMock()
         mock_membership.user_id = test_admin_role.user_id
         mock_membership.workspace_id = mock_workspace_data.id
-        mock_membership.role = WorkspaceRole.ADMIN
         mock_membership_svc.get_membership.return_value = MembershipWithOrg(
             membership=mock_membership, org_id=mock_workspace_data.organization_id
         )
