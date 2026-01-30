@@ -127,15 +127,15 @@ SYSTEM_SCOPE_DEFINITIONS: list[tuple[str, str, str, str]] = [
 ]
 
 # =============================================================================
-# System Role Definitions
+# Preset Role Definitions
 # =============================================================================
 
-# All system role slugs
-SYSTEM_ROLE_SLUGS: frozenset[str] = frozenset(
+# All preset role slugs
+PRESET_ROLE_SLUGS: frozenset[str] = frozenset(
     {"owner", "admin", "editor", "viewer", "member"}
 )
 
-# System role definitions: (slug, name, description, scopes)
+# Preset role definitions: (slug, name, description, scopes)
 #
 # Roles can be assigned at org level (workspace_id=NULL) or workspace level (workspace_id set).
 # The same role can be used at both levels; the assignment context determines what access applies.
@@ -149,11 +149,11 @@ SYSTEM_ROLE_SLUGS: frozenset[str] = frozenset(
 #
 # Note: The "admin" role combines org admin and workspace admin scopes since
 # it may be assigned at either level.
-SYSTEM_ROLE_DEFINITIONS: list[tuple[str, str, str, frozenset[str]]] = [
+PRESET_ROLE_DEFINITIONS: list[tuple[str, str, str, frozenset[str]]] = [
     (
         "owner",
         "Owner",
-        "Full organization control including billing and deletion",
+        "Full organization control",
         ORG_OWNER_SCOPES,
     ),
     (
@@ -364,7 +364,7 @@ async def seed_system_roles_for_org(
 
     roles_created = 0
 
-    for slug, name, description, scope_names in SYSTEM_ROLE_DEFINITIONS:
+    for slug, name, description, scope_names in PRESET_ROLE_DEFINITIONS:
         # Check if role already exists
         existing_stmt = select(Role.id).where(
             Role.organization_id == organization_id,
