@@ -125,10 +125,14 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
       <Sheet open={viewSheetOpen} onOpenChange={setViewSheetOpen}>
         <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>JSON value</SheetTitle>
+            <SheetTitle>View JSON</SheetTitle>
           </SheetHeader>
           <div className="mt-4">
-            <JsonViewWithControls src={params.value} defaultExpanded />
+            <JsonViewWithControls
+              src={params.value}
+              defaultExpanded
+              defaultTab="nested"
+            />
           </div>
         </SheetContent>
       </Sheet>
