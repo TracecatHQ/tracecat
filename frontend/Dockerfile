@@ -11,4 +11,7 @@ RUN corepack enable
 COPY . /app
 WORKDIR /app
 
+# Install dependencies inside the container to get correct platform-specific binaries (e.g., SWC for linux-arm64)
+RUN pnpm install --frozen-lockfile
+
 CMD [ "pnpm", "dev" ]
