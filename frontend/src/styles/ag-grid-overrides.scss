@@ -1,0 +1,31 @@
+/*
+ * AG Grid CSS overrides
+ * Fallback in case themeQuartz.withParams() doesn't resolve CSS custom properties at runtime.
+ * Import this file in globals.scss if needed.
+ */
+
+.ag-theme-quartz,
+.ag-theme-quartz-dark {
+  --ag-background-color: hsl(var(--background));
+  --ag-foreground-color: hsl(var(--foreground));
+  --ag-border-color: hsl(var(--border));
+  --ag-header-background-color: hsl(var(--muted));
+  --ag-header-foreground-color: hsl(var(--muted-foreground));
+  --ag-selected-row-background-color: hsl(var(--accent));
+  --ag-row-hover-color: hsl(var(--accent));
+  --ag-range-selection-border-color: hsl(var(--primary));
+  --ag-input-focus-border-color: hsl(var(--ring));
+  --ag-header-height: 36px;
+  --ag-row-height: 36px;
+  --ag-font-size: 13px;
+  --ag-header-font-size: 12px;
+  --ag-cell-horizontal-padding: 12px;
+  --ag-wrapper-border-radius: 0;
+  --ag-wrapper-border: none;
+  --ag-grid-size: 6px;
+}
+
+/* Align the selection checkbox with the sidebar trigger (px-3 + centered icon) */
+.ag-selection-col-aligned {
+  padding-left: 18px !important;
+}
