@@ -16,6 +16,7 @@ from tracecat.db.models import Secret
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
@@ -163,7 +164,7 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials when not found."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = AsyncMock()
-            mock_service.get_org_secret_by_name.side_effect = Exception(
+            mock_service.get_org_secret_by_name.side_effect = TracecatNotFoundError(
                 "Secret not found"
             )
             mock_secrets_service.return_value = mock_service
@@ -235,7 +236,8 @@ class TestGitHubAppService:
                 assert status["exists"] is True
                 assert status["app_id"] == mock_credentials.app_id
                 assert status["has_webhook_secret"] is True
-                assert status["has_client_id"] is True
+                assert status["webhook_secret_preview"] == "webh****"
+                assert status["client_id"] == mock_credentials.client_id
 
     @pytest.mark.anyio
     async def test_get_github_app_credentials_status_not_exists(self, github_service):
@@ -250,7 +252,8 @@ class TestGitHubAppService:
             assert status["exists"] is False
             assert status["app_id"] is None
             assert status["has_webhook_secret"] is False
-            assert status["has_client_id"] is False
+            assert status["webhook_secret_preview"] is None
+            assert status["client_id"] is None
 
     # ============================================================================
     # Installation Management Tests

@@ -7623,10 +7623,27 @@ export const $GitHubAppCredentialsStatus = {
       title: "Has Webhook Secret",
       default: false,
     },
-    has_client_id: {
-      type: "boolean",
-      title: "Has Client Id",
-      default: false,
+    webhook_secret_preview: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webhook Secret Preview",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
     },
     created_at: {
       anyOf: [

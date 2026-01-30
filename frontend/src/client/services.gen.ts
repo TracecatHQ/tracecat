@@ -472,6 +472,7 @@ import type {
   VariablesSearchVariablesResponse,
   VariablesUpdateVariableByIdData,
   VariablesUpdateVariableByIdResponse,
+  VcsDeleteGithubAppCredentialsResponse,
   VcsGetGithubAppCredentialsStatusResponse,
   VcsGetGithubAppManifestResponse,
   VcsGithubAppInstallCallbackData,
@@ -7738,6 +7739,20 @@ export const vcsSaveGithubAppCredentials = (
     },
   })
 }
+
+/**
+ * Delete Github App Credentials
+ * Delete GitHub App credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteGithubAppCredentials =
+  (): CancelablePromise<VcsDeleteGithubAppCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/github/credentials",
+    })
+  }
 
 /**
  * Get Github App Credentials Status

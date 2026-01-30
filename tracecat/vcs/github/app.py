@@ -8,10 +8,11 @@ from typing import Any
 from github import Auth, Github, GithubIntegration
 from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
+from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.auth.types import AccessLevel
 from tracecat.authz.controls import require_access_level
-from tracecat.exceptions import TracecatException
+from tracecat.exceptions import TracecatException, TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
@@ -298,6 +299,29 @@ class GitHubAppService(BaseOrgService):
                 # Re-raise other GitHubAppErrors
                 raise
 
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_github_app_credentials(self) -> None:
+        """Delete GitHub App credentials for the organization.
+
+        Raises:
+            GitHubAppError: If no credentials exist or deletion fails
+        """
+        try:
+            secrets_service = SecretsService(session=self.session, role=self.role)
+            secret = await secrets_service.get_org_secret_by_name(
+                "github-app-credentials"
+            )
+            await secrets_service.delete_org_secret(secret)
+            self.logger.info("Deleted GitHub App credentials")
+        except TracecatNotFoundError as e:
+            self.logger.error("Failed to delete GitHub App credentials", error=str(e))
+            raise GitHubAppError(
+                "Failed to delete GitHub App credentials: credentials not found"
+            ) from e
+        except TracecatException as e:
+            self.logger.error("Failed to delete GitHub App credentials", error=str(e))
+            raise GitHubAppError("Failed to delete GitHub App credentials") from e
+
     async def get_github_app_credentials_status(self) -> dict[str, Any]:
         """Get the status of GitHub App credentials.
 
@@ -313,11 +337,18 @@ class GitHubAppService(BaseOrgService):
                 "github-app-credentials"
             )
 
+            has_webhook_secret = credentials.webhook_secret is not None
+            webhook_secret_preview = None
+            if credentials.webhook_secret is not None:
+                raw = credentials.webhook_secret.get_secret_value()
+                webhook_secret_preview = raw[:4] + "****" if len(raw) >= 4 else "****"
+
             return {
                 "exists": True,
                 "app_id": credentials.app_id,
-                "has_webhook_secret": credentials.webhook_secret is not None,
-                "has_client_id": credentials.client_id is not None,
+                "has_webhook_secret": has_webhook_secret,
+                "webhook_secret_preview": webhook_secret_preview,
+                "client_id": credentials.client_id,
                 "created_at": secret.created_at.isoformat()
                 if secret.created_at
                 else None,
@@ -327,7 +358,8 @@ class GitHubAppService(BaseOrgService):
                 "exists": False,
                 "app_id": None,
                 "has_webhook_secret": False,
-                "has_client_id": False,
+                "webhook_secret_preview": None,
+                "client_id": None,
                 "created_at": None,
             }
 
@@ -360,10 +392,15 @@ class GitHubAppService(BaseOrgService):
             )
             return credentials
 
-        except Exception as e:
+        except TracecatNotFoundError as e:
             self.logger.debug("Failed to retrieve GitHub App credentials", error=str(e))
             raise GitHubAppError(
-                f"Failed to retrieve GitHub App credentials: {e}"
+                "Failed to retrieve GitHub App credentials: credentials not found"
+            ) from e
+        except PydanticValidationError as e:
+            self.logger.debug("Failed to retrieve GitHub App credentials", error=str(e))
+            raise GitHubAppError(
+                "Failed to retrieve GitHub App credentials: invalid credential data"
             ) from e
 
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:

@@ -260,6 +260,7 @@ import {
   variablesDeleteVariableById,
   variablesListVariables,
   variablesUpdateVariableById,
+  vcsDeleteGithubAppCredentials,
   vcsGetGithubAppCredentialsStatus,
   vcsGetGithubAppManifest,
   vcsSaveGithubAppCredentials,
@@ -2594,6 +2595,25 @@ export function useGitHubAppCredentials() {
 
   return {
     saveCredentials,
+  }
+}
+
+export function useDeleteGitHubAppCredentials() {
+  const queryClient = useQueryClient()
+
+  const deleteCredentials = useMutation<void, ApiError>({
+    mutationFn: async () => {
+      await vcsDeleteGithubAppCredentials()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    deleteCredentials,
   }
 }
 
