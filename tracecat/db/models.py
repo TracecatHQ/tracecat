@@ -2914,10 +2914,10 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=True,
         doc="Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])",
     )
-    command_env: Mapped[dict[str, str] | None] = mapped_column(
-        JSONB,
+    encrypted_command_env: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
         nullable=True,
-        doc="Environment variables for command-type servers (can reference secrets)",
+        doc="Encrypted environment variables for command-type servers (JSON dict encrypted at rest)",
     )
     # General fields
     timeout: Mapped[int | None] = mapped_column(

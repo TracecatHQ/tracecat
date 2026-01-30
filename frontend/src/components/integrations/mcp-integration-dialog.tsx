@@ -181,12 +181,21 @@ const formSchema = z
         data.command_env.trim() !== ""
       ) {
         try {
-          const parsed = JSON.parse(data.command_env)
-          return (
-            typeof parsed === "object" &&
-            parsed !== null &&
-            !Array.isArray(parsed)
-          )
+          const parsed = JSON.parse(data.command_env) as unknown
+          if (
+            typeof parsed !== "object" ||
+            parsed === null ||
+            Array.isArray(parsed)
+          ) {
+            return false
+          }
+          // Validate all values are strings (API expects Record<string, string>)
+          for (const value of Object.values(parsed)) {
+            if (typeof value !== "string") {
+              return false
+            }
+          }
+          return true
         } catch {
           return false
         }
@@ -194,7 +203,8 @@ const formSchema = z
       return true
     },
     {
-      message: "Environment variables must be a valid JSON object",
+      message:
+        "Environment variables must be a valid JSON object with string values only",
       path: ["command_env"],
     }
   )
@@ -319,10 +329,11 @@ export function MCPIntegrationDialog({
             .filter(Boolean)
         : undefined
 
-      // Parse command_env from JSON string to object
-      const commandEnv = values.command_env?.trim()
-        ? (JSON.parse(values.command_env) as Record<string, string>)
-        : undefined
+      // Parse command_env from JSON string to object (only for command-type servers)
+      const commandEnv =
+        values.server_type === "command" && values.command_env?.trim()
+          ? (JSON.parse(values.command_env) as Record<string, string>)
+          : undefined
 
       const baseParams = {
         name: values.name.trim(),

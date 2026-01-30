@@ -838,7 +838,7 @@ async def create_mcp_integration(
         server_type=MCPServerType(mcp_integration.server_type),
         command=mcp_integration.command,
         command_args=mcp_integration.command_args,
-        has_command_env=bool(mcp_integration.command_env),
+        has_command_env=bool(mcp_integration.encrypted_command_env),
         timeout=mcp_integration.timeout,
     )
 
@@ -874,7 +874,7 @@ async def list_mcp_integrations(
             server_type=MCPServerType(integration.server_type),
             command=integration.command,
             command_args=integration.command_args,
-            has_command_env=bool(integration.command_env),
+            has_command_env=bool(integration.encrypted_command_env),
             timeout=integration.timeout,
         )
         for integration in integrations
@@ -917,7 +917,7 @@ async def get_mcp_integration(
         server_type=MCPServerType(integration.server_type),
         command=integration.command,
         command_args=integration.command_args,
-        has_command_env=bool(integration.command_env),
+        has_command_env=bool(integration.encrypted_command_env),
         timeout=integration.timeout,
     )
 
@@ -967,7 +967,7 @@ async def update_mcp_integration(
         server_type=MCPServerType(integration.server_type),
         command=integration.command,
         command_args=integration.command_args,
-        has_command_env=bool(integration.command_env),
+        has_command_env=bool(integration.encrypted_command_env),
         timeout=integration.timeout,
     )
 

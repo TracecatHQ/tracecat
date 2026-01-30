@@ -283,12 +283,15 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                     continue
 
+                # Decrypt command_env if present
+                command_env = integrations_service.decrypt_command_env(mcp_integration)
+
                 # Re-validate command config at resolution time
                 try:
                     validate_mcp_command_config(
                         command=mcp_integration.command,
                         args=mcp_integration.command_args,
-                        env=mcp_integration.command_env,
+                        env=command_env,
                         name=mcp_integration.slug,
                     )
                 except MCPValidationError as e:
@@ -309,8 +312,8 @@ class AgentPresetService(BaseWorkspaceService):
                 }
                 if mcp_integration.command_args:
                     command_config["args"] = mcp_integration.command_args
-                if mcp_integration.command_env:
-                    command_config["env"] = mcp_integration.command_env
+                if command_env:
+                    command_config["env"] = command_env
                 if mcp_integration.timeout:
                     command_config["timeout"] = mcp_integration.timeout
 
