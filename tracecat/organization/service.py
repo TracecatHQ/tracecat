@@ -8,13 +8,14 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import SessionRead, UserUpdate
-from tracecat.auth.types import AccessLevel
+from tracecat.auth.types import AccessLevel, Role
 from tracecat.auth.users import (
     UserManager,
     get_user_db_context,
@@ -36,6 +37,140 @@ from tracecat.exceptions import (
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
+
+
+async def accept_invitation_for_user(
+    session: AsyncSession,
+    *,
+    user_id: UserID,
+    token: str,
+) -> OrganizationMembership:
+    """Accept an invitation and create organization membership.
+
+    This is a standalone function (not a method) because invitation acceptance
+    doesn't require organization context - the user may not belong to any
+    organization yet.
+
+    Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
+    conditions - the status check and update happen atomically in a single
+    database operation.
+
+    Args:
+        session: Database session.
+        user_id: The ID of the user accepting the invitation.
+        token: The unique invitation token.
+
+    Returns:
+        OrganizationMembership: The created membership record.
+
+    Raises:
+        TracecatNotFoundError: If the invitation doesn't exist.
+        TracecatAuthorizationError: If the invitation is expired, revoked,
+            or already accepted, or if the user's email doesn't match
+            the invitation email.
+    """
+    # Fetch invitation by token
+    invitation_result = await session.execute(
+        select(OrganizationInvitation).where(OrganizationInvitation.token == token)
+    )
+    invitation = invitation_result.scalar_one_or_none()
+    if invitation is None:
+        raise TracecatNotFoundError("Invitation not found")
+
+    # Fetch user to validate email
+    user_result = await session.execute(
+        select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+    )
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise TracecatAuthorizationError("User not found")
+
+    # Verify email match (case-insensitive)
+    if user.email.lower() != invitation.email.lower():
+        raise TracecatAuthorizationError(
+            "This invitation was sent to a different email address"
+        )
+
+    # Check expiry before attempting atomic update
+    if invitation.expires_at < datetime.now(UTC):
+        raise TracecatAuthorizationError("Invitation has expired")
+
+    # Create role scoped to invitation's organization for audit logging
+    audit_role = Role(
+        type="user",
+        user_id=user_id,
+        organization_id=invitation.organization_id,
+        access_level=AccessLevel.BASIC,
+        service_id="tracecat-api",
+    )
+
+    # Log audit attempt
+    async with AuditService.with_session(audit_role, session=session) as svc:
+        await svc.create_event(
+            resource_type="organization_invitation",
+            action="accept",
+            resource_id=invitation.id,
+            status=AuditEventStatus.ATTEMPT,
+        )
+
+    try:
+        # Atomically update invitation status only if still PENDING.
+        # This prevents TOCTOU race conditions where an admin might revoke
+        # the invitation between our check and commit.
+        now = datetime.now(UTC)
+        update_result = await session.execute(
+            update(OrganizationInvitation)
+            .where(
+                OrganizationInvitation.id == invitation.id,
+                OrganizationInvitation.status == InvitationStatus.PENDING,
+            )
+            .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
+        )
+
+        if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
+            # Status changed between fetch and update - re-fetch for accurate error
+            await session.refresh(invitation)
+            if invitation.status == InvitationStatus.ACCEPTED:
+                raise TracecatAuthorizationError("Invitation has already been accepted")
+            if invitation.status == InvitationStatus.REVOKED:
+                raise TracecatAuthorizationError("Invitation has been revoked")
+            # Shouldn't reach here, but handle gracefully
+            raise TracecatAuthorizationError("Invitation is no longer valid")
+
+        # Create membership
+        membership = OrganizationMembership(
+            user_id=user_id,
+            organization_id=invitation.organization_id,
+            role=invitation.role,
+        )
+        session.add(membership)
+
+        await session.commit()
+        await session.refresh(membership)
+    except TracecatAuthorizationError:
+        # Re-raise auth errors without logging as failure (expected user errors)
+        raise
+    except Exception:
+        # Log audit failure
+        async with AuditService.with_session(audit_role, session=session) as svc:
+            await svc.create_event(
+                resource_type="organization_invitation",
+                action="accept",
+                resource_id=invitation.id,
+                status=AuditEventStatus.FAILURE,
+            )
+        raise
+
+    # Log audit success
+    async with AuditService.with_session(audit_role, session=session) as svc:
+        await svc.create_event(
+            resource_type="organization_invitation",
+            action="accept",
+            resource_id=invitation.id,
+            status=AuditEventStatus.SUCCESS,
+        )
+
+    return membership
 
 
 class OrgService(BaseOrgService):

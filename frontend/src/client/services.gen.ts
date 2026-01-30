@@ -283,6 +283,8 @@ import type {
   OrganizationDeleteSessionResponse,
   OrganizationGetInvitationByTokenData,
   OrganizationGetInvitationByTokenResponse,
+  OrganizationGetInvitationTokenData,
+  OrganizationGetInvitationTokenResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListOrgMembersResponse,
@@ -3083,8 +3085,37 @@ export const organizationRevokeInvitation = (
 }
 
 /**
+ * Get Invitation Token
+ * Get the token for a specific invitation (admin only).
+ *
+ * This endpoint is used to generate shareable invitation links.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const organizationGetInvitationToken = (
+  data: OrganizationGetInvitationTokenData
+): CancelablePromise<OrganizationGetInvitationTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/invitations/{invitation_id}/token",
+    path: {
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Accept Invitation
  * Accept an invitation and join the organization.
+ *
+ * This endpoint doesn't require organization context since the user
+ * may not belong to any organization yet. Uses AuthenticatedUserOnly
+ * which only requires an authenticated user (role.organization_id is None).
  * @param data The data for the request.
  * @param data.requestBody
  * @returns string Successful Response
