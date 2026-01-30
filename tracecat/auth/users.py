@@ -34,6 +34,7 @@ from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -297,8 +298,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         from tracecat.organization.service import OrgService
 
         try:
-            # Get the default (first) organization
-            result = await session.execute(select(Organization).limit(1))
+            # Get the default (first) organization, ordered by created_at for determinism
+            result = await session.execute(
+                select(Organization).order_by(Organization.created_at).limit(1)
+            )
             org = result.scalar_one_or_none()
 
             if org is None:
@@ -335,7 +338,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             # Also add user to the default workspace in the organization
             # The auth system checks workspace memberships to determine org context
             ws_result = await session.execute(
-                select(Workspace).where(Workspace.organization_id == org.id).limit(1)
+                select(Workspace)
+                .where(Workspace.organization_id == org.id)
+                .order_by(Workspace.created_at)
+                .limit(1)
             )
             workspace = ws_result.scalar_one_or_none()
 
@@ -370,13 +376,15 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 workspace_id=str(workspace.id),
                 workspace_role=workspace_role.value,
             )
-        except Exception as e:
-            self.logger.error(
-                "Failed to add user to default organization/workspace",
+        except IntegrityError as e:
+            # User may already be a member (e.g., race condition or retry)
+            self.logger.warning(
+                "User may already be a member of default organization/workspace",
                 error=str(e),
                 user_id=str(user.id),
                 user_email=user.email,
             )
+            await session.rollback()
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
