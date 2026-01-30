@@ -63,7 +63,7 @@ export function AgGridContextMenu({
     const focusedCell = gridApi.getFocusedCell()
     if (!focusedCell) return ""
     const rowNode = gridApi.getDisplayedRowAtIndex(focusedCell.rowIndex)
-    if (!rowNode) return ""
+    if (!rowNode?.data) return ""
     const colId = focusedCell.column.getColId()
     const value = rowNode.data[colId]
     if (value === null || value === undefined) return ""

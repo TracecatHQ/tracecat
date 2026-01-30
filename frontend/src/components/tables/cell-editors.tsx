@@ -1,8 +1,9 @@
 "use client"
 
+import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { json } from "@codemirror/lang-json"
-import { bracketMatching, closeBrackets } from "@codemirror/language"
+import { bracketMatching } from "@codemirror/language"
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorView, keymap } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
@@ -570,8 +571,23 @@ function MultiSelectCellEditor({
     [onCancel]
   )
 
+  const handleBlur = useCallback(
+    (e: React.FocusEvent) => {
+      // Don't commit if focus moved within the component (e.g. to portal popover)
+      if (e.currentTarget.contains(e.relatedTarget)) return
+      // Delay to allow portal click to register
+      const target = e.currentTarget
+      requestAnimationFrame(() => {
+        if (!target.contains(document.activeElement)) {
+          onCommit()
+        }
+      })
+    },
+    [onCommit]
+  )
+
   return (
-    <div onKeyDown={handleKeyDown} onBlur={onCommit}>
+    <div onKeyDown={handleKeyDown} onBlur={handleBlur}>
       <MultiTagCommandInput
         value={currentValue}
         onChange={(values) => onChange(values)}

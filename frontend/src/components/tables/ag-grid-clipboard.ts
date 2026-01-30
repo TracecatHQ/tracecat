@@ -7,6 +7,9 @@ export function handleGridKeyDown(
 ) {
   if (!gridApi) return
 
+  // Don't intercept copy/paste when editing a cell — let the editor handle it
+  if (gridApi.getEditingCells().length > 0) return
+
   const isCtrlOrCmd = e.ctrlKey || e.metaKey
 
   if (isCtrlOrCmd && e.key === "c") {
@@ -54,7 +57,7 @@ function handleCopy(gridApi: GridApi) {
   if (!focusedCell) return
 
   const rowNode = gridApi.getDisplayedRowAtIndex(focusedCell.rowIndex)
-  if (!rowNode) return
+  if (!rowNode?.data) return
 
   const colId = focusedCell.column.getColId()
   const value = rowNode.data[colId]
@@ -73,7 +76,7 @@ async function handlePaste(gridApi: GridApi) {
   if (!focusedCell) return
 
   const rowNode = gridApi.getDisplayedRowAtIndex(focusedCell.rowIndex)
-  if (!rowNode) return
+  if (!rowNode?.data) return
 
   const colId = focusedCell.column.getColId()
   // Don't paste into non-editable columns
