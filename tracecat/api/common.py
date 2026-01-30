@@ -75,7 +75,9 @@ async def get_default_organization_id(session: AsyncSession) -> OrganizationID:
     # Import here to avoid circular imports
     from tracecat.db.models import Organization
 
-    result = await session.execute(select(Organization).limit(1))
+    result = await session.execute(
+        select(Organization).order_by(Organization.created_at).limit(1)
+    )
     org = result.scalar_one_or_none()
     if org is None:
         raise ValueError("No organizations exist. Run bootstrap first.")

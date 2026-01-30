@@ -160,8 +160,10 @@ async def setup_default_organization(session: AsyncSession) -> OrganizationID:
         )
         return default_org.id
 
-    # Return the first organization's ID
-    result = await session.execute(select(Organization).limit(1))
+    # Return the first organization's ID (ordered by created_at for determinism)
+    result = await session.execute(
+        select(Organization).order_by(Organization.created_at).limit(1)
+    )
     org = result.scalar_one()
     logger.debug(
         "Using existing organization",
