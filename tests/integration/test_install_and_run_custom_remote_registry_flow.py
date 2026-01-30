@@ -76,6 +76,18 @@ async def test_remote_custom_registry_repo() -> None:
     assert login_response.status_code == 204, f"Login failed: {login_response.text}"
     logger.info("Successfully logged in with test credentials")
 
+    # Set organization context (required for superusers and org-scoped endpoints)
+    # Use the admin endpoint which doesn't require org context
+    orgs_resp = session.get(f"{base_url}/admin/organizations")
+    assert orgs_resp.status_code == 200, (
+        f"Failed to get organizations: {orgs_resp.text}"
+    )
+    orgs_list = orgs_resp.json()
+    assert len(orgs_list) > 0, "No organizations found"
+    org_id = orgs_list[0]["id"]
+    session.cookies.set("tracecat-org-id", org_id)
+    logger.info("Set organization context", organization_id=org_id)
+
     # ---------------------------------------------------------------------
     # 2.  Get or create a RegistryRepository pointing to the remote Git repo
     # ---------------------------------------------------------------------
