@@ -76,13 +76,14 @@ async def list_org_members(
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=org_role,
+            role_id=role_info.role_id,
+            role_slug=role_info.role_slug,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
-        for user, org_role in members
+        for user, role_info in members
     ]
 
 
@@ -121,13 +122,14 @@ async def update_org_member(
 ) -> OrgMemberRead:
     service = OrgService(session, role=role)
     try:
-        user, org_role = await service.update_member(user_id, params)
+        user, role_info = await service.update_member(user_id, params)
         return OrgMemberRead(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=org_role,
+            role_id=role_info.role_id,
+            role_slug=role_info.role_slug,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
@@ -188,7 +190,8 @@ async def create_invitation(
     try:
         invitation = await service.create_invitation(
             email=params.email,
-            role=params.role,
+            role_id=params.role_id,
+            role_slug=params.role_slug,
         )
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -206,7 +209,9 @@ async def create_invitation(
         id=invitation.id,
         organization_id=invitation.organization_id,
         email=invitation.email,
-        role=invitation.role,
+        role_id=invitation.role_id,
+        role_slug=invitation.role.slug,
+        role_name=invitation.role.name,
         status=invitation.status,
         invited_by=invitation.invited_by,
         expires_at=invitation.expires_at,
@@ -230,7 +235,9 @@ async def list_invitations(
             id=inv.id,
             organization_id=inv.organization_id,
             email=inv.email,
-            role=inv.role,
+            role_id=inv.role_id,
+            role_slug=inv.role.slug,
+            role_name=inv.role.name,
             status=inv.status,
             invited_by=inv.invited_by,
             expires_at=inv.expires_at,
@@ -370,7 +377,8 @@ async def get_invitation_by_token(
             organization_name=org.name,
             inviter_name=inviter_name,
             inviter_email=inviter_email,
-            role=invitation.role,
+            role_slug=invitation.role.slug,
+            role_name=invitation.role.name,
             status=invitation.status,
             expires_at=invitation.expires_at,
             email_matches=email_matches,

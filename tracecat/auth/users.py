@@ -294,7 +294,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             org_role: The role to assign (OWNER for first user, MEMBER for others).
         """
         # Import here to avoid circular import with organization.service
-        from tracecat.db.models import Membership, Workspace
+        from tracecat.db.models import Workspace
         from tracecat.organization.service import OrgService
 
         try:
@@ -360,14 +360,14 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 if org_role == OrgRole.OWNER
                 else WorkspaceRole.EDITOR
             )
-            membership = Membership(
-                user_id=user.id,
+            membership_svc = MembershipService(session, role=service_role)
+            await membership_svc.create_membership(
                 workspace_id=workspace.id,
-                role=workspace_role,
+                params=WorkspaceMembershipCreate(
+                    user_id=user.id,
+                    role=workspace_role,
+                ),
             )
-            session.add(membership)
-            await session.commit()
-            await session.refresh(membership)
 
             self.logger.info(
                 "Added user to default workspace",

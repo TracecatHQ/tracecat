@@ -146,6 +146,12 @@ async def lifespan(app: FastAPI):
 
     await ensure_default_organization()
 
+    # Seed RBAC defaults (scopes and preset roles for all orgs)
+    from tracecat.db.engine import get_async_session_context_manager
+
+    async with get_async_session_context_manager() as session:
+        await setup_rbac_defaults(session)
+
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
     registry_sync_task = asyncio.create_task(
@@ -209,6 +215,18 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
             logger.info("Default workspace created", workspace=default_workspace)
         except IntegrityError:
             logger.info("Default workspace already exists, skipping")
+
+
+async def setup_rbac_defaults(session: AsyncSession):
+    """Seed system scopes and roles for RBAC."""
+    from tracecat.authz.seeding import seed_all_system_data
+
+    try:
+        result = await seed_all_system_data(session)
+        logger.info("RBAC defaults seeded", **result)
+    except Exception as e:
+        logger.warning("Failed to seed RBAC defaults", error=str(e))
+        # Don't fail startup if seeding fails - RBAC tables may not exist yet
 
 
 # Catch-all exception handler to prevent stack traces from leaking
