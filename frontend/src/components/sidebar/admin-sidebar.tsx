@@ -82,10 +82,10 @@ export function AdminSidebar({
           </SidebarMenuItem>
         </SidebarMenu>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="flex size-6 items-center justify-center rounded bg-amber-500/10">
-            <CrownIcon className="size-4 text-amber-500" />
+          <div className="flex size-6 items-center justify-center rounded bg-muted">
+            <CrownIcon className="size-4" />
           </div>
-          <span className="font-semibold text-amber-500">Admin</span>
+          <span className="font-semibold">Admin</span>
         </div>
       </SidebarHeader>
       <SidebarContent>
