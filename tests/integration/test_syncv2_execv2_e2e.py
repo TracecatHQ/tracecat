@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -27,6 +28,7 @@ from minio import Minio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
@@ -38,6 +40,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
+from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import (
@@ -57,6 +60,10 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.service import RegistrySyncService
+from tracecat.registry.sync.workflow import (
+    RegistrySyncActivities,
+    RegistrySyncWorkflow,
+)
 from tracecat.storage import blob
 
 # =============================================================================
@@ -208,6 +215,21 @@ def configure_minio_for_tests(monkeypatch):
 
     # Reload blob module to pick up new config
     importlib.reload(blob)
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def registry_sync_worker(temporal_client):
+    """Start a Temporal worker for registry sync on the test executor queue."""
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        async with Worker(
+            temporal_client,
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            workflows=[RegistrySyncWorkflow],
+            activities=RegistrySyncActivities.get_activities(),
+            activity_executor=executor,
+            workflow_runner=new_sandbox_runner(),
+        ):
+            yield
 
 
 @pytest.fixture

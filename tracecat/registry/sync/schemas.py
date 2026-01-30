@@ -10,8 +10,9 @@ for registry sync operations, including:
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
-from pydantic import UUID4, BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter
 
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -60,7 +61,7 @@ class RegistrySyncRequest(BaseModel):
     The SSH key is used for git clone only and never enters the nsjail sandbox.
     """
 
-    repository_id: UUID4 = Field(..., description="Database repository ID")
+    repository_id: UUID = Field(..., description="Database repository ID")
     origin: str = Field(..., description="Repository origin URL or name")
     origin_type: Literal["builtin", "local", "git"] = Field(
         ..., description="Type of repository origin"
@@ -89,7 +90,7 @@ class RegistrySyncRequest(BaseModel):
             "Defaults to the deployment's default org ID when not provided."
         ),
     )
-    organization_id: UUID4 | None = Field(
+    organization_id: UUID | None = Field(
         default=None,
         description="Organization ID for org-scoped operations (e.g., secrets access).",
     )
