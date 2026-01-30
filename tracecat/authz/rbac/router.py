@@ -33,7 +33,7 @@ from tracecat.authz.rbac.schemas import (
     UserScopesRead,
 )
 from tracecat.authz.rbac.service import RBACService
-from tracecat.authz.scopes import ORG_ROLE_SCOPES, SYSTEM_ROLE_SCOPES
+from tracecat.authz.scopes import ORG_ROLE_SCOPES, PRESET_ROLE_SCOPES
 from tracecat.contexts import ctx_scopes
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -959,7 +959,7 @@ async def get_my_scopes(
     workspace_role_scopes: list[str] = []
     if role.workspace_role is not None:
         workspace_role_scopes = sorted(
-            SYSTEM_ROLE_SCOPES.get(role.workspace_role, frozenset())
+            PRESET_ROLE_SCOPES.get(role.workspace_role, frozenset())
         )
 
     # Get group and user role scopes
