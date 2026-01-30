@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -13,7 +12,6 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
     OrganizationInvitation,
-    OrganizationMembership,
     User,
 )
 from tracecat.exceptions import (
@@ -31,7 +29,7 @@ from tracecat.organization.schemas import (
     OrgMemberRead,
     OrgRead,
 )
-from tracecat.organization.service import OrgService
+from tracecat.organization.service import OrgService, accept_invitation_for_user
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 
@@ -296,71 +294,21 @@ async def accept_invitation(
     may not belong to any organization yet. Uses AuthenticatedUserOnly
     which only requires an authenticated user (role.organization_id is None).
     """
-    # role.user_id is guaranteed to be set by AuthenticatedUserOnly
-    user_id = role.user_id
-
-    # Fetch user to get email for validation
-    user_result = await session.execute(
-        select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
-    )
-    user = user_result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-        )
-
-    # Look up invitation by token
-    result = await session.execute(
-        select(OrganizationInvitation).where(
-            OrganizationInvitation.token == params.token
-        )
-    )
-    invitation = result.scalar_one_or_none()
-    if invitation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
-        )
-
-    # Verify user's email matches invitation email (case-insensitive)
-    if user.email.lower() != invitation.email.lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This invitation was sent to a different email address",
-        )
-
-    # Validate invitation state
-    if invitation.status == InvitationStatus.ACCEPTED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation has already been accepted",
-        )
-    if invitation.status == InvitationStatus.REVOKED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation has been revoked",
-        )
-    if invitation.expires_at < datetime.now(UTC):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation has expired",
-        )
-
+    # user_id is guaranteed to be set by AuthenticatedUserOnly
+    assert role.user_id is not None
     try:
-        # Create membership
-        membership = OrganizationMembership(
-            user_id=user.id,
-            organization_id=invitation.organization_id,
-            role=invitation.role,
+        await accept_invitation_for_user(
+            session,
+            user_id=role.user_id,
+            token=params.token,
         )
-        session.add(membership)
-
-        # Mark invitation as accepted
-        invitation.status = InvitationStatus.ACCEPTED
-        invitation.accepted_at = datetime.now(UTC)
-
-        # Single atomic commit for both membership and invitation update
-        await session.commit()
         return {"message": "Invitation accepted successfully"}
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
