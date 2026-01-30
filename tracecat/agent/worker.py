@@ -202,8 +202,9 @@ async def start_mcp_server() -> None:
 
     import uvicorn
 
-    # Hardcoded socket path - must match TRUSTED_MCP_SOCKET_PATH in proxy_server.py
-    socket_path = Path("/var/run/tracecat/mcp.sock")
+    from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
+
+    socket_path = TRUSTED_MCP_SOCKET_PATH
     socket_path.parent.mkdir(parents=True, exist_ok=True)
 
     if socket_path.exists():
