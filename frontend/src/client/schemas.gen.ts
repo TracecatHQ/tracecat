@@ -3604,409 +3604,6 @@ export const $CaseCreate = {
   title: "CaseCreate",
 } as const
 
-export const $CaseDropdownDefinitionCreate = {
-  properties: {
-    name: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Name",
-    },
-    ref: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Ref",
-    },
-    is_ordered: {
-      type: "boolean",
-      title: "Is Ordered",
-      default: false,
-    },
-    position: {
-      type: "integer",
-      title: "Position",
-      default: 0,
-    },
-    options: {
-      items: {
-        $ref: "#/components/schemas/CaseDropdownOptionCreate",
-      },
-      type: "array",
-      title: "Options",
-    },
-  },
-  type: "object",
-  required: ["name", "ref"],
-  title: "CaseDropdownDefinitionCreate",
-  description: "Create a new dropdown definition with initial options.",
-} as const
-
-export const $CaseDropdownDefinitionRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    ref: {
-      type: "string",
-      title: "Ref",
-    },
-    is_ordered: {
-      type: "boolean",
-      title: "Is Ordered",
-    },
-    position: {
-      type: "integer",
-      title: "Position",
-    },
-    options: {
-      items: {
-        $ref: "#/components/schemas/CaseDropdownOptionRead",
-      },
-      type: "array",
-      title: "Options",
-    },
-  },
-  type: "object",
-  required: ["id", "name", "ref", "is_ordered", "position"],
-  title: "CaseDropdownDefinitionRead",
-  description: "Read model for a dropdown definition with its options.",
-} as const
-
-export const $CaseDropdownDefinitionUpdate = {
-  properties: {
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-    is_ordered: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Ordered",
-    },
-    position: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Position",
-    },
-  },
-  type: "object",
-  title: "CaseDropdownDefinitionUpdate",
-  description: "Update an existing dropdown definition.",
-} as const
-
-export const $CaseDropdownOptionCreate = {
-  properties: {
-    label: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Label",
-    },
-    ref: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Ref",
-    },
-    icon_name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Icon Name",
-    },
-    color: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 50,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Color",
-    },
-    position: {
-      type: "integer",
-      title: "Position",
-      default: 0,
-    },
-  },
-  type: "object",
-  required: ["label", "ref"],
-  title: "CaseDropdownOptionCreate",
-  description: "Create a new option within a dropdown definition.",
-} as const
-
-export const $CaseDropdownOptionRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    label: {
-      type: "string",
-      title: "Label",
-    },
-    ref: {
-      type: "string",
-      title: "Ref",
-    },
-    icon_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Icon Name",
-    },
-    color: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Color",
-    },
-    position: {
-      type: "integer",
-      title: "Position",
-    },
-  },
-  type: "object",
-  required: ["id", "label", "ref", "position"],
-  title: "CaseDropdownOptionRead",
-  description: "Read model for a dropdown option.",
-} as const
-
-export const $CaseDropdownOptionUpdate = {
-  properties: {
-    label: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Label",
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-    icon_name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Icon Name",
-    },
-    color: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 50,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Color",
-    },
-    position: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Position",
-    },
-  },
-  type: "object",
-  title: "CaseDropdownOptionUpdate",
-  description: "Update an existing dropdown option.",
-} as const
-
-export const $CaseDropdownValueRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    definition_id: {
-      type: "string",
-      format: "uuid",
-      title: "Definition Id",
-    },
-    definition_ref: {
-      type: "string",
-      title: "Definition Ref",
-    },
-    definition_name: {
-      type: "string",
-      title: "Definition Name",
-    },
-    option_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Option Id",
-    },
-    option_label: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Option Label",
-    },
-    option_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Option Ref",
-    },
-    option_icon_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Option Icon Name",
-    },
-    option_color: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Option Color",
-    },
-  },
-  type: "object",
-  required: ["id", "definition_id", "definition_ref", "definition_name"],
-  title: "CaseDropdownValueRead",
-  description: "Per-case dropdown value with full definition/option info.",
-} as const
-
-export const $CaseDropdownValueSet = {
-  properties: {
-    option_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Option Id",
-      description: "The option ID to set. Pass null to clear the value.",
-    },
-  },
-  type: "object",
-  title: "CaseDropdownValueSet",
-  description:
-    "Request body for setting or clearing a dropdown value on a case.",
-} as const
-
 export const $CaseDurationAnchorSelection = {
   type: "string",
   enum: ["first", "last"],
@@ -4495,9 +4092,6 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/TaskAssigneeChangedEventRead",
     },
-    {
-      $ref: "#/components/schemas/DropdownValueChangedEventRead",
-    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -4512,8 +4106,6 @@ export const $CaseEventRead = {
       case_reopened: "#/components/schemas/ReopenedEventRead",
       case_updated: "#/components/schemas/UpdatedEventRead",
       case_viewed: "#/components/schemas/CaseViewedEventRead",
-      dropdown_value_changed:
-        "#/components/schemas/DropdownValueChangedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
       payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
@@ -4558,7 +4150,6 @@ export const $CaseEventType = {
     "task_priority_changed",
     "task_workflow_changed",
     "task_assignee_changed",
-    "dropdown_value_changed",
   ],
   title: "CaseEventType",
   description: "Case activity type values.",
@@ -4927,13 +4518,6 @@ export const $CaseRead = {
       type: "array",
       title: "Tags",
     },
-    dropdown_values: {
-      items: {
-        $ref: "#/components/schemas/CaseDropdownValueRead",
-      },
-      type: "array",
-      title: "Dropdown Values",
-    },
   },
   type: "object",
   required: [
@@ -5002,13 +4586,6 @@ export const $CaseReadMinimal = {
       },
       type: "array",
       title: "Tags",
-    },
-    dropdown_values: {
-      items: {
-        $ref: "#/components/schemas/CaseDropdownValueRead",
-      },
-      type: "array",
-      title: "Dropdown Values",
     },
     num_tasks_completed: {
       type: "integer",
@@ -6836,113 +6413,6 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
-} as const
-
-export const $DropdownValueChangedEventRead = {
-  properties: {
-    wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Wf Exec Id",
-      description: "The execution ID of the workflow that triggered the event.",
-    },
-    type: {
-      type: "string",
-      const: "dropdown_value_changed",
-      title: "Type",
-      default: "dropdown_value_changed",
-    },
-    definition_id: {
-      type: "string",
-      title: "Definition Id",
-    },
-    definition_ref: {
-      type: "string",
-      title: "Definition Ref",
-    },
-    definition_name: {
-      type: "string",
-      title: "Definition Name",
-    },
-    old_option_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Old Option Id",
-    },
-    old_option_label: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Old Option Label",
-    },
-    new_option_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "New Option Id",
-    },
-    new_option_label: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "New Option Label",
-    },
-    user_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "User Id",
-      description: "The user who performed the action.",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "The timestamp of the event.",
-    },
-  },
-  type: "object",
-  required: [
-    "definition_id",
-    "definition_ref",
-    "definition_name",
-    "created_at",
-  ],
-  title: "DropdownValueChangedEventRead",
-  description: "Event for when a case dropdown value is changed.",
 } as const
 
 export const $DynamicToolUIPartInputAvailable = {
@@ -12963,10 +12433,16 @@ export const $Role = {
       title: "Workspace Id",
     },
     organization_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Organization Id",
-      default: "00000000-0000-0000-0000-000000000000",
     },
     workspace_role: {
       anyOf: [
@@ -14789,20 +14265,6 @@ export const $TableRowRead = {
   required: ["id", "created_at", "updated_at"],
   title: "TableRowRead",
   description: "Read model for a table row.",
-} as const
-
-export const $TableRowUpdate = {
-  properties: {
-    data: {
-      additionalProperties: true,
-      type: "object",
-      title: "Data",
-    },
-  },
-  type: "object",
-  required: ["data"],
-  title: "TableRowUpdate",
-  description: "Update model for a table row.",
 } as const
 
 export const $TableUpdate = {

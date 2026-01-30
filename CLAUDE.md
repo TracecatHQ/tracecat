@@ -150,12 +150,26 @@ uv run basedpyright tracecat/api/
 # - Using `Any` when a more specific type is possible
 ```
 
+### Pre-push Verification
+**IMPORTANT**: Always run these checks before pushing. Pre-commit hooks catch most issues, but you should verify locally if in doubt.
+```bash
+# Run all CI-equivalent checks (must all pass before pushing)
+uv run ruff check .                          # Python lint (strict, no auto-fix)
+uv run ruff format --check .                 # Python format check
+uv run basedpyright --warnings --threads 4   # Python type checking
+pnpm -C frontend check                      # Frontend lint + format (Biome)
+pnpm -C frontend run typecheck              # TypeScript type checking
+```
+
 **Pre-commit hooks**: Runs automatically on commit:
 - Ruff (lint + format)
 - Gitleaks (secret detection)
 - YAML/TOML validation
 - UV lock sync
 - Frontend client generation (when tracecat/packages change)
+- basedpyright (Python type checking)
+- Frontend Biome check (lint + format on frontend changes)
+- TypeScript type checking (on frontend changes)
 
 **CI Requirements**: Both linting (`just fix`) and type checking (`just typecheck`) must pass in CI before merging.
 

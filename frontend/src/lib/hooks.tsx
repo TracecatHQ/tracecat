@@ -44,14 +44,6 @@ import {
   type CaseCommentRead,
   type CaseCommentUpdate,
   type CaseCreate,
-  type CaseDropdownDefinitionRead,
-  type CaseDropdownsAddDropdownOptionData,
-  type CaseDropdownsCreateDropdownDefinitionData,
-  type CaseDropdownsDeleteDropdownDefinitionData,
-  type CaseDropdownsDeleteDropdownOptionData,
-  type CaseDropdownsReorderDropdownOptionsData,
-  type CaseDropdownsUpdateDropdownDefinitionData,
-  type CaseDropdownsUpdateDropdownOptionData,
   type CaseDurationDefinitionRead,
   type CaseDurationRead,
   type CaseEventsWithUsers,
@@ -72,14 +64,6 @@ import {
   type CaseTaskRead,
   type CaseTaskUpdate,
   type CaseUpdate,
-  caseDropdownsAddDropdownOption,
-  caseDropdownsCreateDropdownDefinition,
-  caseDropdownsDeleteDropdownDefinition,
-  caseDropdownsDeleteDropdownOption,
-  caseDropdownsListDropdownDefinitions,
-  caseDropdownsReorderDropdownOptions,
-  caseDropdownsUpdateDropdownDefinition,
-  caseDropdownsUpdateDropdownOption,
   casesAddTag,
   casesCreateCase,
   casesCreateComment,
@@ -95,7 +79,6 @@ import {
   casesListTags,
   casesListTasks,
   casesRemoveTag,
-  casesSetCaseDropdownValue,
   casesUpdateCase,
   casesUpdateComment,
   casesUpdateTask,
@@ -237,8 +220,6 @@ import {
   type TablesInsertRowData,
   type TablesListTablesData,
   type TablesUpdateColumnData,
-  type TablesUpdateRowData,
-  type TablesUpdateRowResponse,
   type TablesUpdateTableData,
   type TagRead,
   type TagsCreateTagData,
@@ -257,7 +238,6 @@ import {
   tablesInsertRow,
   tablesListTables,
   tablesUpdateColumn,
-  tablesUpdateRow,
   tablesUpdateTable,
   tagsCreateTag,
   tagsDeleteTag,
@@ -280,9 +260,9 @@ import {
   variablesDeleteVariableById,
   variablesListVariables,
   variablesUpdateVariableById,
-  vcsDeleteGithubAppCredentials,
   vcsGetGithubAppCredentialsStatus,
   vcsGetGithubAppManifest,
+  vcsDeleteGithubAppCredentials,
   vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
@@ -774,6 +754,7 @@ export function useWorkspaceManager() {
     queryKey: ["workspaces"],
     queryFn: async () => await workspacesListWorkspaces(),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: retryHandler,
   })
 
   // Create workspace
@@ -2497,199 +2478,6 @@ export function useCaseTagCatalog(
   }
 }
 
-export function useCaseDropdownDefinitions(
-  workspaceId: string,
-  options: { enabled: boolean } = { enabled: true }
-) {
-  const queryClient = useQueryClient()
-
-  const {
-    data: dropdownDefinitions,
-    isLoading: dropdownDefinitionsIsLoading,
-    error: dropdownDefinitionsError,
-  } = useQuery<CaseDropdownDefinitionRead[]>({
-    queryKey: ["case-dropdown-definitions", workspaceId],
-    queryFn: async () =>
-      await caseDropdownsListDropdownDefinitions({ workspaceId }),
-    enabled: options.enabled,
-  })
-
-  const {
-    mutateAsync: createDropdownDefinition,
-    isPending: createDropdownDefinitionIsPending,
-  } = useMutation({
-    mutationFn: async (params: CaseDropdownsCreateDropdownDefinitionData) =>
-      await caseDropdownsCreateDropdownDefinition(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-      toast({
-        title: "Created dropdown",
-        description: (
-          <div className="flex items-center space-x-2">
-            <CircleCheck className="size-4 fill-emerald-500 stroke-white" />
-            <span>Dropdown created successfully.</span>
-          </div>
-        ),
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error creating dropdown",
-        description: String(error.body.detail),
-      })
-    },
-  })
-
-  const {
-    mutateAsync: updateDropdownDefinition,
-    isPending: updateDropdownDefinitionIsPending,
-  } = useMutation({
-    mutationFn: async (params: CaseDropdownsUpdateDropdownDefinitionData) =>
-      await caseDropdownsUpdateDropdownDefinition(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-      queryClient.invalidateQueries({ queryKey: ["cases"] })
-      toast({
-        title: "Updated dropdown",
-        description: "Dropdown updated successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error updating dropdown",
-        description: String(error.body.detail),
-      })
-    },
-  })
-
-  const {
-    mutateAsync: deleteDropdownDefinition,
-    isPending: deleteDropdownDefinitionIsPending,
-  } = useMutation({
-    mutationFn: async (params: CaseDropdownsDeleteDropdownDefinitionData) =>
-      await caseDropdownsDeleteDropdownDefinition(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-      queryClient.invalidateQueries({ queryKey: ["cases"] })
-      toast({
-        title: "Deleted dropdown",
-        description: "Dropdown deleted successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error deleting dropdown",
-        description: String(error.body.detail),
-      })
-    },
-  })
-
-  const { mutateAsync: addDropdownOption } = useMutation({
-    mutationFn: async (params: CaseDropdownsAddDropdownOptionData) =>
-      await caseDropdownsAddDropdownOption(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error adding option",
-        description: String(error.body.detail),
-      })
-    },
-  })
-
-  const { mutateAsync: updateDropdownOption } = useMutation({
-    mutationFn: async (params: CaseDropdownsUpdateDropdownOptionData) =>
-      await caseDropdownsUpdateDropdownOption(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error updating option",
-        description: String(error.body.detail),
-      })
-    },
-  })
-
-  const { mutateAsync: deleteDropdownOption } = useMutation({
-    mutationFn: async (params: CaseDropdownsDeleteDropdownOptionData) =>
-      await caseDropdownsDeleteDropdownOption(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error deleting option",
-        description: String(error.body.detail),
-      })
-    },
-  })
-
-  const { mutateAsync: reorderDropdownOptions } = useMutation({
-    mutationFn: async (params: CaseDropdownsReorderDropdownOptionsData) =>
-      await caseDropdownsReorderDropdownOptions(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-dropdown-definitions", workspaceId],
-      })
-    },
-  })
-
-  return {
-    dropdownDefinitions,
-    dropdownDefinitionsIsLoading,
-    dropdownDefinitionsError,
-    createDropdownDefinition,
-    createDropdownDefinitionIsPending,
-    updateDropdownDefinition,
-    updateDropdownDefinitionIsPending,
-    deleteDropdownDefinition,
-    deleteDropdownDefinitionIsPending,
-    addDropdownOption,
-    updateDropdownOption,
-    deleteDropdownOption,
-    reorderDropdownOptions,
-  }
-}
-
-export function useSetCaseDropdownValue(workspaceId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({
-      caseId,
-      definitionId,
-      optionId,
-    }: {
-      caseId: string
-      definitionId: string
-      optionId: string | null
-    }) =>
-      await casesSetCaseDropdownValue({
-        workspaceId,
-        caseId,
-        definitionId,
-        requestBody: { option_id: optionId },
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cases"] })
-      queryClient.invalidateQueries({ queryKey: ["case"] })
-    },
-  })
-}
-
 export function useOrgGitSettings() {
   const queryClient = useQueryClient()
   // Get Git settings
@@ -3337,17 +3125,7 @@ export function useCreateTable() {
       })
     },
     onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Error creating table", error)
-          break
-      }
+      console.error("Error creating table", error)
     },
   })
 
@@ -3657,49 +3435,6 @@ export function useInsertRow() {
   }
 }
 
-export function useUpdateRow() {
-  const queryClient = useQueryClient()
-
-  const {
-    mutateAsync: updateRow,
-    isPending: updateRowIsPending,
-    error: updateRowError,
-  } = useMutation<
-    TablesUpdateRowResponse,
-    TracecatApiError,
-    TablesUpdateRowData
-  >({
-    mutationFn: async (params: TablesUpdateRowData) =>
-      await tablesUpdateRow(params),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["rows", variables.tableId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: [
-          "rows",
-          "paginated",
-          variables.tableId,
-          variables.workspaceId,
-        ],
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Error updating row",
-        description: error.message || "An unexpected error occurred",
-        variant: "destructive",
-      })
-    },
-  })
-
-  return {
-    updateRow,
-    updateRowIsPending,
-    updateRowError,
-  }
-}
-
 export function useDeleteRow() {
   const queryClient = useQueryClient()
   const {
@@ -3794,26 +3529,6 @@ export function useImportTableFromCsv() {
         router.push(
           `/workspaces/${variables.workspaceId}/tables/${response.table.id}`
         )
-      }
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Error importing table from CSV", error)
-          toast({
-            title: "Import failed",
-            description:
-              error.body && typeof error.body.detail === "string"
-                ? error.body.detail
-                : "Unable to import table from CSV. Please try again.",
-          })
-          break
       }
     },
   })
