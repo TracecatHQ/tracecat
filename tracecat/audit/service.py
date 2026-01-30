@@ -135,10 +135,9 @@ class AuditService(BaseService):
             custom_headers = await self._get_custom_headers()
             if custom_headers:
                 # HTTP headers are case-insensitive (RFC 7230), but Python dicts are not.
-                # Check if custom headers contain any casing of "authorization" and remove
-                # the API key header to let custom headers fully override it.
-                custom_keys_lower = {k.lower() for k in custom_headers}
-                if "authorization" in custom_keys_lower:
+                # If custom headers contain any casing of "authorization", remove the
+                # API key header to let the custom value fully override it.
+                if any(k.lower() == "authorization" for k in custom_headers):
                     headers.pop("Authorization", None)
                 headers.update(custom_headers)
 
