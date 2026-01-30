@@ -8757,6 +8757,13 @@ export type RbacDeleteUserAssignmentData = {
 
 export type RbacDeleteUserAssignmentResponse = void
 
+export type UsersGetMyScopesData = {
+  /**
+   * Workspace to get scopes for
+   */
+  workspaceId?: string | null
+}
+
 export type UsersGetMyScopesResponse = UserScopesRead
 
 export type UsersUsersCurrentUserResponse = UserRead
@@ -13036,11 +13043,16 @@ export type $OpenApiTs = {
   }
   "/users/me/scopes": {
     get: {
+      req: UsersGetMyScopesData
       res: {
         /**
          * Successful Response
          */
         200: UserScopesRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

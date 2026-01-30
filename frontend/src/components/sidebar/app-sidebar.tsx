@@ -19,6 +19,7 @@ import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import type * as React from "react"
 import { useEffect, useRef, useState } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
@@ -100,6 +101,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     icon: LucideIcon
     isActive?: boolean
     visible?: boolean
+    requiredScope?: string
     items?: {
       title: string
       url: string
@@ -107,12 +109,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }[]
   }
 
+  // Scope checks for sidebar items
+  const canViewWorkflows = useScopeCheck("workflow:read")
+  const canViewAgents = useScopeCheck("agent:read")
+  const canViewTables = useScopeCheck("table:read")
+  const canViewVariables = useScopeCheck("variable:read")
+  const canViewSecrets = useScopeCheck("secret:read")
+  const canViewMembers = useScopeCheck("workspace:member:read")
+  const canViewCases = useScopeCheck("case:read")
+  const canCreateCase = useScopeCheck("case:create")
+
   const navWorkspace: NavItem[] = [
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
+      visible: canViewWorkflows === true,
     },
     ...(agentPresetsEnabled
       ? [
@@ -121,6 +134,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             url: `${basePath}/agents`,
             icon: SquareMousePointerIcon,
             isActive: pathname?.startsWith(`${basePath}/agents`),
+            visible: canViewAgents === true,
           },
         ]
       : []),
@@ -129,18 +143,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/tables`,
       icon: Table2Icon,
       isActive: pathname?.startsWith(`${basePath}/tables`),
+      visible: canViewTables === true,
     },
     {
       title: "Variables",
       url: `${basePath}/variables`,
       icon: VariableIcon,
       isActive: pathname?.startsWith(`${basePath}/variables`),
+      visible: canViewVariables === true,
     },
     {
       title: "Credentials",
       url: `${basePath}/credentials`,
       icon: LockKeyholeIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
+      visible: canViewSecrets === true,
     },
     {
       title: "Integrations",
@@ -153,6 +170,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
+      visible: canViewMembers === true,
     },
   ]
 
@@ -174,14 +192,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <span>New chat</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => setCreateCaseDialogOpen(true)}
-                >
-                  <LayersPlus />
-                  <span>Add case</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {canCreateCase === true && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setCreateCaseDialogOpen(true)}
+                  >
+                    <LayersPlus />
+                    <span>Add case</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -193,17 +213,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname?.startsWith(`${basePath}/cases`)}
-                >
-                  <Link href={`${basePath}/cases`}>
-                    <SquareStackIcon />
-                    <span>Cases</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {canViewCases === true && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname?.startsWith(`${basePath}/cases`)}
+                  >
+                    <Link href={`${basePath}/cases`}>
+                      <SquareStackIcon />
+                      <span>Cases</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
             <CreateCaseDialog
               open={createCaseDialogOpen}

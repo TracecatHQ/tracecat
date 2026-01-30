@@ -499,6 +499,7 @@ import type {
   TriggersRevokeWebhookApiKeyResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
   UsersSearchUserResponse,
@@ -800,12 +801,14 @@ export const publicReceiveInteraction = (
 
 /**
  * List Workspaces
- * List workspaces.
+ * List workspaces the user has access to.
  *
- * Access Level
- * ------------
- * - Basic: Can list workspaces where they are a member.
- * - Admin: Can list all workspaces regardless of membership.
+ * Access
+ * ------
+ * - Org owners/admins (have `org:read` scope): See all workspaces in the org.
+ * - Other users: See only workspaces where they are a member.
+ *
+ * No scope requirement - membership itself is the authorization.
  * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
@@ -8470,6 +8473,10 @@ export const rbacDeleteUserAssignment = (
  * Get My Scopes
  * Get the current user's effective scopes.
  *
+ * Args:
+ * workspace_id: Optional workspace ID. If provided, includes workspace-specific
+ * role assignments in addition to org-level assignments.
+ *
  * Returns a breakdown of scopes by source:
  * - org_role_scopes: From org membership role (OWNER/ADMIN/MEMBER)
  * - workspace_role_scopes: From workspace membership role (if in workspace context)
@@ -8477,16 +8484,25 @@ export const rbacDeleteUserAssignment = (
  * - user_role_scopes: From direct user role assignments
  *
  * The combined `scopes` list is what's actually used for authorization.
+ * @param data The data for the request.
+ * @param data.workspaceId Workspace to get scopes for
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */
-export const usersGetMyScopes =
-  (): CancelablePromise<UsersGetMyScopesResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me/scopes",
-    })
-  }
+export const usersGetMyScopes = (
+  data: UsersGetMyScopesData = {}
+): CancelablePromise<UsersGetMyScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/users/me/scopes",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Users:Current User
