@@ -290,7 +290,7 @@ services:
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/.next:/app/.next
-      - ui-node-modules:/app/node_modules  # Named volume to preserve linux-arm64 binaries (SWC, etc.)
+      - ./frontend/node_modules:/app/node_modules
     restart: unless-stopped
     ports:
       - ${UI_PORT:-3000}:3000
@@ -426,4 +426,3 @@ volumes:
   minio-data:
   redis-data:
   sandbox-cache:
-  ui-node-modules:
