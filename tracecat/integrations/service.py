@@ -8,6 +8,7 @@ from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import orjson
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select
@@ -738,6 +739,19 @@ class IntegrationService(BaseWorkspaceService):
             "utf-8"
         )
 
+    def decrypt_command_env(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Decrypt and return command_env for an MCP integration."""
+        if not mcp_integration.encrypted_command_env:
+            return None
+        if not is_set(mcp_integration.encrypted_command_env):
+            return None
+        decrypted = self._decrypt_token(mcp_integration.encrypted_command_env)
+        if not decrypted:
+            return None
+        return orjson.loads(decrypted)
+
     async def store_provider_config(
         self,
         *,
@@ -1088,6 +1102,13 @@ class IntegrationService(BaseWorkspaceService):
                 params.custom_credentials.get_secret_value()
             )
 
+        # Encrypt command_env if provided (for command-type servers)
+        encrypted_command_env = None
+        if params.command_env:
+            encrypted_command_env = self._encrypt_token(
+                orjson.dumps(params.command_env).decode()
+            )
+
         mcp_integration = MCPIntegration(
             workspace_id=self.workspace_id,
             name=params.name.strip(),
@@ -1100,7 +1121,7 @@ class IntegrationService(BaseWorkspaceService):
             server_type=params.server_type,
             command=params.command,
             command_args=params.command_args,
-            command_env=params.command_env,
+            encrypted_command_env=encrypted_command_env,
             timeout=params.timeout,
         )
 
@@ -1188,7 +1209,13 @@ class IntegrationService(BaseWorkspaceService):
         if params.command_args is not None:
             mcp_integration.command_args = params.command_args
         if params.command_env is not None:
-            mcp_integration.command_env = params.command_env
+            if params.command_env:
+                mcp_integration.encrypted_command_env = self._encrypt_token(
+                    orjson.dumps(params.command_env).decode()
+                )
+            else:
+                # Empty dict means clear the env vars
+                mcp_integration.encrypted_command_env = None
         if params.timeout is not None:
             mcp_integration.timeout = params.timeout
 
