@@ -52,7 +52,6 @@ async def user(session: AsyncSession, org: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=org.id,
-        role=OrgRole.ADMIN,
     )
     session.add(membership)
     await session.commit()
@@ -468,7 +467,7 @@ class TestRBACServiceScopeComputation:
         workspace: Workspace,
         seeded_scopes: list[Scope],
     ):
-        """Workspace-specific assignments only apply when workspace matches."""
+        """Workspace-specific assignments apply in workspace and org-level contexts."""
         service = RBACService(session, role=role)
 
         # Create role with scopes
@@ -486,9 +485,10 @@ class TestRBACServiceScopeComputation:
             workspace_id=workspace.id,
         )
 
-        # Without workspace context, no scopes
+        # Without workspace context, includes ALL assignments (org-wide + workspace-scoped)
+        # This allows workspace-scoped permissions to apply to org-level resources
         scopes_no_ws = await service.get_group_scopes(user.id, workspace_id=None)
-        assert scopes_no_ws == frozenset()
+        assert seeded_scopes[0].name in scopes_no_ws
 
         # With matching workspace, get scopes
         scopes_with_ws = await service.get_group_scopes(
