@@ -982,6 +982,7 @@ export type CaseCreate = {
 export type CaseDropdownDefinitionCreate = {
   name: string
   ref: string
+  icon_name?: string | null
   is_ordered?: boolean
   position?: number
   options?: Array<CaseDropdownOptionCreate>
@@ -994,6 +995,7 @@ export type CaseDropdownDefinitionRead = {
   id: string
   name: string
   ref: string
+  icon_name?: string | null
   is_ordered: boolean
   position: number
   options?: Array<CaseDropdownOptionRead>
@@ -1005,6 +1007,7 @@ export type CaseDropdownDefinitionRead = {
 export type CaseDropdownDefinitionUpdate = {
   name?: string | null
   ref?: string | null
+  icon_name?: string | null
   is_ordered?: boolean | null
   position?: number | null
 }

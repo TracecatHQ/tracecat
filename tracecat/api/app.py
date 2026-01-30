@@ -47,6 +47,8 @@ from tracecat.cases.attachments.internal_router import (
     router as internal_case_attachments_router,
 )
 from tracecat.cases.attachments.router import router as case_attachments_router
+from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
+from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.internal_router import (
     comments_router as internal_comments_router,
@@ -359,6 +361,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_tags_router)
     app.include_router(case_tag_definitions_router)
     app.include_router(case_attachments_router)
+    app.include_router(case_dropdowns_router)
+    app.include_router(case_dropdown_values_router)
     app.include_router(
         case_durations_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],

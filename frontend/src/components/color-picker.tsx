@@ -28,7 +28,7 @@ export const ColorPicker = ({
             aria-label="Pick a color"
           />
         </PopoverTrigger>
-        <PopoverContent className="w-auto">
+        <PopoverContent className="w-auto" portal={true}>
           <HexColorPicker
             color={value}
             onChange={(color: string) => onChange?.(color)}

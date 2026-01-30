@@ -20,6 +20,7 @@ from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
@@ -109,6 +110,10 @@ async def list_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
+    dropdown: list[str] | None = Query(
+        None,
+        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    ),
     order_by: Literal[
         "created_at", "updated_at", "priority", "severity", "status", "tasks"
     ]
@@ -157,6 +162,19 @@ async def list_cases(
                     detail=f"Invalid assignee_id: {identifier}",
                 ) from e
 
+    # Parse dropdown filters: "definition_ref:option_ref" -> {def_ref: [opt_refs]}
+    parsed_dropdown_filters: dict[str, list[str]] | None = None
+    if dropdown:
+        parsed_dropdown_filters = {}
+        for entry in dropdown:
+            if ":" not in entry:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid dropdown filter format: {entry!r}. Expected 'definition_ref:option_ref'.",
+                )
+            def_ref, opt_ref = entry.split(":", 1)
+            parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
+
     try:
         cases = await service.list_cases_paginated(
             pagination_params,
@@ -167,6 +185,7 @@ async def list_cases(
             assignee_ids=parsed_assignee_ids or None,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
+            dropdown_filters=parsed_dropdown_filters,
             order_by=order_by,
             sort=sort,
         )
@@ -339,6 +358,10 @@ async def get_case(
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
     ]
 
+    # Dropdown values
+    dropdown_service = CaseDropdownValuesService(session, role)
+    dropdown_reads = await dropdown_service.list_values_for_case(case.id)
+
     # Match up the fields with the case field definitions
     return CaseRead(
         id=case.id,
@@ -356,6 +379,7 @@ async def get_case(
         fields=final_fields,
         payload=case.payload,
         tags=tag_reads,
+        dropdown_values=dropdown_reads,
     )
 
 

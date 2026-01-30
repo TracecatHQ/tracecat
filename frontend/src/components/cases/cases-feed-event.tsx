@@ -17,6 +17,7 @@ import type {
   AttachmentDeletedEventRead,
   CaseEventRead,
   ClosedEventRead,
+  DropdownValueChangedEventRead,
   FieldChangedEventRead,
   PayloadChangedEventRead,
   PriorityChangedEventRead,
@@ -584,6 +585,50 @@ export function TaskPriorityChangedEvent({
           {event.title}
         </span>{" "}
         priority: {oldPriority.label} → {newPriority.label}
+      </span>
+    </div>
+  )
+}
+
+export function DropdownValueChangedEvent({
+  event,
+  actor,
+}: {
+  event: DropdownValueChangedEventRead
+  actor: User
+}) {
+  const oldLabel = event.old_option_label
+  const newLabel = event.new_option_label
+
+  if (oldLabel && newLabel) {
+    return (
+      <div className="flex items-center space-x-2 text-xs">
+        <EventIcon icon={PencilIcon} />
+        <span>
+          <EventActor user={actor} /> changed {event.definition_name} from{" "}
+          {oldLabel} to {newLabel}
+        </span>
+      </div>
+    )
+  }
+
+  if (newLabel) {
+    return (
+      <div className="flex items-center space-x-2 text-xs">
+        <EventIcon icon={PencilIcon} />
+        <span>
+          <EventActor user={actor} /> set {event.definition_name} to {newLabel}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> cleared {event.definition_name}
+        {oldLabel ? ` (was ${oldLabel})` : ""}
       </span>
     </div>
   )

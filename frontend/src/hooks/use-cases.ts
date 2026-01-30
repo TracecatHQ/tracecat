@@ -22,6 +22,12 @@ export type CaseDateFilterValue =
   | { type: "preset"; value: CaseDatePreset }
   | { type: "range"; value: DateRange }
 
+export interface DropdownFilterState {
+  values: string[]
+  mode: FilterMode
+  sortDirection: SortDirection
+}
+
 export interface UseCasesFilters {
   searchQuery: string
   statusFilter: CaseStatus[]
@@ -38,6 +44,7 @@ export interface UseCasesFilters {
   tagFilter: string[]
   tagMode: FilterMode
   tagSortDirection: SortDirection
+  dropdownFilters: Record<string, DropdownFilterState>
   updatedAfter: CaseDateFilterValue
   createdAfter: CaseDateFilterValue
   limit: number
@@ -69,6 +76,9 @@ export interface UseCasesResult {
   setTagFilter: (tags: string[]) => void
   setTagMode: (mode: FilterMode) => void
   setTagSortDirection: (direction: SortDirection) => void
+  setDropdownFilter: (ref: string, values: string[]) => void
+  setDropdownMode: (ref: string, mode: FilterMode) => void
+  setDropdownSortDirection: (ref: string, direction: SortDirection) => void
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
   setLimit: (limit: number) => void
@@ -158,6 +168,48 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [tagFilter, setTagFilter] = useState<string[]>([])
   const [tagMode, setTagMode] = useState<FilterMode>("include")
   const [tagSortDirection, setTagSortDirection] = useState<SortDirection>(null)
+  const [dropdownFilters, setDropdownFilters] = useState<
+    Record<string, DropdownFilterState>
+  >({})
+  const setDropdownFilter = useCallback(
+    (ref: string, values: string[]) =>
+      setDropdownFilters((prev) => ({
+        ...prev,
+        [ref]: {
+          ...prev[ref],
+          values,
+          mode: prev[ref]?.mode ?? "include",
+          sortDirection: prev[ref]?.sortDirection ?? null,
+        },
+      })),
+    []
+  )
+  const setDropdownMode = useCallback(
+    (ref: string, mode: FilterMode) =>
+      setDropdownFilters((prev) => ({
+        ...prev,
+        [ref]: {
+          ...prev[ref],
+          values: prev[ref]?.values ?? [],
+          mode,
+          sortDirection: prev[ref]?.sortDirection ?? null,
+        },
+      })),
+    []
+  )
+  const setDropdownSortDirection = useCallback(
+    (ref: string, direction: SortDirection) =>
+      setDropdownFilters((prev) => ({
+        ...prev,
+        [ref]: {
+          ...prev[ref],
+          values: prev[ref]?.values ?? [],
+          mode: prev[ref]?.mode ?? "include",
+          sortDirection: direction,
+        },
+      })),
+    []
+  )
   const [updatedAfter, setUpdatedAfter] =
     useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
   const [createdAfter, setCreatedAfter] =
@@ -188,6 +240,18 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           : undefined,
       tags:
         tagFilter.length > 0 && tagMode === "include" ? tagFilter : undefined,
+      // Build dropdown query params: "defRef:optRef" for include mode
+      dropdown: (() => {
+        const entries: string[] = []
+        for (const [defRef, state] of Object.entries(dropdownFilters)) {
+          if (state.values.length > 0 && state.mode === "include") {
+            for (const optRef of state.values) {
+              entries.push(`${defRef}:${optRef}`)
+            }
+          }
+        }
+        return entries.length > 0 ? entries : undefined
+      })(),
       limit,
       orderBy: "updated_at" as const,
       sort: "desc" as const,
@@ -204,6 +268,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     assigneeMode,
     tagFilter,
     tagMode,
+    dropdownFilters,
     limit,
   ])
 
@@ -240,6 +305,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       queryParams.severity,
       queryParams.assigneeId,
       queryParams.tags,
+      queryParams.dropdown,
       queryParams.limit,
     ],
     queryFn: () =>
@@ -277,6 +343,16 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       if (tagFilter.length > 0 && tagMode === "exclude") {
         const caseTags = caseData.tags?.map((t) => t.ref) ?? []
         if (tagFilter.some((t) => caseTags.includes(t))) return false
+      }
+      // Dropdown exclude filters
+      for (const [defRef, state] of Object.entries(dropdownFilters)) {
+        if (state.values.length > 0 && state.mode === "exclude") {
+          const dvMatch = caseData.dropdown_values?.find(
+            (dv) => dv.definition_ref === defRef
+          )
+          const optRef = dvMatch?.option_ref
+          if (optRef && state.values.includes(optRef)) return false
+        }
       }
 
       // Updated after filter
@@ -369,6 +445,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     tagFilter,
     tagMode,
     tagSortDirection,
+    dropdownFilters,
     updatedAfter,
     createdAfter,
   ])
@@ -394,6 +471,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       tagFilter,
       tagMode,
       tagSortDirection,
+      dropdownFilters,
       updatedAfter,
       createdAfter,
       limit,
@@ -413,6 +491,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setTagFilter,
     setTagMode,
     setTagSortDirection,
+    setDropdownFilter,
+    setDropdownMode,
+    setDropdownSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
     setLimit,

@@ -3618,6 +3618,18 @@ export const $CaseDropdownDefinitionCreate = {
       minLength: 1,
       title: "Ref",
     },
+    icon_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Name",
+    },
     is_ordered: {
       type: "boolean",
       title: "Is Ordered",
@@ -3656,6 +3668,17 @@ export const $CaseDropdownDefinitionRead = {
     ref: {
       type: "string",
       title: "Ref",
+    },
+    icon_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Name",
     },
     is_ordered: {
       type: "boolean",
@@ -3706,6 +3729,18 @@ export const $CaseDropdownDefinitionUpdate = {
         },
       ],
       title: "Ref",
+    },
+    icon_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Name",
     },
     is_ordered: {
       anyOf: [
