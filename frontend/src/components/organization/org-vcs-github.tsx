@@ -330,7 +330,10 @@ function GitHubConnectionDialog({
           </TabsList>
           <TabsContent value="create" className="space-y-4 pt-2">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-4"
+              >
                 <FormField
                   control={form.control}
                   name="organizationName"
