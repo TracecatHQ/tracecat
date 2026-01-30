@@ -3105,17 +3105,7 @@ export function useCreateTable() {
       })
     },
     onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Error creating table", error)
-          break
-      }
+      console.error("Error creating table", error)
     },
   })
 
@@ -3519,26 +3509,6 @@ export function useImportTableFromCsv() {
         router.push(
           `/workspaces/${variables.workspaceId}/tables/${response.table.id}`
         )
-      }
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Error importing table from CSV", error)
-          toast({
-            title: "Import failed",
-            description:
-              error.body && typeof error.body.detail === "string"
-                ? error.body.detail
-                : "Unable to import table from CSV. Please try again.",
-          })
-          break
       }
     },
   })

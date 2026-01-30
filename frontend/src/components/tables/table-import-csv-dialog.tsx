@@ -9,6 +9,7 @@ import { z } from "zod"
 import { ApiError, type TableRead } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { Spinner } from "@/components/loading/spinner"
+import { ProtectedColumnsAlert } from "@/components/tables/protected-columns-alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -26,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -33,14 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
 import type { SqlType } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
@@ -150,16 +144,30 @@ export function TableImportCsvDialog({
       console.error("Error importing data:", error)
       if (error instanceof ApiError) {
         const apiError = error as TracecatApiError
-        form.setError("root", {
-          message:
-            typeof apiError.body.detail === "object"
+        const detail =
+          typeof apiError.body.detail === "string"
+            ? apiError.body.detail
+            : typeof apiError.body.detail === "object"
               ? JSON.stringify(apiError.body.detail)
-              : String(apiError.body.detail),
-        })
+              : undefined
+        let message: string
+        if (
+          detail?.toLowerCase().includes("column") &&
+          detail?.includes("already exists")
+        ) {
+          message =
+            "A column in your CSV conflicts with an existing column. Check for protected names like id, created_at, or updated_at."
+        } else if (detail && error.status !== 500) {
+          message = detail
+        } else {
+          message =
+            "Failed to import data. Please check your CSV file and try again."
+        }
+        form.setError("root", { type: "manual", message })
       } else {
-        toast({
-          title: "Failed to import data",
-          description: "Please try again",
+        form.setError("root", {
+          type: "manual",
+          message: "Failed to import data. Please try again.",
         })
       }
     }
@@ -168,7 +176,7 @@ export function TableImportCsvDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-3xl"
+        className="max-h-[85vh] max-w-3xl overflow-hidden"
         aria-describedby="csv-import-description"
       >
         <DialogHeader className="space-y-4">
@@ -176,60 +184,66 @@ export function TableImportCsvDialog({
           <DialogDescription>
             Import data from a CSV file into your table.
           </DialogDescription>
+          <ProtectedColumnsAlert />
         </DialogHeader>
 
         <FormProvider {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            <div className="space-y-6">
-              {!csvPreview ? (
-                <CsvUploadForm
-                  isUploading={isUploading}
-                  nextPage={handleCreatePreview}
-                />
-              ) : (
-                <>
-                  <CsvPreview csvData={csvPreview} />
-                  {table && (
-                    <ColumnMapping csvData={csvPreview} table={table} />
-                  )}
-                  <div>
-                    {form.formState.errors.root && (
-                      <div className="text-sm text-red-500">
-                        {form.formState.errors.root.message}
-                      </div>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="min-w-0 overflow-hidden"
+          >
+            <ScrollArea className="max-h-[calc(85vh-10rem)]">
+              <div className="space-y-6 pr-4">
+                {!csvPreview ? (
+                  <CsvUploadForm
+                    isUploading={isUploading}
+                    nextPage={handleCreatePreview}
+                  />
+                ) : (
+                  <>
+                    <CsvPreview csvData={csvPreview} />
+                    {table && (
+                      <ColumnMapping csvData={csvPreview} table={table} />
                     )}
-                  </div>
-                  <div className="flex justify-end space-x-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setCsvPreview(null)
-                        form.reset({ columnMapping: {} })
-                      }}
-                    >
-                      Back
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={
-                        importCsvIsPending ||
-                        Object.keys(form.getValues("columnMapping")).length ===
-                          0
-                      }
-                    >
-                      {importCsvIsPending ? (
-                        <>
-                          <Spinner className="mr-2 size-4" />
-                          Importing...
-                        </>
-                      ) : (
-                        "Import Data"
+                    <div>
+                      {form.formState.errors.root && (
+                        <div className="text-sm text-red-500">
+                          {form.formState.errors.root.message}
+                        </div>
                       )}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setCsvPreview(null)
+                          form.reset({ columnMapping: {} })
+                        }}
+                      >
+                        Back
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={
+                          importCsvIsPending ||
+                          Object.keys(form.getValues("columnMapping"))
+                            .length === 0
+                        }
+                      >
+                        {importCsvIsPending ? (
+                          <>
+                            <Spinner className="mr-2 size-4" />
+                            Importing...
+                          </>
+                        ) : (
+                          "Import Data"
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </ScrollArea>
           </form>
         </FormProvider>
       </DialogContent>
@@ -299,59 +313,65 @@ interface CsvPreviewProps {
 
 export function CsvPreview({ csvData }: CsvPreviewProps) {
   return (
-    <div className="space-y-4">
-      <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="max-h-60 overflow-auto rounded border">
-        <div className="overflow-x-auto">
-          <Table className="w-full min-w-max table-auto">
-            <TableHeader>
-              <TableRow>
+    <div className="min-w-0 overflow-hidden space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">Preview</span>
+        <span className="text-xs text-muted-foreground">
+          {csvData.headers.length} columns &middot; {csvData.preview.length}{" "}
+          rows
+        </span>
+      </div>
+      <div className="max-h-[240px] overflow-auto rounded-md border border-border/50">
+        <table className="w-full min-w-max table-auto border-collapse text-xs">
+          <thead>
+            <tr>
+              <th className="sticky left-0 top-0 z-20 min-w-[40px] border-b border-r border-border/30 bg-muted/30 px-3 py-2 text-left font-medium text-muted-foreground">
+                #
+              </th>
+              {csvData.headers.map((header) => (
+                <th
+                  key={header}
+                  className="sticky top-0 z-10 min-w-[120px] max-w-[200px] whitespace-nowrap border-b border-border/30 bg-muted/30 px-3 py-2 text-left font-medium"
+                >
+                  <div className="truncate" title={header}>
+                    {header}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {csvData.preview.map((row, i) => (
+              <tr key={i}>
+                <td className="sticky left-0 z-10 border-r border-border/30 bg-background px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
+                  {i + 1}
+                </td>
                 {csvData.headers.map((header) => {
+                  const cellValue = row[header]
+                  const isObject =
+                    typeof cellValue === "object" && cellValue !== null
+                  const fullValue = isObject
+                    ? JSON.stringify(cellValue)
+                    : String(cellValue ?? "")
+                  const displayValue =
+                    fullValue.length > 80
+                      ? `${fullValue.substring(0, 77)}...`
+                      : fullValue
+
                   return (
-                    <TableHead
+                    <td
                       key={header}
-                      className="sticky top-0 min-w-[120px] max-w-[200px] whitespace-nowrap bg-muted/50 px-3 py-2"
+                      className="min-w-[120px] max-w-[200px] truncate px-3 py-1.5"
+                      title={fullValue}
                     >
-                      <div className="truncate" title={header}>
-                        {header}
-                      </div>
-                    </TableHead>
+                      {displayValue}
+                    </td>
                   )
                 })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {csvData.preview.map((row, i) => {
-                return (
-                  <TableRow key={i}>
-                    {csvData.headers.map((header) => {
-                      const cellValue = row[header]
-                      const isObject =
-                        typeof cellValue === "object" && cellValue !== null
-                      const fullValue = isObject
-                        ? JSON.stringify(cellValue)
-                        : String(cellValue || "")
-                      const displayValue =
-                        fullValue.length > 100
-                          ? fullValue.substring(0, 97) + "..."
-                          : fullValue
-
-                      return (
-                        <TableCell
-                          key={header}
-                          className="min-w-[120px] max-w-[200px] truncate px-3 py-2"
-                          title={fullValue}
-                        >
-                          {displayValue}
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
