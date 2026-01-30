@@ -5,10 +5,10 @@ from sqlalchemy import select
 from tracecat.db.models import Tag, WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.identifiers.workflow import WorkflowID
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 
 
-class WorkflowTagsService(BaseService):
+class WorkflowTagsService(BaseWorkspaceService):
     service_name = "workflow_tags"
 
     async def list_tags_for_workflow(self, wf_id: WorkflowID) -> Sequence[Tag]:

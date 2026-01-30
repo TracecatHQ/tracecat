@@ -85,7 +85,7 @@ async def test_platform_repos_service_create_repository(
     session: AsyncSession,
 ) -> None:
     """Test creating a platform registry repository."""
-    service = PlatformRegistryReposService(session, role=None)
+    service = PlatformRegistryReposService(session)
 
     # Use DEFAULT_LOCAL_REGISTRY_ORIGIN since DEFAULT_REGISTRY_ORIGIN is pre-seeded by conftest
     repo = await service.create_repository(
@@ -107,7 +107,7 @@ async def test_platform_repos_service_get_repository(
     session.add(repo)
     await session.commit()
 
-    service = PlatformRegistryReposService(session, role=None)
+    service = PlatformRegistryReposService(session)
     found = await service.get_repository("test_platform_origin")
 
     assert found is not None
@@ -120,7 +120,7 @@ async def test_platform_repos_service_get_repository_not_found(
     session: AsyncSession,
 ) -> None:
     """Test getting a non-existent repository returns None."""
-    service = PlatformRegistryReposService(session, role=None)
+    service = PlatformRegistryReposService(session)
     found = await service.get_repository("nonexistent_origin")
 
     assert found is None
@@ -136,7 +136,7 @@ async def test_platform_repos_service_get_or_create_existing(
     session.add(repo)
     await session.commit()
 
-    service = PlatformRegistryReposService(session, role=None)
+    service = PlatformRegistryReposService(session)
     found = await service.get_or_create_repository("existing_origin")
 
     assert found.id == repo.id
@@ -147,7 +147,7 @@ async def test_platform_repos_service_get_or_create_new(
     session: AsyncSession,
 ) -> None:
     """Test get_or_create creates new repository if not exists."""
-    service = PlatformRegistryReposService(session, role=None)
+    service = PlatformRegistryReposService(session)
     repo = await service.get_or_create_repository(DEFAULT_LOCAL_REGISTRY_ORIGIN)
 
     assert repo.origin == DEFAULT_LOCAL_REGISTRY_ORIGIN
