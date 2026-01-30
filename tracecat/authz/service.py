@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Membership, Role, User, UserRoleAssignment, Workspace
+from tracecat.db.models import Membership, User, UserRoleAssignment, Workspace
+from tracecat.db.models import Role as RoleModel
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
@@ -83,8 +85,8 @@ class MembershipService(BaseService):
         # Get role assignments for these users in this workspace
         user_ids = [u.id for u in users]
         role_stmt = (
-            select(UserRoleAssignment.user_id, Role.slug)
-            .join(Role, UserRoleAssignment.role_id == Role.id)
+            select(UserRoleAssignment.user_id, RoleModel.slug)
+            .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
             .where(
                 UserRoleAssignment.user_id.in_(user_ids),
                 UserRoleAssignment.workspace_id == workspace_id,
@@ -169,13 +171,13 @@ class MembershipService(BaseService):
 
         # Look up the role by slug
         role_slug = params.role.value.lower()  # e.g., "EDITOR" -> "editor"
-        role_stmt = select(Role).where(
-            Role.organization_id == workspace.organization_id,
-            Role.slug == role_slug,
+        role_stmt = select(RoleModel).where(
+            RoleModel.organization_id == workspace.organization_id,
+            RoleModel.slug == role_slug,
         )
         role_result = await self.session.execute(role_stmt)
-        role = role_result.scalar_one_or_none()
-        if role is None:
+        db_role = role_result.scalar_one_or_none()
+        if db_role is None:
             raise ValueError(f"Role with slug '{role_slug}' not found")
 
         # Create membership
@@ -190,7 +192,7 @@ class MembershipService(BaseService):
             organization_id=workspace.organization_id,
             user_id=params.user_id,
             workspace_id=workspace_id,
-            role_id=role.id,
+            role_id=db_role.id,
         )
         self.session.add(role_assignment)
         await self.session.commit()
@@ -216,13 +218,13 @@ class MembershipService(BaseService):
 
         # Look up the new role by slug
         role_slug = params.role.value.lower()
-        role_stmt = select(Role).where(
-            Role.organization_id == workspace.organization_id,
-            Role.slug == role_slug,
+        role_stmt = select(RoleModel).where(
+            RoleModel.organization_id == workspace.organization_id,
+            RoleModel.slug == role_slug,
         )
         role_result = await self.session.execute(role_stmt)
-        role = role_result.scalar_one_or_none()
-        if role is None:
+        db_role = role_result.scalar_one_or_none()
+        if db_role is None:
             raise ValueError(f"Role with slug '{role_slug}' not found")
 
         # Update the role assignment
@@ -234,7 +236,7 @@ class MembershipService(BaseService):
         assignment = assignment_result.scalar_one_or_none()
 
         if assignment:
-            assignment.role_id = role.id
+            assignment.role_id = db_role.id
             self.session.add(assignment)
         else:
             # Create new assignment if it doesn't exist
@@ -242,7 +244,7 @@ class MembershipService(BaseService):
                 organization_id=workspace.organization_id,
                 user_id=membership.user_id,
                 workspace_id=membership.workspace_id,
-                role_id=role.id,
+                role_id=db_role.id,
             )
             self.session.add(new_assignment)
 
