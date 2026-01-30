@@ -32,7 +32,7 @@ from tracecat.auth.users import (
     optional_current_active_user,
 )
 from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.authz.scopes import ORG_ROLE_SCOPES, SYSTEM_ROLE_SCOPES
+from tracecat.authz.scopes import ORG_ROLE_SCOPES, PRESET_ROLE_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role, ctx_scopes
 from tracecat.db.dependencies import AsyncDBSession
@@ -96,7 +96,7 @@ def compute_effective_scopes(role: Role) -> frozenset[str]:
 
     For workspace-scoped requests:
     - Org OWNER/ADMIN: org-level scopes (they can access all workspaces)
-    - Workspace members: workspace role scopes from SYSTEM_ROLE_SCOPES
+    - Workspace members: workspace role scopes from PRESET_ROLE_SCOPES
 
     Note: Group-based scopes will be added in PR 4 (RBAC Service & APIs).
     """
@@ -115,7 +115,7 @@ def compute_effective_scopes(role: Role) -> frozenset[str]:
         # Org admins/owners already have workspace scopes via their org role
         # Regular members need their workspace role scopes
         if role.org_role not in (OrgRole.OWNER, OrgRole.ADMIN):
-            scope_set |= SYSTEM_ROLE_SCOPES.get(role.workspace_role, set())
+            scope_set |= PRESET_ROLE_SCOPES.get(role.workspace_role, set())
 
     # Note: Group-based scopes (from group_assignment table) will be added in PR 4
     # via RBACService.get_group_scopes()

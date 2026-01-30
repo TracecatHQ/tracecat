@@ -83,10 +83,10 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
 )
 
 # =============================================================================
-# System Role -> Scope Set Mapping
+# Preset Role -> Scope Set Mapping
 # =============================================================================
 
-SYSTEM_ROLE_SCOPES: dict[WorkspaceRole, frozenset[str]] = {
+PRESET_ROLE_SCOPES: dict[WorkspaceRole, frozenset[str]] = {
     WorkspaceRole.VIEWER: VIEWER_SCOPES,
     WorkspaceRole.EDITOR: EDITOR_SCOPES,
     WorkspaceRole.ADMIN: ADMIN_SCOPES,
