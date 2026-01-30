@@ -145,12 +145,13 @@ export function CellDisplay({
             normalizedType === "DATE" ? "MMM d yyyy" : "MMM d yyyy '\u00b7' p"
           )}
         </span>
+      ) : isNumericColumn && typeof value === "number" ? (
+        <ScientificNumber value={value} />
       ) : isNumericColumn &&
-        (typeof value === "number" ||
-          (typeof value === "string" &&
-            value !== "" &&
-            !Number.isNaN(Number(value)))) ? (
-        <ScientificNumber value={Number(value)} />
+        typeof value === "string" &&
+        value !== "" &&
+        !Number.isNaN(Number(value)) ? (
+        <span>{value}</span>
       ) : typeof value === "number" ? (
         <ScientificNumber value={value} />
       ) : typeof value === "string" && value.length > 25 ? (
