@@ -5571,15 +5571,16 @@ export function useWorkspaceSettings(
 
 /**
  * Hook to fetch the current user's effective scopes.
+ * @param workspaceId Optional workspace ID to include workspace-specific scopes
  */
-export function useUserScopes() {
+export function useUserScopes(workspaceId?: string) {
   const {
     data: userScopes,
     isLoading,
     error,
   } = useQuery<UserScopesRead>({
-    queryKey: ["user-scopes"],
-    queryFn: async () => await usersGetMyScopes(),
+    queryKey: ["user-scopes", workspaceId],
+    queryFn: async () => await usersGetMyScopes({ workspaceId }),
   })
 
   return {
@@ -5728,13 +5729,13 @@ export function useRbacScopes(options?: {
 export function useRbacRoles() {
   const queryClient = useQueryClient()
 
-  // List roles
+  // List roles (org-level, shared across all workspaces)
   const {
     data: roles,
     isLoading,
     error,
   } = useQuery<RoleReadWithScopes[]>({
-    queryKey: ["rbac-roles"],
+    queryKey: ["rbac-roles", "org"],
     queryFn: async () => {
       const response = await rbacListRoles()
       return response.items
@@ -5758,7 +5759,7 @@ export function useRbacRoles() {
     mutationFn: async (params: RoleCreate) =>
       await rbacCreateRole({ requestBody: params }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-roles"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-roles", "org"] })
       toast({
         title: "Role created",
         description: "Custom role created successfully.",
@@ -5809,7 +5810,7 @@ export function useRbacRoles() {
     }: RoleUpdate & { roleId: string }) =>
       await rbacUpdateRole({ roleId, requestBody: params }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-roles"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-roles", "org"] })
       toast({
         title: "Role updated",
         description: "Role updated successfully.",
@@ -5856,7 +5857,7 @@ export function useRbacRoles() {
   } = useMutation({
     mutationFn: async (roleId: string) => await rbacDeleteRole({ roleId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-roles"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-roles", "org"] })
       toast({
         title: "Role deleted",
         description: "Role deleted successfully.",
@@ -5918,13 +5919,13 @@ export function useRbacRoles() {
 export function useRbacGroups() {
   const queryClient = useQueryClient()
 
-  // List groups
+  // List groups (org-level, shared across all workspaces)
   const {
     data: groups,
     isLoading,
     error,
   } = useQuery<GroupReadWithMembers[]>({
-    queryKey: ["rbac-groups"],
+    queryKey: ["rbac-groups", "org"],
     queryFn: async () => {
       const response = await rbacListGroups()
       return response.items
@@ -5948,7 +5949,7 @@ export function useRbacGroups() {
     mutationFn: async (params: GroupCreate) =>
       await rbacCreateGroup({ requestBody: params }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       toast({
         title: "Group created",
         description: "Group created successfully.",
@@ -5999,7 +6000,7 @@ export function useRbacGroups() {
     }: GroupUpdate & { groupId: string }) =>
       await rbacUpdateGroup({ groupId, requestBody: params }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       toast({
         title: "Group updated",
         description: "Group updated successfully.",
@@ -6039,7 +6040,7 @@ export function useRbacGroups() {
   } = useMutation({
     mutationFn: async (groupId: string) => await rbacDeleteGroup({ groupId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
       toast({
         title: "Group deleted",
@@ -6087,7 +6088,7 @@ export function useRbacGroups() {
     }) =>
       await rbacAddGroupMember({ groupId, requestBody: { user_id: userId } }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       toast({
         title: "Member added",
         description: "Member added to the group successfully.",
@@ -6140,7 +6141,7 @@ export function useRbacGroups() {
       userId: string
     }) => await rbacRemoveGroupMember({ groupId, userId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-groups"] })
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       toast({
         title: "Member removed",
         description: "Member removed from the group successfully.",

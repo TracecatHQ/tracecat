@@ -12,7 +12,6 @@ import {
   MailIcon,
   SendIcon,
   Settings2,
-  ShieldCheckIcon,
   ShieldIcon,
   UsersIcon,
 } from "lucide-react"
@@ -47,7 +46,6 @@ export function OrganizationSidebar({
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewMembers = useScopeCheck("org:member:read")
-  const canViewRbac = useScopeCheck("org:rbac:read")
 
   const navSettings = [
     {
@@ -98,13 +96,6 @@ export function OrganizationSidebar({
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
       visible: canViewSettings !== false,
-    },
-    {
-      title: "Access control",
-      url: "/organization/settings/rbac",
-      icon: ShieldCheckIcon,
-      isActive: pathname?.includes("/organization/settings/rbac"),
-      visible: canViewRbac !== false,
     },
     ...(isFeatureEnabled("git-sync")
       ? [

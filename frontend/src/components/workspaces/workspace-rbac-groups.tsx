@@ -2,8 +2,6 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
-  FolderIcon,
-  GlobeIcon,
   PlusIcon,
   SearchIcon,
   ShieldIcon,
@@ -71,10 +69,9 @@ import {
   useRbacAssignments,
   useRbacGroups,
   useRbacRoles,
-  useWorkspaceManager,
 } from "@/lib/hooks"
 
-export function OrgRbacGroups() {
+export function WorkspaceRbacGroups({ workspaceId }: { workspaceId: string }) {
   const [selectedGroup, setSelectedGroup] =
     useState<GroupReadWithMembers | null>(null)
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
@@ -237,6 +234,7 @@ export function OrgRbacGroups() {
                 <GroupListItem
                   key={group.id}
                   group={group}
+                  workspaceId={workspaceId}
                   isExpanded={expandedGroupId === group.id}
                   onExpandedChange={(expanded) =>
                     setExpandedGroupId(expanded ? group.id : null)
@@ -279,7 +277,7 @@ export function OrgRbacGroups() {
       {isCreateOpen && (
         <GroupFormDialog
           title="Create group"
-          description="Create a new group to organize users and assign roles."
+          description="Create a group to organize users. Groups are shared across your organization, but role assignments are workspace-specific."
           onSubmit={handleCreateGroup}
           isPending={createGroupIsPending}
           onOpenChange={(open) => {
@@ -310,6 +308,7 @@ export function OrgRbacGroups() {
         {selectedGroup && (
           <GroupManageDialog
             group={selectedGroup}
+            workspaceId={workspaceId}
             onAddMember={handleAddMember}
             onRemoveMember={handleRemoveMember}
             isAddingMember={addGroupMemberIsPending}
@@ -324,6 +323,7 @@ export function OrgRbacGroups() {
 
 function GroupListItem({
   group,
+  workspaceId,
   isExpanded,
   onExpandedChange,
   onManage,
@@ -331,13 +331,18 @@ function GroupListItem({
   onDelete,
 }: {
   group: GroupReadWithMembers
+  workspaceId: string
   isExpanded: boolean
   onExpandedChange: (expanded: boolean) => void
   onManage: () => void
   onEdit: () => void
   onDelete: () => void
 }) {
-  const { assignments } = useRbacAssignments({ groupId: group.id })
+  // Get assignments filtered to this workspace
+  const { assignments } = useRbacAssignments({
+    groupId: group.id,
+    workspaceId,
+  })
 
   return (
     <RbacListItem
@@ -401,6 +406,7 @@ function GroupListItem({
     >
       <GroupExpandedContent
         group={group}
+        workspaceId={workspaceId}
         assignments={assignments}
         onManage={onManage}
       />
@@ -410,10 +416,12 @@ function GroupListItem({
 
 function GroupExpandedContent({
   group,
+  workspaceId,
   assignments,
   onManage,
 }: {
   group: GroupReadWithMembers
+  workspaceId: string
   assignments: GroupAssignmentReadWithDetails[]
   onManage: () => void
 }) {
@@ -439,9 +447,11 @@ function GroupExpandedContent({
           </Button>
         </div>
       </RbacDetailRow>
-      <RbacDetailRow label="Role assignments">
+      <RbacDetailRow label="Roles">
         {assignments.length === 0 ? (
-          <span className="text-muted-foreground">No role assignments</span>
+          <span className="text-muted-foreground">
+            No roles assigned in this workspace
+          </span>
         ) : (
           <div className="space-y-1.5">
             {assignments.map((assignment) => (
@@ -450,17 +460,6 @@ function GroupExpandedContent({
                 className="flex items-center gap-2 text-xs"
               >
                 <Badge variant="secondary">{assignment.role_name}</Badge>
-                {assignment.workspace_name ? (
-                  <span className="flex items-center gap-1 text-muted-foreground">
-                    <FolderIcon className="size-3" />
-                    {assignment.workspace_name}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                    <GlobeIcon className="size-3" />
-                    Organization-wide
-                  </span>
-                )}
               </div>
             ))}
           </div>
@@ -550,6 +549,7 @@ function GroupFormDialog({
 
 function GroupManageDialog({
   group,
+  workspaceId,
   onAddMember,
   onRemoveMember,
   isAddingMember,
@@ -557,6 +557,7 @@ function GroupManageDialog({
   onOpenChange,
 }: {
   group: GroupReadWithMembers
+  workspaceId: string
   onAddMember: (userId: string) => Promise<void>
   onRemoveMember: (userId: string) => Promise<void>
   isAddingMember: boolean
@@ -565,18 +566,15 @@ function GroupManageDialog({
 }) {
   const [selectedUserId, setSelectedUserId] = useState<string>("")
   const [selectedRoleId, setSelectedRoleId] = useState<string>("")
-  const [selectedWorkspaceId, setSelectedWorkspaceId] =
-    useState<string>("org-wide")
   const { orgMembers } = useOrgMembers()
   const { roles } = useRbacRoles()
-  const { workspaces } = useWorkspaceManager()
   const {
     assignments,
     createAssignment,
     createAssignmentIsPending,
     deleteAssignment,
     deleteAssignmentIsPending,
-  } = useRbacAssignments({ groupId: group.id })
+  } = useRbacAssignments({ groupId: group.id, workspaceId })
 
   // Filter out users who are already members
   const existingMemberIds = new Set(group.members?.map((m) => m.user_id) ?? [])
@@ -594,11 +592,9 @@ function GroupManageDialog({
     await createAssignment({
       group_id: group.id,
       role_id: selectedRoleId,
-      workspace_id:
-        selectedWorkspaceId === "org-wide" ? null : selectedWorkspaceId,
+      workspace_id: workspaceId,
     })
     setSelectedRoleId("")
-    setSelectedWorkspaceId("org-wide")
   }
 
   const handleRemoveRole = async (assignmentId: string) => {
@@ -610,7 +606,8 @@ function GroupManageDialog({
       <DialogHeader>
         <DialogTitle>Manage group - {group.name}</DialogTitle>
         <DialogDescription>
-          Add or remove members and role assignments for this group.
+          Add or remove members and role assignments for this group within this
+          workspace.
         </DialogDescription>
       </DialogHeader>
       <Tabs defaultValue="members" className="w-full">
@@ -718,30 +715,6 @@ function GroupManageDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <Select
-                value={selectedWorkspaceId}
-                onValueChange={setSelectedWorkspaceId}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Scope" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="org-wide">
-                    <div className="flex items-center gap-2">
-                      <GlobeIcon className="size-4 text-blue-500" />
-                      Organization
-                    </div>
-                  </SelectItem>
-                  {workspaces?.map((workspace) => (
-                    <SelectItem key={workspace.id} value={workspace.id}>
-                      <div className="flex items-center gap-2">
-                        <FolderIcon className="size-4 text-muted-foreground" />
-                        {workspace.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Button
                 type="button"
                 onClick={handleAddRole}
@@ -751,12 +724,12 @@ function GroupManageDialog({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              All members of this group will inherit the assigned roles.
+              Roles assigned here apply only within this workspace.
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label>Current role assignments ({assignments.length})</Label>
+            <Label>Workspace role assignments ({assignments.length})</Label>
             <ScrollArea className="h-[200px] rounded-md border">
               {assignments.length > 0 ? (
                 <div className="space-y-2 p-4">
@@ -766,24 +739,9 @@ function GroupManageDialog({
                       className="flex items-center justify-between rounded-md border p-2"
                     >
                       <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary">
-                            {assignment.role_name}
-                          </Badge>
-                        </div>
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          {assignment.workspace_name ? (
-                            <>
-                              <FolderIcon className="size-3" />
-                              {assignment.workspace_name}
-                            </>
-                          ) : (
-                            <>
-                              <GlobeIcon className="size-3 text-blue-500" />
-                              Organization-wide
-                            </>
-                          )}
-                        </span>
+                        <Badge variant="secondary">
+                          {assignment.role_name}
+                        </Badge>
                       </div>
                       <Button
                         variant="ghost"
@@ -800,7 +758,7 @@ function GroupManageDialog({
               ) : (
                 <div className="flex h-full items-center justify-center p-4">
                   <p className="text-sm text-muted-foreground">
-                    No role assignments
+                    No roles assigned in this workspace
                   </p>
                 </div>
               )}
