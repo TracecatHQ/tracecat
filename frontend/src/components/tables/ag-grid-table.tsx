@@ -63,6 +63,8 @@ const POPUP_EDITOR_TYPES = new Set([
   "CHAR",
   "CITEXT",
   "BPCHAR",
+  "JSON",
+  "JSONB",
   "TIMESTAMP",
   "TIMESTAMPTZ",
   "MULTI_SELECT",

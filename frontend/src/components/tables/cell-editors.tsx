@@ -1,7 +1,13 @@
 "use client"
 
+import { history } from "@codemirror/commands"
+import { json } from "@codemirror/lang-json"
+import { bracketMatching, closeBrackets } from "@codemirror/language"
+import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
+import { EditorView, keymap } from "@codemirror/view"
+import CodeMirror from "@uiw/react-codemirror"
 import type React from "react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TableColumnRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
@@ -290,6 +296,22 @@ function TimestampCellEditor({
   )
 }
 
+function jsonLinter(view: EditorView): Diagnostic[] {
+  const content = view.state.doc.toString()
+  if (!content.trim()) return []
+  try {
+    JSON.parse(content)
+    return []
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON"
+    const posMatch = msg.match(/position (\d+)/)
+    const pos = posMatch ? Number.parseInt(posMatch[1], 10) : 0
+    const from = Math.min(pos, content.length)
+    const to = Math.min(from + 1, content.length)
+    return [{ from, to, severity: "error", message: msg, source: "json" }]
+  }
+}
+
 function JsonCellEditor({
   value,
   onChange,
@@ -304,11 +326,6 @@ function JsonCellEditor({
         : JSON.stringify(value, null, 2)
   const [localValue, setLocalValue] = useState(strValue)
   const [error, setError] = useState<string | null>(null)
-  const ref = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    ref.current?.focus()
-  }, [])
 
   const validate = useCallback((val: string): boolean => {
     if (val.trim() === "") return true
@@ -319,6 +336,10 @@ function JsonCellEditor({
       return false
     }
   }, [])
+
+  const handleCommitRef = useRef<() => void>(() => {})
+  const onCancelRef = useRef(onCancel)
+  onCancelRef.current = onCancel
 
   const handleCommit = useCallback(() => {
     if (!validate(localValue)) {
@@ -334,35 +355,69 @@ function JsonCellEditor({
     onCommit()
   }, [localValue, validate, onChange, onCommit])
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault()
-        handleCommit()
-      } else if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      }
-    },
-    [handleCommit, onCancel]
+  handleCommitRef.current = handleCommit
+
+  const extensions = useMemo(
+    () => [
+      json(),
+      lintGutter(),
+      linter(jsonLinter),
+      history(),
+      bracketMatching(),
+      closeBrackets(),
+      keymap.of([
+        {
+          key: "Mod-Enter",
+          run: () => {
+            handleCommitRef.current()
+            return true
+          },
+          preventDefault: true,
+        },
+        {
+          key: "Escape",
+          run: () => {
+            onCancelRef.current()
+            return true
+          },
+          preventDefault: true,
+        },
+      ]),
+      EditorView.theme({
+        ".cm-content": { fontFamily: "monospace", fontSize: "12px" },
+        ".cm-scroller": { maxHeight: "300px", overflow: "auto" },
+      }),
+    ],
+    []
   )
 
   return (
     <div className="space-y-1">
-      <Textarea
-        ref={ref}
+      <CodeMirror
         value={localValue}
-        onChange={(e) => {
-          setLocalValue(e.target.value)
-          onChange(e.target.value)
+        onChange={(val) => {
+          setLocalValue(val)
           if (error) {
-            setError(validate(e.target.value) ? null : "Invalid JSON")
+            setError(validate(val) ? null : "Invalid JSON")
           }
         }}
-        onKeyDown={handleKeyDown}
+        height="auto"
+        extensions={extensions}
+        theme="light"
+        autoFocus
+        basicSetup={{
+          lineNumbers: true,
+          foldGutter: false,
+          highlightActiveLine: true,
+          bracketMatching: false,
+          closeBrackets: false,
+          history: false,
+          defaultKeymap: true,
+          syntaxHighlighting: true,
+          autocompletion: false,
+        }}
+        className="min-h-[100px] max-h-[300px] overflow-auto rounded-md border font-mono text-xs"
         onBlur={handleCommit}
-        className="min-h-[100px] font-mono text-xs"
-        rows={5}
       />
       {error && <p className="text-xs text-destructive">{error}</p>}
       <p className="text-xs text-muted-foreground">Cmd/Ctrl+Enter to save</p>
