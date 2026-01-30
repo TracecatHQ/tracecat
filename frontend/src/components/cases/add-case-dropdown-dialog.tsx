@@ -274,6 +274,16 @@ export function AddCaseDropdownDialog({
           color: o.color.trim() || undefined,
           position: i,
         }))
+        .filter((o) => o.ref)
+
+      if (validOptions.length === 0) {
+        methods.setError("name", {
+          type: "manual",
+          message:
+            "At least one option must have a label that produces a valid reference (use alphanumeric characters)",
+        })
+        return
+      }
 
       await createDropdownDefinition({
         workspaceId,

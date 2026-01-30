@@ -177,6 +177,13 @@ async def update_dropdown_option(
 ) -> CaseDropdownOptionRead:
     """Update an option within a dropdown definition."""
     service = CaseDropdownDefinitionsService(session=session, role=role)
+    # Verify definition belongs to this workspace
+    try:
+        await service.get_definition(definition_id)
+    except TracecatNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
+        ) from err
     try:
         option = await service.update_option(option_id, params)
     except TracecatNotFoundError as err:
@@ -204,6 +211,13 @@ async def delete_dropdown_option(
 ) -> None:
     """Delete an option from a dropdown definition."""
     service = CaseDropdownDefinitionsService(session=session, role=role)
+    # Verify definition belongs to this workspace
+    try:
+        await service.get_definition(definition_id)
+    except TracecatNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
+        ) from err
     try:
         await service.delete_option(option_id)
     except TracecatNotFoundError as err:

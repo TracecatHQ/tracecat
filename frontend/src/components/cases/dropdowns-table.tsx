@@ -431,20 +431,20 @@ function EditDefinitionDialog({
   onClose: () => void
 }) {
   const idPrefix = useId()
-  const [nextOptionId, setNextOptionId] = useState(0)
-
   const makeOptionId = useCallback(
     (n: number) => `${idPrefix}-edit-opt-${n}`,
     [idPrefix]
   )
 
+  const [nextOptionId, setNextOptionId] = useState(
+    () => (definition.options ?? []).length
+  )
+
   const [options, setOptions] = useState<EditOptionState[]>(() => {
-    const existing = (definition.options ?? []).map((opt, i) => ({
+    return (definition.options ?? []).map((opt, i) => ({
       ...toOptionInput(opt, makeOptionId(i)),
       apiId: opt.id,
     }))
-    setNextOptionId(existing.length)
-    return existing
   })
 
   // Track the original options for diffing

@@ -128,7 +128,18 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
     # --- Option CRUD ---
 
     async def _get_option(self, option_id: uuid.UUID) -> CaseDropdownOption:
-        stmt = select(CaseDropdownOption).where(CaseDropdownOption.id == option_id)
+        """Get an option by ID, scoped to the current workspace."""
+        stmt = (
+            select(CaseDropdownOption)
+            .join(
+                CaseDropdownDefinition,
+                CaseDropdownOption.definition_id == CaseDropdownDefinition.id,
+            )
+            .where(
+                CaseDropdownOption.id == option_id,
+                CaseDropdownDefinition.workspace_id == self.workspace_id,
+            )
+        )
         result = await self.session.execute(stmt)
         option = result.scalar_one_or_none()
         if option is None:
@@ -209,6 +220,8 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         self, case_id: uuid.UUID
     ) -> list[CaseDropdownValueRead]:
         """List all dropdown values for a case with definition/option info."""
+        # Validate case belongs to this workspace
+        await self._get_case(case_id)
         stmt = (
             select(CaseDropdownValue)
             .where(CaseDropdownValue.case_id == case_id)
@@ -274,24 +287,33 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             self.session.add(row)
             await self.session.flush()
 
-        # Resolve new option label
+        # Resolve definition info (workspace-scoped)
+        def_stmt = select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.id == definition_id,
+            CaseDropdownDefinition.workspace_id == self.workspace_id,
+        )
+        def_result = await self.session.execute(def_stmt)
+        definition = def_result.scalar_one_or_none()
+        if definition is None:
+            raise TracecatNotFoundError(
+                f"Dropdown definition {definition_id} not found"
+            )
+
+        # Resolve new option label and validate it belongs to the definition
         new_option_label: str | None = None
         new_option: CaseDropdownOption | None = None
         if params.option_id is not None:
             opt_stmt = select(CaseDropdownOption).where(
-                CaseDropdownOption.id == params.option_id
+                CaseDropdownOption.id == params.option_id,
+                CaseDropdownOption.definition_id == definition_id,
             )
             opt_result = await self.session.execute(opt_stmt)
             new_option = opt_result.scalar_one_or_none()
-            if new_option:
-                new_option_label = new_option.label
-
-        # Resolve definition info
-        def_stmt = select(CaseDropdownDefinition).where(
-            CaseDropdownDefinition.id == definition_id
-        )
-        def_result = await self.session.execute(def_stmt)
-        definition = def_result.scalar_one()
+            if new_option is None:
+                raise TracecatNotFoundError(
+                    f"Dropdown option {params.option_id} not found for definition {definition_id}"
+                )
+            new_option_label = new_option.label
 
         # Create event
         run_ctx = ctx_run.get()

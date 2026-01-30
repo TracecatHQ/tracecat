@@ -18,9 +18,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TYPE caseeventtype ADD VALUE IF NOT EXISTS 'DROPDOWN_VALUE_CHANGED'"
-    )
+    # ALTER TYPE ... ADD VALUE cannot run inside a transaction in PostgreSQL.
+    # Use autocommit_block so the statement executes outside the transaction.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "ALTER TYPE caseeventtype ADD VALUE IF NOT EXISTS 'DROPDOWN_VALUE_CHANGED'"
+        )
 
 
 def downgrade() -> None:

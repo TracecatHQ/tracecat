@@ -62,7 +62,7 @@ const allIcons: IconEntry[] = (() => {
       entries.push({
         kebabName: kebab,
         displayName: toDisplayName(kebab),
-        component: value as LucideIcon,
+        component: value as unknown as LucideIcon,
       })
     }
   }
@@ -151,12 +151,7 @@ export function IconPicker({
                 className="h-10 border-0 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             </div>
-            <div
-              className="h-[300px] overflow-y-auto overscroll-contain"
-              onWheel={(e) => {
-                e.currentTarget.scrollTop += e.deltaY
-              }}
-            >
+            <div className="h-[300px] overflow-y-auto overscroll-contain">
               {visibleIcons.length === 0 ? (
                 <div className="py-6 text-center text-sm text-muted-foreground">
                   No icons found
