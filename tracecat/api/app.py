@@ -150,15 +150,20 @@ async def setup_default_organization(session: AsyncSession) -> OrganizationID:
             slug="default",
             is_active=True,
         )
-        session.add(default_org)
-        await session.commit()
-        await session.refresh(default_org)
-        logger.info(
-            "Created default organization",
-            organization_id=str(default_org.id),
-            name=default_org.name,
-        )
-        return default_org.id
+        try:
+            session.add(default_org)
+            await session.commit()
+            await session.refresh(default_org)
+            logger.info(
+                "Created default organization",
+                organization_id=str(default_org.id),
+                name=default_org.name,
+            )
+            return default_org.id
+        except IntegrityError:
+            # Race condition: another process created the org first
+            await session.rollback()
+            logger.debug("Default organization already created by another process")
 
     # Return the first organization's ID (ordered by created_at for determinism)
     result = await session.execute(
