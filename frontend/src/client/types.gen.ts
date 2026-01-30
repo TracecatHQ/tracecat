@@ -977,6 +977,101 @@ export type CaseCreate = {
 }
 
 /**
+ * Create a new dropdown definition with initial options.
+ */
+export type CaseDropdownDefinitionCreate = {
+  name: string
+  ref: string
+  icon_name?: string | null
+  is_ordered?: boolean
+  position?: number
+  options?: Array<CaseDropdownOptionCreate>
+}
+
+/**
+ * Read model for a dropdown definition with its options.
+ */
+export type CaseDropdownDefinitionRead = {
+  id: string
+  name: string
+  ref: string
+  icon_name?: string | null
+  is_ordered: boolean
+  position: number
+  options?: Array<CaseDropdownOptionRead>
+}
+
+/**
+ * Update an existing dropdown definition.
+ */
+export type CaseDropdownDefinitionUpdate = {
+  name?: string | null
+  ref?: string | null
+  icon_name?: string | null
+  is_ordered?: boolean | null
+  position?: number | null
+}
+
+/**
+ * Create a new option within a dropdown definition.
+ */
+export type CaseDropdownOptionCreate = {
+  label: string
+  ref: string
+  icon_name?: string | null
+  color?: string | null
+  position?: number
+}
+
+/**
+ * Read model for a dropdown option.
+ */
+export type CaseDropdownOptionRead = {
+  id: string
+  label: string
+  ref: string
+  icon_name?: string | null
+  color?: string | null
+  position: number
+}
+
+/**
+ * Update an existing dropdown option.
+ */
+export type CaseDropdownOptionUpdate = {
+  label?: string | null
+  ref?: string | null
+  icon_name?: string | null
+  color?: string | null
+  position?: number | null
+}
+
+/**
+ * Per-case dropdown value with full definition/option info.
+ */
+export type CaseDropdownValueRead = {
+  id: string
+  definition_id: string
+  definition_ref: string
+  definition_name: string
+  option_id?: string | null
+  option_label?: string | null
+  option_ref?: string | null
+  option_icon_name?: string | null
+  option_color?: string | null
+}
+
+/**
+ * Request body for setting or clearing a dropdown value on a case.
+ */
+export type CaseDropdownValueSet = {
+  /**
+   * The option ID to set. Pass null to clear the value.
+   */
+  option_id?: string | null
+}
+
+/**
  * Strategies for choosing which matching event should anchor a duration.
  */
 export type CaseDurationAnchorSelection = "first" | "last"
@@ -1159,6 +1254,7 @@ export type CaseEventRead =
   | TaskWorkflowChangedEventRead
   | TaskDeletedEventRead
   | TaskAssigneeChangedEventRead
+  | DropdownValueChangedEventRead
 
 /**
  * Case activity type values.
@@ -1185,6 +1281,7 @@ export type CaseEventType =
   | "task_priority_changed"
   | "task_workflow_changed"
   | "task_assignee_changed"
+  | "dropdown_value_changed"
 
 export type CaseEventsWithUsers = {
   /**
@@ -1303,6 +1400,7 @@ export type CaseRead = {
     [key: string]: unknown
   } | null
   tags?: Array<CaseTagRead>
+  dropdown_values?: Array<CaseDropdownValueRead>
 }
 
 export type CaseReadMinimal = {
@@ -1316,6 +1414,7 @@ export type CaseReadMinimal = {
   severity: CaseSeverity
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
+  dropdown_values?: Array<CaseDropdownValueRead>
   num_tasks_completed?: number
   num_tasks_total?: number
 }
@@ -2006,6 +2105,32 @@ export type DocumentUrl = {
   readonly identifier: string
 }
 
+/**
+ * Event for when a case dropdown value is changed.
+ */
+export type DropdownValueChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "dropdown_value_changed"
+  definition_id: string
+  definition_ref: string
+  definition_name: string
+  old_option_id?: string | null
+  old_option_label?: string | null
+  new_option_id?: string | null
+  new_option_label?: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
 export type DynamicToolUIPartInputAvailable = {
   type: "dynamic-tool"
   toolName: string
@@ -2390,7 +2515,8 @@ export type GitHubAppCredentialsStatus = {
   exists: boolean
   app_id?: string | null
   has_webhook_secret?: boolean
-  has_client_id?: boolean
+  webhook_secret_preview?: string | null
+  client_id?: string | null
   created_at?: string | null
 }
 
@@ -4040,7 +4166,7 @@ export type RetryPromptPart = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
-  organization_id?: string | null
+  organization_id?: string
   workspace_role?: WorkspaceRole | null
   org_role?: OrgRole | null
   user_id?: string | null
@@ -4608,6 +4734,15 @@ export type TableRowRead = {
   created_at: string
   updated_at: string
   [key: string]: unknown | string
+}
+
+/**
+ * Update model for a table row.
+ */
+export type TableRowUpdate = {
+  data: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -6865,14 +7000,6 @@ export type OrganizationRevokeInvitationData = {
 
 export type OrganizationRevokeInvitationResponse = void
 
-export type OrganizationGetInvitationTokenData = {
-  invitationId: string
-}
-
-export type OrganizationGetInvitationTokenResponse = {
-  [key: string]: string
-}
-
 export type OrganizationAcceptInvitationData = {
   requestBody: OrgInvitationAccept
 }
@@ -7605,6 +7732,15 @@ export type TablesDeleteRowData = {
 
 export type TablesDeleteRowResponse = void
 
+export type TablesUpdateRowData = {
+  requestBody: TableRowUpdate
+  rowId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesUpdateRowResponse = TableRowRead
+
 export type TablesBatchInsertRowsData = {
   requestBody: TableRowInsertBatch
   tableId: string
@@ -7637,6 +7773,10 @@ export type CasesListCasesData = {
    * Cursor for pagination
    */
   cursor?: string | null
+  /**
+   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+   */
+  dropdown?: Array<string> | null
   /**
    * Maximum items per page
    */
@@ -7967,6 +8107,94 @@ export type CaseAttachmentsDeleteAttachmentData = {
 
 export type CaseAttachmentsDeleteAttachmentResponse = void
 
+export type CaseDropdownsListDropdownDefinitionsData = {
+  workspaceId: string
+}
+
+export type CaseDropdownsListDropdownDefinitionsResponse =
+  Array<CaseDropdownDefinitionRead>
+
+export type CaseDropdownsCreateDropdownDefinitionData = {
+  requestBody: CaseDropdownDefinitionCreate
+  workspaceId: string
+}
+
+export type CaseDropdownsCreateDropdownDefinitionResponse =
+  CaseDropdownDefinitionRead
+
+export type CaseDropdownsGetDropdownDefinitionData = {
+  definitionId: string
+  workspaceId: string
+}
+
+export type CaseDropdownsGetDropdownDefinitionResponse =
+  CaseDropdownDefinitionRead
+
+export type CaseDropdownsUpdateDropdownDefinitionData = {
+  definitionId: string
+  requestBody: CaseDropdownDefinitionUpdate
+  workspaceId: string
+}
+
+export type CaseDropdownsUpdateDropdownDefinitionResponse =
+  CaseDropdownDefinitionRead
+
+export type CaseDropdownsDeleteDropdownDefinitionData = {
+  definitionId: string
+  workspaceId: string
+}
+
+export type CaseDropdownsDeleteDropdownDefinitionResponse = void
+
+export type CaseDropdownsAddDropdownOptionData = {
+  definitionId: string
+  requestBody: CaseDropdownOptionCreate
+  workspaceId: string
+}
+
+export type CaseDropdownsAddDropdownOptionResponse = CaseDropdownOptionRead
+
+export type CaseDropdownsUpdateDropdownOptionData = {
+  definitionId: string
+  optionId: string
+  requestBody: CaseDropdownOptionUpdate
+  workspaceId: string
+}
+
+export type CaseDropdownsUpdateDropdownOptionResponse = CaseDropdownOptionRead
+
+export type CaseDropdownsDeleteDropdownOptionData = {
+  definitionId: string
+  optionId: string
+  workspaceId: string
+}
+
+export type CaseDropdownsDeleteDropdownOptionResponse = void
+
+export type CaseDropdownsReorderDropdownOptionsData = {
+  definitionId: string
+  requestBody: Array<string>
+  workspaceId: string
+}
+
+export type CaseDropdownsReorderDropdownOptionsResponse = void
+
+export type CasesListCaseDropdownValuesData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListCaseDropdownValuesResponse = Array<CaseDropdownValueRead>
+
+export type CasesSetCaseDropdownValueData = {
+  caseId: string
+  definitionId: string
+  requestBody: CaseDropdownValueSet
+  workspaceId: string
+}
+
+export type CasesSetCaseDropdownValueResponse = CaseDropdownValueRead
+
 export type CaseDurationsListCaseDurationDefinitionsData = {
   workspaceId: string
 }
@@ -8260,6 +8488,8 @@ export type VcsSaveGithubAppCredentialsData = {
 export type VcsSaveGithubAppCredentialsResponse = {
   [key: string]: string
 }
+
+export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
@@ -9649,23 +9879,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/{invitation_id}/token": {
-    get: {
-      req: OrganizationGetInvitationTokenData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: string
-        }
         /**
          * Validation Error
          */
@@ -11160,6 +11373,19 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
+    patch: {
+      req: TablesUpdateRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/tables/{table_id}/rows/batch": {
     post: {
@@ -11634,6 +11860,163 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-dropdowns": {
+    get: {
+      req: CaseDropdownsListDropdownDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseDropdownDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseDropdownsCreateDropdownDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseDropdownDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-dropdowns/{definition_id}": {
+    get: {
+      req: CaseDropdownsGetDropdownDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDropdownDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseDropdownsUpdateDropdownDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDropdownDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseDropdownsDeleteDropdownDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-dropdowns/{definition_id}/options": {
+    post: {
+      req: CaseDropdownsAddDropdownOptionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseDropdownOptionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-dropdowns/{definition_id}/options/{option_id}": {
+    patch: {
+      req: CaseDropdownsUpdateDropdownOptionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDropdownOptionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseDropdownsDeleteDropdownOptionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-dropdowns/{definition_id}/options/reorder": {
+    put: {
+      req: CaseDropdownsReorderDropdownOptionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/dropdowns": {
+    get: {
+      req: CasesListCaseDropdownValuesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseDropdownValueRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/dropdowns/{definition_id}": {
+    put: {
+      req: CasesSetCaseDropdownValueData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseDropdownValueRead
         /**
          * Validation Error
          */
@@ -12172,6 +12555,14 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
       }
     }
   }

@@ -30,6 +30,7 @@ import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
   type AssigneeInfo,
   AssigneeSelect,
+  CaseDropdownSelect,
   PrioritySelect,
   SeveritySelect,
 } from "@/components/cases/case-panel-selectors"
@@ -80,11 +81,13 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
+  useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
   useCaseTagCatalog,
   useGetCase,
   useRemoveCaseTag,
+  useSetCaseDropdownValue,
   useUpdateCase,
 } from "@/lib/hooks"
 import { parseISODuration } from "@/lib/time"
@@ -480,6 +483,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
   const { caseTags } = useCaseTagCatalog(workspaceId)
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(workspaceId)
+  const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { toast } = useToast()
   const customFields = useMemo(
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
@@ -743,6 +748,25 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         workspaceMembers={members ?? []}
                         onValueChange={handleAssigneeChange}
                       />
+                      {dropdownDefinitions?.map((def) => {
+                        const currentValue = caseData.dropdown_values?.find(
+                          (dv) => dv.definition_id === def.id
+                        )
+                        return (
+                          <CaseDropdownSelect
+                            key={def.id}
+                            definition={def}
+                            currentValue={currentValue}
+                            onValueChange={(optionId) =>
+                              setDropdownValue.mutate({
+                                caseId: caseData.id,
+                                definitionId: def.id,
+                                optionId,
+                              })
+                            }
+                          />
+                        )
+                      })}
                       <CaseDurationMetrics
                         durations={caseDurations}
                         definitions={caseDurationDefinitions}

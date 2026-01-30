@@ -81,6 +81,7 @@ class CaseEventType(StrEnum):
     TASK_PRIORITY_CHANGED = "task_priority_changed"
     TASK_WORKFLOW_CHANGED = "task_workflow_changed"
     TASK_ASSIGNEE_CHANGED = "task_assignee_changed"
+    DROPDOWN_VALUE_CHANGED = "dropdown_value_changed"
 
 
 class CaseTaskStatus(StrEnum):

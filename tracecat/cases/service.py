@@ -18,6 +18,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.cases.attachments import CaseAttachmentService
+from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
     CaseEventType,
@@ -62,6 +63,9 @@ from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
 from tracecat.db.models import (
     Case,
     CaseComment,
+    CaseDropdownDefinition,
+    CaseDropdownOption,
+    CaseDropdownValue,
     CaseEvent,
     CaseFields,
     CaseTagLink,
@@ -190,6 +194,7 @@ class CasesService(BaseWorkspaceService):
         assignee_ids: Sequence[uuid.UUID] | None = None,
         include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
+        dropdown_filters: dict[str, list[str]] | None = None,
         order_by: Literal[
             "created_at", "updated_at", "priority", "severity", "status", "tasks"
         ]
@@ -200,11 +205,21 @@ class CasesService(BaseWorkspaceService):
         paginator = BaseCursorPaginator(self.session)
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
-        # Base query - eagerly load tags and assignee
+        # Base query - eagerly load tags, assignee, and dropdown values
         stmt = (
             select(Case)
             .options(selectinload(Case.tags))
             .options(selectinload(Case.assignee))
+            .options(
+                selectinload(Case.dropdown_values).selectinload(
+                    CaseDropdownValue.definition
+                )
+            )
+            .options(
+                selectinload(Case.dropdown_values).selectinload(
+                    CaseDropdownValue.option
+                )
+            )
         )
 
         # Apply search term filter
@@ -268,6 +283,30 @@ class CasesService(BaseWorkspaceService):
                 filters.append(
                     Case.id.in_(
                         select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
+                    )
+                )
+
+        # Apply dropdown filters (AND across definitions, OR within a definition's option refs)
+        if dropdown_filters:
+            for def_ref, option_refs in dropdown_filters.items():
+                if not option_refs:
+                    continue
+                filters.append(
+                    Case.id.in_(
+                        select(CaseDropdownValue.case_id)
+                        .join(
+                            CaseDropdownDefinition,
+                            CaseDropdownValue.definition_id
+                            == CaseDropdownDefinition.id,
+                        )
+                        .join(
+                            CaseDropdownOption,
+                            CaseDropdownValue.option_id == CaseDropdownOption.id,
+                        )
+                        .where(
+                            CaseDropdownDefinition.ref == def_ref,
+                            CaseDropdownOption.ref.in_(option_refs),
+                        )
                     )
                 )
 
@@ -447,13 +486,29 @@ class CasesService(BaseWorkspaceService):
                     sort_value=sort_value,
                 )
 
-        # Convert to CaseReadMinimal objects with tags
+        # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
                 CaseTagRead.model_validate(tag, from_attributes=True)
                 for tag in case.tags
+            ]
+
+            # Dropdown values are already loaded via selectinload
+            dropdown_reads = [
+                CaseDropdownValueRead(
+                    id=dv.id,
+                    definition_id=dv.definition_id,
+                    definition_ref=dv.definition.ref,
+                    definition_name=dv.definition.name,
+                    option_id=dv.option.id if dv.option else None,
+                    option_label=dv.option.label if dv.option else None,
+                    option_ref=dv.option.ref if dv.option else None,
+                    option_icon_name=dv.option.icon_name if dv.option else None,
+                    option_color=dv.option.color if dv.option else None,
+                )
+                for dv in case.dropdown_values
             ]
 
             case_items.append(
@@ -472,6 +527,7 @@ class CasesService(BaseWorkspaceService):
                     if case.assignee
                     else None,
                     tags=tag_reads,
+                    dropdown_values=dropdown_reads,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
                 )
