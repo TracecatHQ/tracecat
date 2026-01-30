@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import require_scope, has_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -61,17 +61,19 @@ async def list_workspaces(
     role: OrgUserRole,
     session: AsyncDBSession,
 ) -> list[WorkspaceReadMinimal]:
-    """List workspaces.
+    """List workspaces the user has access to.
 
-    Authorization
-    -------------
-    - Basic: Can list workspaces where they are a member.
-    - Admin: Can list all workspaces regardless of membership.
-    - Org Owner/Admin: Can list all workspaces in the organization.
+    Access
+    ------
+    - Org owners/admins (have `org:read` scope): See all workspaces in the org.
+    - Other users: See only workspaces where they are a member.
+
+    No scope requirement - membership itself is the authorization.
     """
     service = WorkspaceService(session, role=role)
-    # Platform admins and org owners/admins can see all workspaces
-    if role.is_privileged:
+
+    # Org admins/owners have org:read scope and can see all workspaces
+    if has_scope(role.scopes, "org:read"):
         workspaces = await service.admin_list_workspaces()
     else:
         if role.user_id is None:
@@ -463,3 +465,4 @@ async def revoke_workspace_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+ 

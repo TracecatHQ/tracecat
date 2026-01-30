@@ -285,13 +285,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
-      visible: canViewWorkflows !== false,
+      visible: canViewWorkflows === true,
     },
     {
       title: "Cases",
       url: `${basePath}/cases`,
       icon: LayersIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
+      visible: canViewCases === true,
     },
     ...(agentAddonsEnabled
       ? [
@@ -300,7 +301,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             url: `${basePath}/agents`,
             icon: SquareMousePointerIcon,
             isActive: pathname?.startsWith(`${basePath}/agents`),
-            visible: canViewAgents !== false,
+            visible: canViewAgents === true,
           },
         ]
       : []),
@@ -309,21 +310,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/tables`,
       icon: Table2Icon,
       isActive: pathname?.startsWith(`${basePath}/tables`),
-      visible: canViewTables !== false,
+      visible: canViewTables === true,
     },
     {
       title: "Variables",
       url: `${basePath}/variables`,
       icon: VariableIcon,
       isActive: pathname?.startsWith(`${basePath}/variables`),
-      visible: canViewVariables !== false,
+      visible: canViewVariables === true,
     },
     {
       title: "Credentials",
       url: `${basePath}/credentials`,
       icon: KeyRound,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
-      visible: canViewSecrets !== false,
+      visible: canViewSecrets === true,
     },
     {
       title: "Integrations",
@@ -336,7 +337,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
-      visible: canViewMembers !== false,
+      visible: canViewMembers === true,
     },
   ]
 
@@ -355,7 +356,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <span>New chat</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {canCreateCase !== false && (
+              {canCreateCase === true && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     onClick={() => setCreateCaseDialogOpen(true)}

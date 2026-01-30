@@ -155,6 +155,19 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "update",
         "Change member workspace roles",
     ),
+    # Workspace RBAC administration (delegated to workspace admins)
+    (
+        "workspace:rbac:read",
+        "workspace:rbac",
+        "read",
+        "View workspace role assignments and group permissions",
+    ),
+    (
+        "workspace:rbac:manage",
+        "workspace:rbac",
+        "manage",
+        "Manage workspace role assignments and group permissions",
+    ),
     # Workflow scopes
     ScopeDefinition(
         "workflow:read", "workflow", "read", "View workflows and their details"
