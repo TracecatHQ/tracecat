@@ -11,9 +11,11 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import SLUG_TO_WORKSPACE_ROLE, MembershipService
+from tracecat.contexts import ctx_scopes
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as RoleModel
 from tracecat.db.models import UserRoleAssignment
@@ -58,21 +60,25 @@ WorkspaceUserInPath = Annotated[
 
 
 @router.get("")
-@require_scope("workspace:read")
 async def list_workspaces(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
 ) -> list[WorkspaceReadMinimal]:
-    """List workspaces.
+    """List workspaces the user has access to.
 
-    Access Level
-    ------------
-    - Basic: Can list workspaces where they are a member.
-    - Admin: Can list all workspaces regardless of membership.
+    Access
+    ------
+    - Org owners/admins (have `org:read` scope): See all workspaces in the org.
+    - Other users: See only workspaces where they are a member.
+
+    No scope requirement - membership itself is the authorization.
     """
     service = WorkspaceService(session, role=role)
-    if role.access_level == AccessLevel.ADMIN:
+    user_scopes = ctx_scopes.get()
+
+    # Org admins/owners have org:read scope and can see all workspaces
+    if has_scope(user_scopes, "org:read"):
         workspaces = await service.admin_list_workspaces()
     else:
         if role.user_id is None:

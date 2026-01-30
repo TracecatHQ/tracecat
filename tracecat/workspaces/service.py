@@ -49,11 +49,13 @@ class WorkspaceService(BaseOrgService):
     service_name = "workspace"
     _load_only = ["id", "name"]
 
-    @require_access_level(AccessLevel.ADMIN)
     async def admin_list_workspaces(
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
-        """List all workspaces in the organization."""
+        """List all workspaces in the organization.
+
+        Note: Authorization is handled at the router level via scope checks.
+        """
         statement = (
             select(Workspace)
             .options(

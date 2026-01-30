@@ -354,10 +354,11 @@ async def seed_system_roles_for_org(
     session: AsyncSession,
     organization_id: UUID,
 ) -> int:
-    """Seed system roles (Admin, Editor, Viewer) for an organization.
+    """Seed system roles for an organization.
 
-    Creates the three system roles with their associated scopes if they don't exist.
-    System roles are identified by their well-known slugs.
+    Creates system roles if they don't exist, and syncs scope assignments
+    for both new and existing roles. This ensures roles always have the
+    correct scopes even after scope definitions are updated.
 
     Args:
         session: Database session
@@ -387,26 +388,33 @@ async def seed_system_roles_for_org(
         existing_role_id = existing_result.scalar_one_or_none()
 
         if existing_role_id is not None:
+            role_id = existing_role_id
             logger.debug(
-                "System role already exists",
+                "System role already exists, syncing scopes",
                 slug=slug,
                 organization_id=organization_id,
             )
-            continue
+        else:
+            # Create the role
+            role = Role(
+                id=uuid4(),
+                name=name,
+                slug=slug,
+                description=description,
+                organization_id=organization_id,
+                created_by=None,  # System-created
+            )
+            session.add(role)
+            await session.flush()  # Get the role ID
+            role_id = role.id
+            roles_created += 1
+            logger.debug(
+                "System role created",
+                slug=slug,
+                organization_id=organization_id,
+            )
 
-        # Create the role
-        role = Role(
-            id=uuid4(),
-            name=name,
-            slug=slug,
-            description=description,
-            organization_id=organization_id,
-            created_by=None,  # System-created
-        )
-        session.add(role)
-        await session.flush()  # Get the role ID
-
-        # Link scopes to the role
+        # Sync scopes to the role (upsert - adds missing, ignores existing)
         role_scope_values = []
         for scope_name in scope_names:
             scope_id = scope_name_to_id.get(scope_name)
@@ -417,16 +425,15 @@ async def seed_system_roles_for_org(
                     role_slug=slug,
                 )
                 continue
-            role_scope_values.append({"role_id": role.id, "scope_id": scope_id})
+            role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
 
         if role_scope_values:
             role_scope_stmt = pg_insert(RoleScope).values(role_scope_values)
             role_scope_stmt = role_scope_stmt.on_conflict_do_nothing()
             await session.execute(role_scope_stmt)
 
-        roles_created += 1
         logger.debug(
-            "System role created",
+            "System role scopes synced",
             slug=slug,
             organization_id=organization_id,
             num_scopes=len(role_scope_values),

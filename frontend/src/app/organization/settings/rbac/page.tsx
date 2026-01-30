@@ -39,12 +39,37 @@ export default function RbacSettingsPage() {
           onValueChange={(v) => setActiveTab(v as RbacTab)}
           className="w-full"
         >
-          <TabsList className="grid w-full max-w-[650px] grid-cols-5">
-            <TabsTrigger value="roles">Roles</TabsTrigger>
-            <TabsTrigger value="groups">Groups</TabsTrigger>
-            <TabsTrigger value="assignments">Group assignments</TabsTrigger>
-            <TabsTrigger value="user-assignments">User assignments</TabsTrigger>
-            <TabsTrigger value="scopes">Scopes</TabsTrigger>
+          <TabsList className="inline-flex h-auto w-auto justify-start gap-0 rounded-none border-b border-border/30 bg-transparent p-0">
+            <TabsTrigger
+              value="roles"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Roles
+            </TabsTrigger>
+            <TabsTrigger
+              value="groups"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Groups
+            </TabsTrigger>
+            <TabsTrigger
+              value="assignments"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Group assignments
+            </TabsTrigger>
+            <TabsTrigger
+              value="user-assignments"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              User assignments
+            </TabsTrigger>
+            <TabsTrigger
+              value="scopes"
+              className="rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            >
+              Scopes
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="roles" className="mt-6">

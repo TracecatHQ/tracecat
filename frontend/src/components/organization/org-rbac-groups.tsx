@@ -1,14 +1,22 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { PlusIcon, UserMinusIcon, UserPlusIcon, UsersIcon } from "lucide-react"
-import { useState } from "react"
+import {
+  PlusIcon,
+  SearchIcon,
+  UserMinusIcon,
+  UserPlusIcon,
+  UsersIcon,
+} from "lucide-react"
+import { useMemo, useState } from "react"
 import type { GroupReadWithMembers } from "@/client"
 import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+  RbacDetailRow,
+  RbacListContainer,
+  RbacListEmpty,
+  RbacListHeader,
+  RbacListItem,
+} from "@/components/organization/rbac-list-item"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,15 +56,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useOrgMembers, useRbacGroups } from "@/lib/hooks"
 
 export function OrgRbacGroups() {
   const [selectedGroup, setSelectedGroup] =
     useState<GroupReadWithMembers | null>(null)
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isMembersOpen, setIsMembersOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const {
     groups,
     isLoading,
@@ -73,6 +84,16 @@ export function OrgRbacGroups() {
     removeGroupMember,
     removeGroupMemberIsPending,
   } = useRbacGroups()
+
+  const filteredGroups = useMemo(() => {
+    if (!searchQuery.trim()) return groups
+    const query = searchQuery.toLowerCase()
+    return groups.filter(
+      (group) =>
+        group.name.toLowerCase().includes(query) ||
+        group.description?.toLowerCase().includes(query)
+    )
+  }, [groups, searchQuery])
 
   const handleCreateGroup = async (name: string, description: string) => {
     await createGroup({ name, description: description || undefined })
@@ -121,6 +142,14 @@ export function OrgRbacGroups() {
     }
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-destructive">
+        Failed to load groups
+      </div>
+    )
+  }
+
   return (
     <Dialog
       open={isCreateOpen || isEditOpen}
@@ -140,90 +169,82 @@ export function OrgRbacGroups() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Groups are collections of users that can be assigned roles.
-            </p>
-            <DialogTrigger asChild>
-              <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                <PlusIcon className="mr-2 size-4" />
-                Create group
-              </Button>
-            </DialogTrigger>
-          </div>
+          <RbacListHeader
+            left={
+              <div className="relative">
+                <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search groups..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-[250px] pl-8"
+                />
+              </div>
+            }
+            right={
+              <DialogTrigger asChild>
+                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                  <PlusIcon className="mr-2 size-4" />
+                  Create group
+                </Button>
+              </DialogTrigger>
+            }
+          />
 
-          <DataTable
-            data={groups}
-            isLoading={isLoading}
-            error={error as Error | null}
-            emptyMessage="No groups found"
-            initialSortingState={[{ id: "name", desc: false }]}
-            columns={[
-              {
-                accessorKey: "name",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Group"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <div className="flex items-center gap-2">
-                    <UsersIcon className="size-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">
-                      {row.getValue<string>("name")}
-                    </span>
+          {isLoading ? (
+            <RbacListContainer>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0"
+                >
+                  <Skeleton className="size-6" />
+                  <Skeleton className="size-4" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
                   </div>
-                ),
-                enableSorting: true,
-                enableHiding: false,
-              },
-              {
-                accessorKey: "description",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Description"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <span className="text-xs text-muted-foreground line-clamp-1">
-                    {row.getValue<string>("description") || "-"}
-                  </span>
-                ),
-                enableSorting: false,
-                enableHiding: true,
-              },
-              {
-                accessorKey: "member_count",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Members"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <Badge variant="secondary">
-                    {row.getValue<number>("member_count")} member
-                    {row.getValue<number>("member_count") !== 1 && "s"}
-                  </Badge>
-                ),
-                enableSorting: true,
-                enableHiding: true,
-              },
-              {
-                id: "actions",
-                enableHiding: false,
-                cell: ({ row }) => {
-                  const group = row.original
-
-                  return (
+                </div>
+              ))}
+            </RbacListContainer>
+          ) : filteredGroups.length === 0 ? (
+            <RbacListContainer>
+              <RbacListEmpty
+                message={
+                  searchQuery
+                    ? "No groups match your search"
+                    : "No groups found"
+                }
+              />
+            </RbacListContainer>
+          ) : (
+            <RbacListContainer>
+              {filteredGroups.map((group) => (
+                <RbacListItem
+                  key={group.id}
+                  icon={<UsersIcon className="size-4" />}
+                  title={group.name}
+                  subtitle={
+                    group.description ||
+                    `${group.member_count} member${group.member_count !== 1 ? "s" : ""}`
+                  }
+                  badges={
+                    <Badge variant="secondary" className="text-[10px]">
+                      {group.member_count} member
+                      {group.member_count !== 1 && "s"}
+                    </Badge>
+                  }
+                  isExpanded={expandedGroupId === group.id}
+                  onExpandedChange={(expanded) =>
+                    setExpandedGroupId(expanded ? group.id : null)
+                  }
+                  actions={
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="size-8 p-0">
+                        <Button
+                          variant="ghost"
+                          className="size-8 p-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                        >
                           <span className="sr-only">Open menu</span>
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
@@ -263,12 +284,36 @@ export function OrgRbacGroups() {
                         </AlertDialogTrigger>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )
-                },
-              },
-            ]}
-            toolbarProps={toolbarProps}
-          />
+                  }
+                >
+                  <div className="space-y-3">
+                    {group.description && (
+                      <RbacDetailRow label="Description">
+                        {group.description}
+                      </RbacDetailRow>
+                    )}
+                    <RbacDetailRow label="Members">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">
+                          {group.member_count} member
+                          {group.member_count !== 1 && "s"}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => handleOpenMembers(group)}
+                        >
+                          <UserPlusIcon className="mr-1 size-3" />
+                          Manage
+                        </Button>
+                      </div>
+                    </RbacDetailRow>
+                  </div>
+                </RbacListItem>
+              ))}
+            </RbacListContainer>
+          )}
         </div>
 
         <AlertDialogContent>
@@ -495,7 +540,7 @@ function GroupMembersDialog({
           <Label>Current members ({group.members?.length ?? 0})</Label>
           <ScrollArea className="h-[200px] rounded-md border">
             {group.members && group.members.length > 0 ? (
-              <div className="p-4 space-y-2">
+              <div className="space-y-2 p-4">
                 {group.members.map((member) => (
                   <div
                     key={member.user_id}
@@ -540,11 +585,4 @@ function GroupMembersDialog({
       </DialogFooter>
     </DialogContent>
   )
-}
-
-const toolbarProps: DataTableToolbarProps<GroupReadWithMembers> = {
-  filterProps: {
-    placeholder: "Filter groups...",
-    column: "name",
-  },
 }

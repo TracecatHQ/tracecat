@@ -5588,15 +5588,16 @@ export function useWorkspaceSettings(
 
 /**
  * Hook to fetch the current user's effective scopes.
+ * @param workspaceId Optional workspace ID to include workspace-specific scopes
  */
-export function useUserScopes() {
+export function useUserScopes(workspaceId?: string) {
   const {
     data: userScopes,
     isLoading,
     error,
   } = useQuery<UserScopesRead>({
-    queryKey: ["user-scopes"],
-    queryFn: async () => await usersGetMyScopes(),
+    queryKey: ["user-scopes", workspaceId],
+    queryFn: async () => await usersGetMyScopes({ workspaceId }),
   })
 
   return {
