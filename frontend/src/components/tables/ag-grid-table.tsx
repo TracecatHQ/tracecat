@@ -99,6 +99,7 @@ export function AgGridTable({
   const {
     data: rows,
     isLoading: rowsIsLoading,
+    error: rowsError,
     goToNextPage,
     goToPreviousPage,
     goToFirstPage,
@@ -181,6 +182,16 @@ export function AgGridTable({
     ]
     return defs
   }, [columns])
+
+  if (rowsError) {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <p className="text-sm text-destructive">
+          Failed to load table rows. Please try refreshing the page.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col gap-2">

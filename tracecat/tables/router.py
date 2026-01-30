@@ -494,6 +494,14 @@ async def update_row(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except DBAPIError as e:
+        detail = str(e)
+        if isinstance(e.__cause__, Exception):
+            detail = str(e.__cause__)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database error: {detail}",
+        ) from e
     return TableRowRead.model_validate(row)
 
 
