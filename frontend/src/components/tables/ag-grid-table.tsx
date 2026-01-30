@@ -7,6 +7,7 @@ import type {
   ColDef,
   GridApi,
   GridReadyEvent,
+  ValueFormatterParams,
 } from "ag-grid-community"
 import { AgGridReact } from "ag-grid-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -58,22 +59,23 @@ const DATE_TYPES = new Set([
 ])
 const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
 const POPUP_EDITOR_TYPES = new Set([
-  "TEXT",
-  "VARCHAR",
-  "CHAR",
-  "CITEXT",
-  "BPCHAR",
   "JSON",
   "JSONB",
-  "TIMESTAMP",
-  "TIMESTAMPTZ",
-  "MULTI_SELECT",
 ])
 
 function normalizeSqlType(rawType?: string) {
   if (!rawType) return ""
   const [base] = rawType.toUpperCase().split("(")
   return base.trim()
+}
+
+function numericValueFormatter(params: ValueFormatterParams): string {
+  const value = params.value
+  if (value === null || value === undefined) return ""
+  if (typeof value !== "number") return String(value)
+  if (!Number.isFinite(value)) return String(value)
+  if (Number.isInteger(value)) return String(value)
+  return parseFloat(value.toFixed(2)).toString()
 }
 
 function getColumnWidthPx(rawType?: string): number {
@@ -156,6 +158,8 @@ export function AgGridTable({
         const normalizedType = normalizeSqlType(column.type)
         const isPopupEditor = POPUP_EDITOR_TYPES.has(normalizedType)
 
+        const isNumeric = NUMERIC_TYPES.has(normalizedType)
+
         return {
           field: column.name,
           headerName: column.name,
@@ -177,6 +181,7 @@ export function AgGridTable({
           resizable: true,
           width: getColumnWidthPx(column.type),
           minWidth: 100,
+          ...(isNumeric && { valueFormatter: numericValueFormatter }),
         }
       }),
     ]

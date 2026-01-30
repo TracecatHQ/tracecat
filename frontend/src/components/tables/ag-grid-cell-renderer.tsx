@@ -1,6 +1,13 @@
+import { closeBrackets } from "@codemirror/autocomplete"
+import { history } from "@codemirror/commands"
+import { json } from "@codemirror/lang-json"
+import { bracketMatching } from "@codemirror/language"
+import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
+import { EditorView, keymap } from "@codemirror/view"
+import CodeMirror from "@uiw/react-codemirror"
 import type { CustomCellRendererProps } from "ag-grid-react"
 import { Eye, NotebookPen, Pencil } from "lucide-react"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TableColumnRead } from "@/client"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CellDisplay } from "@/components/tables/cell-display"
@@ -13,13 +20,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Textarea } from "@/components/ui/textarea"
 
 interface AgGridCellRendererParams extends CustomCellRendererProps {
   tableColumn: TableColumnRead
 }
 
 const JSON_TYPES = new Set(["JSON", "JSONB"])
+const SELECT_TYPES = new Set(["SELECT", "MULTI_SELECT"])
+const DATE_TYPES = new Set(["DATE", "TIMESTAMP", "TIMESTAMPTZ"])
 
 function normalizeSqlType(rawType?: string) {
   if (!rawType) return ""
@@ -32,13 +40,26 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
   const [editSheetOpen, setEditSheetOpen] = useState(false)
   const [jsonEditSheetOpen, setJsonEditSheetOpen] = useState(false)
 
+  const textRef = useRef<HTMLDivElement>(null)
+  const [isTruncated, setIsTruncated] = useState(false)
+
   const normalizedType = normalizeSqlType(params.tableColumn?.type)
   const isJsonType = JSON_TYPES.has(normalizedType)
+  const isSelectType = SELECT_TYPES.has(normalizedType)
+  const isDateType = DATE_TYPES.has(normalizedType)
   const isObjectValue =
     typeof params.value === "object" && params.value !== null
-  const isLongText =
-    typeof params.value === "string" && params.value.length > 25
-  const isExpandable = isObjectValue || isLongText
+  const isStringValue = typeof params.value === "string"
+
+  useEffect(() => {
+    const el = textRef.current
+    if (!el) return
+    const check = () => setIsTruncated(el.scrollWidth > el.clientWidth)
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [params.value])
 
   const handleEditClick = useCallback(() => {
     if (isJsonType) {
@@ -55,20 +76,12 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
 
   return (
     <div className="group flex h-full w-full items-center">
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div ref={textRef} className="flex-1 min-w-0 overflow-hidden">
         <CellDisplay value={params.value} column={params.tableColumn} />
       </div>
       <div className="shrink-0 hidden group-hover:flex items-center">
-        {isExpandable && (
-          <button
-            type="button"
-            onClick={() => setViewSheetOpen(true)}
-            className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
-          >
-            <Eye className="size-3" />
-          </button>
-        )}
-        {isLongText && (
+        {/* Text values (non-select): NotebookPen always, Pencil only when not truncated */}
+        {isStringValue && !isSelectType && !isDateType && (
           <button
             type="button"
             onClick={() => setEditSheetOpen(true)}
@@ -77,33 +90,45 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
             <NotebookPen className="size-3" />
           </button>
         )}
-        <button
-          type="button"
-          onClick={handleEditClick}
-          className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
-        >
-          <Pencil className="size-3" />
-        </button>
+        {isStringValue && !isSelectType && !isDateType && !isTruncated && (
+          <button
+            type="button"
+            onClick={handleEditClick}
+            className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
+          >
+            <Pencil className="size-3" />
+          </button>
+        )}
+        {/* JSON/object values: Eye (view) + Pencil (edit) */}
+        {isObjectValue && (
+          <button
+            type="button"
+            onClick={() => setViewSheetOpen(true)}
+            className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
+          >
+            <Eye className="size-3" />
+          </button>
+        )}
+        {/* Non-text types or select types: Pencil for inline edit */}
+        {(!isStringValue || isSelectType || isDateType) && (
+          <button
+            type="button"
+            onClick={handleEditClick}
+            className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
+          >
+            <Pencil className="size-3" />
+          </button>
+        )}
       </div>
 
-      {/* View Sheet (read-only) */}
+      {/* View Sheet (read-only, JSON only) */}
       <Sheet open={viewSheetOpen} onOpenChange={setViewSheetOpen}>
         <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>
-              {isObjectValue ? "JSON value" : "Text value"}
-            </SheetTitle>
+            <SheetTitle>JSON value</SheetTitle>
           </SheetHeader>
           <div className="mt-4">
-            {isObjectValue ? (
-              <JsonViewWithControls src={params.value} defaultExpanded />
-            ) : (
-              <SimpleEditor
-                value={String(params.value ?? "")}
-                editable={false}
-                showToolbar={false}
-              />
-            )}
+            <JsonViewWithControls src={params.value} defaultExpanded />
           </div>
         </SheetContent>
       </Sheet>
@@ -187,6 +212,22 @@ function TextEditSheet({
   )
 }
 
+function jsonSheetLinter(view: EditorView): Diagnostic[] {
+  const content = view.state.doc.toString()
+  if (!content.trim()) return []
+  try {
+    JSON.parse(content)
+    return []
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON"
+    const posMatch = msg.match(/position (\d+)/)
+    const pos = posMatch ? Number.parseInt(posMatch[1], 10) : 0
+    const from = Math.min(pos, content.length)
+    const to = Math.min(from + 1, content.length)
+    return [{ from, to, severity: "error", message: msg, source: "json" }]
+  }
+}
+
 function JsonEditSheet({
   open,
   onOpenChange,
@@ -219,6 +260,8 @@ function JsonEditSheet({
     [serialized, onOpenChange]
   )
 
+  const handleSaveRef = useRef<() => void>(() => {})
+
   const handleSave = useCallback(() => {
     const trimmed = localValue.trim()
     if (trimmed === "") {
@@ -234,6 +277,34 @@ function JsonEditSheet({
     }
   }, [localValue, onSave])
 
+  handleSaveRef.current = handleSave
+
+  const extensions = useMemo(
+    () => [
+      json(),
+      lintGutter(),
+      linter(jsonSheetLinter),
+      history(),
+      bracketMatching(),
+      closeBrackets(),
+      keymap.of([
+        {
+          key: "Mod-Enter",
+          run: () => {
+            handleSaveRef.current()
+            return true
+          },
+          preventDefault: true,
+        },
+      ]),
+      EditorView.theme({
+        ".cm-content": { fontFamily: "monospace", fontSize: "12px" },
+        ".cm-scroller": { maxHeight: "60vh", overflow: "auto" },
+      }),
+    ],
+    []
+  )
+
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
@@ -241,24 +312,40 @@ function JsonEditSheet({
           <SheetTitle>Edit JSON</SheetTitle>
         </SheetHeader>
         <div className="mt-4 space-y-2">
-          <Textarea
+          <CodeMirror
             value={localValue}
-            onChange={(e) => {
-              setLocalValue(e.target.value)
+            onChange={(val) => {
+              setLocalValue(val)
               if (error) {
                 try {
-                  JSON.parse(e.target.value)
+                  JSON.parse(val)
                   setError(null)
                 } catch {
                   // keep error
                 }
               }
             }}
-            className="min-h-[200px] font-mono text-xs"
-            rows={10}
+            height="auto"
+            extensions={extensions}
+            theme="light"
             autoFocus
+            basicSetup={{
+              lineNumbers: true,
+              foldGutter: true,
+              highlightActiveLine: true,
+              bracketMatching: false,
+              closeBrackets: false,
+              history: false,
+              defaultKeymap: true,
+              syntaxHighlighting: true,
+              autocompletion: false,
+            }}
+            className="min-h-[200px] overflow-auto rounded-md border font-mono text-xs"
           />
           {error && <p className="text-xs text-destructive">{error}</p>}
+          <p className="text-xs text-muted-foreground">
+            Cmd/Ctrl+Enter to save
+          </p>
         </div>
         <SheetFooter className="mt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>

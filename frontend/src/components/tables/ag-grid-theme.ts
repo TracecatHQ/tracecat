@@ -14,4 +14,5 @@ export const tracecatTheme = themeQuartz.withParams({
   wrapperBorderRadius: 0,
   wrapperBorder: false,
   cellHorizontalPadding: 12,
+  popupShadow: "none",
 })

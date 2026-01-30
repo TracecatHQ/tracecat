@@ -10,6 +10,24 @@ import {
 } from "@/components/ui/tooltip"
 
 const TIMESTAMP_TYPES = new Set(["TIMESTAMP", "TIMESTAMPTZ"])
+const NUMERIC_TYPES = new Set([
+  "INT",
+  "INTEGER",
+  "BIGINT",
+  "SMALLINT",
+  "DECIMAL",
+  "NUMERIC",
+  "REAL",
+  "FLOAT",
+  "FLOAT8",
+  "FLOAT4",
+  "DOUBLE",
+  "DOUBLE PRECISION",
+  "BIGSERIAL",
+  "SERIAL",
+  "SERIAL4",
+  "SERIAL8",
+])
 
 const normalizeSqlType = (rawType?: string) => {
   if (!rawType) return ""
@@ -27,12 +45,18 @@ const sanitizeColumnOptions = (options?: Array<string> | null) => {
   return normalized.length > 0 ? normalized : undefined
 }
 
+function formatNumber(value: number): string {
+  if (!Number.isFinite(value)) return String(value)
+  if (Number.isInteger(value)) return String(value)
+  return parseFloat(value.toFixed(2)).toString()
+}
+
 function ScientificNumber({ value }: { value: number }) {
   const needsScientific =
     value !== 0 && (Math.abs(value) >= 1e6 || Math.abs(value) < 1e-3)
 
   if (!needsScientific) {
-    return <span>{String(value)}</span>
+    return <span>{formatNumber(value)}</span>
   }
 
   return (
@@ -53,6 +77,7 @@ export function CellDisplay({
   column: TableColumnRead
 }) {
   const normalizedType = normalizeSqlType(column.type)
+  const isNumericColumn = NUMERIC_TYPES.has(normalizedType)
   const isDateLike =
     normalizedType === "DATE" || TIMESTAMP_TYPES.has(normalizedType)
   const isSelectColumn = normalizedType === "SELECT"
@@ -120,6 +145,12 @@ export function CellDisplay({
             normalizedType === "DATE" ? "MMM d yyyy" : "MMM d yyyy '\u00b7' p"
           )}
         </span>
+      ) : isNumericColumn &&
+        (typeof value === "number" ||
+          (typeof value === "string" &&
+            value !== "" &&
+            !Number.isNaN(Number(value)))) ? (
+        <ScientificNumber value={Number(value)} />
       ) : typeof value === "number" ? (
         <ScientificNumber value={value} />
       ) : typeof value === "string" && value.length > 25 ? (

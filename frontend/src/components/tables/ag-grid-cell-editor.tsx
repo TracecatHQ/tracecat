@@ -24,7 +24,7 @@ export const AgGridCellEditor = forwardRef(
     }, [params])
 
     return (
-      <div className="flex size-full items-start">
+      <div className="flex size-full items-start bg-background">
         <div className="flex-1 min-w-0">
           <CellEditor
             value={params.value}
@@ -32,6 +32,7 @@ export const AgGridCellEditor = forwardRef(
             onChange={params.onValueChange}
             onCommit={handleCommit}
             onCancel={handleCancel}
+            cellWidth={params.column.getActualWidth()}
           />
         </div>
         <button

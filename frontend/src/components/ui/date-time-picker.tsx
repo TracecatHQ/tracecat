@@ -34,6 +34,7 @@ export interface DateTimePickerProps {
   >
   calendarProps?: CalendarProps
   timeStep?: number
+  hideTime?: boolean
   nowLabel?: string
   clearLabel?: string
   icon?: React.ReactNode
@@ -52,6 +53,7 @@ export function DateTimePicker({
   popoverContentProps,
   calendarProps,
   timeStep = 60,
+  hideTime = false,
   nowLabel = "Now",
   clearLabel = "Clear",
   icon,
@@ -171,36 +173,38 @@ export function DateTimePicker({
           initialFocus
           {...calendarProps}
         />
-        <div className="flex flex-col gap-2 border-t border-border p-3">
-          <Input
-            type="time"
-            value={dateValue ? format(dateValue, "HH:mm") : ""}
-            onChange={handleTimeChange}
-            step={timeStep}
-            disabled={!dateValue}
-          />
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1 text-xs"
-              onClick={handleSetNow}
-              disabled={disabled}
-            >
-              <Clock className="mr-2 size-4" />
-              {nowLabel}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="flex-1 text-xs text-muted-foreground"
-              onClick={handleClear}
-              disabled={!dateValue || disabled}
-            >
-              {clearLabel}
-            </Button>
+        {!hideTime && (
+          <div className="flex flex-col gap-2 border-t border-border p-3">
+            <Input
+              type="time"
+              value={dateValue ? format(dateValue, "HH:mm") : ""}
+              onChange={handleTimeChange}
+              step={timeStep}
+              disabled={!dateValue}
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 text-xs"
+                onClick={handleSetNow}
+                disabled={disabled}
+              >
+                <Clock className="mr-2 size-4" />
+                {nowLabel}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex-1 text-xs text-muted-foreground"
+                onClick={handleClear}
+                disabled={!dateValue || disabled}
+              >
+                {clearLabel}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </PopoverContent>
     </Popover>
   )

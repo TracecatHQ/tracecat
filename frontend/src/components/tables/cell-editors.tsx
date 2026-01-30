@@ -7,12 +7,26 @@ import { bracketMatching } from "@codemirror/language"
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorView, keymap } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
+import { Check, ChevronsUpDown } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TableColumnRead } from "@/client"
-import { MultiTagCommandInput } from "@/components/tags-input"
+import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Input } from "@/components/ui/input"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -20,8 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
 
 export type CellEditorProps = {
   value: unknown
@@ -29,6 +42,8 @@ export type CellEditorProps = {
   onChange: (value: unknown) => void
   onCommit: () => void
   onCancel: () => void
+  /** Actual pixel width of the AG Grid cell, used to size dropdowns */
+  cellWidth?: number
 }
 
 const normalizeSqlType = (rawType?: string) => {
@@ -55,15 +70,16 @@ function TextCellEditor({
   onCancel,
 }: CellEditorProps) {
   const strValue = value === null || value === undefined ? "" : String(value)
-  const ref = useRef<HTMLTextAreaElement>(null)
+  const ref = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     ref.current?.focus()
+    ref.current?.select()
   }, [])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter") {
         e.preventDefault()
         onCommit()
       } else if (e.key === "Escape") {
@@ -78,14 +94,14 @@ function TextCellEditor({
   )
 
   return (
-    <Textarea
+    <Input
       ref={ref}
+      type="text"
       value={strValue}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
       onBlur={onCommit}
-      className="min-h-[72px] w-full text-xs border rounded bg-background shadow-sm focus-visible:ring-1"
-      rows={3}
+      className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
     />
   )
 }
@@ -194,25 +210,39 @@ function NumericCellEditor({
   )
 }
 
-function BooleanCellEditor({ value, onChange, onCommit }: CellEditorProps) {
+function BooleanCellEditor({
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+}: CellEditorProps) {
   const boolValue = value === true || value === "true" || value === "1"
-
-  const handleToggle = useCallback(
-    (checked: boolean) => {
-      onChange(checked)
-      // Commit immediately on toggle
-      setTimeout(onCommit, 0)
-    },
-    [onChange, onCommit]
-  )
+  const strValue = boolValue ? "true" : "false"
 
   return (
-    <div className="flex items-center gap-2 p-1">
-      <Switch checked={boolValue} onCheckedChange={handleToggle} />
-      <span className="text-xs text-muted-foreground">
-        {boolValue ? "true" : "false"}
-      </span>
-    </div>
+    <Select
+      value={strValue}
+      onValueChange={(val) => {
+        onChange(val === "true")
+        setTimeout(onCommit, 0)
+      }}
+    >
+      <SelectTrigger
+        className="h-8 text-xs border-0 rounded-none shadow-none ring-0 focus:ring-0 focus:outline-none bg-transparent"
+        autoFocus
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent
+        onEscapeKeyDown={(e) => {
+          e.preventDefault()
+          onCancel()
+        }}
+      >
+        <SelectItem value="true">True</SelectItem>
+        <SelectItem value="false">False</SelectItem>
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -222,39 +252,50 @@ function DateCellEditor({
   onCommit,
   onCancel,
 }: CellEditorProps) {
-  const strValue = typeof value === "string" ? value : ""
-  const ref = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    ref.current?.focus()
-  }, [])
+  const stringValue =
+    typeof value === "string" && value.length > 0 ? value : undefined
+  const parsedDate = stringValue !== undefined ? new Date(stringValue) : null
+  const dateValue =
+    parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault()
-        onCommit()
-      } else if (e.key === "Escape") {
+      if (e.key === "Escape") {
         e.preventDefault()
         onCancel()
-      } else if (e.key === "Tab") {
-        e.preventDefault()
-        onCommit()
       }
     },
-    [onCommit, onCancel]
+    [onCancel]
   )
 
   return (
-    <Input
-      ref={ref}
-      type="date"
-      value={strValue}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={handleKeyDown}
-      onBlur={onCommit}
-      className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
-    />
+    <div onKeyDown={handleKeyDown}>
+      <DateTimePicker
+        value={dateValue}
+        displayFormat="PPP"
+        placeholder="Select date"
+        hideTime
+        onChange={(next) => {
+          if (next) {
+            const yyyy = next.getFullYear()
+            const mm = String(next.getMonth() + 1).padStart(2, "0")
+            const dd = String(next.getDate()).padStart(2, "0")
+            onChange(`${yyyy}-${mm}-${dd}`)
+          } else {
+            onChange("")
+          }
+          if (next) {
+            setTimeout(onCommit, 0)
+          }
+        }}
+        onBlur={onCommit}
+        buttonProps={{
+          variant: "ghost",
+          className:
+            "w-full h-8 text-xs rounded-none shadow-none focus-visible:ring-0",
+        }}
+      />
+    </div>
   )
 }
 
@@ -291,7 +332,11 @@ function TimestampCellEditor({
           }
         }}
         onBlur={onCommit}
-        buttonProps={{ className: "w-full h-8 text-xs" }}
+        buttonProps={{
+          variant: "ghost",
+          className:
+            "w-full h-8 text-xs rounded-none shadow-none focus-visible:ring-0",
+        }}
       />
     </div>
   )
@@ -511,7 +556,10 @@ function SelectCellEditor({
           setTimeout(onCommit, 0)
         }}
       >
-        <SelectTrigger className="h-8 text-xs" autoFocus>
+        <SelectTrigger
+          className="h-8 text-xs border-0 rounded-none shadow-none ring-0 focus:ring-0 focus:outline-none bg-transparent"
+          autoFocus
+        >
           <SelectValue placeholder="Choose a value" />
         </SelectTrigger>
         <SelectContent
@@ -547,57 +595,122 @@ function MultiSelectCellEditor({
   onChange,
   onCommit,
   onCancel,
+  cellWidth,
 }: CellEditorProps) {
   const options = getColumnOptions(column)
-  const suggestions =
-    options?.map((option) => ({
-      id: option,
-      label: option,
-      value: option,
-    })) ?? []
-  const currentValue = Array.isArray(value)
-    ? (value as string[])
-    : typeof value === "string" && value
-      ? [value]
-      : []
+  const [open, setOpen] = useState(true)
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      }
-    },
-    [onCancel]
+  const currentValue = useMemo(
+    () =>
+      Array.isArray(value)
+        ? (value as string[])
+        : typeof value === "string" && value
+          ? [value]
+          : [],
+    [value]
   )
 
-  const handleBlur = useCallback(
-    (e: React.FocusEvent) => {
-      // Don't commit if focus moved within the component (e.g. to portal popover)
-      if (e.currentTarget.contains(e.relatedTarget)) return
-      // Delay to allow portal click to register
-      const target = e.currentTarget
-      requestAnimationFrame(() => {
-        if (!target.contains(document.activeElement)) {
-          onCommit()
-        }
-      })
+  const valueSet = useMemo(() => new Set(currentValue), [currentValue])
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen)
+      if (!nextOpen) {
+        onCommit()
+      }
     },
     [onCommit]
   )
 
-  return (
-    <div onKeyDown={handleKeyDown} onBlur={handleBlur}>
-      <MultiTagCommandInput
-        value={currentValue}
-        onChange={(values) => onChange(values)}
-        suggestions={suggestions}
-        placeholder="Select values..."
-        allowCustomTags={!options || options.length === 0}
-        searchKeys={["label", "value"]}
-        className="w-full text-xs"
+  if (!options || options.length === 0) {
+    return (
+      <TextCellEditor
+        value={value}
+        column={column}
+        onChange={onChange}
+        onCommit={onCommit}
+        onCancel={onCancel}
       />
-    </div>
+    )
+  }
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          role="combobox"
+          className="flex h-8 w-full items-center justify-between bg-transparent px-3 text-xs outline-none"
+        >
+          <span className="truncate text-left">
+            {currentValue.length === 0
+              ? "Select values..."
+              : currentValue.length === 1
+                ? currentValue[0]
+                : `${currentValue.length} selected`}
+          </span>
+          <ChevronsUpDown className="ml-2 size-3 opacity-50" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="!w-auto p-0"
+        align="start"
+        sideOffset={6}
+        style={{
+          width: cellWidth ? `${cellWidth - 28}px` : "var(--radix-popover-trigger-width)",
+        }}
+        onEscapeKeyDown={(e) => {
+          e.preventDefault()
+          onCancel()
+        }}
+      >
+        <Command>
+          <CommandInput placeholder="Search options..." className="text-xs" />
+          <CommandList>
+            <CommandEmpty>No options found.</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => {
+                const isSelected = valueSet.has(option)
+                return (
+                  <CommandItem
+                    key={option}
+                    value={option}
+                    className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-xs outline-none [&_svg]:size-3.5"
+                    onSelect={() => {
+                      const nextValue = isSelected
+                        ? currentValue.filter((item) => item !== option)
+                        : [...currentValue, option]
+                      onChange(nextValue)
+                      setOpen(true)
+                    }}
+                  >
+                    <span className="absolute right-2 flex size-3.5 items-center justify-center">
+                      <Check
+                        className={cn("size-4", !isSelected && "opacity-0")}
+                        aria-hidden
+                      />
+                    </span>
+                    <span className="truncate">{option}</span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {currentValue.length > 0 && (
+          <div className="border-t p-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full text-xs"
+              onClick={() => onChange([])}
+            >
+              Clear selection
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }
 

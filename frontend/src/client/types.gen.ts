@@ -4611,6 +4611,15 @@ export type TableRowRead = {
 }
 
 /**
+ * Update model for a table row.
+ */
+export type TableRowUpdate = {
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * Update model for a table.
  */
 export type TableUpdate = {
@@ -7604,6 +7613,15 @@ export type TablesDeleteRowData = {
 }
 
 export type TablesDeleteRowResponse = void
+
+export type TablesUpdateRowData = {
+  requestBody: TableRowUpdate
+  rowId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesUpdateRowResponse = TableRowRead
 
 export type TablesBatchInsertRowsData = {
   requestBody: TableRowInsertBatch
@@ -11154,6 +11172,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TablesUpdateRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableRowRead
         /**
          * Validation Error
          */
