@@ -213,6 +213,10 @@ def configure_minio_for_tests(monkeypatch):
     monkeypatch.setattr(config, "TRACECAT__DISABLE_NSJAIL", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False)
 
+    # Disable registry sync sandbox to use subprocess mode instead of Temporal workflow.
+    # This ensures sync activities run in the same process and see the monkeypatched config.
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+
     # Reload blob module to pick up new config
     importlib.reload(blob)
 
