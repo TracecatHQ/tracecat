@@ -1,13 +1,16 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { useState } from "react"
+import { KeyIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { useMemo, useState } from "react"
 import type { ScopeRead, ScopeSource } from "@/client"
 import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+  RbacDetailRow,
+  RbacListContainer,
+  RbacListEmpty,
+  RbacListHeader,
+  RbacListItem,
+} from "@/components/organization/rbac-list-item"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useRbacScopes } from "@/lib/hooks"
 
@@ -57,8 +61,10 @@ const SCOPE_SOURCE_COLORS: Record<ScopeSource, string> = {
 
 export function OrgRbacScopes() {
   const [selectedScope, setSelectedScope] = useState<ScopeRead | null>(null)
+  const [expandedScopeId, setExpandedScopeId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [sourceFilter, setSourceFilter] = useState<ScopeSource | "all">("all")
+  const [searchQuery, setSearchQuery] = useState("")
   const {
     scopes,
     isLoading,
@@ -72,6 +78,18 @@ export function OrgRbacScopes() {
     source: sourceFilter === "all" ? undefined : sourceFilter,
   })
 
+  const filteredScopes = useMemo(() => {
+    if (!searchQuery.trim()) return scopes
+    const query = searchQuery.toLowerCase()
+    return scopes.filter(
+      (scope) =>
+        scope.name.toLowerCase().includes(query) ||
+        scope.description?.toLowerCase().includes(query) ||
+        scope.resource.toLowerCase().includes(query) ||
+        scope.action.toLowerCase().includes(query)
+    )
+  }, [scopes, searchQuery])
+
   const handleCreateScope = async (name: string, description: string) => {
     await createScope({ name, description: description || undefined })
     setIsCreateOpen(false)
@@ -84,6 +102,14 @@ export function OrgRbacScopes() {
     }
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-destructive">
+        Failed to load scopes
+      </div>
+    )
+  }
+
   return (
     <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
       <AlertDialog
@@ -94,137 +120,103 @@ export function OrgRbacScopes() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Select
-                value={sourceFilter}
-                onValueChange={(v) => setSourceFilter(v as ScopeSource | "all")}
-              >
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Filter by source" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All sources</SelectItem>
-                  <SelectItem value="system">System</SelectItem>
-                  <SelectItem value="registry">Registry</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogTrigger asChild>
-              <Button size="sm">Create scope</Button>
-            </DialogTrigger>
-          </div>
+          <RbacListHeader
+            left={
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search scopes..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-9 w-[200px] pl-8"
+                  />
+                </div>
+                <Select
+                  value={sourceFilter}
+                  onValueChange={(v) =>
+                    setSourceFilter(v as ScopeSource | "all")
+                  }
+                >
+                  <SelectTrigger className="h-9 w-[130px]">
+                    <SelectValue placeholder="Filter by source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All sources</SelectItem>
+                    <SelectItem value="system">System</SelectItem>
+                    <SelectItem value="registry">Registry</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            }
+            right={
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <PlusIcon className="mr-2 size-4" />
+                  Create scope
+                </Button>
+              </DialogTrigger>
+            }
+          />
 
-          <DataTable
-            data={scopes}
-            isLoading={isLoading}
-            error={error as Error | null}
-            emptyMessage="No scopes found"
-            initialSortingState={[{ id: "name", desc: false }]}
-            columns={[
-              {
-                accessorKey: "name",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Scope"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
-                    {row.getValue<string>("name")}
-                  </code>
-                ),
-                enableSorting: true,
-                enableHiding: false,
-              },
-              {
-                accessorKey: "resource",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Resource"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <span className="text-xs text-muted-foreground">
-                    {row.getValue<string>("resource")}
-                  </span>
-                ),
-                enableSorting: true,
-                enableHiding: true,
-              },
-              {
-                accessorKey: "action",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Action"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <span className="text-xs text-muted-foreground">
-                    {row.getValue<string>("action")}
-                  </span>
-                ),
-                enableSorting: true,
-                enableHiding: true,
-              },
-              {
-                accessorKey: "source",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Source"
-                  />
-                ),
-                cell: ({ row }) => {
-                  const source = row.getValue<ScopeSource>("source")
-                  return (
+          {isLoading ? (
+            <RbacListContainer>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0"
+                >
+                  <Skeleton className="size-6" />
+                  <Skeleton className="size-4" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                </div>
+              ))}
+            </RbacListContainer>
+          ) : filteredScopes.length === 0 ? (
+            <RbacListContainer>
+              <RbacListEmpty
+                message={
+                  searchQuery || sourceFilter !== "all"
+                    ? "No scopes match your filters"
+                    : "No scopes found"
+                }
+              />
+            </RbacListContainer>
+          ) : (
+            <RbacListContainer>
+              {filteredScopes.map((scope) => (
+                <RbacListItem
+                  key={scope.id}
+                  icon={<KeyIcon className="size-4" />}
+                  title={
+                    <code className="text-xs font-mono">{scope.name}</code>
+                  }
+                  subtitle={
+                    scope.description || `${scope.resource}:${scope.action}`
+                  }
+                  badges={
                     <Badge
                       variant="secondary"
-                      className={SCOPE_SOURCE_COLORS[source]}
+                      className={`text-[10px] ${SCOPE_SOURCE_COLORS[scope.source]}`}
                     >
-                      {source}
+                      {scope.source}
                     </Badge>
-                  )
-                },
-                enableSorting: true,
-                enableHiding: true,
-              },
-              {
-                accessorKey: "description",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Description"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <span className="text-xs text-muted-foreground line-clamp-1">
-                    {row.getValue<string>("description") || "-"}
-                  </span>
-                ),
-                enableSorting: false,
-                enableHiding: true,
-              },
-              {
-                id: "actions",
-                enableHiding: false,
-                cell: ({ row }) => {
-                  const scope = row.original
-                  const isCustom = scope.source === "custom"
-
-                  return (
+                  }
+                  isExpanded={expandedScopeId === scope.id}
+                  onExpandedChange={(expanded) =>
+                    setExpandedScopeId(expanded ? scope.id : null)
+                  }
+                  actions={
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="size-8 p-0">
+                        <Button
+                          variant="ghost"
+                          className="size-8 p-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                        >
                           <span className="sr-only">Open menu</span>
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
@@ -244,7 +236,7 @@ export function OrgRbacScopes() {
                         >
                           Copy scope ID
                         </DropdownMenuItem>
-                        {isCustom && (
+                        {scope.source === "custom" && (
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem
                               className="text-rose-500 focus:text-rose-600"
@@ -256,12 +248,42 @@ export function OrgRbacScopes() {
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )
-                },
-              },
-            ]}
-            toolbarProps={toolbarProps}
-          />
+                  }
+                >
+                  <div className="space-y-3">
+                    <RbacDetailRow label="Name">
+                      <code className="rounded bg-muted/60 px-1.5 py-0.5 text-[11px] font-mono">
+                        {scope.name}
+                      </code>
+                    </RbacDetailRow>
+                    <RbacDetailRow label="Resource">
+                      <span className="text-muted-foreground">
+                        {scope.resource}
+                      </span>
+                    </RbacDetailRow>
+                    <RbacDetailRow label="Action">
+                      <span className="text-muted-foreground">
+                        {scope.action}
+                      </span>
+                    </RbacDetailRow>
+                    <RbacDetailRow label="Source">
+                      <Badge
+                        variant="secondary"
+                        className={SCOPE_SOURCE_COLORS[scope.source]}
+                      >
+                        {scope.source}
+                      </Badge>
+                    </RbacDetailRow>
+                    {scope.description && (
+                      <RbacDetailRow label="Description">
+                        {scope.description}
+                      </RbacDetailRow>
+                    )}
+                  </div>
+                </RbacListItem>
+              ))}
+            </RbacListContainer>
+          )}
         </div>
 
         <AlertDialogContent>
@@ -370,11 +392,4 @@ function CreateScopeDialog({
       </form>
     </DialogContent>
   )
-}
-
-const toolbarProps: DataTableToolbarProps<ScopeRead> = {
-  filterProps: {
-    placeholder: "Filter scopes...",
-    column: "name",
-  },
 }

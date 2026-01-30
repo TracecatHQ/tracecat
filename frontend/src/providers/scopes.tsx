@@ -2,6 +2,7 @@
 
 import { createContext, type ReactNode, useContext, useMemo } from "react"
 import { useUserScopes } from "@/lib/hooks"
+import { useOptionalWorkspaceId } from "@/providers/workspace-id"
 
 interface ScopeContextValue {
   scopes: Set<string>
@@ -67,7 +68,8 @@ function matchScope(
 }
 
 export function ScopeProvider({ children }: { children: ReactNode }) {
-  const { userScopes, isLoading, error } = useUserScopes()
+  const workspaceId = useOptionalWorkspaceId()
+  const { userScopes, isLoading, error } = useUserScopes(workspaceId)
 
   const value = useMemo<ScopeContextValue>(() => {
     const scopes = new Set(userScopes?.scopes ?? [])

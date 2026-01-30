@@ -7,7 +7,6 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   type OrgInvitationRead,
-  type OrgRole,
   organizationGetInvitationToken,
 } from "@/client"
 import {
@@ -64,11 +63,11 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
-import { useOrgInvitations } from "@/lib/hooks"
+import { useOrgInvitations, useRbacRoles } from "@/lib/hooks"
 
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
-  role: z.enum(["member", "admin", "owner"]),
+  role_id: z.string().min(1, "Please select a role"),
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
@@ -80,12 +79,13 @@ export function OrgInvitationsTable() {
   const { user } = useAuth()
   const { invitations, createInvitation, createPending, revokeInvitation } =
     useOrgInvitations()
+  const { roles } = useRbacRoles()
 
   const form = useForm<InvitationFormValues>({
     resolver: zodResolver(invitationFormSchema),
     defaultValues: {
       email: "",
-      role: "member",
+      role_id: "",
     },
   })
 
@@ -93,7 +93,7 @@ export function OrgInvitationsTable() {
     try {
       await createInvitation({
         email: values.email,
-        role: values.role as OrgRole,
+        role_id: values.role_id,
       })
       form.reset()
       setIsCreateDialogOpen(false)
@@ -176,13 +176,13 @@ export function OrgInvitationsTable() {
                   />
                   <FormField
                     control={form.control}
-                    name="role"
+                    name="role_id"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Role</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -190,9 +190,11 @@ export function OrgInvitationsTable() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="member">Member</SelectItem>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="owner">Owner</SelectItem>
+                            {roles.map((role) => (
+                              <SelectItem key={role.id} value={role.id}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -249,7 +251,7 @@ export function OrgInvitationsTable() {
               enableHiding: false,
             },
             {
-              accessorKey: "role",
+              accessorKey: "role_name",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
@@ -259,7 +261,7 @@ export function OrgInvitationsTable() {
               ),
               cell: ({ row }) => (
                 <div className="text-xs capitalize">
-                  {row.getValue<OrgInvitationRead["role"]>("role")}
+                  {row.getValue<OrgInvitationRead["role_name"]>("role_name")}
                 </div>
               ),
               enableSorting: true,

@@ -1,14 +1,17 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { PlusIcon } from "lucide-react"
-import { useCallback, useState } from "react"
+import { PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
+import { useCallback, useMemo, useState } from "react"
 import type { RoleReadWithScopes, ScopeRead } from "@/client"
 import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+  RbacBadge,
+  RbacDetailRow,
+  RbacListContainer,
+  RbacListEmpty,
+  RbacListHeader,
+  RbacListItem,
+} from "@/components/organization/rbac-list-item"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,14 +44,17 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useRbacRoles, useRbacScopes } from "@/lib/hooks"
 
 export function OrgRbacRoles() {
   const [selectedRole, setSelectedRole] = useState<RoleReadWithScopes | null>(
     null
   )
+  const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const {
     roles,
     isLoading,
@@ -62,6 +68,16 @@ export function OrgRbacRoles() {
   } = useRbacRoles()
 
   const { scopes } = useRbacScopes({ includeSystem: true })
+
+  const filteredRoles = useMemo(() => {
+    if (!searchQuery.trim()) return roles
+    const query = searchQuery.toLowerCase()
+    return roles.filter(
+      (role) =>
+        role.name.toLowerCase().includes(query) ||
+        role.description?.toLowerCase().includes(query)
+    )
+  }, [roles, searchQuery])
 
   const handleCreateRole = async (
     name: string,
@@ -99,6 +115,29 @@ export function OrgRbacRoles() {
     }
   }
 
+  // Group scopes by resource for display
+  const groupScopesByResource = (roleScopes: ScopeRead[]) => {
+    return roleScopes.reduce(
+      (acc, scope) => {
+        const resource = scope.resource
+        if (!acc[resource]) {
+          acc[resource] = []
+        }
+        acc[resource].push(scope)
+        return acc
+      },
+      {} as Record<string, ScopeRead[]>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-destructive">
+        Failed to load roles
+      </div>
+    )
+  }
+
   return (
     <Dialog
       open={isCreateOpen || isEditOpen}
@@ -118,100 +157,78 @@ export function OrgRbacRoles() {
         }}
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Roles bundle scopes together for assignment to groups.
-            </p>
-            <DialogTrigger asChild>
-              <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                <PlusIcon className="mr-2 size-4" />
-                Create role
-              </Button>
-            </DialogTrigger>
-          </div>
+          <RbacListHeader
+            left={
+              <div className="relative">
+                <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search roles..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 w-[250px] pl-8"
+                />
+              </div>
+            }
+            right={
+              <DialogTrigger asChild>
+                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                  <PlusIcon className="mr-2 size-4" />
+                  Create role
+                </Button>
+              </DialogTrigger>
+            }
+          />
 
-          <DataTable
-            data={roles}
-            isLoading={isLoading}
-            error={error as Error | null}
-            emptyMessage="No roles found"
-            initialSortingState={[{ id: "name", desc: false }]}
-            columns={[
-              {
-                accessorKey: "name",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Role"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">
-                      {row.getValue<string>("name")}
-                    </span>
-                    {row.original.is_system && (
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        System
-                      </span>
-                    )}
+          {isLoading ? (
+            <RbacListContainer>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 px-3 py-2.5 border-b border-border/50 last:border-b-0"
+                >
+                  <Skeleton className="size-6" />
+                  <Skeleton className="size-4" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
                   </div>
-                ),
-                enableSorting: true,
-                enableHiding: false,
-              },
-              {
-                accessorKey: "description",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Description"
-                  />
-                ),
-                cell: ({ row }) => (
-                  <span className="text-xs text-muted-foreground line-clamp-1">
-                    {row.getValue<string>("description") || "-"}
-                  </span>
-                ),
-                enableSorting: false,
-                enableHiding: true,
-              },
-              {
-                accessorKey: "scopes",
-                header: ({ column }) => (
-                  <DataTableColumnHeader
-                    className="text-xs"
-                    column={column}
-                    title="Scopes"
-                  />
-                ),
-                cell: ({ row }) => {
-                  const roleScopes = row.original.scopes ?? []
-                  return (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">
-                        {roleScopes.length} scope
-                        {roleScopes.length !== 1 && "s"}
-                      </span>
-                    </div>
-                  )
-                },
-                enableSorting: false,
-                enableHiding: true,
-              },
-              {
-                id: "actions",
-                enableHiding: false,
-                cell: ({ row }) => {
-                  const role = row.original
-                  const isSystem = role.is_system
-
-                  return (
+                </div>
+              ))}
+            </RbacListContainer>
+          ) : filteredRoles.length === 0 ? (
+            <RbacListContainer>
+              <RbacListEmpty
+                message={
+                  searchQuery ? "No roles match your search" : "No roles found"
+                }
+              />
+            </RbacListContainer>
+          ) : (
+            <RbacListContainer>
+              {filteredRoles.map((role) => (
+                <RbacListItem
+                  key={role.id}
+                  icon={<ShieldIcon className="size-4" />}
+                  title={role.name}
+                  subtitle={
+                    role.description || `${role.scopes?.length ?? 0} scopes`
+                  }
+                  badges={
+                    role.is_system ? (
+                      <RbacBadge variant="preset">Preset</RbacBadge>
+                    ) : null
+                  }
+                  isExpanded={expandedRoleId === role.id}
+                  onExpandedChange={(expanded) =>
+                    setExpandedRoleId(expanded ? role.id : null)
+                  }
+                  actions={
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="size-8 p-0">
+                        <Button
+                          variant="ghost"
+                          className="size-8 p-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                        >
                           <span className="sr-only">Open menu</span>
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
@@ -222,7 +239,7 @@ export function OrgRbacRoles() {
                         >
                           Copy role ID
                         </DropdownMenuItem>
-                        {!isSystem && (
+                        {!role.is_system && (
                           <>
                             <DropdownMenuSeparator />
                             <DialogTrigger asChild>
@@ -247,12 +264,48 @@ export function OrgRbacRoles() {
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )
-                },
-              },
-            ]}
-            toolbarProps={toolbarProps}
-          />
+                  }
+                >
+                  <div className="space-y-3">
+                    {role.description && (
+                      <RbacDetailRow label="Description">
+                        {role.description}
+                      </RbacDetailRow>
+                    )}
+                    <RbacDetailRow label="Scopes">
+                      <span className="text-muted-foreground">
+                        {role.scopes?.length ?? 0} permission
+                        {(role.scopes?.length ?? 0) !== 1 && "s"}
+                      </span>
+                    </RbacDetailRow>
+                    {role.scopes && role.scopes.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {Object.entries(groupScopesByResource(role.scopes)).map(
+                          ([resource, resourceScopes]) => (
+                            <div key={resource}>
+                              <div className="mb-1 text-xs font-medium text-muted-foreground">
+                                {resource}
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {resourceScopes.map((scope) => (
+                                  <code
+                                    key={scope.id}
+                                    className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono"
+                                  >
+                                    {scope.action}
+                                  </code>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </RbacListItem>
+              ))}
+            </RbacListContainer>
+          )}
         </div>
 
         <AlertDialogContent>
@@ -490,11 +543,4 @@ function RoleFormDialog({
       </form>
     </DialogContent>
   )
-}
-
-const toolbarProps: DataTableToolbarProps<RoleReadWithScopes> = {
-  filterProps: {
-    placeholder: "Filter roles...",
-    column: "name",
-  },
 }

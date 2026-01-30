@@ -34,7 +34,6 @@ from tracecat.authz.rbac.schemas import (
 )
 from tracecat.authz.rbac.service import RBACService
 from tracecat.authz.scopes import ORG_ROLE_SCOPES, PRESET_ROLE_SCOPES
-from tracecat.contexts import ctx_scopes
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -940,8 +939,13 @@ async def get_my_scopes(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
+    workspace_id: UUID | None = Query(None, description="Workspace to get scopes for"),
 ) -> UserScopesRead:
     """Get the current user's effective scopes.
+
+    Args:
+        workspace_id: Optional workspace ID. If provided, includes workspace-specific
+            role assignments in addition to org-level assignments.
 
     Returns a breakdown of scopes by source:
     - org_role_scopes: From org membership role (OWNER/ADMIN/MEMBER)
@@ -951,8 +955,8 @@ async def get_my_scopes(
 
     The combined `scopes` list is what's actually used for authorization.
     """
-    # Get the current scopes from context (already computed during auth)
-    current_scopes = ctx_scopes.get()
+    # Use workspace_id from query param if provided, otherwise from role context
+    effective_workspace_id = workspace_id or role.workspace_id
 
     # Get org role scopes
     org_role_scopes: list[str] = []
@@ -973,18 +977,25 @@ async def get_my_scopes(
         service = RBACService(session, role=role)
         group_scope_set = await service.get_group_scopes(
             role.user_id,
-            workspace_id=role.workspace_id,
+            workspace_id=effective_workspace_id,
         )
         group_scopes = sorted(group_scope_set)
 
         user_role_scope_set = await service.get_user_role_scopes(
             role.user_id,
-            workspace_id=role.workspace_id,
+            workspace_id=effective_workspace_id,
         )
         user_role_scopes = sorted(user_role_scope_set)
 
+    # Combine all scopes
+    all_scopes: set[str] = set()
+    all_scopes.update(org_role_scopes)
+    all_scopes.update(workspace_role_scopes)
+    all_scopes.update(group_scopes)
+    all_scopes.update(user_role_scopes)
+
     return UserScopesRead(
-        scopes=sorted(current_scopes),
+        scopes=sorted(all_scopes),
         org_role_scopes=org_role_scopes,
         workspace_role_scopes=workspace_role_scopes,
         group_scopes=group_scopes,
