@@ -155,6 +155,12 @@ async def lifespan(app: FastAPI):
 
     await ensure_default_organization()
 
+    # Seed RBAC defaults (scopes and preset roles for all orgs)
+    from tracecat.db.engine import get_async_session_context_manager
+
+    async with get_async_session_context_manager() as session:
+        await setup_rbac_defaults(session)
+
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
     registry_sync_task = asyncio.create_task(
