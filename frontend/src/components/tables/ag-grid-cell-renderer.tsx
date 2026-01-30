@@ -34,7 +34,8 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
 
   const normalizedType = normalizeSqlType(params.tableColumn?.type)
   const isJsonType = JSON_TYPES.has(normalizedType)
-  const isObjectValue = typeof params.value === "object" && params.value !== null
+  const isObjectValue =
+    typeof params.value === "object" && params.value !== null
   const isLongText =
     typeof params.value === "string" && params.value.length > 25
   const isExpandable = isObjectValue || isLongText
