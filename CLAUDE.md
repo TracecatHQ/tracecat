@@ -35,8 +35,11 @@ uv sync
 ```
 
 ### Development Stack
+
+IMPORTANT: if there's a docker compose stack called `tracecat` running, ignore the following instructions and use the `tracecat` stack via `docker compose` instead.
+
 ```bash
-# IMPORTANT: Always use `just cluster` to manage the development stack
+# Use `just cluster` to manage the development stack
 # This handles database, Temporal, Redis, MinIO, API, and UI services
 # It also manages port allocation across multiple worktrees
 
@@ -74,8 +77,6 @@ just cluster list            # List all running clusters
 - Need Temporal for workflow testing → `just cluster up -d`
 - Need to check service logs → `just cluster logs <service>`
 - Need to restart after code changes → `just cluster restart <service>`
-
-**Do NOT use raw `docker` or `docker compose` commands** - the cluster script handles environment variables, port allocation, and worktree isolation automatically.
 
 ### Testing
 ```bash
