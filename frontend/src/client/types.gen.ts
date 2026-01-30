@@ -2515,8 +2515,7 @@ export type GitHubAppCredentialsStatus = {
   exists: boolean
   app_id?: string | null
   has_webhook_secret?: boolean
-  webhook_secret_preview?: string | null
-  client_id?: string | null
+  has_client_id?: boolean
   created_at?: string | null
 }
 
@@ -4166,7 +4165,7 @@ export type RetryPromptPart = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
-  organization_id?: string
+  organization_id?: string | null
   workspace_role?: WorkspaceRole | null
   org_role?: OrgRole | null
   user_id?: string | null
@@ -4734,15 +4733,6 @@ export type TableRowRead = {
   created_at: string
   updated_at: string
   [key: string]: unknown | string
-}
-
-/**
- * Update model for a table row.
- */
-export type TableRowUpdate = {
-  data: {
-    [key: string]: unknown
-  }
 }
 
 /**
@@ -7000,6 +6990,14 @@ export type OrganizationRevokeInvitationData = {
 
 export type OrganizationRevokeInvitationResponse = void
 
+export type OrganizationGetInvitationTokenData = {
+  invitationId: string
+}
+
+export type OrganizationGetInvitationTokenResponse = {
+  [key: string]: string
+}
+
 export type OrganizationAcceptInvitationData = {
   requestBody: OrgInvitationAccept
 }
@@ -7731,15 +7729,6 @@ export type TablesDeleteRowData = {
 }
 
 export type TablesDeleteRowResponse = void
-
-export type TablesUpdateRowData = {
-  requestBody: TableRowUpdate
-  rowId: string
-  tableId: string
-  workspaceId: string
-}
-
-export type TablesUpdateRowResponse = TableRowRead
 
 export type TablesBatchInsertRowsData = {
   requestBody: TableRowInsertBatch
@@ -8488,8 +8477,6 @@ export type VcsSaveGithubAppCredentialsData = {
 export type VcsSaveGithubAppCredentialsResponse = {
   [key: string]: string
 }
-
-export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
@@ -9879,6 +9866,23 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/{invitation_id}/token": {
+    get: {
+      req: OrganizationGetInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
         /**
          * Validation Error
          */
@@ -11373,19 +11377,6 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    patch: {
-      req: TablesUpdateRowData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TableRowRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
   }
   "/tables/{table_id}/rows/batch": {
     post: {
@@ -12555,14 +12546,6 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
-      }
-    }
-    delete: {
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
       }
     }
   }

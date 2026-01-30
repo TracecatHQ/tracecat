@@ -8188,27 +8188,10 @@ export const $GitHubAppCredentialsStatus = {
       title: "Has Webhook Secret",
       default: false,
     },
-    webhook_secret_preview: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Webhook Secret Preview",
-    },
-    client_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Id",
+    has_client_id: {
+      type: "boolean",
+      title: "Has Client Id",
+      default: false,
     },
     created_at: {
       anyOf: [
@@ -12998,10 +12981,16 @@ export const $Role = {
       title: "Workspace Id",
     },
     organization_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Organization Id",
-      default: "00000000-0000-0000-0000-000000000000",
     },
     workspace_role: {
       anyOf: [
@@ -14824,20 +14813,6 @@ export const $TableRowRead = {
   required: ["id", "created_at", "updated_at"],
   title: "TableRowRead",
   description: "Read model for a table row.",
-} as const
-
-export const $TableRowUpdate = {
-  properties: {
-    data: {
-      additionalProperties: true,
-      type: "object",
-      title: "Data",
-    },
-  },
-  type: "object",
-  required: ["data"],
-  title: "TableRowUpdate",
-  description: "Update model for a table row.",
 } as const
 
 export const $TableUpdate = {
