@@ -116,6 +116,12 @@ variable "rds_master_username" {
   default     = "tracecat"
 }
 
+variable "rds_snapshot_identifier" {
+  description = "Optional RDS snapshot identifier or ARN to restore from"
+  type        = string
+  default     = ""
+}
+
 variable "rds_skip_final_snapshot" {
   description = "Whether to skip the final RDS snapshot on deletion"
   type        = bool
@@ -142,7 +148,7 @@ variable "elasticache_node_type" {
 
 # Temporal Configuration
 variable "temporal_mode" {
-  description = "Temporal deployment mode: 'self-hosted' or 'cloud'"
+  description = "Temporal deployment mode: 'self-hosted' or external ('cloud')"
   type        = string
   default     = "self-hosted"
 
@@ -152,20 +158,20 @@ variable "temporal_mode" {
   }
 }
 
-variable "temporal_cloud_url" {
-  description = "Temporal Cloud cluster URL (host:port) - required when temporal_mode is 'cloud'"
+variable "temporal_cluster_url" {
+  description = "Temporal cluster URL (host:port) - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
 }
 
-variable "temporal_cloud_namespace" {
-  description = "Temporal Cloud namespace - required when temporal_mode is 'cloud'"
+variable "temporal_cluster_namespace" {
+  description = "Temporal cluster namespace - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
 }
 
-variable "temporal_cloud_api_key_secret_arn" {
-  description = "ARN of AWS Secrets Manager secret containing Temporal Cloud API key (plain text) - required when temporal_mode is 'cloud'"
+variable "temporal_cluster_api_key_secret_arn" {
+  description = "ARN of AWS Secrets Manager secret containing Temporal API key (plain text) - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
 }
@@ -213,10 +219,41 @@ variable "executor_backend" {
   default     = "ephemeral"
 }
 
+variable "agent_executor_replicas" {
+  description = "Number of agent-executor replicas"
+  type        = number
+  default     = 1
+}
+
+variable "agent_executor_queue" {
+  description = "Queue name for agent-executor workers"
+  type        = string
+  default     = "shared-agent-queue"
+}
+
+variable "agent_executor_backend" {
+  description = "Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto'"
+  type        = string
+  default     = "ephemeral"
+}
+
 variable "ui_replicas" {
   description = "Number of UI replicas"
   type        = number
   default     = 1
+}
+
+# WAF Configuration
+variable "enable_waf" {
+  description = "Enable AWS WAFv2 Web ACL for ALB protection"
+  type        = bool
+  default     = true
+}
+
+variable "waf_rate_limit" {
+  description = "Maximum number of requests per 5-minute period per IP before rate limiting (WAF rate-based rule)"
+  type        = number
+  default     = 2000
 }
 
 # Tags

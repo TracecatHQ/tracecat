@@ -26,7 +26,7 @@ locals {
     var.tracecat_secrets_arn,
     local.rds_master_secret_arn,
     aws_secretsmanager_secret.redis_url.arn,
-    var.temporal_cloud_api_key_secret_arn,
+    var.temporal_cluster_api_key_secret_arn,
   ])
 
   # External Secrets Operator settings
@@ -39,6 +39,7 @@ locals {
   s3_suffix             = random_id.s3_suffix.hex
   s3_attachments_bucket = "tracecat-attachments-${local.s3_suffix}"
   s3_registry_bucket    = "tracecat-registry-${local.s3_suffix}"
+  s3_workflow_bucket    = "tracecat-workflow-${local.s3_suffix}"
 
   # Common labels for Kubernetes resources
   common_labels = {

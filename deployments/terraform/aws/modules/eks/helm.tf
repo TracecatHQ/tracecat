@@ -1,8 +1,8 @@
 # Tracecat Helm Release
 resource "helm_release" "tracecat" {
-  name       = "tracecat"
-  chart      = "${path.module}/../../../../helm/tracecat"
-  namespace  = kubernetes_namespace.tracecat.metadata[0].name
+  name      = "tracecat"
+  chart     = "${path.module}/../../../../helm/tracecat"
+  namespace = kubernetes_namespace.tracecat.metadata[0].name
 
   wait          = true
   wait_for_jobs = true
@@ -25,14 +25,19 @@ resource "helm_release" "tracecat" {
       enabled   = true
       className = "alb"
       host      = var.domain_name
-      annotations = {
-        "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
-        "alb.ingress.kubernetes.io/target-type"      = "ip"
-        "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
-        "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
-        "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
-        "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
-      }
+      annotations = merge(
+        {
+          "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
+          "alb.ingress.kubernetes.io/target-type"      = "ip"
+          "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
+          "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
+          "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
+          "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+        },
+        var.enable_waf ? {
+          "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.main[0].arn
+        } : {}
+      )
     }
     urls = {
       publicApp = "https://${var.domain_name}"
@@ -70,15 +75,19 @@ resource "helm_release" "tracecat" {
     value = var.tracecat_secrets_arn
   }
 
-  # PostgreSQL credentials via ESO (RDS master user secret)
+  # PostgreSQL credentials via ESO (RDS master user secret).
+  # When Temporal is self-hosted, Terraform pre-creates the ExternalSecret so the DB setup job can run first.
   set {
     name  = "externalSecrets.postgres.enabled"
-    value = "true"
+    value = var.temporal_mode == "self-hosted" ? "false" : "true"
   }
 
-  set {
-    name  = "externalSecrets.postgres.secretArn"
-    value = local.rds_master_secret_arn
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [] : [1]
+    content {
+      name  = "externalSecrets.postgres.secretArn"
+      value = local.rds_master_secret_arn
+    }
   }
 
   # Redis URL via ESO
@@ -140,6 +149,22 @@ resource "helm_release" "tracecat" {
     value = var.executor_backend
   }
 
+  # Agent Executor configuration
+  set {
+    name  = "agentExecutor.replicas"
+    value = var.agent_executor_replicas
+  }
+
+  set {
+    name  = "agentExecutor.queue"
+    value = var.agent_executor_queue
+  }
+
+  set {
+    name  = "agentExecutor.backend"
+    value = var.agent_executor_backend
+  }
+
   set {
     name  = "ui.replicas"
     value = var.ui_replicas
@@ -185,6 +210,27 @@ resource "helm_release" "tracecat" {
 
   set {
     name  = "executor.resources.limits.memory"
+    value = "16Gi"
+  }
+
+  # Agent Executor: 4 vCPU, 8GB RAM (same as executor)
+  set {
+    name  = "agentExecutor.resources.requests.cpu"
+    value = "4000m"
+  }
+
+  set {
+    name  = "agentExecutor.resources.requests.memory"
+    value = "8Gi"
+  }
+
+  set {
+    name  = "agentExecutor.resources.limits.cpu"
+    value = "8000m"
+  }
+
+  set {
+    name  = "agentExecutor.resources.limits.memory"
     value = "16Gi"
   }
 
@@ -251,10 +297,10 @@ resource "helm_release" "tracecat" {
     value = "require"
   }
 
-  # ESO creates the secret; reference by target name
+  # Use the RDS master user secret directly for app DB connections.
   set {
-    name  = "externalPostgres.auth.existingSecret"
-    value = "tracecat-postgres-credentials"
+    name  = "externalPostgres.auth.secretArn"
+    value = local.rds_master_secret_arn
   }
 
   # External Redis (ElastiCache)
@@ -269,7 +315,7 @@ resource "helm_release" "tracecat" {
     value = "tracecat-redis-credentials"
   }
 
-  # External S3
+  # External S3 (uses IRSA - don't set endpoint to use default credential chain)
   set {
     name  = "externalS3.enabled"
     value = "true"
@@ -280,11 +326,6 @@ resource "helm_release" "tracecat" {
     value = local.aws_region
   }
 
-  # Explicit S3 endpoint to override image's default MinIO endpoint
-  set {
-    name  = "externalS3.endpoint"
-    value = "https://s3.${local.aws_region}.amazonaws.com"
-  }
 
   set {
     name  = "tracecat.blobStorage.buckets.attachments"
@@ -294,6 +335,11 @@ resource "helm_release" "tracecat" {
   set {
     name  = "tracecat.blobStorage.buckets.registry"
     value = local.s3_registry_bucket
+  }
+
+  set {
+    name  = "tracecat.blobStorage.buckets.workflow"
+    value = local.s3_workflow_bucket
   }
 
   # Temporal Configuration
@@ -525,7 +571,7 @@ resource "helm_release" "tracecat" {
     }
   }
 
-  # Temporal Cloud Configuration
+  # External Temporal cluster configuration
   dynamic "set" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
     content {
@@ -538,7 +584,7 @@ resource "helm_release" "tracecat" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
     content {
       name  = "externalTemporal.clusterUrl"
-      value = var.temporal_cloud_url
+      value = var.temporal_cluster_url
     }
   }
 
@@ -546,13 +592,13 @@ resource "helm_release" "tracecat" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
     content {
       name  = "externalTemporal.clusterNamespace"
-      value = var.temporal_cloud_namespace
+      value = var.temporal_cluster_namespace
     }
   }
 
-  # Temporal Cloud uses ESO for API key
+  # External cluster API key via ESO
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalSecrets.temporal.enabled"
       value = "true"
@@ -560,15 +606,15 @@ resource "helm_release" "tracecat" {
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalSecrets.temporal.secretArn"
-      value = var.temporal_cloud_api_key_secret_arn
+      value = var.temporal_cluster_api_key_secret_arn
     }
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cloud_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
     content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"

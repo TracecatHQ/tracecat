@@ -15,7 +15,7 @@ secrets:
 # External Secrets Operator configuration
 externalSecrets:
   enabled: true
-  refreshInterval: "1h"
+  refreshInterval: "1m"
 
   # Reference to ClusterSecretStore (created by platform team or Terraform)
   clusterSecretStoreRef: "tracecat-aws-secrets"

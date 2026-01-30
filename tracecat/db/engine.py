@@ -29,8 +29,17 @@ def get_connection_string(
     database: str = "postgres",
     scheme: str = "postgresql",
     driver: Literal["asyncpg", "psycopg"] = "asyncpg",
+    sslmode: str | None = None,
 ) -> str:
-    return f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
+    base = f"{scheme}+{driver}://{username}:{password}@{host}:{port!s}/{database}"
+    if sslmode:
+        # asyncpg uses 'ssl' parameter, psycopg uses 'sslmode'
+        if driver == "asyncpg":
+            # Map PostgreSQL sslmode to asyncpg ssl parameter
+            # asyncpg accepts: 'disable', 'prefer', 'require', 'verify-ca', 'verify-full'
+            return f"{base}?ssl={sslmode}"
+        return f"{base}?sslmode={sslmode}"
+    return base
 
 
 def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
@@ -114,6 +123,7 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
             port=config.TRACECAT__DB_PORT,
             database=config.TRACECAT__DB_NAME,
             driver=driver,
+            sslmode=config.TRACECAT__DB_SSLMODE,
         )
         logger.info("Successfully retrieved database password from AWS Secrets Manager")
     # Else check if the password is in the local environment
@@ -133,6 +143,7 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
             port=config.TRACECAT__DB_PORT,
             database=config.TRACECAT__DB_NAME,
             driver=driver,
+            sslmode=config.TRACECAT__DB_SSLMODE,
         )
     # Else use the default URI
     else:

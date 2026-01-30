@@ -16,7 +16,7 @@ secrets:
 # When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
 externalSecrets:
   enabled: false
-  refreshInterval: "1h"
+  refreshInterval: "1m"
 
   # Reference to an existing ClusterSecretStore (recommended for AWS with IRSA)
   clusterSecretStoreRef: ""
@@ -194,6 +194,23 @@ executor:
     enabled: false
     thresholdKb: 16
 
+agentExecutor:
+  replicas: 1
+  # Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
+  backend: "auto"
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  queue: "shared-agent-queue"
+  workerPoolSize: ""
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
 # CloudNativePG cluster subchart configuration (aliased as postgres)
 postgres:
   enabled: true
@@ -228,6 +245,8 @@ minio:
 
 temporal:
   enabled: true
+  # Temporal task queue used by Tracecat workers.
+  clusterQueue: tracecat-task-queue
   server:
     config:
       persistence:
@@ -278,6 +297,7 @@ externalPostgres:
   sslMode: "prefer"
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
+    # You can set both to export TRACECAT__DB_PASS__ARN and TRACECAT__DB_PASS.
     existingSecret: null  # Contains `username` and `password`.
     # Username to use with secretArn (if omitted, the ARN secret must include `username`).
     username: ""
@@ -311,9 +331,16 @@ externalS3:
 externalTemporal:
   enabled: false
   clusterUrl: ""
-  clusterQueue: ""
   clusterNamespace: ""
+  # Temporal task queue used by Tracecat workers.
+  clusterQueue: tracecat-task-queue
   auth:
     existingSecret: null  # Contains `apiKey` (raw string)
     # SecretString should be the raw API key.
     secretArn: null
+
+# Stakater Reloader annotations for automatic pod restart on secret changes.
+# When enabled, pods automatically restart when their referenced secrets are updated.
+# This is critical for handling AWS Secrets Manager rotation (e.g., RDS password rotation).
+reloader:
+  enabled: true

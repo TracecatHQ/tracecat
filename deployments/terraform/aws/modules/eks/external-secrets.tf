@@ -1,6 +1,7 @@
 # External Secrets Operator Installation
 # ESO syncs secrets from AWS Secrets Manager into Kubernetes automatically.
-# The Tracecat Helm chart creates ExternalSecret resources for all needed secrets.
+# The Tracecat Helm chart creates most ExternalSecret resources; Terraform pre-creates
+# PostgreSQL credentials when Temporal is self-hosted.
 
 resource "helm_release" "external_secrets" {
   name             = "external-secrets"
@@ -84,33 +85,25 @@ EOF
   depends_on = [helm_release.external_secrets]
 }
 
-# Note: Most ExternalSecret resources are created by the Tracecat Helm chart.
-# The chart's externalSecrets.* configuration creates ExternalSecrets for:
-# - Core Tracecat secrets (dbEncryptionKey, serviceKey, signingSecret, userAuthSecret)
-# - PostgreSQL credentials (username, password)
-# - Redis URL
-# - Temporal Cloud API key (when using Temporal Cloud)
-
-# Pre-create PostgreSQL credentials ExternalSecret for Temporal database setup job
-# This needs to exist before the Helm chart is deployed so the setup job can run
+# ExternalSecret for PostgreSQL credentials (needed before Helm installs when Temporal is self-hosted).
 resource "null_resource" "postgres_credentials_external_secret" {
   count = var.temporal_mode == "self-hosted" ? 1 : 0
 
   triggers = {
-    namespace   = kubernetes_namespace.tracecat.metadata[0].name
-    secret_arn  = local.rds_master_secret_arn
-    store_name  = local.external_secrets_store_name
+    secret_arn = local.rds_master_secret_arn
+    namespace  = kubernetes_namespace.tracecat.metadata[0].name
+    store_name = local.external_secrets_store_name
   }
 
   provisioner "local-exec" {
     command = <<-EOT
-      # Wait for ClusterSecretStore to be ready
+      # Wait for ExternalSecret CRD to be registered (up to 60 seconds)
       for i in $(seq 1 12); do
-        if kubectl get clustersecretstore ${local.external_secrets_store_name} >/dev/null 2>&1; then
-          echo "ClusterSecretStore found, creating ExternalSecret..."
+        if kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1; then
+          echo "ExternalSecret CRD found, applying PostgreSQL ExternalSecret..."
           break
         fi
-        echo "Waiting for ClusterSecretStore... ($i/12)"
+        echo "Waiting for ExternalSecret CRD to be registered... ($i/12)"
         sleep 5
       done
 
@@ -118,49 +111,50 @@ resource "null_resource" "postgres_credentials_external_secret" {
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: tracecat-postgres-credentials-pre
+  name: tracecat-postgres-secrets
   namespace: ${kubernetes_namespace.tracecat.metadata[0].name}
   labels:
     app.kubernetes.io/managed-by: terraform
     app.kubernetes.io/part-of: tracecat
 spec:
-  refreshInterval: 1h
+  refreshInterval: "1m"
   secretStoreRef:
-    name: ${local.external_secrets_store_name}
     kind: ClusterSecretStore
+    name: ${local.external_secrets_store_name}
   target:
     name: tracecat-postgres-credentials
     creationPolicy: Owner
   data:
-  - secretKey: username
-    remoteRef:
-      key: ${local.rds_master_secret_arn}
-      property: username
-  - secretKey: password
-    remoteRef:
-      key: ${local.rds_master_secret_arn}
-      property: password
+    - secretKey: username
+      remoteRef:
+        key: ${local.rds_master_secret_arn}
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: ${local.rds_master_secret_arn}
+        property: password
 EOF
-
-      # Wait for the secret to be created (up to 60 seconds)
-      echo "Waiting for secret to be synced..."
-      for i in $(seq 1 12); do
-        if kubectl get secret tracecat-postgres-credentials -n ${kubernetes_namespace.tracecat.metadata[0].name} >/dev/null 2>&1; then
-          echo "Secret tracecat-postgres-credentials created successfully"
-          exit 0
-        fi
-        echo "Waiting for secret sync... ($i/12)"
-        sleep 5
-      done
-      echo "Error: Secret did not sync within timeout" >&2
-      exit 1
     EOT
   }
 
   provisioner "local-exec" {
     when    = destroy
-    command = "kubectl delete externalsecret tracecat-postgres-credentials-pre -n ${self.triggers.namespace} --ignore-not-found"
+    command = "kubectl delete externalsecrets.external-secrets.io tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} --ignore-not-found"
   }
 
   depends_on = [null_resource.external_secrets_cluster_store, kubernetes_namespace.tracecat]
 }
+
+# Note: ExternalSecret resources are created by the Tracecat Helm chart,
+# except for the PostgreSQL credentials when Temporal is self-hosted.
+# The chart's externalSecrets.* configuration creates ExternalSecrets for:
+# - Core Tracecat secrets (dbEncryptionKey, serviceKey, signingSecret, userAuthSecret)
+# - PostgreSQL credentials (username, password)
+# - Redis URL
+# - Temporal Cloud API key (when using Temporal Cloud)
+#
+# Terraform only manages:
+# - ESO Helm release (installs the operator)
+# - ClusterSecretStore (provides AWS Secrets Manager access)
+#
+# The Helm chart handles ExternalSecret lifecycle including for Temporal setup.
