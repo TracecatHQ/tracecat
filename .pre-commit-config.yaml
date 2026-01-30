@@ -47,3 +47,24 @@ repos:
         files: ^(tracecat|packages)
         require_serial: true
         pass_filenames: false
+      - id: basedpyright
+        name: python type check
+        entry: uv run basedpyright --warnings --threads 4
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+      - id: biome-check
+        name: frontend biome check
+        entry: bash -c "pnpm -C frontend check"
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+        require_serial: true
+      - id: typecheck-frontend
+        name: frontend type check
+        entry: bash -c "pnpm -C frontend run typecheck"
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+        require_serial: true
