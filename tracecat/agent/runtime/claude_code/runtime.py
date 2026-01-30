@@ -473,9 +473,13 @@ class ClaudeAgentRuntime:
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             # Add command-based MCP servers (stdio)
             # These run as subprocesses inside the sandbox and require internet access
+            reserved_names = frozenset(mcp_servers.keys())
             if payload.mcp_command_servers:
                 for cmd_server in payload.mcp_command_servers:
                     server_name = cmd_server["name"]
+                    # Avoid collision with reserved names by adding suffix
+                    if server_name in reserved_names:
+                        server_name = f"{server_name}-cmd"
                     server_config: dict[str, Any] = {
                         "command": cmd_server["command"],
                     }
