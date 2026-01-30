@@ -333,10 +333,11 @@ export function MCPIntegrationDialog({
             .filter(Boolean)
         : undefined
 
-      // Parse command_env from JSON string to object
-      const commandEnv = values.command_env?.trim()
-        ? (JSON.parse(values.command_env) as Record<string, string>)
-        : undefined
+      // Parse command_env from JSON string to object (only for command-type servers)
+      const commandEnv =
+        values.server_type === "command" && values.command_env?.trim()
+          ? (JSON.parse(values.command_env) as Record<string, string>)
+          : undefined
 
       const baseParams = {
         name: values.name.trim(),
