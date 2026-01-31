@@ -21,6 +21,7 @@ import { GripVerticalIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { useCallback, useId, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
+import type { CaseDropdownDefinitionRead } from "@/client"
 import { ColorPicker } from "@/components/color-picker"
 import { IconPicker } from "@/components/form/icon-picker"
 import { Button } from "@/components/ui/button"
@@ -245,7 +246,8 @@ export function AddCaseDropdownDialog({
   const handleCreate = async (formValues: CreateDropdownFormValues) => {
     try {
       const nameExists = dropdownDefinitions?.some(
-        (d) => d.name.toLowerCase() === formValues.name.trim().toLowerCase()
+        (d: CaseDropdownDefinitionRead) =>
+          d.name.toLowerCase() === formValues.name.trim().toLowerCase()
       )
       if (nameExists) {
         methods.setError("name", {

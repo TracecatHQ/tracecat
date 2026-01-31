@@ -44,6 +44,14 @@ import {
   type CaseCommentRead,
   type CaseCommentUpdate,
   type CaseCreate,
+  type CaseDropdownDefinitionRead,
+  type CaseDropdownsAddDropdownOptionData,
+  type CaseDropdownsCreateDropdownDefinitionData,
+  type CaseDropdownsDeleteDropdownDefinitionData,
+  type CaseDropdownsDeleteDropdownOptionData,
+  type CaseDropdownsReorderDropdownOptionsData,
+  type CaseDropdownsUpdateDropdownDefinitionData,
+  type CaseDropdownsUpdateDropdownOptionData,
   type CaseDurationDefinitionRead,
   type CaseDurationRead,
   type CaseEventsWithUsers,
@@ -64,6 +72,14 @@ import {
   type CaseTaskRead,
   type CaseTaskUpdate,
   type CaseUpdate,
+  caseDropdownsAddDropdownOption,
+  caseDropdownsCreateDropdownDefinition,
+  caseDropdownsDeleteDropdownDefinition,
+  caseDropdownsDeleteDropdownOption,
+  caseDropdownsListDropdownDefinitions,
+  caseDropdownsReorderDropdownOptions,
+  caseDropdownsUpdateDropdownDefinition,
+  caseDropdownsUpdateDropdownOption,
   casesAddTag,
   casesCreateCase,
   casesCreateComment,
@@ -79,6 +95,7 @@ import {
   casesListTags,
   casesListTasks,
   casesRemoveTag,
+  casesSetCaseDropdownValue,
   casesUpdateCase,
   casesUpdateComment,
   casesUpdateTask,
@@ -5510,4 +5527,114 @@ export function useWorkspaceSettings(
     deleteWorkspace,
     isDeleting,
   }
+}
+
+export function useCaseDropdownDefinitions(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: dropdownDefinitions,
+    isLoading: dropdownDefinitionsIsLoading,
+    error: dropdownDefinitionsError,
+  } = useQuery<CaseDropdownDefinitionRead[], Error>({
+    queryKey: ["case-dropdown-definitions", workspaceId],
+    queryFn: async () =>
+      await caseDropdownsListDropdownDefinitions({ workspaceId }),
+    enabled: Boolean(workspaceId),
+  })
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["case-dropdown-definitions", workspaceId],
+    })
+
+  const { mutateAsync: createDropdownDefinition } = useMutation({
+    mutationFn: async (data: CaseDropdownsCreateDropdownDefinitionData) =>
+      await caseDropdownsCreateDropdownDefinition(data),
+    onSuccess: invalidate,
+  })
+
+  const {
+    mutateAsync: deleteDropdownDefinition,
+    isPending: deleteDropdownDefinitionIsPending,
+  } = useMutation({
+    mutationFn: async (data: CaseDropdownsDeleteDropdownDefinitionData) =>
+      await caseDropdownsDeleteDropdownDefinition(data),
+    onSuccess: invalidate,
+  })
+
+  const {
+    mutateAsync: updateDropdownDefinition,
+    isPending: updateDropdownDefinitionIsPending,
+  } = useMutation({
+    mutationFn: async (data: CaseDropdownsUpdateDropdownDefinitionData) =>
+      await caseDropdownsUpdateDropdownDefinition(data),
+    onSuccess: invalidate,
+  })
+
+  const { mutateAsync: addDropdownOption } = useMutation({
+    mutationFn: async (data: CaseDropdownsAddDropdownOptionData) =>
+      await caseDropdownsAddDropdownOption(data),
+    onSuccess: invalidate,
+  })
+
+  const { mutateAsync: updateDropdownOption } = useMutation({
+    mutationFn: async (data: CaseDropdownsUpdateDropdownOptionData) =>
+      await caseDropdownsUpdateDropdownOption(data),
+    onSuccess: invalidate,
+  })
+
+  const { mutateAsync: deleteDropdownOption } = useMutation({
+    mutationFn: async (data: CaseDropdownsDeleteDropdownOptionData) =>
+      await caseDropdownsDeleteDropdownOption(data),
+    onSuccess: invalidate,
+  })
+
+  const { mutateAsync: reorderDropdownOptions } = useMutation({
+    mutationFn: async (data: CaseDropdownsReorderDropdownOptionsData) =>
+      await caseDropdownsReorderDropdownOptions(data),
+    onSuccess: invalidate,
+  })
+
+  return {
+    dropdownDefinitions,
+    dropdownDefinitionsIsLoading,
+    dropdownDefinitionsError,
+    createDropdownDefinition,
+    deleteDropdownDefinition,
+    deleteDropdownDefinitionIsPending,
+    updateDropdownDefinition,
+    updateDropdownDefinitionIsPending,
+    addDropdownOption,
+    updateDropdownOption,
+    deleteDropdownOption,
+    reorderDropdownOptions,
+  }
+}
+
+export function useSetCaseDropdownValue(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      caseId,
+      definitionId,
+      optionId,
+    }: {
+      caseId: string
+      definitionId: string
+      optionId: string | null
+    }) =>
+      await casesSetCaseDropdownValue({
+        caseId,
+        definitionId,
+        workspaceId,
+        requestBody: { option_id: optionId },
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["case", variables.caseId, workspaceId],
+      })
+    },
+  })
 }
