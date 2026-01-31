@@ -25,6 +25,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { Fragment, type ReactNode, useCallback, useState } from "react"
 import { type CaseStatus, casesAddTag, type OAuthGrantType } from "@/client"
+import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
@@ -344,7 +345,9 @@ function CasesActions() {
       ? CasesViewMode.Durations
       : pathname?.includes("/cases/tags")
         ? CasesViewMode.Tags
-        : CasesViewMode.Cases
+        : pathname?.includes("/cases/dropdowns")
+          ? CasesViewMode.Dropdowns
+          : CasesViewMode.Cases
 
   const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
   const tagsHref = workspaceId
@@ -356,6 +359,9 @@ function CasesActions() {
   const durationsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/durations`
     : undefined
+  const dropdownsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/dropdowns`
+    : undefined
 
   return (
     <>
@@ -365,6 +371,7 @@ function CasesActions() {
         tagsHref={tagsHref}
         customFieldsHref={customFieldsHref}
         durationsHref={durationsHref}
+        dropdownsHref={dropdownsHref}
       />
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
@@ -372,6 +379,8 @@ function CasesActions() {
         <AddCaseDuration />
       ) : view === CasesViewMode.Tags ? (
         <AddCaseTag />
+      ) : view === CasesViewMode.Dropdowns ? (
+        <AddCaseDropdown />
       ) : (
         <>
           <Button
@@ -1176,7 +1185,8 @@ function getPageConfig(
     if (
       pagePath === "/cases/custom-fields" ||
       pagePath === "/cases/durations" ||
-      pagePath === "/cases/tags"
+      pagePath === "/cases/tags" ||
+      pagePath === "/cases/dropdowns"
     ) {
       return {
         title: "Cases",

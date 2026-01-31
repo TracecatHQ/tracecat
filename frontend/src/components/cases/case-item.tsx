@@ -3,8 +3,10 @@
 import { useQueryClient } from "@tanstack/react-query"
 import {
   Check,
+  CircleIcon,
   Copy,
   ExternalLink,
+  ListIcon,
   ShieldAlertIcon,
   SignalHighIcon,
   SignalIcon,
@@ -15,6 +17,7 @@ import {
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type {
+  CaseDropdownDefinitionRead,
   CasePriority,
   CaseReadMinimal,
   CaseSeverity,
@@ -22,7 +25,12 @@ import type {
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
-import { casesAddTag, casesRemoveTag, casesUpdateCase } from "@/client"
+import {
+  casesAddTag,
+  casesRemoveTag,
+  casesSetCaseDropdownValue,
+  casesUpdateCase,
+} from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
   PRIORITIES,
@@ -50,6 +58,7 @@ import {
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
 import { getDisplayName } from "@/lib/auth"
+import { resolveLucideIcon } from "@/lib/lucide-icon-resolver"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -62,6 +71,7 @@ interface CaseItemProps {
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
+  dropdownDefinitions?: CaseDropdownDefinitionRead[]
 }
 
 export function CaseItem({
@@ -73,6 +83,7 @@ export function CaseItem({
   onDeleteRequest,
   tags,
   members,
+  dropdownDefinitions,
 }: CaseItemProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
@@ -266,6 +277,34 @@ export function CaseItem({
       toast({
         title: "Error",
         description: "Failed to update case assignee",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDropdownChange = async (
+    definitionId: string,
+    optionId: string | null
+  ) => {
+    try {
+      await casesSetCaseDropdownValue({
+        workspaceId,
+        caseId: caseData.id,
+        definitionId,
+        requestBody: { option_id: optionId },
+      })
+      toast({
+        title: "Dropdown updated",
+        description: optionId
+          ? "Dropdown value updated"
+          : "Dropdown value cleared",
+      })
+      await queryClient.invalidateQueries({ queryKey: ["cases"] })
+    } catch (error) {
+      console.error("Failed to update dropdown:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update dropdown value",
         variant: "destructive",
       })
     }
@@ -571,6 +610,67 @@ export function CaseItem({
             <span>No tags available</span>
           </ContextMenuItem>
         )}
+
+        {/* Dropdown submenus */}
+        {dropdownDefinitions?.map((definition) => {
+          const NONE_VALUE = "__NONE__"
+          const currentValue = caseData.dropdown_values?.find(
+            (dv) => dv.definition_id === definition.id
+          )
+          const currentOptionId = currentValue?.option_id ?? NONE_VALUE
+          const TriggerIcon = resolveLucideIcon(
+            definition.options?.[0]?.icon_name
+          )
+          return (
+            <ContextMenuSub key={definition.id}>
+              <ContextMenuSubTrigger className="text-xs">
+                {TriggerIcon ? (
+                  <TriggerIcon className="mr-2 size-3.5" />
+                ) : (
+                  <ListIcon className="mr-2 size-3.5" />
+                )}
+                {definition.name}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-48">
+                <ContextMenuRadioGroup value={currentOptionId}>
+                  <ContextMenuRadioItem
+                    value={NONE_VALUE}
+                    className="text-xs"
+                    onClick={() => handleDropdownChange(definition.id, null)}
+                  >
+                    <CircleIcon className="mr-2 size-3.5 text-muted-foreground" />
+                    None
+                  </ContextMenuRadioItem>
+                  {definition.options?.map((opt) => {
+                    const OptIcon = resolveLucideIcon(opt.icon_name)
+                    return (
+                      <ContextMenuRadioItem
+                        key={opt.id}
+                        value={opt.id}
+                        className="text-xs"
+                        onClick={() =>
+                          handleDropdownChange(definition.id, opt.id)
+                        }
+                      >
+                        {OptIcon ? (
+                          <OptIcon className="mr-2 size-3.5" />
+                        ) : opt.color ? (
+                          <div
+                            className="mr-2 size-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: opt.color }}
+                          />
+                        ) : (
+                          <CircleIcon className="mr-2 size-3.5 text-muted-foreground" />
+                        )}
+                        {opt.label}
+                      </ContextMenuRadioItem>
+                    )
+                  })}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )
+        })}
 
         <ContextMenuSeparator />
 

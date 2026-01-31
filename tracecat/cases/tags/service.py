@@ -32,10 +32,6 @@ class CaseTagsService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Case {case_id} not found in this workspace.")
         return case
 
-    async def _sync_case_durations(self, case: Case) -> None:
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
-
     async def _create_tag_event(
         self,
         *,
@@ -56,6 +52,10 @@ class CaseTagsService(BaseWorkspaceService):
         )
         self.session.add(event)
         await self.session.flush()
+
+        # Auto-sync durations after creating an event
+        durations_service = CaseDurationService(session=self.session, role=self.role)
+        await durations_service.sync_case_durations(case)
 
     async def list_workspace_tags(self) -> Sequence[CaseTag]:
         """List all tags available in the current workspace."""
@@ -253,7 +253,6 @@ class CaseTagsService(BaseWorkspaceService):
         await self._create_tag_event(
             case=case, tag=tag, event_type=CaseEventType.TAG_ADDED
         )
-        await self._sync_case_durations(case)
 
         await self.session.commit()
         await self.session.refresh(tag)
@@ -271,5 +270,4 @@ class CaseTagsService(BaseWorkspaceService):
         await self._create_tag_event(
             case=case, tag=tag, event_type=CaseEventType.TAG_REMOVED
         )
-        await self._sync_case_durations(case)
         await self.session.commit()

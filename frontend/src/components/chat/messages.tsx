@@ -8,6 +8,7 @@ import TracecatIcon from "public/icon.png"
 import { useEffect, useRef } from "react"
 import { Streamdown } from "streamdown"
 import { Dots } from "@/components/loading/dots"
+import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 
 /**
  * Model message part types for the legacy chat messages component.
@@ -172,11 +173,8 @@ export function Messages({
     ) {
       console.log("Invalidating case queries")
       // Force-refetch the case & related queries so the UI updates instantly
-      queryClient.invalidateQueries({ queryKey: ["case", entityId] })
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", entityId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, entityId, workspaceId)
       queryClient.invalidateQueries({
         queryKey: ["case-comments", entityId, workspaceId],
       })

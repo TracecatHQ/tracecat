@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { cn } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
@@ -159,9 +160,7 @@ export function CaseAttachmentsSection({
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", caseId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
       setIsUploading(false)
       toast({
         title: "Attachment uploaded successfully",
@@ -339,9 +338,7 @@ export function CaseAttachmentsSection({
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", caseId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
       toast({
         title: "Attachment deleted",
         description: "The attachment has been removed from the case",

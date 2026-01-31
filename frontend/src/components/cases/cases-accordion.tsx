@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import { useMemo } from "react"
 import type {
+  CaseDropdownDefinitionRead,
   CaseReadMinimal,
   CaseStatus,
   CaseTagRead,
@@ -82,6 +83,7 @@ interface CasesAccordionProps {
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
+  dropdownDefinitions?: CaseDropdownDefinitionRead[]
   /** When any sort direction is active, preserve the order from the hook */
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
@@ -98,6 +100,7 @@ export function CasesAccordion({
   onDeleteRequest,
   tags,
   members,
+  dropdownDefinitions,
   prioritySortDirection,
   severitySortDirection,
   assigneeSortDirection,
@@ -224,6 +227,7 @@ export function CasesAccordion({
                       onDeleteRequest={onDeleteRequest}
                       tags={tags}
                       members={members}
+                      dropdownDefinitions={dropdownDefinitions}
                     />
                   ))}
                 </div>

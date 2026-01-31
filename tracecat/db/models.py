@@ -402,6 +402,11 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
+    case_dropdown_definitions: Mapped[list[CaseDropdownDefinition]] = relationship(
+        "CaseDropdownDefinition",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
     case_duration_definitions: Mapped[list[CaseDurationDefinition]] = relationship(
         "CaseDurationDefinition",
         back_populates="workspace",
@@ -1595,6 +1600,141 @@ class CaseTag(WorkspaceModel):
     )
 
 
+class CaseDropdownDefinition(WorkspaceModel):
+    """A workspace-scoped custom dropdown definition for cases."""
+
+    __tablename__ = "case_dropdown_definition"
+    __table_args__ = (
+        UniqueConstraint(
+            "ref",
+            "workspace_id",
+            name="uq_case_dropdown_definition_ref_workspace",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ref: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    is_ordered: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        doc="Whether options have a meaningful order (enables sorting)",
+    )
+    icon_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, doc="Lucide icon name for display"
+    )
+    position: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, doc="Display order among dropdowns"
+    )
+
+    workspace: Mapped[Workspace] = relationship(
+        back_populates="case_dropdown_definitions"
+    )
+    options: Mapped[list[CaseDropdownOption]] = relationship(
+        "CaseDropdownOption",
+        back_populates="definition",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="CaseDropdownOption.position",
+    )
+
+
+class CaseDropdownOption(Base):
+    """An option within a case dropdown definition."""
+
+    __tablename__ = "case_dropdown_option"
+    __table_args__ = (
+        UniqueConstraint(
+            "ref",
+            "definition_id",
+            name="uq_case_dropdown_option_ref_definition",
+        ),
+    )
+
+    surrogate_id: Mapped[int] = mapped_column(
+        Integer,
+        Identity(),
+        primary_key=True,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    definition_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_dropdown_definition.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    ref: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    icon_name: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, doc="Lucide icon name"
+    )
+    color: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, doc="Display color"
+    )
+    position: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, doc="Display order within dropdown"
+    )
+
+    definition: Mapped[CaseDropdownDefinition] = relationship(back_populates="options")
+
+
+class CaseDropdownValue(Base):
+    """Per-case selected value for a custom dropdown (single-select)."""
+
+    __tablename__ = "case_dropdown_value"
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id",
+            "definition_id",
+            name="uq_case_dropdown_value_case_definition",
+        ),
+    )
+
+    surrogate_id: Mapped[int] = mapped_column(
+        Integer,
+        Identity(),
+        primary_key=True,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    definition_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_dropdown_definition.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    option_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("case_dropdown_option.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    case: Mapped[Case] = relationship(back_populates="dropdown_values")
+    definition: Mapped[CaseDropdownDefinition] = relationship(lazy="selectin")
+    option: Mapped[CaseDropdownOption | None] = relationship(lazy="selectin")
+
+
 class CaseDurationDefinition(WorkspaceModel):
     """Workspace-defined case duration metric anchored on case events."""
 
@@ -1793,6 +1933,12 @@ class Case(WorkspaceModel):
         "CaseTask",
         back_populates="case",
         cascade="all, delete",
+    )
+    dropdown_values: Mapped[list[CaseDropdownValue]] = relationship(
+        "CaseDropdownValue",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     @property

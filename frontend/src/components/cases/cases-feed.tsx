@@ -12,6 +12,7 @@ import {
   CaseReopenedEvent,
   CaseUpdatedEvent,
   CaseViewedEvent,
+  DropdownValueChangedEvent,
   EventActor,
   EventCreatedAt,
   EventIcon,
@@ -146,6 +147,10 @@ function CaseFeedEvent({
 
         {event.type === "payload_changed" && (
           <PayloadChangedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "dropdown_value_changed" && (
+          <DropdownValueChangedEvent event={event} actor={actor} />
         )}
         {/* Add a dot separator */}
         <InlineDotSeparator />

@@ -27,6 +27,7 @@ import {
 } from "react"
 import type { DateRange } from "react-day-picker"
 import type {
+  CaseDropdownDefinitionRead,
   CasePriority,
   CaseSeverity,
   CaseStatus,
@@ -55,8 +56,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import type { CaseDateFilterValue, CaseDatePreset } from "@/hooks/use-cases"
+import type {
+  CaseDateFilterValue,
+  CaseDatePreset,
+  DropdownFilterState,
+} from "@/hooks/use-cases"
 import { getDisplayName } from "@/lib/auth"
+import { resolveLucideIcon } from "@/lib/lucide-icon-resolver"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
@@ -511,6 +517,11 @@ interface CasesHeaderProps {
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
+  dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  dropdownFilters: Record<string, DropdownFilterState>
+  onDropdownFilterChange: (ref: string, values: string[]) => void
+  onDropdownModeChange: (ref: string, mode: FilterMode) => void
+  onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   // Selection props
   totalCaseCount?: number
   selectedCount?: number
@@ -555,6 +566,11 @@ export function CasesHeader({
   onCreatedAfterChange,
   members,
   tags,
+  dropdownDefinitions,
+  dropdownFilters,
+  onDropdownFilterChange,
+  onDropdownModeChange,
+  onDropdownSortDirectionChange,
   totalCaseCount = 0,
   selectedCount = 0,
   onSelectAll,
@@ -640,6 +656,10 @@ export function CasesHeader({
     )
   }, [tags])
 
+  const hasDropdownFilters = Object.values(dropdownFilters).some(
+    (s) => s.values.length > 0
+  )
+
   const hasFilters =
     searchQuery.trim().length > 0 ||
     statusFilter.length > 0 ||
@@ -647,6 +667,7 @@ export function CasesHeader({
     severityFilter.length > 0 ||
     assigneeFilter.length > 0 ||
     tagFilter.length > 0 ||
+    hasDropdownFilters ||
     isDateFilterActive(updatedAfter) ||
     isDateFilterActive(createdAfter)
 
@@ -662,6 +683,13 @@ export function CasesHeader({
     onAssigneeModeChange("include")
     onTagChange([])
     onTagModeChange("include")
+    // Reset dropdown filters
+    if (dropdownDefinitions) {
+      for (const def of dropdownDefinitions) {
+        onDropdownFilterChange(def.ref, [])
+        onDropdownModeChange(def.ref, "include")
+      }
+    }
     onUpdatedAfterChange({ type: "preset", value: null })
     onCreatedAfterChange({ type: "preset", value: null })
   }
@@ -791,6 +819,52 @@ export function CasesHeader({
             tags && tags.length > 0 ? "No matching tags." : "No tags found."
           }
         />
+
+        {dropdownDefinitions?.map((def) => {
+          const state = dropdownFilters[def.ref] ?? {
+            values: [],
+            mode: "include" as FilterMode,
+            sortDirection: null as SortDirection,
+          }
+          const DefIcon = resolveLucideIcon(def.icon_name)
+          const options: FilterOption<string>[] =
+            def.options?.map((opt) => {
+              const ResolvedIcon = resolveLucideIcon(opt.icon_name)
+              return {
+                value: opt.ref,
+                label: opt.label,
+                ...(ResolvedIcon
+                  ? { icon: ResolvedIcon }
+                  : opt.color
+                    ? {
+                        renderIcon: () => (
+                          <div
+                            className="size-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: opt.color || undefined }}
+                          />
+                        ),
+                      }
+                    : {}),
+              }
+            }) ?? []
+          return (
+            <FilterMultiSelect
+              key={def.id}
+              placeholder={def.name}
+              icon={DefIcon}
+              value={state.values}
+              onChange={(values) => onDropdownFilterChange(def.ref, values)}
+              options={options}
+              mode={state.mode}
+              onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
+              showSort={def.is_ordered}
+              sortDirection={state.sortDirection}
+              onSortDirectionChange={(dir) =>
+                onDropdownSortDirectionChange(def.ref, dir)
+              }
+            />
+          )
+        })}
 
         <DateFilterSelect
           placeholder="Updated"

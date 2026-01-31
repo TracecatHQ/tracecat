@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
+from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseReadMinimal
 from tracecat.db.models import Case, CaseTag, Workspace
@@ -36,6 +37,7 @@ def mock_case(test_workspace: Workspace) -> Case:
     case.case_number = 1
     case.tags = []
     case.assignee = None
+    case.dropdown_values = []
     return case
 
 
@@ -236,6 +238,7 @@ async def test_get_case_success(
     """Test GET /cases/{id} returns case details."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
@@ -244,6 +247,11 @@ async def test_get_case_success(
         mock_svc.fields.get_fields.return_value = {}
         mock_svc.fields.list_fields.return_value = []
         MockService.return_value = mock_svc
+
+        # Mock dropdown service
+        mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.list_values_for_case.return_value = []
+        MockDropdownService.return_value = mock_dropdown_svc
 
         # Make request
         case_id = str(mock_case.id)
@@ -359,6 +367,7 @@ async def test_get_case_with_tags(
     """Test GET /cases/{id} properly serializes tags relationship."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
 
@@ -370,6 +379,11 @@ async def test_get_case_with_tags(
         mock_svc.fields.get_fields.return_value = {}
         mock_svc.fields.list_fields.return_value = []
         MockService.return_value = mock_svc
+
+        # Mock dropdown service
+        mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.list_values_for_case.return_value = []
+        MockDropdownService.return_value = mock_dropdown_svc
 
         # Make request
         case_id = str(mock_case.id)
@@ -388,6 +402,68 @@ async def test_get_case_with_tags(
         assert data["tags"][0]["name"] == "incident"
         assert data["tags"][0]["ref"] == "incident"  # Changed from slug to ref
         assert data["tags"][0]["color"] == "#FF0000"
+
+
+@pytest.mark.anyio
+async def test_get_case_with_dropdown_values(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test GET /cases/{id} includes dropdown values in response."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.fields = AsyncMock()
+        mock_svc.fields.get_fields.return_value = {}
+        mock_svc.fields.list_fields.return_value = []
+        MockService.return_value = mock_svc
+
+        # Mock dropdown values
+        defn_id = uuid.uuid4()
+        option_id = uuid.uuid4()
+        value_id = uuid.uuid4()
+        mock_dropdown_reads = [
+            CaseDropdownValueRead(
+                id=value_id,
+                definition_id=defn_id,
+                definition_ref="environment",
+                definition_name="Environment",
+                option_id=option_id,
+                option_label="Production",
+                option_ref="production",
+                option_icon_name="server",
+                option_color="#00FF00",
+            )
+        ]
+        mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.list_values_for_case.return_value = mock_dropdown_reads
+        MockDropdownService.return_value = mock_dropdown_svc
+
+        case_id = str(mock_case.id)
+        response = client.get(
+            f"/cases/{case_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        assert "dropdown_values" in data
+        assert len(data["dropdown_values"]) == 1
+        dv = data["dropdown_values"][0]
+        assert dv["id"] == str(value_id)
+        assert dv["definition_id"] == str(defn_id)
+        assert dv["definition_ref"] == "environment"
+        assert dv["definition_name"] == "Environment"
+        assert dv["option_id"] == str(option_id)
+        assert dv["option_label"] == "Production"
+        assert dv["option_ref"] == "production"
+        assert dv["option_icon_name"] == "server"
+        assert dv["option_color"] == "#00FF00"
 
 
 @pytest.mark.anyio

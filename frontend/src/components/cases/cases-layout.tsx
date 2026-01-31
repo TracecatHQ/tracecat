@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
+  type CaseDropdownDefinitionRead,
   type CasePriority,
   type CaseReadMinimal,
   type CaseSeverity,
@@ -50,6 +51,10 @@ interface CasesLayoutProps {
   onTagSortDirectionChange: (direction: SortDirection) => void
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
+  dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  onDropdownFilterChange: (ref: string, values: string[]) => void
+  onDropdownModeChange: (ref: string, mode: FilterMode) => void
+  onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   refetch?: () => void
 }
 
@@ -77,6 +82,10 @@ export function CasesLayout({
   onTagSortDirectionChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  dropdownDefinitions,
+  onDropdownFilterChange,
+  onDropdownModeChange,
+  onDropdownSortDirectionChange,
   refetch,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
@@ -270,6 +279,11 @@ export function CasesLayout({
     onCreatedAfterChange,
     members,
     tags,
+    dropdownDefinitions,
+    dropdownFilters: filters.dropdownFilters,
+    onDropdownFilterChange,
+    onDropdownModeChange,
+    onDropdownSortDirectionChange,
     totalCaseCount: cases.length,
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
@@ -327,6 +341,7 @@ export function CasesLayout({
             onDeleteRequest={handleDeleteRequest}
             tags={tags}
             members={members}
+            dropdownDefinitions={dropdownDefinitions}
             prioritySortDirection={filters.prioritySortDirection}
             severitySortDirection={filters.severitySortDirection}
             assigneeSortDirection={filters.assigneeSortDirection}

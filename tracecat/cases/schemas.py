@@ -9,6 +9,7 @@ from pydantic import ConfigDict, Field, RootModel, field_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
+from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -41,6 +42,7 @@ class CaseReadMinimal(Schema):
     severity: CaseSeverity
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
+    dropdown_values: list[CaseDropdownValueRead] = Field(default_factory=list)
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 
@@ -59,6 +61,7 @@ class CaseRead(Schema):
     assignee: UserRead | None = None
     payload: dict[str, Any] | None
     tags: list[CaseTagRead] = Field(default_factory=list)
+    dropdown_values: list[CaseDropdownValueRead] = Field(default_factory=list)
 
 
 class CaseCreate(Schema):
@@ -375,6 +378,26 @@ class TagRemovedEventRead(CaseEventReadBase, TagRemovedEvent):
     """Event for when a tag is removed from a case."""
 
 
+# Dropdown Events
+
+
+class DropdownValueChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.DROPDOWN_VALUE_CHANGED] = (
+        CaseEventType.DROPDOWN_VALUE_CHANGED
+    )
+    definition_id: str
+    definition_ref: str
+    definition_name: str
+    old_option_id: str | None = None
+    old_option_label: str | None = None
+    new_option_id: str | None = None
+    new_option_label: str | None = None
+
+
+class DropdownValueChangedEventRead(CaseEventReadBase, DropdownValueChangedEvent):
+    """Event for when a case dropdown value is changed."""
+
+
 # Task Events
 
 
@@ -474,7 +497,8 @@ type CaseEventVariant = Annotated[
     | TaskDeletedEvent
     | TaskAssigneeChangedEvent
     | TaskPriorityChangedEvent
-    | TaskWorkflowChangedEvent,
+    | TaskWorkflowChangedEvent
+    | DropdownValueChangedEvent,
     Field(discriminator="type"),
 ]
 
@@ -505,6 +529,7 @@ class CaseEventRead(RootModel):
         | TaskWorkflowChangedEventRead
         | TaskDeletedEventRead
         | TaskAssigneeChangedEventRead
+        | DropdownValueChangedEventRead
     ) = Field(discriminator="type")
 
 
