@@ -686,6 +686,7 @@ class CasesService(BaseWorkspaceService):
         if case and track_view:
             try:
                 await self.events.create_case_viewed_event(case)
+                await self.session.commit()
             except Exception:
                 await self.session.rollback()
                 self.logger.exception(

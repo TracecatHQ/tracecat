@@ -89,6 +89,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             name=params.name,
             ref=params.ref,
             is_ordered=params.is_ordered,
+            icon_name=params.icon_name,
             position=params.position,
         )
         self.session.add(definition)
