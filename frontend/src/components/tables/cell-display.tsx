@@ -131,9 +131,7 @@ export function CellDisplay({
           <span className="text-muted-foreground">&mdash;</span>
         )
       ) : isSelectColumn ? (
-        <span className="whitespace-pre-wrap break-words">
-          {selectDisplayValue || "\u2014"}
-        </span>
+        <span className="truncate">{selectDisplayValue || "\u2014"}</span>
       ) : typeof value === "object" && value ? (
         <span className="truncate text-xs font-sans">
           {JSON.stringify(value)}
@@ -151,13 +149,13 @@ export function CellDisplay({
         typeof value === "string" &&
         value !== "" &&
         !Number.isNaN(Number(value)) ? (
-        <span>{value}</span>
+        <ScientificNumber value={Number(value)} />
       ) : typeof value === "number" ? (
         <ScientificNumber value={value} />
       ) : typeof value === "string" && value.length > 25 ? (
         <span className="truncate text-xs font-sans">{String(value)}</span>
       ) : (
-        <span className="whitespace-pre-wrap break-words">
+        <span className="truncate">
           {value === null || value === undefined ? "" : String(value)}
         </span>
       )}
