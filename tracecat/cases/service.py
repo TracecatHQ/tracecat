@@ -124,7 +124,6 @@ class CasesService(BaseWorkspaceService):
         self.events = CaseEventsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
-        self.durations = CaseDurationService(session=self.session, role=self.role)
 
     async def get_task_counts(
         self, case_ids: list[uuid.UUID]
@@ -686,7 +685,7 @@ class CasesService(BaseWorkspaceService):
 
         if case and track_view:
             try:
-                created_event = await self.events.create_case_viewed_event(case)
+                await self.events.create_case_viewed_event(case)
             except Exception:
                 await self.session.rollback()
                 self.logger.exception(
@@ -694,18 +693,6 @@ class CasesService(BaseWorkspaceService):
                     case_id=case_id,
                     user_id=self.role.user_id,
                 )
-            else:
-                if created_event is not None:
-                    try:
-                        await self.durations.sync_case_durations(case)
-                        await self.session.commit()
-                    except Exception:
-                        await self.session.rollback()
-                        self.logger.exception(
-                            "Failed to persist case viewed tracking updates",
-                            case_id=case_id,
-                            user_id=self.role.user_id,
-                        )
 
         return case
 
@@ -745,8 +732,6 @@ class CasesService(BaseWorkspaceService):
                 case=case,
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
             )
-
-            await self.durations.sync_case_durations(case)
 
             # Commit once to persist case, fields, and event atomically
             await self.session.commit()
@@ -872,8 +857,6 @@ class CasesService(BaseWorkspaceService):
             # If there are any remaining changed fields, record a general update activity
             for event in events:
                 await self.events.create_event(case=case, event=event)
-
-            await self.durations.sync_case_durations(case)
 
             # Commit once to persist all updates and emitted events atomically
             await self.session.commit()
@@ -1318,6 +1301,9 @@ class CaseEventsService(BaseWorkspaceService):
         Note: This method is non-committing. The caller is responsible for
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
+
+        Duration sync is performed automatically after each event is created,
+        so callers do not need to call sync_case_durations separately.
         """
 
         db_event = CaseEvent(
@@ -1330,6 +1316,11 @@ class CaseEventsService(BaseWorkspaceService):
         self.session.add(db_event)
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
+
+        # Auto-sync durations whenever an event is created
+        durations_service = CaseDurationService(session=self.session, role=self.role)
+        await durations_service.sync_case_durations(case)
+
         return db_event
 
     async def create_case_viewed_event(

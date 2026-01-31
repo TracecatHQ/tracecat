@@ -23,6 +23,7 @@ from tracecat.db.models import (
     CaseDropdownValue,
     CaseEvent,
 )
+from tracecat.cases.durations.service import CaseDurationService
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
 
@@ -336,6 +337,11 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             user_id=self.role.user_id,
         )
         self.session.add(event)
+        await self.session.flush()
+
+        # Auto-sync durations after creating an event
+        durations_service = CaseDurationService(session=self.session, role=self.role)
+        await durations_service.sync_case_durations(case_id)
 
         await self.session.commit()
         await self.session.refresh(row)

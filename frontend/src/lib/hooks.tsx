@@ -321,6 +321,7 @@ import {
   listCaseDurationDefinitions,
   listCaseDurations,
 } from "@/lib/case-durations"
+import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
@@ -3642,15 +3643,7 @@ export function useUpdateCase({
         queryKey: ["cases", "paginated"],
         exact: false,
       })
-      queryClient.invalidateQueries({
-        queryKey: ["case", caseId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", caseId, workspaceId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["case-durations", caseId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3969,9 +3962,7 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
       queryClient.invalidateQueries({
         queryKey: ["case-tasks", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", caseId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error creating task", error)
@@ -4016,9 +4007,7 @@ export function useUpdateCaseTask({
       queryClient.invalidateQueries({
         queryKey: ["case-tasks", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", caseId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error updating task", error)
@@ -4062,9 +4051,7 @@ export function useDeleteCaseTask({
       queryClient.invalidateQueries({
         queryKey: ["case-tasks", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", caseId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error deleting task", error)
@@ -4404,7 +4391,7 @@ export function useAddCaseTag({
       queryClient.invalidateQueries({
         queryKey: ["case-tags", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({ queryKey: ["case", caseId] })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
   })
   return {
@@ -4433,7 +4420,7 @@ export function useRemoveCaseTag({
       queryClient.invalidateQueries({
         queryKey: ["case-tags", caseId, workspaceId],
       })
-      queryClient.invalidateQueries({ queryKey: ["case", caseId] })
+      invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
   })
   return {
@@ -5635,9 +5622,7 @@ export function useSetCaseDropdownValue(workspaceId: string) {
         requestBody: { option_id: optionId },
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["case", variables.caseId],
-      })
+      invalidateCaseActivityQueries(queryClient, variables.caseId, workspaceId)
     },
   })
 }

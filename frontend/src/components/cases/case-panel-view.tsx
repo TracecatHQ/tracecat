@@ -229,6 +229,7 @@ function formatIsoDurationCompact(duration?: string | null): string | null {
 }
 
 function formatElapsedDuration(start: Date, end: Date): string {
+  if (start >= end) return "0s"
   const elapsed = intervalToDuration({ start, end })
   return formatDurationComponents(elapsed)
 }

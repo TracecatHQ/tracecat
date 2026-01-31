@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import * as ai from "ai"
 import type { AgentSessionEntity, UIMessage } from "@/client"
 import type { ApprovalCard } from "@/hooks/use-chat"
+import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 
 export function isAgentSessionEntity(
   value: unknown
@@ -121,14 +122,9 @@ export const ENTITY_TO_INVALIDATION: Record<
     predicate: (toolName: string) =>
       Boolean(UPDATE_ON_ACTIONS.case?.includes(toolName)),
     handler: (queryClient, workspaceId, entityId) => {
-      // Invalidate specific case query
-      queryClient.invalidateQueries({ queryKey: ["case", entityId] })
       // Invalidate cases list for workspace
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
-      // Invalidate case events
-      queryClient.invalidateQueries({
-        queryKey: ["case-events", entityId, workspaceId],
-      })
+      invalidateCaseActivityQueries(queryClient, entityId, workspaceId)
       // Invalidate case comments
       queryClient.invalidateQueries({
         queryKey: ["case-comments", entityId, workspaceId],

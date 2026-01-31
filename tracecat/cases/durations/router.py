@@ -184,20 +184,18 @@ async def list_case_durations(
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseDurationRead]:
-    """List persisted case durations for the provided case."""
+    """Sync and list case durations for the provided case."""
     service = CaseDurationService(session=session, role=role)
     try:
-        return await service.list_durations(case_id)
-    except TracecatNotFoundError as err:
-        logger.warning(
-            "Case not found while listing durations",
+        await service.sync_case_durations(case_id)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        logger.exception(
+            "Failed to sync case durations before listing",
             case_id=str(case_id),
-            workspace_id=str(role.workspace_id),
         )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(err),
-        ) from err
+    return await service.list_durations(case_id)
 
 
 @durations_router.get("/{duration_id}", response_model=CaseDurationRead)
