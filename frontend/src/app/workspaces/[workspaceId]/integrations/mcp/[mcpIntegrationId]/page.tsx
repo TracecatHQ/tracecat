@@ -1,7 +1,15 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { AlertCircle, ChevronLeft, Loader2, Save, Trash2 } from "lucide-react"
+import {
+  AlertCircle,
+  ChevronLeft,
+  Loader2,
+  Pencil,
+  Save,
+  Terminal,
+  Trash2,
+} from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useCallback, useState } from "react"
@@ -9,6 +17,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { MCPIntegrationRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
+import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
@@ -167,6 +176,212 @@ function McpIntegrationDetailContent({
   mcpIntegration: MCPIntegrationRead
 }) {
   const workspaceId = useWorkspaceId()
+
+  // Command-type integrations use the dialog for editing
+  if (mcpIntegration.server_type === "command") {
+    return (
+      <CommandTypeIntegrationView
+        mcpIntegration={mcpIntegration}
+        workspaceId={workspaceId}
+      />
+    )
+  }
+
+  // URL-type integrations use the inline form
+  return (
+    <UrlTypeIntegrationForm
+      mcpIntegration={mcpIntegration}
+      workspaceId={workspaceId}
+    />
+  )
+}
+
+function CommandTypeIntegrationView({
+  mcpIntegration,
+  workspaceId,
+}: {
+  mcpIntegration: MCPIntegrationRead
+  workspaceId: string
+}) {
+  const router = useRouter()
+  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
+    useDeleteMcpIntegration(workspaceId)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState("")
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+
+  const handleDelete = useCallback(async () => {
+    if (deleteConfirmText !== mcpIntegration.name) return
+    try {
+      await deleteMcpIntegration(mcpIntegration.id)
+      router.push(`/workspaces/${workspaceId}/integrations`)
+    } catch (error) {
+      console.error("Failed to delete MCP integration:", error)
+    }
+  }, [
+    deleteConfirmText,
+    mcpIntegration,
+    deleteMcpIntegration,
+    router,
+    workspaceId,
+  ])
+
+  const handleDeleteDialogOpenChange = (open: boolean) => {
+    setDeleteDialogOpen(open)
+    if (!open) {
+      setDeleteConfirmText("")
+    }
+  }
+
+  return (
+    <div className="container mx-auto max-w-4xl p-6 mb-20 mt-12">
+      {/* Header */}
+      <div className="mb-8">
+        <Link
+          href={`/workspaces/${workspaceId}/integrations`}
+          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
+        >
+          <ChevronLeft className="mr-1 size-4" />
+          Back to integrations
+        </Link>
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex size-12 items-center justify-center rounded-lg border bg-muted">
+              <Terminal className="size-6 text-muted-foreground" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold">{mcpIntegration.name}</h1>
+              {mcpIntegration.description && (
+                <p className="mt-1 text-muted-foreground">
+                  {mcpIntegration.description}
+                </p>
+              )}
+              <div className="mt-2 flex gap-2">
+                <Badge variant="outline">Command</Badge>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Configuration Card */}
+      <Card>
+        <CardContent className="pt-6 space-y-4">
+          <div>
+            <Label className="text-muted-foreground text-xs">Command</Label>
+            <p className="font-mono text-sm mt-1">
+              {mcpIntegration.command || "-"}
+            </p>
+          </div>
+          {mcpIntegration.command_args &&
+            mcpIntegration.command_args.length > 0 && (
+              <div>
+                <Label className="text-muted-foreground text-xs">
+                  Arguments
+                </Label>
+                <p className="font-mono text-sm mt-1">
+                  {mcpIntegration.command_args.join(" ")}
+                </p>
+              </div>
+            )}
+          {mcpIntegration.has_command_env && (
+            <div>
+              <Label className="text-muted-foreground text-xs">
+                Environment
+              </Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                Environment variables configured (hidden for security)
+              </p>
+            </div>
+          )}
+          {mcpIntegration.timeout && (
+            <div>
+              <Label className="text-muted-foreground text-xs">Timeout</Label>
+              <p className="text-sm mt-1">{mcpIntegration.timeout} seconds</p>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setEditDialogOpen(true)}>
+              <Pencil className="mr-2 size-4" />
+              Edit
+            </Button>
+            <MCPIntegrationDialog
+              mcpIntegrationId={mcpIntegration.id}
+              open={editDialogOpen}
+              onOpenChange={setEditDialogOpen}
+              hideTrigger
+            />
+            <Button
+              variant="destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+              disabled={deleteMcpIntegrationIsPending}
+            >
+              <Trash2 className="mr-2 size-4" />
+              Delete
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Delete Dialog */}
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={handleDeleteDialogOpenChange}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete MCP integration?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the MCP integration &quot;
+              {mcpIntegration.name}&quot;. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Label htmlFor="confirm-delete" className="text-sm">
+              Type <strong>{mcpIntegration.name}</strong> to confirm
+            </Label>
+            <Input
+              id="confirm-delete"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              className="mt-2"
+              placeholder={mcpIntegration.name}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={
+                deleteConfirmText !== mcpIntegration.name ||
+                deleteMcpIntegrationIsPending
+              }
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMcpIntegrationIsPending ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete integration"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
+function UrlTypeIntegrationForm({
+  mcpIntegration,
+  workspaceId,
+}: {
+  mcpIntegration: MCPIntegrationRead
+  workspaceId: string
+}) {
   const router = useRouter()
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
@@ -183,7 +398,7 @@ function McpIntegrationDetailContent({
     defaultValues: {
       name: mcpIntegration.name,
       description: mcpIntegration.description || "",
-      server_uri: mcpIntegration.server_uri,
+      server_uri: mcpIntegration.server_uri || "",
       auth_type: mcpIntegration.auth_type,
       oauth_integration_id: mcpIntegration.oauth_integration_id || "",
       custom_credentials: "",

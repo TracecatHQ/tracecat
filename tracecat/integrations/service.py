@@ -1026,9 +1026,20 @@ class IntegrationService(BaseWorkspaceService):
     async def _generate_mcp_integration_slug(
         self, *, name: str, requested_slug: str | None = None
     ) -> str:
-        """Generate a unique slug for an MCP integration."""
+        """Generate a unique slug for an MCP integration.
+
+        Slugs are limited to 64 characters to match MAX_SERVER_NAME_LENGTH
+        in mcp_validation.py, ensuring command-type servers pass validation.
+        """
+        from tracecat.integrations.mcp_validation import MAX_SERVER_NAME_LENGTH
+
         base_source = requested_slug or name
         slug = slugify(base_source, separator="-") or uuid4().hex[:8]
+
+        # Truncate to max length, leaving room for suffix if needed
+        max_base_length = MAX_SERVER_NAME_LENGTH - 4  # Reserve space for "-999"
+        if len(slug) > max_base_length:
+            slug = slug[:max_base_length].rstrip("-")
 
         candidate = slug
         suffix = 1
@@ -1082,10 +1093,15 @@ class IntegrationService(BaseWorkspaceService):
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
-            server_uri=params.server_uri.strip(),
+            server_uri=params.server_uri.strip() if params.server_uri else None,
             auth_type=params.auth_type,
             oauth_integration_id=params.oauth_integration_id,
             encrypted_headers=encrypted_custom_credentials,  # Reuse field for custom credentials
+            server_type=params.server_type,
+            command=params.command,
+            command_args=params.command_args,
+            command_env=params.command_env,
+            timeout=params.timeout,
         )
 
         self.session.add(mcp_integration)
@@ -1165,6 +1181,16 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.auth_type = params.auth_type
         if params.oauth_integration_id is not None:
             mcp_integration.oauth_integration_id = params.oauth_integration_id
+
+        # Update command-type server fields
+        if params.command is not None:
+            mcp_integration.command = params.command.strip() if params.command else None
+        if params.command_args is not None:
+            mcp_integration.command_args = params.command_args
+        if params.command_env is not None:
+            mcp_integration.command_env = params.command_env
+        if params.timeout is not None:
+            mcp_integration.timeout = params.timeout
 
         # Handle custom credentials encryption/update (for CUSTOM auth type)
         if params.custom_credentials is not None:
