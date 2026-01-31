@@ -14,6 +14,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
     CaseDropdownValueSet,
 )
+from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
 from tracecat.contexts import ctx_run
 from tracecat.db.models import (
@@ -23,7 +24,6 @@ from tracecat.db.models import (
     CaseDropdownValue,
     CaseEvent,
 )
-from tracecat.cases.durations.service import CaseDurationService
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
 
