@@ -750,6 +750,9 @@ export type AuditSettingsRead = {
   audit_webhook_url: string | null
   audit_webhook_api_key_preview?: string | null
   audit_webhook_api_key_created_at?: string | null
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
 }
 
 /**
@@ -760,6 +763,12 @@ export type AuditSettingsUpdate = {
    * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
    */
   audit_webhook_url?: string | null
+  /**
+   * Custom headers to include in audit webhook requests. Header names are case-insensitive.
+   */
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
 }
 
 export type AuthSettingsRead = {
