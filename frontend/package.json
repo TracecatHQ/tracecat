@@ -34,6 +34,9 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.4",
     "@dagrejs/dagre": "^1.1.5",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.10.0",
     "@lezer/highlight": "^1.2.1",
@@ -97,7 +100,7 @@
     "lucide-react": "^0.561.0",
     "motion": "^12.23.22",
     "nanoid": "^5.1.6",
-    "next": "15.5.11",
+    "next": "15.5.10",
     "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
     "papaparse": "^5.5.3",
@@ -162,6 +165,11 @@
   },
   "packageManager": "pnpm@10.6.3+sha512.bb45e34d50a9a76e858a95837301bfb6bd6d35aea2c5d52094fa497a467c43f5c440103ce2511e9e0a2f89c3d6071baac3358fc68ac6fb75e2ceb3d2736065e6",
   "pnpm": {
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "next-runtime-env>next": ">=15"
+      }
+    },
     "overrides": {
       "prismjs": "1.30.0",
       "glob": "12.0.0",
