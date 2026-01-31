@@ -1,6 +1,6 @@
 import type { CustomCellEditorProps } from "ag-grid-react"
 import { Check } from "lucide-react"
-import { forwardRef, useCallback, useImperativeHandle } from "react"
+import { forwardRef, useCallback, useImperativeHandle, useRef } from "react"
 import type { TableColumnRead } from "@/client"
 import { CellEditor } from "@/components/tables/cell-editors"
 
@@ -10,10 +10,24 @@ interface AgGridCellEditorParams extends CustomCellEditorProps {
 
 export const AgGridCellEditor = forwardRef(
   (params: AgGridCellEditorParams, ref) => {
+    // Track the latest value in a ref so getValue() always returns the
+    // most recent value, even if React hasn't re-rendered yet after
+    // onValueChange is called.
+    const valueRef = useRef(params.value)
+    valueRef.current = params.value
+
     useImperativeHandle(ref, () => ({
-      getValue: () => params.value,
+      getValue: () => valueRef.current,
       isCancelAfterEnd: () => false,
     }))
+
+    const handleChange = useCallback(
+      (newValue: unknown) => {
+        valueRef.current = newValue
+        params.onValueChange(newValue)
+      },
+      [params]
+    )
 
     const handleCommit = useCallback(() => {
       params.stopEditing(false)
@@ -29,7 +43,7 @@ export const AgGridCellEditor = forwardRef(
           <CellEditor
             value={params.value}
             column={params.tableColumn}
-            onChange={params.onValueChange}
+            onChange={handleChange}
             onCommit={handleCommit}
             onCancel={handleCancel}
             cellWidth={params.column.getActualWidth()}

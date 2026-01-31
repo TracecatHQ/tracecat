@@ -168,9 +168,18 @@ function NumericCellEditor({
   onCommit,
   onCancel,
 }: CellEditorProps) {
-  const [localStr, setLocalStr] = useState(() =>
-    value === null || value === undefined ? "" : String(value)
-  )
+  const formatInitial = () => {
+    if (value === null || value === undefined) return ""
+    const num =
+      typeof value === "number" ? value : Number.parseFloat(String(value))
+    if (Number.isNaN(num)) return String(value)
+    if (!Number.isInteger(num)) {
+      return Number.parseFloat(num.toFixed(4)).toString()
+    }
+    return String(num)
+  }
+
+  const strValue = formatInitial()
   const ref = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -178,41 +187,37 @@ function NumericCellEditor({
     ref.current?.select()
   }, [])
 
-  const commitValue = useCallback(() => {
-    if (localStr === "" || localStr === "-" || localStr === ".") {
-      onChange(localStr === "" ? null : value)
-    } else {
-      const parsed = Number.parseFloat(localStr)
-      onChange(Number.isNaN(parsed) ? null : parsed)
-    }
-    onCommit()
-  }, [localStr, onChange, onCommit, value])
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Keep value as a string to match the column data type (API returns
+    // numeric values as strings). The backend handles numeric conversion.
+    onChange(e.target.value === "" ? null : e.target.value)
+  }
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault()
-        commitValue()
+        onCommit()
       } else if (e.key === "Escape") {
         e.preventDefault()
         onCancel()
       } else if (e.key === "Tab") {
         e.preventDefault()
-        commitValue()
+        onCommit()
       }
     },
-    [commitValue, onCancel]
+    [onCommit, onCancel]
   )
 
   return (
     <Input
       ref={ref}
-      type="number"
-      step="any"
-      value={localStr}
-      onChange={(e) => setLocalStr(e.target.value)}
+      type="text"
+      inputMode="decimal"
+      defaultValue={strValue}
+      onChange={handleChange}
       onKeyDown={handleKeyDown}
-      onBlur={commitValue}
+      onBlur={onCommit}
       className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
     />
   )
