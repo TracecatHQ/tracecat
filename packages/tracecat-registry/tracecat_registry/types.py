@@ -7,7 +7,7 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -106,7 +106,7 @@ class CaseRead(TypedDict):
     payload: dict[str, Any] | None
     fields: list[CaseFieldRead]
     tags: list[CaseTagRead]
-    dropdown_values: list[CaseDropdownValueRead]
+    dropdown_values: NotRequired[list[CaseDropdownValueRead]]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -125,7 +125,7 @@ class CaseReadMinimal(TypedDict):
     severity: str
     status: str
     tags: list[CaseTagRead]
-    dropdown_values: list[CaseDropdownValueRead]
+    dropdown_values: NotRequired[list[CaseDropdownValueRead]]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
