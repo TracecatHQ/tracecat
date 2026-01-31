@@ -318,29 +318,13 @@ export function AddCaseDropdownDialog({
         <Form {...methods}>
           <form onSubmit={methods.handleSubmit(handleCreate)}>
             <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <FormField
-                  control={methods.control}
-                  name="icon_name"
-                  render={({ field }) => (
-                    <FormItem className="mt-6">
-                      <FormControl>
-                        <IconPicker
-                          className="size-9 shrink-0"
-                          placeholder="Icon"
-                          value={field.value || undefined}
-                          onValueChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={methods.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem className="flex-1">
-                      <FormLabel className="text-sm">Name</FormLabel>
+              <FormField
+                control={methods.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Name</FormLabel>
+                    <div className="flex items-center gap-3">
                       <FormControl>
                         <Input
                           className="text-sm"
@@ -348,14 +332,30 @@ export function AddCaseDropdownDialog({
                           {...field}
                         />
                       </FormControl>
-                      <FormDescription>
-                        Display name for the dropdown
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                      <FormField
+                        control={methods.control}
+                        name="icon_name"
+                        render={({ field: iconField }) => (
+                          <FormItem>
+                            <FormControl>
+                              <IconPicker
+                                className="size-9 shrink-0"
+                                placeholder="Icon"
+                                value={iconField.value || undefined}
+                                onValueChange={iconField.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <FormDescription>
+                      Display name for the dropdown
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={methods.control}
                 name="is_ordered"
