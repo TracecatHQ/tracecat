@@ -3648,6 +3648,9 @@ export function useUpdateCase({
       queryClient.invalidateQueries({
         queryKey: ["case-events", caseId, workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["case-durations", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -5633,7 +5636,7 @@ export function useSetCaseDropdownValue(workspaceId: string) {
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["case", variables.caseId, workspaceId],
+        queryKey: ["case", variables.caseId],
       })
     },
   })
