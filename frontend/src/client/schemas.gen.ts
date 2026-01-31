@@ -14267,6 +14267,20 @@ export const $TableRowRead = {
   description: "Read model for a table row.",
 } as const
 
+export const $TableRowUpdate = {
+  properties: {
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["data"],
+  title: "TableRowUpdate",
+  description: "Update model for a table row.",
+} as const
+
 export const $TableUpdate = {
   properties: {
     name: {

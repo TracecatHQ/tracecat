@@ -425,6 +425,8 @@ import type {
   TablesListTablesResponse,
   TablesUpdateColumnData,
   TablesUpdateColumnResponse,
+  TablesUpdateRowData,
+  TablesUpdateRowResponse,
   TablesUpdateTableData,
   TablesUpdateTableResponse,
   TagsCreateTagData,
@@ -5722,6 +5724,38 @@ export const tablesDeleteRow = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Row
+ * Update a row in a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.rowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableRowRead Successful Response
+ * @throws ApiError
+ */
+export const tablesUpdateRow = (
+  data: TablesUpdateRowData
+): CancelablePromise<TablesUpdateRowResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/tables/{table_id}/rows/{row_id}",
+    path: {
+      table_id: data.tableId,
+      row_id: data.rowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

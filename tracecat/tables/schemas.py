@@ -126,6 +126,12 @@ class TableRowRead(BaseModel):
     updated_at: datetime
 
 
+class TableRowUpdate(BaseModel):
+    """Update model for a table row."""
+
+    data: dict[str, Any]
+
+
 class TableRowInsert(BaseModel):
     """Insert model for a table row."""
 

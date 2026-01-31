@@ -7,7 +7,7 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -55,6 +55,20 @@ class CaseFieldRead(TypedDict):
     value: Any
 
 
+class CaseDropdownValueRead(TypedDict):
+    """Per-case dropdown value with full definition/option info."""
+
+    id: UUID
+    definition_id: UUID
+    definition_ref: str
+    definition_name: str
+    option_id: UUID | None
+    option_label: str | None
+    option_ref: str | None
+    option_icon_name: str | None
+    option_color: str | None
+
+
 class Case(TypedDict):
     """Case information returned by create/update/assign operations.
 
@@ -92,6 +106,7 @@ class CaseRead(TypedDict):
     payload: dict[str, Any] | None
     fields: list[CaseFieldRead]
     tags: list[CaseTagRead]
+    dropdown_values: NotRequired[list[CaseDropdownValueRead]]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -110,6 +125,7 @@ class CaseReadMinimal(TypedDict):
     severity: str
     status: str
     tags: list[CaseTagRead]
+    dropdown_values: NotRequired[list[CaseDropdownValueRead]]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -441,6 +457,22 @@ class TaskWorkflowChangedEvent(TypedDict, total=False):
     new: str | None
 
 
+class DropdownValueChangedEvent(TypedDict, total=False):
+    """Event for when a case dropdown value is changed."""
+
+    user_id: UUID | None
+    created_at: str
+    wf_exec_id: str | None
+    type: str
+    definition_id: str
+    definition_ref: str
+    definition_name: str
+    old_option_id: str | None
+    old_option_label: str | None
+    new_option_id: str | None
+    new_option_label: str | None
+
+
 # Union type for all case events
 type CaseEvent = (
     CreatedEvent
@@ -464,6 +496,7 @@ type CaseEvent = (
     | TaskStatusChangedEvent
     | TaskPriorityChangedEvent
     | TaskWorkflowChangedEvent
+    | DropdownValueChangedEvent
 )
 
 

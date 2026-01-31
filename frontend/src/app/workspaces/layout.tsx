@@ -96,6 +96,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetail = !!params?.caseId
   const isInboxPage = pathname?.includes("/inbox")
+  const isTableDetailPage = pathname?.match(/\/tables\/[^/]+/)
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -122,6 +123,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
 
   // Inbox pages have their own layout with chat sidebar
   if (isInboxPage) {
+    return <>{children}</>
+  }
+
+  // Table detail pages have their own layout with side panel
+  if (isTableDetailPage) {
     return <>{children}</>
   }
 

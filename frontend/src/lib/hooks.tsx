@@ -220,6 +220,7 @@ import {
   type TablesInsertRowData,
   type TablesListTablesData,
   type TablesUpdateColumnData,
+  type TablesUpdateRowData,
   type TablesUpdateTableData,
   type TagRead,
   type TagsCreateTagData,
@@ -238,6 +239,7 @@ import {
   tablesInsertRow,
   tablesListTables,
   tablesUpdateColumn,
+  tablesUpdateRow,
   tablesUpdateTable,
   tagsCreateTag,
   tagsDeleteTag,
@@ -3432,6 +3434,45 @@ export function useInsertRow() {
     insertRow,
     insertRowIsPending,
     insertRowError,
+  }
+}
+
+export function useUpdateRow() {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: updateRow,
+    isPending: updateRowIsPending,
+    error: updateRowError,
+  } = useMutation({
+    mutationFn: async (params: TablesUpdateRowData) =>
+      await tablesUpdateRow(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Error updating row",
+        description: error.message || "An unexpected error occurred",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    updateRow,
+    updateRowIsPending,
+    updateRowError,
   }
 }
 
