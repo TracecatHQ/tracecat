@@ -9,6 +9,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
+/**
+ * Check whether converting a string to Number and back preserves the value.
+ * Returns false for BIGINT values beyond MAX_SAFE_INTEGER or high-precision decimals.
+ */
+function isLosslessNumber(str: string): boolean {
+  const num = Number(str)
+  if (!Number.isFinite(num)) return false
+  return String(num) === str
+}
+
 const TIMESTAMP_TYPES = new Set(["TIMESTAMP", "TIMESTAMPTZ"])
 const NUMERIC_TYPES = new Set([
   "INT",
@@ -149,7 +159,11 @@ export function CellDisplay({
         typeof value === "string" &&
         value !== "" &&
         !Number.isNaN(Number(value)) ? (
-        <ScientificNumber value={Number(value)} />
+        isLosslessNumber(value) ? (
+          <ScientificNumber value={Number(value)} />
+        ) : (
+          <span>{value}</span>
+        )
       ) : typeof value === "number" ? (
         <ScientificNumber value={value} />
       ) : typeof value === "string" && value.length > 25 ? (
