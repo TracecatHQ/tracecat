@@ -1,7 +1,7 @@
 """add case dropdown tables and event type
 
 Revision ID: 328d927c631b
-Revises: 5a3b7c8d9e0f
+Revises: 0fd1f09cd98b
 Create Date: 2026-01-29 00:00:00.000000
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "328d927c631b"
-down_revision: str | None = "5a3b7c8d9e0f"
+down_revision: str | None = "0fd1f09cd98b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
