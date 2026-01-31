@@ -94,6 +94,9 @@ RUN groupadd -g 1001 apiuser && useradd -m -u 1001 -g apiuser apiuser && \
     mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp /home/apiuser/.local/bin && \
     chown -R apiuser:apiuser /home/apiuser
 
+# Create MCP socket directory for apiuser
+RUN mkdir -p /var/run/tracecat && chown 1001:1001 /var/run/tracecat
+
 WORKDIR /app
 
 # ====================
@@ -106,9 +109,6 @@ ENV TMPDIR=/tmp TEMP=/tmp TMP=/tmp
 # Set sandbox cache permissions for apiuser
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
     chmod -R 755 /var/lib/tracecat/sandbox-cache
-
-# Create MCP socket directory for apiuser
-RUN mkdir -p /var/run/tracecat && chown 1001:1001 /var/run/tracecat
 
 # Prime uv cache (as root, before switching user)
 RUN --mount=type=cache,target=/root/.cache/uv \

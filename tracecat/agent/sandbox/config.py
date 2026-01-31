@@ -27,19 +27,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tracecat.agent.common.config import (
+    CONTROL_SOCKET_NAME,
+    JAILED_CONTROL_SOCKET_PATH,
+    JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-
-# Well-known socket paths (internal to agent worker, not configurable)
-TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
-CONTROL_SOCKET_NAME = "control.sock"
-JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
-
-# LLM socket for proxied access to LiteLLM (network isolated)
-LLM_SOCKET_NAME = "llm.sock"
-JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
