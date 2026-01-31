@@ -39,8 +39,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
-from tracecat.auth.types import AccessLevel, Role, system_role
+from tracecat.auth.types import AccessLevel, PlatformRole, Role, system_role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
@@ -204,6 +205,17 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info(f"User {user.id} has registered.")
+
+        # Log audit event for user registration
+        platform_role = PlatformRole(
+            type="user", user_id=user.id, service_id="tracecat-api"
+        )
+        async with AuditService.with_session(role=platform_role) as audit_svc:
+            await audit_svc.create_event(
+                resource_type="user",
+                action="create",
+                resource_id=user.id,
+            )
 
         # Check if this user should be promoted to superuser
         async with get_async_session_context_manager() as session:

@@ -10,6 +10,7 @@ from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 
 AuditAction = Literal["create", "update", "delete", "accept", "revoke"]
 AuditResourceType = Literal[
+    "user",
     "workspace",
     "workflow",
     "workflow_execution",
