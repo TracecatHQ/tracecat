@@ -7,6 +7,7 @@ import type {
   ColDef,
   GridApi,
   GridReadyEvent,
+  SuppressKeyboardEventParams,
   ValueFormatterParams,
 } from "ag-grid-community"
 import { AgGridReact } from "ag-grid-react"
@@ -64,6 +65,17 @@ function normalizeSqlType(rawType?: string) {
   if (!rawType) return ""
   const [base] = rawType.toUpperCase().split("(")
   return base.trim()
+}
+
+/**
+ * Suppress Enter, Tab, and Escape during editing so the cell editor
+ * handles commit/cancel exclusively, preventing AG Grid from calling
+ * getValue() before the editor has called onChange with the parsed value.
+ */
+function suppressEditorKeys(params: SuppressKeyboardEventParams): boolean {
+  if (!params.editing) return false
+  const key = params.event.key
+  return key === "Enter" || key === "Tab" || key === "Escape"
 }
 
 function numericValueFormatter(params: ValueFormatterParams): string {
@@ -173,6 +185,7 @@ export function AgGridTable({
             tableColumn: column,
           },
           cellEditorPopup: isPopupEditor,
+          suppressKeyboardEvent: suppressEditorKeys,
           editable: true,
           sortable: true,
           resizable: true,
