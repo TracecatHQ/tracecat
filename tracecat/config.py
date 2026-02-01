@@ -43,6 +43,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-llm-gateway",
     "tracecat-runner",
     "tracecat-schedule-runner",
+    "tracecat-case-triggers",
     "tracecat-ui",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
@@ -581,6 +582,51 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
+
+TRACECAT__CASE_TRIGGERS_ENABLED = (
+    os.environ.get("TRACECAT__CASE_TRIGGERS_ENABLED", "true").lower() == "true"
+)
+"""Enable case event workflow triggers. Defaults to true."""
+
+TRACECAT__CASE_TRIGGERS_STREAM_KEY = os.environ.get(
+    "TRACECAT__CASE_TRIGGERS_STREAM_KEY", "case-events"
+)
+"""Redis stream key for case events."""
+
+TRACECAT__CASE_TRIGGERS_GROUP = os.environ.get(
+    "TRACECAT__CASE_TRIGGERS_GROUP", "case-triggers"
+)
+"""Redis consumer group for case trigger processing."""
+
+TRACECAT__CASE_TRIGGERS_BLOCK_MS = int(
+    os.environ.get("TRACECAT__CASE_TRIGGERS_BLOCK_MS", 2000)
+)
+"""XREADGROUP block timeout in milliseconds."""
+
+TRACECAT__CASE_TRIGGERS_BATCH = int(
+    os.environ.get("TRACECAT__CASE_TRIGGERS_BATCH", 100)
+)
+"""Maximum number of events to read per batch."""
+
+TRACECAT__CASE_TRIGGERS_CLAIM_IDLE_MS = int(
+    os.environ.get("TRACECAT__CASE_TRIGGERS_CLAIM_IDLE_MS", 300000)
+)
+"""Idle time before claiming pending messages (milliseconds)."""
+
+TRACECAT__CASE_TRIGGERS_MAXLEN = int(
+    os.environ.get("TRACECAT__CASE_TRIGGERS_MAXLEN", 30000)
+)
+"""Approximate max length for the case events stream."""
+
+TRACECAT__CASE_TRIGGERS_DEDUP_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__CASE_TRIGGERS_DEDUP_TTL_SECONDS", 21600)
+)
+"""TTL for case trigger dedup keys in seconds."""
+
+TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS", 300)
+)
+"""TTL for case trigger lock keys in seconds."""
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(

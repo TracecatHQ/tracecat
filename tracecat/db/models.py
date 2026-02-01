@@ -834,6 +834,13 @@ class Workflow(WorkspaceModel):
         lazy="selectin",
         uselist=False,
     )
+    case_trigger: Mapped[CaseTrigger] = relationship(
+        "CaseTrigger",
+        back_populates="workflow",
+        cascade="all, delete",
+        lazy="selectin",
+        uselist=False,
+    )
     schedules: Mapped[list[Schedule]] = relationship(
         "Schedule",
         back_populates="workflow",
@@ -956,6 +963,42 @@ class Webhook(WorkspaceModel):
     @property
     def api_key_revoked_at(self) -> datetime | None:
         return self.api_key.revoked_at if self.api_key else None
+
+
+class CaseTrigger(WorkspaceModel):
+    """Configuration for case event triggers per workflow."""
+
+    __tablename__ = "case_trigger"
+    __table_args__ = (UniqueConstraint("workflow_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(16), default="offline", nullable=False)
+    event_types: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
+    tag_filters: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workflow.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    workflow: Mapped[Workflow] = relationship(back_populates="case_trigger")
 
 
 class Schedule(WorkspaceModel):
