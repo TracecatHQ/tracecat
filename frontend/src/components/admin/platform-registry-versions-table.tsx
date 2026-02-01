@@ -81,14 +81,7 @@ export function PlatformRegistryVersionsTable() {
             return (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono">{version.version}</span>
-                {isCurrent && (
-                  <Badge
-                    variant="default"
-                    className="bg-green-500 hover:bg-green-600"
-                  >
-                    Current
-                  </Badge>
-                )}
+                {isCurrent && <Badge variant="default">Current</Badge>}
               </div>
             )
           },

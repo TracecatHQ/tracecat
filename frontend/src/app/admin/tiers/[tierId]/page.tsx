@@ -130,110 +130,42 @@ export default function AdminTierDetailPage({
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <Link
-          href="/admin/tiers"
-          className="flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ArrowLeftIcon className="mr-2 size-4" />
-          Back to tiers
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">Edit tier</h1>
-        <p className="text-muted-foreground">
-          Update tier details for {tier.display_name}.
-        </p>
-      </div>
-
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="space-y-6 max-w-2xl"
-        >
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="display_name"
-              render={({ field }) => (
-                <FormItem className="col-span-2">
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="sort_order"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Sort order</FormLabel>
-                  <FormControl>
-                    <Input type="number" min={0} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="space-y-4 pt-6">
-              <FormField
-                control={form.control}
-                name="is_default"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-2 space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel className="font-normal">Default tier</FormLabel>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="is_active"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-2 space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel className="font-normal">Active</FormLabel>
-                  </FormItem>
-                )}
-              />
+    <div className="size-full overflow-auto">
+      <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+        <div>
+          <Link
+            href="/admin/tiers"
+            className="flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
+          >
+            <ArrowLeftIcon className="mr-2 size-4" />
+            Back to tiers
+          </Link>
+          <div className="flex w-full">
+            <div className="items-start space-y-3 text-left">
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Edit tier
+              </h2>
+              <p className="text-base text-muted-foreground">
+                Update tier details for {tier.display_name}.
+              </p>
             </div>
           </div>
+        </div>
 
-          <div className="border-t pt-6">
-            <h4 className="text-sm font-medium mb-4">Resource limits</h4>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-6 max-w-2xl"
+          >
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="max_concurrent_workflows"
+                name="display_name"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Max concurrent workflows</FormLabel>
+                  <FormItem className="col-span-2">
+                    <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="Unlimited"
-                        {...field}
-                        value={field.value ?? ""}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value)
-                          )
-                        }
-                      />
+                      <Input {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -241,123 +173,201 @@ export default function AdminTierDetailPage({
               />
               <FormField
                 control={form.control}
-                name="max_action_executions_per_workflow"
+                name="sort_order"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Max actions per workflow</FormLabel>
+                    <FormLabel>Sort order</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="Unlimited"
-                        {...field}
-                        value={field.value ?? ""}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value)
-                          )
-                        }
-                      />
+                      <Input type="number" min={0} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="max_concurrent_actions"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Max concurrent actions</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="Unlimited"
-                        {...field}
-                        value={field.value ?? ""}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value)
-                          )
-                        }
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="api_rate_limit"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>API rate limit</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="Unlimited"
-                        {...field}
-                        value={field.value ?? ""}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value)
-                          )
-                        }
-                      />
-                    </FormControl>
-                    <FormDescription>Requests per second</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="api_burst_capacity"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>API burst capacity</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="Unlimited"
-                        {...field}
-                        value={field.value ?? ""}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value)
-                          )
-                        }
-                      />
-                    </FormControl>
-                    <FormDescription>Maximum burst requests</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="space-y-4 pt-6">
+                <FormField
+                  control={form.control}
+                  name="is_default"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-2 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="font-normal">
+                        Default tier
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-2 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="font-normal">Active</FormLabel>
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex gap-4 pt-4">
-            <Button type="submit" disabled={updatePending}>
-              {updatePending ? "Saving..." : "Save changes"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => router.push("/admin/tiers")}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </Form>
+            <div className="border-t pt-6">
+              <h4 className="text-sm font-medium mb-4">Resource limits</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="max_concurrent_workflows"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max concurrent workflows</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Unlimited"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="max_action_executions_per_workflow"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max actions per workflow</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Unlimited"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="max_concurrent_actions"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max concurrent actions</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Unlimited"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="api_rate_limit"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API rate limit</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Unlimited"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>Requests per second</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="api_burst_capacity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API burst capacity</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Unlimited"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>Maximum burst requests</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <Button type="submit" disabled={updatePending}>
+                {updatePending ? "Saving..." : "Save changes"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push("/admin/tiers")}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </div>
     </div>
   )
 }

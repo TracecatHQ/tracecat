@@ -27,6 +27,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useAuth } from "@/hooks/use-auth"
@@ -67,11 +70,23 @@ export function AdminSidebar({
       icon: LayersIcon,
       isActive: pathname?.includes("/admin/tiers"),
     },
+  ]
+
+  const navRegistry = [
     {
-      title: "Registry",
+      title: "Repositories",
       url: "/admin/registry",
-      icon: BookOpenIcon,
-      isActive: pathname?.includes("/admin/registry"),
+      isActive: pathname === "/admin/registry",
+    },
+    {
+      title: "Versions",
+      url: "/admin/registry/versions",
+      isActive: pathname?.includes("/admin/registry/versions"),
+    },
+    {
+      title: "Settings",
+      url: "/admin/registry/settings",
+      isActive: pathname?.includes("/admin/registry/settings"),
     },
   ]
 
@@ -119,6 +134,27 @@ export function AdminSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              <SidebarMenuItem>
+                <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
+                  <BookOpenIcon className="size-4 shrink-0" />
+                  <span className="font-medium">Registry</span>
+                </div>
+                <SidebarMenuSub>
+                  {navRegistry.map((subItem) => (
+                    <SidebarMenuSubItem key={subItem.title}>
+                      <SidebarMenuSubButton
+                        asChild
+                        isActive={subItem.isActive}
+                        className="text-[13px]"
+                      >
+                        <Link href={subItem.url}>
+                          <span>{subItem.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

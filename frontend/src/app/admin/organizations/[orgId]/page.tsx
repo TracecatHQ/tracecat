@@ -97,92 +97,98 @@ export default function AdminOrganizationDetailPage({
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <Link
-          href="/admin/organizations"
-          className="flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
-        >
-          <ArrowLeftIcon className="mr-2 size-4" />
-          Back to organizations
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Edit organization
-        </h1>
-        <p className="text-muted-foreground">
-          Update organization details for {organization.name}.
-        </p>
-      </div>
-
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="space-y-6 max-w-lg"
-        >
-          <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Name</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormDescription>
-                  The display name of the organization.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="slug"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Slug</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormDescription>
-                  Unique identifier for the organization. Used in URLs.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="is_active"
-            render={({ field }) => (
-              <FormItem className="flex items-center gap-2 space-y-0">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <FormLabel className="font-normal">Active</FormLabel>
-                <FormDescription className="ml-4">
-                  Inactive organizations cannot be accessed by users.
-                </FormDescription>
-              </FormItem>
-            )}
-          />
-          <div className="flex gap-4">
-            <Button type="submit" disabled={updatePending}>
-              {updatePending ? "Saving..." : "Save changes"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => router.push("/admin/organizations")}
-            >
-              Cancel
-            </Button>
+    <div className="size-full overflow-auto">
+      <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+        <div>
+          <Link
+            href="/admin/organizations"
+            className="flex items-center text-sm text-muted-foreground hover:text-foreground mb-4"
+          >
+            <ArrowLeftIcon className="mr-2 size-4" />
+            Back to organizations
+          </Link>
+          <div className="flex w-full">
+            <div className="items-start space-y-3 text-left">
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Edit organization
+              </h2>
+              <p className="text-base text-muted-foreground">
+                Update organization details for {organization.name}.
+              </p>
+            </div>
           </div>
-        </form>
-      </Form>
+        </div>
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-6 max-w-lg"
+          >
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    The display name of the organization.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="slug"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Slug</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    Unique identifier for the organization. Used in URLs.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="is_active"
+              render={({ field }) => (
+                <FormItem className="flex items-center gap-2 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormLabel className="font-normal">Active</FormLabel>
+                  <FormDescription className="ml-4">
+                    Inactive organizations cannot be accessed by users.
+                  </FormDescription>
+                </FormItem>
+              )}
+            />
+            <div className="flex gap-4">
+              <Button type="submit" disabled={updatePending}>
+                {updatePending ? "Saving..." : "Save changes"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push("/admin/organizations")}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </div>
     </div>
   )
 }
