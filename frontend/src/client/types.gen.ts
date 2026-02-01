@@ -5410,6 +5410,7 @@ export type UserCreate = {
   is_verified?: boolean | null
   first_name?: string | null
   last_name?: string | null
+  invitation_token?: string | null
 }
 
 export type UserMessage = {
@@ -6959,6 +6960,8 @@ export type UsersSearchUserData = {
 }
 
 export type UsersSearchUserResponse = UserRead
+
+export type OrganizationGetCurrentOrgMemberResponse = OrgMemberRead
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
 
@@ -9786,6 +9789,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgMemberRead
       }
     }
   }
