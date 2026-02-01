@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { ReactFlowProvider } from "@xyflow/react"
 import { LogOut, Plus, Shield } from "lucide-react"
 import Image from "next/image"
@@ -9,7 +8,6 @@ import { useParams, usePathname, useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useMemo, useState } from "react"
-import { organizationGetCurrentOrgMember } from "@/client"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
@@ -18,6 +16,7 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { WorkflowProvider } from "@/providers/workflow"
@@ -170,16 +169,10 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
+  const { isOrgAdmin } = useOrgMembership()
   const { createWorkspace } = useWorkspaceManager()
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
-
-  // Fetch current user's org membership to check their org role
-  const { data: currentOrgMember } = useQuery({
-    queryKey: ["current-org-member"],
-    queryFn: organizationGetCurrentOrgMember,
-    retry: false, // Don't retry on 404 (user not in org)
-  })
 
   const handleLogout = async () => {
     await logout()
@@ -197,10 +190,7 @@ function NoWorkspaces() {
   }
 
   // Check if user is org admin/owner via platform role OR org membership role
-  const isOrgAdminOrOwner =
-    user?.isOrgAdmin() ||
-    currentOrgMember?.role === "admin" ||
-    currentOrgMember?.role === "owner"
+  const isOrgAdminOrOwner = user?.isOrgAdmin() || isOrgAdmin
 
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">

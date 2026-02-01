@@ -37,6 +37,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -46,9 +47,13 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
   const { user } = useAuth()
+  const { isOrgAdmin } = useOrgMembership()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+
+  // Check if user is org admin/owner via platform role OR org membership role
+  const isOrgAdminOrOwner = user?.isOrgAdmin() || isOrgAdmin
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
 
@@ -209,7 +214,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             </Dialog>
 
             <DropdownMenuSeparator />
-            {user?.isPrivileged() && (
+            {isOrgAdminOrOwner && (
               <DropdownMenuItem asChild>
                 <Link
                   href="/organization"
