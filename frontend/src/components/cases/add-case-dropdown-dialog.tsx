@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { toast } from "@/components/ui/use-toast"
 import { useCaseDropdownDefinitions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -132,7 +133,7 @@ export function SortableOptionRow({
       </button>
       {isOrdered && (
         <span className="shrink-0 text-xs font-mono text-muted-foreground w-6 text-center">
-          #{index}
+          #{index + 1}
         </span>
       )}
       <Input
@@ -212,11 +213,11 @@ export function AddCaseDropdownDialog({
   const handleAddOption = () => {
     const id = makeOptionId(nextOptionId)
     setNextOptionId((n) => n + 1)
-    setOptions([...options, createEmptyOption(id)])
+    setOptions((prev) => [...prev, createEmptyOption(id)])
   }
 
   const handleRemoveOption = (index: number) => {
-    setOptions(options.filter((_, i) => i !== index))
+    setOptions((prev) => prev.filter((_, i) => i !== index))
   }
 
   const handleOptionChange = (
@@ -303,6 +304,14 @@ export function AddCaseDropdownDialog({
       onOpenChange(false)
     } catch (error) {
       console.error("Error creating dropdown", error)
+      toast({
+        title: "Error creating dropdown",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to create the dropdown. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
