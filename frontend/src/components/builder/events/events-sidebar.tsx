@@ -129,17 +129,19 @@ export function BuilderSidebarEvents() {
   // If we have no execution ID (neither current nor last), show the empty state
   if (!executionId) {
     return (
-      <Empty className="border-none">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <WorkflowIcon />
-          </EmptyMedia>
-          <EmptyTitle>No workflow runs</EmptyTitle>
-          <EmptyDescription>
-            Get started by running your workflow
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="flex h-full items-center justify-center">
+        <Empty className="border-none">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <WorkflowIcon />
+            </EmptyMedia>
+            <EmptyTitle>No workflow runs</EmptyTitle>
+            <EmptyDescription>
+              Get started by running your workflow
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
     )
   }
 
