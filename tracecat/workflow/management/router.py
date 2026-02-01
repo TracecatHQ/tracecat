@@ -48,6 +48,12 @@ from tracecat.webhooks.schemas import (
     WebhookUpdate,
 )
 from tracecat.workflow.actions.schemas import ActionRead
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerCreate,
+    CaseTriggerRead,
+    CaseTriggerUpdate,
+)
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -554,6 +560,12 @@ async def export_workflow(
             workspace_id=workflow.workspace_id,
             workflow_id=WorkflowUUID.new(workflow.id),
             definition=dsl,
+            case_trigger=workflow.case_trigger
+            and {
+                "status": workflow.case_trigger.status,
+                "event_types": workflow.case_trigger.event_types,
+                "tag_filters": workflow.case_trigger.tag_filters,
+            },
         )
     else:
         # Existing behavior: fetch from WorkflowDefinition
@@ -723,6 +735,82 @@ async def update_webhook(
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)
+
+
+# ----- Workflow Case Triggers ----- #
+
+
+@router.post(
+    "/{workflow_id}/case-trigger",
+    status_code=status.HTTP_201_CREATED,
+    tags=["triggers"],
+    response_model=CaseTriggerRead,
+)
+async def create_case_trigger(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: CaseTriggerCreate,
+) -> CaseTriggerRead:
+    """Create or replace the case trigger configuration for a workflow."""
+    service = CaseTriggersService(session, role=role)
+    try:
+        case_trigger = await service.upsert_case_trigger(workflow_id, params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
+
+
+@router.get(
+    "/{workflow_id}/case-trigger",
+    tags=["triggers"],
+    response_model=CaseTriggerRead,
+)
+async def get_case_trigger(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> CaseTriggerRead:
+    """Get the case trigger configuration for a workflow."""
+    service = CaseTriggersService(session, role=role)
+    try:
+        case_trigger = await service.get_case_trigger(workflow_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+        ) from e
+    return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
+
+
+@router.patch(
+    "/{workflow_id}/case-trigger",
+    tags=["triggers"],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def update_case_trigger(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: CaseTriggerUpdate,
+) -> None:
+    """Update the case trigger configuration for a workflow."""
+    service = CaseTriggersService(session, role=role)
+    try:
+        await service.update_case_trigger(workflow_id, params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.post(

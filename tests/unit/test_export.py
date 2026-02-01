@@ -6,6 +6,9 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.management.management import WorkflowsManagementService
+from sqlalchemy import select
+
+from tracecat.db.models import CaseTag, CaseTrigger
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 
 
@@ -69,3 +72,44 @@ async def test_workflow_can_import(test_role: Role, id: Any):
         workflow = await service.create_workflow_from_external_definition(import_data)
 
         assert workflow.actions and len(workflow.actions) == 4
+
+
+@pytest.mark.anyio
+async def test_workflow_import_case_trigger_creates_tags(test_role: Role):
+    dsl = ExternalWorkflowDefinition(
+        definition=DSLInput(
+            **{
+                "title": "case_trigger_import",
+                "description": "Workflow import with case trigger",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "entrypoint_1",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ENTRYPOINT_1"},
+                    }
+                ],
+                "returns": "${{ ACTIONS.entrypoint_1.result }}",
+            }
+        ),
+        case_trigger={
+            "status": "offline",
+            "event_types": [],
+            "tag_filters": ["phishing"],
+        },
+    )
+
+    async with WorkflowsManagementService.with_session(test_role) as service:
+        import_data = dsl.model_dump(mode="json")
+        workflow = await service.create_workflow_from_external_definition(import_data)
+
+        stmt = select(CaseTrigger).where(CaseTrigger.workflow_id == workflow.id)
+        result = await service.session.execute(stmt)
+        case_trigger = result.scalar_one()
+        assert case_trigger.tag_filters == ["phishing"]
+
+        tag_stmt = select(CaseTag).where(
+            CaseTag.workspace_id == workflow.workspace_id, CaseTag.ref == "phishing"
+        )
+        tag_result = await service.session.execute(tag_stmt)
+        assert tag_result.scalar_one().ref == "phishing"

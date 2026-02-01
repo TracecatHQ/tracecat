@@ -18,10 +18,13 @@ from tracecat.sync import PullDiagnostic, PullResult
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.store.schemas import (
     RemoteWebhook,
+    RemoteCaseTrigger,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
@@ -322,6 +325,9 @@ class WorkflowImportService(BaseWorkspaceService):
         # 6. Update related entities
         await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
+        await self._update_case_trigger(
+            existing_workflow, remote_workflow.case_trigger
+        )
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
     async def _create_new_workflow(self, remote_defn: RemoteWorkflowDefinition) -> None:
@@ -358,6 +364,7 @@ class WorkflowImportService(BaseWorkspaceService):
         # Handle additional remote-specific entities
         await self._create_schedules(workflow, remote_defn.schedules)
         await self._update_webhook(workflow.webhook, remote_defn.webhook)
+        await self._update_case_trigger(workflow, remote_defn.case_trigger)
         await self._create_tags(workflow, remote_defn.tags)
 
     async def _update_schedules(
@@ -420,6 +427,20 @@ class WorkflowImportService(BaseWorkspaceService):
         # The webhook ID doesn't matter
         webhook.methods = remote_webhook.methods
         webhook.status = remote_webhook.status
+
+    async def _update_case_trigger(
+        self, workflow: Workflow, remote_case_trigger: RemoteCaseTrigger | None
+    ) -> None:
+        if not remote_case_trigger:
+            return
+        service = CaseTriggersService(session=self.session, role=self.role)
+        config = CaseTriggerConfig.model_validate(remote_case_trigger)
+        await service.upsert_case_trigger(
+            workflow.id,
+            config,
+            create_missing_tags=True,
+            commit=False,
+        )
 
     async def _update_tags(
         self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None
