@@ -89,11 +89,6 @@ export function PlatformRegistryStatus() {
             <div className="text-sm text-muted-foreground">Status</div>
             <Badge
               variant={status?.repositories?.length ? "default" : "secondary"}
-              className={
-                status?.repositories?.length
-                  ? "bg-green-500 hover:bg-green-600"
-                  : ""
-              }
             >
               {status?.repositories?.length ? "Active" : "No repositories"}
             </Badge>

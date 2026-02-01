@@ -323,6 +323,23 @@ Available predefined roles:
 
 ### UI Component Best Practices
 - **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
+- **Standard settings/admin page layout**: All settings and admin pages must use this layout pattern for consistency:
+  ```tsx
+  <div className="size-full overflow-auto">
+    <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+      <div className="flex w-full">
+        <div className="items-start space-y-3 text-left">
+          <h2 className="text-2xl font-semibold tracking-tight">Title</h2>
+          <p className="text-md text-muted-foreground">Subtitle</p>
+        </div>
+        {/* Optional: action buttons on the right */}
+        {/* <div className="ml-auto flex items-center space-x-2">...</div> */}
+      </div>
+      {/* Page content */}
+    </div>
+  </div>
+  ```
+  Key rules: outer `size-full overflow-auto` wrapper, inner container with `max-w-[1000px]`, `space-y-12` section spacing, `h2` for page title, `text-md` on subtitle, `space-y-3` title-subtitle gap. For pages with a back link, place it above the `flex w-full` header div.
 
 ### Code Quality
 - **Ruff**: Line length 88, comprehensive linting rules

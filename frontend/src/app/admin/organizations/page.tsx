@@ -21,19 +21,23 @@ export default function AdminOrganizationsPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Organizations
-          </h1>
-          <p className="text-muted-foreground">
-            Manage organizations on the platform.
-          </p>
+    <div className="size-full overflow-auto">
+      <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+        <div className="flex w-full">
+          <div className="items-start space-y-3 text-left">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Organizations
+            </h2>
+            <p className="text-md text-muted-foreground">
+              Manage organizations on the platform.
+            </p>
+          </div>
+          <div className="ml-auto flex items-center space-x-2">
+            <CreateOrganizationDialog />
+          </div>
         </div>
-        <CreateOrganizationDialog />
+        <AdminOrganizationsTable />
       </div>
-      <AdminOrganizationsTable />
     </div>
   )
 }
