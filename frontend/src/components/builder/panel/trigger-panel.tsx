@@ -1296,9 +1296,8 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
   if (caseTriggerError) {
     return (
       <AlertNotification
-        variant="destructive"
-        title="Failed to load case triggers"
-        description="We couldn't load the case trigger configuration."
+        level="error"
+        message="Failed to load case trigger configuration."
       />
     )
   }
@@ -1375,8 +1374,8 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
   if (schedulesError || !schedules) {
     return (
       <AlertNotification
-        title="Failed to load schedules"
-        message="There was an error when loading schedules."
+        level="error"
+        message="Failed to load schedules."
       />
     )
   }

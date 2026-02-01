@@ -10,9 +10,9 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case
+from tracecat.db.models import Case, CaseTrigger, Workflow
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.tags.schemas import TagCreate
+from tracecat.tags.schemas import TagCreate, TagUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -315,3 +315,41 @@ class TestCaseTagsService:  # noqa: D101
         # This should fail because the case does not exist in the workspace
         with pytest.raises(TracecatNotFoundError):
             await case_tags_service.add_case_tag(non_existent_case_id, str(tag.id))
+
+    @pytest.mark.anyio
+    async def test_update_tag_updates_case_trigger_filters(
+        self,
+        case_tags_service: CaseTagsService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """Ensure tag ref updates propagate to case trigger filters."""
+        tag = await case_tags_service.create_tag(
+            TagCreate(name="Phishing", color="#FF00FF")
+        )
+
+        workflow = Workflow(
+            title="Case Trigger Rename",
+            description="Test workflow",
+            status="offline",
+            workspace_id=svc_role.workspace_id,
+        )
+        session.add(workflow)
+        await session.flush()
+
+        case_trigger = CaseTrigger(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[tag.ref],
+        )
+        session.add(case_trigger)
+        await session.commit()
+
+        updated = await case_tags_service.update_tag(
+            tag, TagUpdate(name="Updated Tag Name")
+        )
+
+        await session.refresh(case_trigger)
+        assert case_trigger.tag_filters == [updated.ref]

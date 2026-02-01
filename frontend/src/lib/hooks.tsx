@@ -20,7 +20,7 @@ import {
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
-  type ApiError,
+  ApiError,
   type AppSettingsRead,
   type AuditApiKeyGenerateResponse,
   type AuditSettingsRead,

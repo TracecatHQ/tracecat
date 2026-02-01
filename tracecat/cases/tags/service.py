@@ -7,7 +7,7 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.cases.enums import CaseEventType
 from tracecat.contexts import ctx_run
-from tracecat.db.models import Case, CaseTag, CaseTagLink
+from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
 from tracecat.service import BaseWorkspaceService
@@ -165,6 +165,7 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
+        original_ref = tag.ref
         if params.name and params.name != tag.name:
             new_ref = slugify(params.name)
             if new_ref != tag.ref:
@@ -187,9 +188,42 @@ class CaseTagsService(BaseWorkspaceService):
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(tag, key, value)
 
+        if original_ref != tag.ref:
+            workspace_id = tag.workspace_id
+            if workspace_id is None:
+                raise ValueError("Case tag workspace is required")
+            await self._update_case_trigger_tag_filters(
+                workspace_id, original_ref, tag.ref
+            )
+
         await self.session.commit()
         await self.session.refresh(tag)
         return tag
+
+    async def _update_case_trigger_tag_filters(
+        self, workspace_id: uuid.UUID, old_ref: str, new_ref: str
+    ) -> None:
+        stmt = select(CaseTrigger).where(CaseTrigger.workspace_id == workspace_id)
+        result = await self.session.execute(stmt)
+        triggers = result.scalars().all()
+
+        for trigger in triggers:
+            if not trigger.tag_filters or old_ref not in trigger.tag_filters:
+                continue
+
+            updated_filters = [
+                new_ref if ref == old_ref else ref for ref in trigger.tag_filters
+            ]
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for ref in updated_filters:
+                if ref in seen:
+                    continue
+                seen.add(ref)
+                deduped.append(ref)
+            trigger.tag_filters = deduped
+            self.session.add(trigger)
 
     async def delete_tag(self, tag: CaseTag) -> None:
         """Delete a case tag definition."""
