@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.admin.router import router as admin_router
+from tracecat_ee.agent.approvals.router import router as approvals_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
@@ -48,7 +50,6 @@ from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
 from tracecat.cases.durations.router import router as case_durations_router
-from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.cases.internal_router import (
     comments_router as internal_comments_router,
 )
@@ -65,6 +66,7 @@ from tracecat.cases.tag_definitions.router import (
 )
 from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
+from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.router import router as editor_router
@@ -124,8 +126,6 @@ from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
-from tracecat_ee.admin.router import router as admin_router
-from tracecat_ee.agent.approvals.router import router as approvals_router
 
 
 @asynccontextmanager

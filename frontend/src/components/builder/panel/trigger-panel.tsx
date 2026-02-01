@@ -37,9 +37,9 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import {
   CustomTagInput,
+  MultiTagCommandInput,
   type Suggestion,
   type Tag,
-  MultiTagCommandInput,
 } from "@/components/tags-input"
 import {
   Accordion,
@@ -119,14 +119,14 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
+  useCaseTagCatalog,
+  useCaseTrigger,
   useDeleteWebhookApiKey,
   useGenerateWebhookApiKey,
   useRevokeWebhookApiKey,
   useSchedules,
-  useCaseTagCatalog,
-  useCaseTrigger,
-  useUpsertCaseTrigger,
   useUpdateWebhook,
+  useUpsertCaseTrigger,
 } from "@/lib/hooks"
 import {
   durationSchema,
@@ -460,10 +460,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
         </AccordionItem>
 
         {/* Case Triggers */}
-        <AccordionItem
-          value="trigger-case-triggers"
-          id="trigger-case-triggers"
-        >
+        <AccordionItem value="trigger-case-triggers" id="trigger-case-triggers">
           <AccordionTrigger className="px-4 text-xs font-bold">
             <div className="flex items-center">
               <ActivityIcon className="mr-3 size-4" />
@@ -1207,7 +1204,11 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
   }, [caseTrigger])
 
   const persist = useCallback(
-    async (nextStatus: "online" | "offline", nextEvents: CaseEventType[], nextTags: string[]) => {
+    async (
+      nextStatus: "online" | "offline",
+      nextEvents: CaseEventType[],
+      nextTags: string[]
+    ) => {
       await upsertCaseTrigger({
         status: nextStatus,
         event_types: nextEvents,

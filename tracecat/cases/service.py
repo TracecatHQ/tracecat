@@ -20,7 +20,6 @@ from tracecat.auth.types import Role
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.service import CaseDurationService
-from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -58,6 +57,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
