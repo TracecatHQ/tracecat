@@ -140,6 +140,15 @@ async def test_auth_cache_reduces_database_queries(mocker):
     # Mock is_unprivileged to return True for basic users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=True)
 
+    # Mock _get_workspace_org_id to return org_id for any workspace
+    mocker.patch(
+        "tracecat.auth.credentials._get_workspace_org_id",
+        side_effect=lambda ws_id: org_id_1 if ws_id == workspace_id_1 else org_id_2,
+    )
+
+    # Mock _get_org_role to return None (not an org admin)
+    mocker.patch("tracecat.auth.credentials._get_org_role", return_value=None)
+
     # Simulate multiple workspace checks in the same request
     request = MagicMock(spec=Request)
     request.state = MagicMock()
@@ -385,6 +394,9 @@ async def test_cache_user_id_validation():
         "user_id": None,
     }
 
+    # Create organization ID for the workspace
+    org_id = uuid.uuid4()
+
     # Set up mocks
     with (
         patch("tracecat.auth.credentials.MembershipService", return_value=mock_service),
@@ -393,6 +405,10 @@ async def test_cache_user_id_validation():
             "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
             {UserRole.BASIC: AccessLevel.BASIC},
         ),
+        patch(
+            "tracecat.auth.credentials._get_workspace_org_id", return_value=org_id
+        ),
+        patch("tracecat.auth.credentials._get_org_role", return_value=None),
     ):
         # Mock session with proper execute() and scalar_one_or_none() chain
         mock_result = MagicMock()
@@ -483,6 +499,8 @@ async def test_cache_size_limit():
             "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
             {UserRole.BASIC: AccessLevel.BASIC},
         ),
+        patch("tracecat.auth.credentials._get_workspace_org_id", return_value=org_id),
+        patch("tracecat.auth.credentials._get_org_role", return_value=None),
     ):
         # Mock session with proper execute() and scalar_one_or_none() chain
         mock_result = MagicMock()
