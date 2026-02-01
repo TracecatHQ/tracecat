@@ -161,11 +161,23 @@ pnpm -C frontend check                      # Frontend lint + format (Biome)
 pnpm -C frontend run typecheck              # TypeScript type checking
 ```
 
-**Recommended pre-push hook**: Prevent pushes unless all checks pass.
+**Required before reporting "done"**: Always run the auto-fixers first, then re-run the checks above.
+```bash
+# Auto-fixers (run whenever you touch Python/TS/TSX)
+uv run ruff check --fix .
+pnpm -C frontend exec biome check --write .
+```
+
+**Recommended pre-push hook**: Prevent pushes unless auto-fix + checks pass.
 ```bash
 cat > .git/hooks/pre-push <<'EOF'
 #!/bin/sh
 set -e
+
+uv run ruff check --fix .
+pnpm -C frontend exec biome check --write .
+
+git diff --exit-code
 
 uv run ruff check .
 uv run ruff format --check .
