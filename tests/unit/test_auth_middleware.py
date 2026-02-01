@@ -15,7 +15,13 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
-from tracecat.db.models import Membership, Organization, User, Workspace
+from tracecat.db.models import (
+    Membership,
+    Organization,
+    OrganizationMembership,
+    User,
+    Workspace,
+)
 from tracecat.middleware import AuthorizationCacheMiddleware
 
 
@@ -512,7 +518,7 @@ async def test_cache_size_limit():
 
 @pytest.mark.anyio
 async def test_organization_id_populated_when_require_workspace_no(mocker):
-    """Test that organization_id is inferred from membership when require_workspace="no"."""
+    """Test that organization_id is inferred from OrganizationMembership when require_workspace="no"."""
 
     # Create mock user (non-superuser to avoid 428 org selection requirement)
     mock_user = MagicMock(spec=User)
@@ -524,10 +530,18 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     test_org_id = uuid.uuid4()
 
     # Mock session - need to properly mock execute() for org membership lookup
+    # The code does: org_ids = {row[0] for row in org_membership_result.all()}
     mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
-    mock_session.execute.return_value = mock_result
+
+    # First call: OrganizationMembership query returns the org_id
+    org_result = MagicMock()
+    org_result.all.return_value = [(test_org_id,)]
+
+    # Second call: OrganizationMembership lookup for org_role returns None
+    org_role_result = MagicMock()
+    org_role_result.scalar_one_or_none.return_value = None
+
+    mock_session.execute.side_effect = [org_result, org_role_result]
 
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
@@ -537,19 +551,12 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
         {UserRole.ADMIN: AccessLevel.ADMIN},
     )
-    # Provide a single membership so the org can be inferred
-    mock_membership = MagicMock()
-    mock_membership.org_id = test_org_id
-    mocker.patch(
-        "tracecat.auth.credentials.MembershipService.list_user_memberships_with_org",
-        new=AsyncMock(return_value=[mock_membership]),
-    )
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     request.state.auth_cache = None
 
-    # Test with require_workspace="no" - organization_id should be inferred from membership
+    # Test with require_workspace="no" - organization_id should be inferred from OrganizationMembership
     role = await _role_dependency(
         request=request,
         session=mock_session,
@@ -563,7 +570,7 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         require_workspace_roles=None,
     )
 
-    # Verify organization_id was inferred from the user's single membership
+    # Verify organization_id was inferred from the user's OrganizationMembership
     assert role.organization_id == test_org_id
     assert role.workspace_id is None
     assert role.user_id == mock_user.id
@@ -604,7 +611,12 @@ async def test_role_dependency_infers_org_from_single_membership(
         workspace_id=workspace.id,
         role=WorkspaceRole.EDITOR,
     )
-    session.add(membership)
+    # Also create organization membership - required for org context resolution
+    org_membership = OrganizationMembership(
+        user_id=user.id,
+        organization_id=org.id,
+    )
+    session.add_all([membership, org_membership])
     await session.commit()
 
     request = MagicMock(spec=Request)
@@ -683,13 +695,19 @@ async def test_role_dependency_requires_workspace_for_multi_org(
             role=WorkspaceRole.EDITOR,
         ),
     ]
-    session.add_all(memberships)
+    # Also create organization memberships for both orgs
+    org_memberships = [
+        OrganizationMembership(user_id=user.id, organization_id=org_a.id),
+        OrganizationMembership(user_id=user.id, organization_id=org_b.id),
+    ]
+    session.add_all(memberships + org_memberships)
     await session.commit()
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     request.state.auth_cache = None
 
+    # User belongs to multiple orgs, so require_workspace="no" should fail
     with pytest.raises(HTTPException) as excinfo:
         await _role_dependency(
             request=request,

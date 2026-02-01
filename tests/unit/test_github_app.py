@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Secret
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.exceptions import TracecatNotFoundError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
