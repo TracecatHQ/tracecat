@@ -8,6 +8,13 @@ import { type OrgMemberRead, organizationGetCurrentOrgMember } from "@/client"
  *
  * Returns the org membership details including the user's org role
  * (member, admin, or owner).
+ *
+ * Use `hasOrgAdminRole` to check if the user has org admin/owner privileges.
+ * Combine with `user.isPlatformAdmin()` for full org administration check:
+ *
+ * ```ts
+ * const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
+ * ```
  */
 export function useOrgMembership() {
   const {
@@ -20,14 +27,14 @@ export function useOrgMembership() {
     retry: false, // Don't retry on 404 (user not in org)
   })
 
-  // Check if user has org admin/owner privileges
-  const isOrgAdmin =
+  // Check if user has org-level admin/owner role (not platform admin)
+  const hasOrgAdminRole =
     membership?.role === "admin" || membership?.role === "owner"
 
   return {
     membership,
     isLoading,
     error,
-    isOrgAdmin,
+    hasOrgAdminRole,
   }
 }

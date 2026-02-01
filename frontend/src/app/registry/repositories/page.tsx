@@ -7,18 +7,25 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useRegistryRepositoriesReload } from "@/lib/hooks"
 
 export default function RegistryRepositoriesPage() {
   const { user, userIsLoading } = useAuth()
+  const { hasOrgAdminRole, isLoading: orgMembershipLoading } =
+    useOrgMembership()
   const router = useRouter()
   const { reloadRegistryRepositories, reloadRegistryRepositoriesIsPending } =
     useRegistryRepositoriesReload()
+
+  const isLoading = userIsLoading || orgMembershipLoading
+  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
+
   useEffect(() => {
-    if (!user?.isOrgAdmin() && !userIsLoading) {
+    if (!canAdministerOrg && !isLoading) {
       router.replace("/registry/actions")
     }
-  }, [user, userIsLoading, router])
+  }, [canAdministerOrg, isLoading, router])
   const refreshRepositories = async () => {
     try {
       await reloadRegistryRepositories()
@@ -26,8 +33,8 @@ export default function RegistryRepositoriesPage() {
       console.log("Error reloading repositories", error)
     }
   }
-  if (userIsLoading) return <CenteredSpinner />
-  if (!user?.isOrgAdmin()) return null
+  if (isLoading) return <CenteredSpinner />
+  if (!canAdministerOrg) return null
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
@@ -41,7 +48,7 @@ export default function RegistryRepositoriesPage() {
             </p>
           </div>
           <div className="ml-auto flex items-center space-x-2">
-            {user?.isOrgAdmin() && (
+            {canAdministerOrg && (
               <Button
                 role="combobox"
                 variant="outline"

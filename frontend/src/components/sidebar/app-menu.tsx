@@ -47,13 +47,13 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
   const { user } = useAuth()
-  const { isOrgAdmin } = useOrgMembership()
+  const { hasOrgAdminRole } = useOrgMembership()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
-  // Check if user is org admin/owner via platform role OR org membership role
-  const isOrgAdminOrOwner = user?.isOrgAdmin() || isOrgAdmin
+  // Check if user can administer org (platform admin OR org admin/owner role)
+  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
 
@@ -214,7 +214,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             </Dialog>
 
             <DropdownMenuSeparator />
-            {isOrgAdminOrOwner && (
+            {canAdministerOrg && (
               <DropdownMenuItem asChild>
                 <Link
                   href="/organization"

@@ -35,11 +35,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories } from "@/lib/hooks"
 
 export function RegistryRepositoriesTable() {
   const { user } = useAuth()
+  const { hasOrgAdminRole } = useOrgMembership()
+  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
   const {
     repos: registryRepos,
     reposIsLoading: registryReposIsLoading,
@@ -161,7 +164,7 @@ export function RegistryRepositoriesTable() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              {user?.isOrgAdmin() && (
+              {canAdministerOrg && (
                 <RepositoryActions
                   repository={row.original}
                   onSync={() => {

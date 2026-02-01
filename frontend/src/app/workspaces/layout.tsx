@@ -169,7 +169,7 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const { isOrgAdmin } = useOrgMembership()
+  const { hasOrgAdminRole } = useOrgMembership()
   const { createWorkspace } = useWorkspaceManager()
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
@@ -189,20 +189,20 @@ function NoWorkspaces() {
     }
   }
 
-  // Check if user is org admin/owner via platform role OR org membership role
-  const isOrgAdminOrOwner = user?.isOrgAdmin() || isOrgAdmin
+  // Check if user can administer org (platform admin OR org admin/owner role)
+  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
 
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
-        {isOrgAdminOrOwner
+        {canAdministerOrg
           ? "There are no workspaces yet. Create one to get started."
           : "You are not a member of any workspace. Please contact your administrator."}
       </span>
       <div className="flex gap-2">
-        {isOrgAdminOrOwner && (
+        {canAdministerOrg && (
           <Button
             variant="default"
             onClick={handleCreateWorkspace}

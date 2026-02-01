@@ -25,10 +25,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useRegistryActions } from "@/lib/hooks"
 
 export function RegistryActionsTable() {
   const { user } = useAuth()
+  const { hasOrgAdminRole } = useOrgMembership()
+  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
@@ -251,7 +254,7 @@ export function RegistryActionsTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy action name</span>
                     </DropdownMenuItem>
-                    {user?.isOrgAdmin() && (
+                    {canAdministerOrg && (
                       <>
                         <DeleteRegistryActionAlertDialogTrigger asChild>
                           <DropdownMenuItem
