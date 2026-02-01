@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.cases.dropdowns.schemas import (
@@ -24,7 +25,7 @@ from tracecat.db.models import (
     CaseDropdownValue,
     CaseEvent,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 
 
@@ -106,7 +107,13 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
             self.session.add(option)
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as err:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                "Dropdown definition with this ref already exists"
+            ) from err
         await self.session.refresh(definition)
         return definition
 
@@ -118,7 +125,13 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         """Update an existing dropdown definition."""
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(definition, key, value)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as err:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                "Dropdown definition with this ref already exists"
+            ) from err
         await self.session.refresh(definition)
         return definition
 
@@ -163,7 +176,13 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             position=params.position,
         )
         self.session.add(option)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as err:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                "Option with this ref already exists for this dropdown"
+            ) from err
         await self.session.refresh(option)
         return option
 
@@ -176,7 +195,13 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         option = await self._get_option(option_id)
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(option, key, value)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as err:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                "Option with this ref already exists for this dropdown"
+            ) from err
         await self.session.refresh(option)
         return option
 
