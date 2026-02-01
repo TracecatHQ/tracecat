@@ -12,7 +12,7 @@ export default function OrganizationLayout({
   children: React.ReactNode
 }) {
   return (
-    <AuthGuard requireAuth requirePrivileged>
+    <AuthGuard requireAuth requireOrgAdmin>
       <SidebarProvider>
         <OrganizationSidebar />
         <SidebarInset>
