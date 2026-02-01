@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 
 interface AuthGuardProps {
   children: React.ReactNode
   requireAuth?: boolean
-  requirePrivileged?: boolean
+  /** Require org admin privileges (platform admin OR org admin/owner) */
+  requireOrgAdmin?: boolean
   requireSuperuser?: boolean
   redirectTo?: string
 }
@@ -16,18 +18,22 @@ interface AuthGuardProps {
 export function AuthGuard({
   children,
   requireAuth = true,
-  requirePrivileged = false,
+  requireOrgAdmin = false,
   requireSuperuser = false,
   redirectTo = "/",
 }: AuthGuardProps) {
   const { user, userIsLoading } = useAuth()
+  const { canAdministerOrg, isLoading: orgMembershipLoading } =
+    useOrgMembership()
   const router = useRouter()
 
+  const isLoading = userIsLoading || orgMembershipLoading
+
   useEffect(() => {
-    if (!userIsLoading) {
+    if (!isLoading) {
       if (requireAuth && !user) {
         router.push(redirectTo)
-      } else if (requirePrivileged && !user?.isPrivileged()) {
+      } else if (requireOrgAdmin && !canAdministerOrg) {
         router.push(redirectTo)
       } else if (requireSuperuser && !user?.isSuperuser) {
         router.push(redirectTo)
@@ -35,15 +41,16 @@ export function AuthGuard({
     }
   }, [
     user,
-    userIsLoading,
+    isLoading,
     requireAuth,
-    requirePrivileged,
+    requireOrgAdmin,
+    canAdministerOrg,
     requireSuperuser,
     redirectTo,
     router,
   ])
 
-  if (userIsLoading) {
+  if (isLoading) {
     return <CenteredSpinner />
   }
 
@@ -51,7 +58,7 @@ export function AuthGuard({
     return null
   }
 
-  if (requirePrivileged && !user?.isPrivileged()) {
+  if (requireOrgAdmin && !canAdministerOrg) {
     return null
   }
 
