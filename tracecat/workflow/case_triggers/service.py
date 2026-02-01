@@ -92,9 +92,12 @@ class CaseTriggersService(BaseWorkspaceService):
             )
 
         tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
-        resolved_tags = await self._resolve_tag_filters(
-            tag_filters, create_missing=create_missing_tags
-        )
+        if tag_filters is None:
+            resolved_tags = []
+        else:
+            resolved_tags = await self._resolve_tag_filters(
+                tag_filters, create_missing=create_missing_tags
+            )
 
         case_trigger.status = status
         case_trigger.event_types = list(event_types) if event_types is not None else []
@@ -132,9 +135,7 @@ class CaseTriggersService(BaseWorkspaceService):
         missing = [ref for ref in deduped if ref not in existing]
 
         if missing and not create_missing:
-            raise TracecatNotFoundError(
-                f"Case tag(s) not found: {', '.join(missing)}"
-            )
+            raise TracecatNotFoundError(f"Case tag(s) not found: {', '.join(missing)}")
 
         if missing and create_missing:
             for ref in missing:

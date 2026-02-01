@@ -202,10 +202,12 @@ class ExternalWorkflowDefinition(BaseModel):
         case_trigger: CaseTriggerConfig | None = None,
     ) -> ExternalWorkflowDefinition:
         if case_trigger is None and defn.workflow and defn.workflow.case_trigger:
-            case_trigger = CaseTriggerConfig(
-                status=defn.workflow.case_trigger.status,
-                event_types=defn.workflow.case_trigger.event_types,
-                tag_filters=defn.workflow.case_trigger.tag_filters,
+            case_trigger = CaseTriggerConfig.model_validate(
+                {
+                    "status": defn.workflow.case_trigger.status,
+                    "event_types": defn.workflow.case_trigger.event_types,
+                    "tag_filters": defn.workflow.case_trigger.tag_filters,
+                }
             )
         return ExternalWorkflowDefinition(
             workspace_id=defn.workspace_id,

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import cast
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
@@ -110,7 +111,10 @@ class WorkflowStoreService(BaseWorkspaceService):
                 status=cast(Status, workflow.case_trigger.status)
                 if workflow.case_trigger
                 else "offline",
-                event_types=workflow.case_trigger.event_types
+                event_types=[
+                    CaseEventType(event_type)
+                    for event_type in workflow.case_trigger.event_types
+                ]
                 if workflow.case_trigger
                 else [],
                 tag_filters=workflow.case_trigger.tag_filters

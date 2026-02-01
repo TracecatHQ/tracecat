@@ -561,10 +561,12 @@ async def export_workflow(
             workspace_id=workflow.workspace_id,
             workflow_id=WorkflowUUID.new(workflow.id),
             definition=dsl,
-            case_trigger=CaseTriggerConfig(
-                status=workflow.case_trigger.status,
-                event_types=workflow.case_trigger.event_types,
-                tag_filters=workflow.case_trigger.tag_filters,
+            case_trigger=CaseTriggerConfig.model_validate(
+                {
+                    "status": workflow.case_trigger.status,
+                    "event_types": workflow.case_trigger.event_types,
+                    "tag_filters": workflow.case_trigger.tag_filters,
+                }
             )
             if workflow.case_trigger
             else None,

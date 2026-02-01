@@ -111,3 +111,35 @@ async def test_case_trigger_rejects_unknown_tags(session: AsyncSession, svc_role
             WorkflowUUID.new(workflow.id),
             CaseTriggerUpdate(tag_filters=["missing-tag"]),
         )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_clears_tag_filters_on_null(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Tags",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    case_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        status="offline",
+        event_types=[],
+        tag_filters=["phishing"],
+    )
+    session.add(case_trigger)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    updated = await service.update_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerUpdate(tag_filters=None),
+    )
+
+    assert updated.tag_filters == []

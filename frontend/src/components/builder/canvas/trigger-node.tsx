@@ -2,9 +2,9 @@ import type { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
   CalendarClockIcon,
-  Tag,
   Shield,
   ShieldOff,
+  Tag,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
@@ -78,10 +78,7 @@ export default React.memo(function TriggerNode({
   const tagFilters = caseTrigger?.tag_filters ?? []
   const isCaseTriggerEnabled = caseTrigger?.status === "online"
   const caseTriggerStatusLabel = isCaseTriggerEnabled ? "Enabled" : "Disabled"
-  const eventKey = useMemo(
-    () => caseEventTypes.join("|"),
-    [caseEventTypes]
-  )
+  const eventKey = useMemo(() => caseEventTypes.join("|"), [caseEventTypes])
   const { caseTags } = useCaseTagCatalog(workspaceId, {
     enabled: tagFilters.length > 0,
   })
@@ -289,7 +286,9 @@ export default React.memo(function TriggerNode({
                           : "border-muted-foreground/30 bg-muted text-muted-foreground"
                       )}
                     >
-                      {caseTriggerError ? "Unavailable" : caseTriggerStatusLabel}
+                      {caseTriggerError
+                        ? "Unavailable"
+                        : caseTriggerStatusLabel}
                     </Badge>
                   )}
                 </div>

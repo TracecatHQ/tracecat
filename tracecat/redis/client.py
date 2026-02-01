@@ -363,7 +363,7 @@ class RedisClient:
                 groupname=group_name,
                 consumername=consumer_name,
                 min_idle_time=min_idle_time,
-                message_ids=message_ids,
+                message_ids=list(message_ids),
             )
         except (RedisError, RuntimeError) as e:
             logger.error(
