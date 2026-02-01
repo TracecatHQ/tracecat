@@ -359,8 +359,14 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_tags_router)
     app.include_router(case_tag_definitions_router)
     app.include_router(case_attachments_router)
-    app.include_router(case_dropdowns_router)
-    app.include_router(case_dropdown_values_router)
+    app.include_router(
+        case_dropdowns_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DROPDOWNS))],
+    )
+    app.include_router(
+        case_dropdown_values_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DROPDOWNS))],
+    )
     app.include_router(
         case_durations_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],

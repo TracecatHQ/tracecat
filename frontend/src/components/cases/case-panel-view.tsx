@@ -459,6 +459,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const searchParams = useSearchParams()
   const { isFeatureEnabled } = useFeatureFlag()
   const caseTasksEnabled = isFeatureEnabled("case-tasks")
+  const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
@@ -750,27 +751,28 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         workspaceMembers={members ?? []}
                         onValueChange={handleAssigneeChange}
                       />
-                      {dropdownDefinitions?.map(
-                        (def: CaseDropdownDefinitionRead) => {
-                          const currentValue = caseData.dropdown_values?.find(
-                            (dv) => dv.definition_id === def.id
-                          )
-                          return (
-                            <CaseDropdownSelect
-                              key={def.id}
-                              definition={def}
-                              currentValue={currentValue}
-                              onValueChange={(optionId) =>
-                                setDropdownValue.mutate({
-                                  caseId: caseData.id,
-                                  definitionId: def.id,
-                                  optionId,
-                                })
-                              }
-                            />
-                          )
-                        }
-                      )}
+                      {caseDropdownsEnabled &&
+                        dropdownDefinitions?.map(
+                          (def: CaseDropdownDefinitionRead) => {
+                            const currentValue = caseData.dropdown_values?.find(
+                              (dv) => dv.definition_id === def.id
+                            )
+                            return (
+                              <CaseDropdownSelect
+                                key={def.id}
+                                definition={def}
+                                currentValue={currentValue}
+                                onValueChange={(optionId) =>
+                                  setDropdownValue.mutate({
+                                    caseId: caseData.id,
+                                    definitionId: def.id,
+                                    optionId,
+                                  })
+                                }
+                              />
+                            )
+                          }
+                        )}
                       <CaseDurationMetrics
                         durations={caseDurations}
                         definitions={caseDurationDefinitions}

@@ -7812,6 +7812,7 @@ export const $FeatureFlag = {
     "git-sync",
     "agent-approvals",
     "agent-presets",
+    "case-dropdowns",
     "case-durations",
     "case-tasks",
   ],

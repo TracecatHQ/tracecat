@@ -4,9 +4,19 @@ import { Plus } from "lucide-react"
 import { useState } from "react"
 import { AddCaseDropdownDialog } from "@/components/cases/add-case-dropdown-dialog"
 import { Button } from "@/components/ui/button"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 
 export function AddCaseDropdown() {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const { isFeatureEnabled, isLoading } = useFeatureFlag()
+
+  if (isLoading) {
+    return null
+  }
+
+  if (!isFeatureEnabled("case-dropdowns")) {
+    return null
+  }
 
   return (
     <>

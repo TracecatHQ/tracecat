@@ -1,9 +1,11 @@
 "use client"
 
-import { ListIcon } from "lucide-react"
+import { ArrowUpRight, ListIcon } from "lucide-react"
 import { DropdownsTable } from "@/components/cases/dropdowns-table"
+import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { Button } from "@/components/ui/button"
 import {
   Empty,
   EmptyDescription,
@@ -11,6 +13,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useCaseDropdownDefinitions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -18,6 +21,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export function DropdownsView() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
+  const { isFeatureEnabled, isLoading: featureFlagLoading } = useFeatureFlag()
 
   const {
     dropdownDefinitions,
@@ -32,6 +36,40 @@ export function DropdownsView() {
     deleteDropdownOption,
     reorderDropdownOptions,
   } = useCaseDropdownDefinitions(workspaceId)
+
+  // Check feature flag loading first
+  if (featureFlagLoading) {
+    return <CenteredSpinner />
+  }
+
+  // Show enterprise-only message if feature is not enabled
+  if (!isFeatureEnabled("case-dropdowns")) {
+    return (
+      <div className="size-full overflow-auto">
+        <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
+          <FeatureFlagEmptyState
+            title="Enterprise only"
+            description="Case dropdowns are only available on enterprise plans."
+          >
+            <Button
+              variant="link"
+              asChild
+              className="text-muted-foreground"
+              size="sm"
+            >
+              <a
+                href="https://tracecat.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Learn more <ArrowUpRight className="size-4" />
+              </a>
+            </Button>
+          </FeatureFlagEmptyState>
+        </div>
+      </div>
+    )
+  }
 
   if (workspaceLoading || dropdownDefinitionsIsLoading) {
     return <CenteredSpinner />

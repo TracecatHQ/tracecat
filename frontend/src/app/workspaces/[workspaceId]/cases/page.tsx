@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { useCases } from "@/hooks/use-cases"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { useCaseDropdownDefinitions, useCaseTagCatalog } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -40,6 +41,8 @@ export default function CasesPage() {
 
   const { members } = useWorkspaceMembers(workspaceId)
   const { caseTags } = useCaseTagCatalog(workspaceId)
+  const { isFeatureEnabled } = useFeatureFlag()
+  const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")
   const { dropdownDefinitions } = useCaseDropdownDefinitions(workspaceId)
 
   useEffect(() => {
@@ -74,7 +77,9 @@ export default function CasesPage() {
         onTagSortDirectionChange={setTagSortDirection}
         onUpdatedAfterChange={setUpdatedAfter}
         onCreatedAfterChange={setCreatedAfter}
-        dropdownDefinitions={dropdownDefinitions}
+        dropdownDefinitions={
+          caseDropdownsEnabled ? dropdownDefinitions : undefined
+        }
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
