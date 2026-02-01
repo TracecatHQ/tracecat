@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import UUID4
-from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.cases.dropdowns.schemas import (
@@ -22,7 +22,7 @@ from tracecat.cases.dropdowns.service import (
     CaseDropdownValuesService,
 )
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 # --- Definition CRUD router ---
 
@@ -59,10 +59,10 @@ async def create_dropdown_definition(
     service = CaseDropdownDefinitionsService(session=session, role=role)
     try:
         definition = await service.create_definition(params)
-    except IntegrityError as err:
+    except TracecatValidationError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dropdown definition with this ref already exists",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
         ) from err
     return CaseDropdownDefinitionRead.model_validate(definition, from_attributes=True)
 
@@ -103,10 +103,10 @@ async def update_dropdown_definition(
         ) from err
     try:
         updated = await service.update_definition(definition, params)
-    except IntegrityError as err:
+    except TracecatValidationError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dropdown definition with this ref already exists",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
         ) from err
     return CaseDropdownDefinitionRead.model_validate(updated, from_attributes=True)
 
@@ -155,10 +155,10 @@ async def add_dropdown_option(
         ) from err
     try:
         option = await service.add_option(definition_id, params)
-    except IntegrityError as err:
+    except TracecatValidationError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Option with this ref already exists for this dropdown",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
         ) from err
     return CaseDropdownOptionRead.model_validate(option, from_attributes=True)
 
@@ -190,10 +190,10 @@ async def update_dropdown_option(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
         ) from err
-    except IntegrityError as err:
+    except TracecatValidationError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Option with this ref already exists for this dropdown",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
         ) from err
     return CaseDropdownOptionRead.model_validate(option, from_attributes=True)
 
@@ -235,10 +235,16 @@ async def reorder_dropdown_options(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     definition_id: UUID4,
-    option_ids: list[uuid.UUID],
+    option_ids: Annotated[list[uuid.UUID], Body()],
 ) -> None:
     """Reorder options within a dropdown definition."""
     service = CaseDropdownDefinitionsService(session=session, role=role)
+    try:
+        await service.get_definition(definition_id)
+    except TracecatNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
+        ) from err
     await service.reorder_options(definition_id, option_ids)
 
 
