@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
 import { getDisplayName } from "@/lib/auth"
-import { resolveLucideIcon } from "@/lib/lucide-icon-resolver"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -618,14 +618,15 @@ export function CaseItem({
             (dv) => dv.definition_id === definition.id
           )
           const currentOptionId = currentValue?.option_id ?? NONE_VALUE
-          const TriggerIcon = resolveLucideIcon(
-            definition.options?.[0]?.icon_name
-          )
           return (
             <ContextMenuSub key={definition.id}>
               <ContextMenuSubTrigger className="text-xs">
-                {TriggerIcon ? (
-                  <TriggerIcon className="mr-2 size-3.5" />
+                {definition.icon_name ? (
+                  <DynamicLucideIcon
+                    name={definition.icon_name}
+                    className="mr-2 size-3.5"
+                    fallback={<ListIcon className="mr-2 size-3.5" />}
+                  />
                 ) : (
                   <ListIcon className="mr-2 size-3.5" />
                 )}
@@ -642,7 +643,6 @@ export function CaseItem({
                     None
                   </ContextMenuRadioItem>
                   {definition.options?.map((opt) => {
-                    const OptIcon = resolveLucideIcon(opt.icon_name)
                     return (
                       <ContextMenuRadioItem
                         key={opt.id}
@@ -652,8 +652,14 @@ export function CaseItem({
                           handleDropdownChange(definition.id, opt.id)
                         }
                       >
-                        {OptIcon ? (
-                          <OptIcon className="mr-2 size-3.5" />
+                        {opt.icon_name ? (
+                          <DynamicLucideIcon
+                            name={opt.icon_name}
+                            className="mr-2 size-3.5"
+                            fallback={
+                              <CircleIcon className="mr-2 size-3.5 text-muted-foreground" />
+                            }
+                          />
                         ) : opt.color ? (
                           <div
                             className="mr-2 size-2 shrink-0 rounded-full"
