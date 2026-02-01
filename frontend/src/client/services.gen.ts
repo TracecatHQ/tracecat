@@ -7195,7 +7195,7 @@ export const caseDurationsDeleteCaseDurationDefinition = (
 
 /**
  * List Case Durations
- * List persisted case durations for the provided case.
+ * Sync and list case durations for the provided case.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
