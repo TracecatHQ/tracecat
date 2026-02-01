@@ -135,6 +135,9 @@ async def sync_registry_repository(
 
     # For git+ssh repos, we need SSH context for tarball building
     is_git_ssh = repo.origin.startswith("git+ssh://")
+    git_repo_package_name: str | None = None
+    if is_git_ssh:
+        git_repo_package_name = await get_setting("git_repo_package_name", role=role)
 
     # If force=True, delete the current version before syncing
     if force and repo.current_version_id is not None:
@@ -171,7 +174,10 @@ async def sync_registry_repository(
                     commit_sha,
                     version,
                 ) = await actions_service.sync_actions_from_repository(
-                    repo, target_commit_sha=target_commit_sha, ssh_env=ssh_env
+                    repo,
+                    target_commit_sha=target_commit_sha,
+                    git_repo_package_name=git_repo_package_name,
+                    ssh_env=ssh_env,
                 )
         else:
             # Sync without SSH (built-in registry)
@@ -179,7 +185,9 @@ async def sync_registry_repository(
                 commit_sha,
                 version,
             ) = await actions_service.sync_actions_from_repository(
-                repo, target_commit_sha=target_commit_sha
+                repo,
+                target_commit_sha=target_commit_sha,
+                git_repo_package_name=git_repo_package_name,
             )
         logger.info(
             "Synced repository",

@@ -1057,6 +1057,7 @@ class RegistryActionsService(BaseOrgService):
         *,
         target_version: str | None = None,
         target_commit_sha: str | None = None,
+        git_repo_package_name: str | None = None,
         ssh_env: SshEnv | None = None,
     ) -> tuple[str | None, str | None]:
         """Sync actions from a repository using the versioned flow.
@@ -1073,6 +1074,7 @@ class RegistryActionsService(BaseOrgService):
             db_repo: The repository to sync.
             target_version: Version string (auto-generated if not provided).
             target_commit_sha: Optional commit SHA to sync to.
+            git_repo_package_name: Optional Python package name override for git repos.
             ssh_env: SSH environment for git operations (required for git+ssh repos).
 
         Returns:
@@ -1090,6 +1092,7 @@ class RegistryActionsService(BaseOrgService):
                     db_repo=db_repo,
                     target_version=target_version,
                     target_commit_sha=target_commit_sha,
+                    git_repo_package_name=git_repo_package_name,
                     ssh_env=ssh_env,
                     commit=False,
                 )
@@ -1099,6 +1102,7 @@ class RegistryActionsService(BaseOrgService):
                     db_repo=db_repo,
                     target_version=target_version,
                     target_commit_sha=target_commit_sha,
+                    git_repo_package_name=git_repo_package_name,
                     ssh_env=ssh_env,
                     commit=False,
                 )
