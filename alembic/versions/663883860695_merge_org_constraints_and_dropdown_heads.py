@@ -5,12 +5,12 @@ Revises: 328d927c631b, 5a3b7c8d9e0f
 Create Date: 2026-01-31 17:24:16.047107
 
 """
+
 from collections.abc import Sequence
 
-
 # revision identifiers, used by Alembic.
-revision: str = '663883860695'
-down_revision: tuple[str, str] = ('328d927c631b', '5a3b7c8d9e0f')
+revision: str = "663883860695"
+down_revision: tuple[str, str] = ("328d927c631b", "5a3b7c8d9e0f")
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

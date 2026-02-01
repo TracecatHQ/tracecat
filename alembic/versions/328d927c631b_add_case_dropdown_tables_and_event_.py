@@ -203,9 +203,7 @@ def downgrade() -> None:
     op.drop_table("case_dropdown_definition")
 
     # Delete any case_event rows referencing the enum value we're about to remove
-    op.execute(
-        "DELETE FROM case_event WHERE type = 'DROPDOWN_VALUE_CHANGED'"
-    )
+    op.execute("DELETE FROM case_event WHERE type = 'DROPDOWN_VALUE_CHANGED'")
     # Also clean up case_duration_definition rows if any reference the removed value
     op.execute(
         "DELETE FROM case_duration_definition"
