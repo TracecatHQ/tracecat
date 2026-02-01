@@ -2,7 +2,7 @@
 
 import asyncio
 import base64
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from typing import Any
 
 import boto3
@@ -353,7 +353,7 @@ class RedisClient:
         group_name: str,
         consumer_name: str,
         min_idle_time: int,
-        message_ids: list[str],
+        message_ids: Sequence[StreamIdT],
     ) -> list[tuple[str, dict[str, str]]]:
         """Claim pending messages for a consumer."""
         try:

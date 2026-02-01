@@ -15,16 +15,16 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
+from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
-from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.store.schemas import (
-    RemoteWebhook,
     RemoteCaseTrigger,
+    RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
@@ -325,9 +325,7 @@ class WorkflowImportService(BaseWorkspaceService):
         # 6. Update related entities
         await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
-        await self._update_case_trigger(
-            existing_workflow, remote_workflow.case_trigger
-        )
+        await self._update_case_trigger(existing_workflow, remote_workflow.case_trigger)
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
     async def _create_new_workflow(self, remote_defn: RemoteWorkflowDefinition) -> None:

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import CaseTrigger, Workflow
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 
@@ -43,14 +44,12 @@ async def test_case_trigger_update_requires_events_when_online(
     service = CaseTriggersService(session, role=svc_role)
     with pytest.raises(TracecatValidationError):
         await service.update_case_trigger(
-            workflow.id, CaseTriggerUpdate(status="online")
+            WorkflowUUID.new(workflow.id), CaseTriggerUpdate(status="online")
         )
 
 
 @pytest.mark.anyio
-async def test_case_trigger_create_missing_tags(
-    session: AsyncSession, svc_role
-):
+async def test_case_trigger_create_missing_tags(session: AsyncSession, svc_role):
     workflow = Workflow(
         title="Case Trigger Tags",
         description="Test workflow",
@@ -77,7 +76,7 @@ async def test_case_trigger_create_missing_tags(
         tag_filters=["phishing"],
     )
     await service.upsert_case_trigger(
-        workflow.id, config, create_missing_tags=True
+        WorkflowUUID.new(workflow.id), config, create_missing_tags=True
     )
 
     tags_service = CaseTagsService(session, role=svc_role)
@@ -86,9 +85,7 @@ async def test_case_trigger_create_missing_tags(
 
 
 @pytest.mark.anyio
-async def test_case_trigger_rejects_unknown_tags(
-    session: AsyncSession, svc_role
-):
+async def test_case_trigger_rejects_unknown_tags(session: AsyncSession, svc_role):
     workflow = Workflow(
         title="Case Trigger Tags",
         description="Test workflow",
@@ -111,6 +108,6 @@ async def test_case_trigger_rejects_unknown_tags(
     service = CaseTriggersService(session, role=svc_role)
     with pytest.raises(TracecatNotFoundError):
         await service.update_case_trigger(
-            workflow.id,
+            WorkflowUUID.new(workflow.id),
             CaseTriggerUpdate(tag_filters=["missing-tag"]),
         )

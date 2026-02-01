@@ -40,7 +40,7 @@ class CaseTriggerConfig(BaseModel):
         return _dedupe_items(normalized)
 
     @model_validator(mode="after")
-    def validate_online_has_events(self) -> "CaseTriggerConfig":
+    def validate_online_has_events(self) -> CaseTriggerConfig:
         if self.status == "online" and not self.event_types:
             raise ValueError("event_types must be non-empty when status is online")
         return self
@@ -57,7 +57,9 @@ class CaseTriggerUpdate(BaseModel):
 
     @field_validator("event_types")
     @classmethod
-    def dedupe_event_types(cls, value: list[CaseEventType] | None) -> list[CaseEventType] | None:
+    def dedupe_event_types(
+        cls, value: list[CaseEventType] | None
+    ) -> list[CaseEventType] | None:
         if value is None:
             return None
         return _dedupe_items(value)

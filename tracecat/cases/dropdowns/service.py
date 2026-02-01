@@ -281,7 +281,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         params: CaseDropdownValueSet,
     ) -> CaseDropdownValueRead:
         """Set (upsert) or clear a dropdown value for a case. Records an event."""
-        await self._get_case(case_id)
+        case = await self._get_case(case_id)
 
         # Resolve old value
         stmt = select(CaseDropdownValue).where(

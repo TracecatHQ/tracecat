@@ -643,7 +643,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
             case_trigger_service = CaseTriggersService(self.session, role=self.role)
             await case_trigger_service.upsert_case_trigger(
-                workflow.id,
+                WorkflowUUID.new(workflow.id),
                 external_defn.case_trigger,
                 create_missing_tags=True,
                 commit=False,

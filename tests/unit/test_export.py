@@ -1,14 +1,14 @@
 from typing import Any
 
 import pytest
-
-from tracecat.auth.types import Role
-from tracecat.dsl.common import DSLInput
-from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.workflow.management.management import WorkflowsManagementService
 from sqlalchemy import select
 
+from tracecat.auth.types import Role
 from tracecat.db.models import CaseTag, CaseTrigger
+from tracecat.dsl.common import DSLInput
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 
 
@@ -92,11 +92,11 @@ async def test_workflow_import_case_trigger_creates_tags(test_role: Role):
                 "returns": "${{ ACTIONS.entrypoint_1.result }}",
             }
         ),
-        case_trigger={
-            "status": "offline",
-            "event_types": [],
-            "tag_filters": ["phishing"],
-        },
+        case_trigger=CaseTriggerConfig(
+            status="offline",
+            event_types=[],
+            tag_filters=["phishing"],
+        ),
     )
 
     async with WorkflowsManagementService.with_session(test_role) as service:

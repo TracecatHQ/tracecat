@@ -17,6 +17,7 @@ from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Case, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
@@ -28,7 +29,9 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 class CaseTriggerConsumer:
     """Consume case events and dispatch workflows based on configured triggers."""
 
-    def __init__(self, client: RedisClient, *, consumer_name: str | None = None) -> None:
+    def __init__(
+        self, client: RedisClient, *, consumer_name: str | None = None
+    ) -> None:
         self.client = client
         self.stream_key = config.TRACECAT__CASE_TRIGGERS_STREAM_KEY
         self.group = config.TRACECAT__CASE_TRIGGERS_GROUP
@@ -124,7 +127,9 @@ class CaseTriggerConsumer:
             return True
 
         async with get_async_session_context_manager() as session:
-            event = await self._load_event(session, event_uuid, case_uuid, workspace_uuid)
+            event = await self._load_event(
+                session, event_uuid, case_uuid, workspace_uuid
+            )
             if event is None:
                 return True
 
@@ -269,7 +274,8 @@ class CaseTriggerConsumer:
         event: CaseEvent,
     ) -> bool:
         defn_service = WorkflowDefinitionsService(session, role=role)
-        defn = await defn_service.get_definition_by_workflow_id(trigger.workflow_id)
+        wf_id = WorkflowUUID.new(trigger.workflow_id)
+        defn = await defn_service.get_definition_by_workflow_id(wf_id)
         if not defn:
             logger.warning(
                 "No workflow definition found for workflow",
@@ -296,7 +302,9 @@ class CaseTriggerConsumer:
             "case_id": str(case.id),
             "event": {
                 "id": str(event.id),
-                "type": event.type.value if hasattr(event.type, "value") else event.type,
+                "type": event.type.value
+                if hasattr(event.type, "value")
+                else event.type,
                 "data": event.data,
                 "created_at": created_at.isoformat(),
                 "user_id": str(event.user_id) if event.user_id else None,
@@ -316,7 +324,7 @@ class CaseTriggerConsumer:
 
         workflow_service.create_workflow_execution_nowait(
             dsl=dsl,
-            wf_id=trigger.workflow_id,
+            wf_id=wf_id,
             payload=payload,
             trigger_type=TriggerType.CASE,
             registry_lock=RegistryLock.model_validate(defn.registry_lock)

@@ -49,6 +49,7 @@ from tracecat.webhooks.schemas import (
 )
 from tracecat.workflow.actions.schemas import ActionRead
 from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerConfig,
     CaseTriggerCreate,
     CaseTriggerRead,
     CaseTriggerUpdate,
@@ -560,12 +561,13 @@ async def export_workflow(
             workspace_id=workflow.workspace_id,
             workflow_id=WorkflowUUID.new(workflow.id),
             definition=dsl,
-            case_trigger=workflow.case_trigger
-            and {
-                "status": workflow.case_trigger.status,
-                "event_types": workflow.case_trigger.event_types,
-                "tag_filters": workflow.case_trigger.tag_filters,
-            },
+            case_trigger=CaseTriggerConfig(
+                status=workflow.case_trigger.status,
+                event_types=workflow.case_trigger.event_types,
+                tag_filters=workflow.case_trigger.tag_filters,
+            )
+            if workflow.case_trigger
+            else None,
         )
     else:
         # Existing behavior: fetch from WorkflowDefinition
@@ -757,9 +759,7 @@ async def create_case_trigger(
     try:
         case_trigger = await service.upsert_case_trigger(workflow_id, params)
     except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
@@ -782,9 +782,7 @@ async def get_case_trigger(
     try:
         case_trigger = await service.get_case_trigger(workflow_id)
     except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
 
 
@@ -804,9 +802,7 @@ async def update_case_trigger(
     try:
         await service.update_case_trigger(workflow_id, params)
     except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
