@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  BracesIcon,
-  ListIcon,
-  SquareStackIcon,
-  TagIcon,
-  Timer,
-} from "lucide-react"
+import { BracesIcon, LayersIcon, ListIcon, TagIcon, Timer } from "lucide-react"
 import Link from "next/link"
 import {
   Tooltip,
@@ -52,7 +46,7 @@ export function CasesViewToggle({
   const toggleItems = [
     {
       mode: CasesViewMode.Cases,
-      icon: SquareStackIcon,
+      icon: LayersIcon,
       tooltip: "Cases table",
       href: casesHref,
       ariaLabel: "Cases view",

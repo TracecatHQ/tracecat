@@ -1,8 +1,8 @@
 import {
   AnvilIcon,
   FlaskConicalIcon,
+  LayersIcon,
   MessageSquareIcon,
-  SquareStackIcon,
   WorkflowIcon,
 } from "lucide-react"
 import {
@@ -33,7 +33,7 @@ const SOURCE_CONFIGS: Record<SourceType, SourceConfig> = {
   },
   case: {
     label: "Case",
-    icon: SquareStackIcon,
+    icon: LayersIcon,
   },
   chat: {
     label: "Chat",

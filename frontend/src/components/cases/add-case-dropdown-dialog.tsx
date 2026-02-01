@@ -18,12 +18,19 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { GripVerticalIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import dynamic from "next/dynamic"
 import { useCallback, useId, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
 import type { CaseDropdownDefinitionRead } from "@/client"
 import { ColorPicker } from "@/components/color-picker"
-import { IconPicker } from "@/components/form/icon-picker"
+import type { IconPickerProps } from "@/components/form/icon-picker"
+
+const IconPicker = dynamic<IconPickerProps>(
+  () => import("@/components/form/icon-picker").then((mod) => mod.IconPicker),
+  { ssr: false }
+)
+
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

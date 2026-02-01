@@ -70,7 +70,7 @@ const allIcons: IconEntry[] = (() => {
   return entries
 })()
 
-interface IconPickerProps {
+export interface IconPickerProps {
   value?: string
   onValueChange?: (value: string) => void
   placeholder?: string
@@ -107,8 +107,9 @@ export function IconPicker({
   }, [searchTerm])
 
   const visibleIcons = useMemo(
-    () => filteredIcons.slice(0, MAX_VISIBLE_ICONS),
-    [filteredIcons]
+    () =>
+      searchTerm ? filteredIcons : filteredIcons.slice(0, MAX_VISIBLE_ICONS),
+    [filteredIcons, searchTerm]
   )
 
   const isTruncated = filteredIcons.length > MAX_VISIBLE_ICONS && !searchTerm

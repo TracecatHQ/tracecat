@@ -40,6 +40,10 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import {
+  DynamicLucideIcon,
+  isValidIconName,
+} from "@/components/dynamic-lucide-icon"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -62,7 +66,6 @@ import type {
   DropdownFilterState,
 } from "@/hooks/use-cases"
 import { getDisplayName } from "@/lib/auth"
-import { resolveLucideIcon } from "@/lib/lucide-icon-resolver"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
@@ -276,6 +279,8 @@ export type SortDirection = "asc" | "desc" | null
 interface FilterMultiSelectProps<T extends string> {
   placeholder: string
   icon?: ComponentType<{ className?: string }>
+  /** Alternative to `icon` — render a custom trigger icon node */
+  renderTriggerIcon?: () => ReactNode
   value: T[]
   options: FilterOption<T>[]
   onChange: (value: T[]) => void
@@ -294,6 +299,7 @@ interface FilterMultiSelectProps<T extends string> {
 function FilterMultiSelect<T extends string>({
   placeholder,
   icon: Icon,
+  renderTriggerIcon,
   value,
   options,
   onChange,
@@ -328,7 +334,9 @@ function FilterMultiSelect<T extends string>({
             className
           )}
         >
-          {Icon && <Icon className="size-3.5 text-muted-foreground" />}
+          {renderTriggerIcon
+            ? renderTriggerIcon()
+            : Icon && <Icon className="size-3.5 text-muted-foreground" />}
           <span>{placeholder}</span>
           {selectedCount > 0 && (
             <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
@@ -684,11 +692,13 @@ export function CasesHeader({
     onTagChange([])
     onTagModeChange("include")
     // Reset dropdown filters
-    if (dropdownDefinitions) {
-      for (const def of dropdownDefinitions) {
-        onDropdownFilterChange(def.ref, [])
-        onDropdownModeChange(def.ref, "include")
-      }
+    const refs = dropdownDefinitions
+      ? dropdownDefinitions.map((d) => d.ref)
+      : Object.keys(dropdownFilters)
+    for (const ref of refs) {
+      onDropdownFilterChange(ref, [])
+      onDropdownModeChange(ref, "include")
+      onDropdownSortDirectionChange(ref, null)
     }
     onUpdatedAfterChange({ type: "preset", value: null })
     onCreatedAfterChange({ type: "preset", value: null })
@@ -826,15 +836,20 @@ export function CasesHeader({
             mode: "include" as FilterMode,
             sortDirection: null as SortDirection,
           }
-          const DefIcon = resolveLucideIcon(def.icon_name)
           const options: FilterOption<string>[] =
             def.options?.map((opt) => {
-              const ResolvedIcon = resolveLucideIcon(opt.icon_name)
               return {
                 value: opt.ref,
                 label: opt.label,
-                ...(ResolvedIcon
-                  ? { icon: ResolvedIcon }
+                ...(opt.icon_name && isValidIconName(opt.icon_name)
+                  ? {
+                      renderIcon: () => (
+                        <DynamicLucideIcon
+                          name={opt.icon_name as string}
+                          className="size-3.5"
+                        />
+                      ),
+                    }
                   : opt.color
                     ? {
                         renderIcon: () => (
@@ -851,7 +866,16 @@ export function CasesHeader({
             <FilterMultiSelect
               key={def.id}
               placeholder={def.name}
-              icon={DefIcon}
+              renderTriggerIcon={
+                def.icon_name
+                  ? () => (
+                      <DynamicLucideIcon
+                        name={def.icon_name as string}
+                        className="size-3.5 text-muted-foreground"
+                      />
+                    )
+                  : undefined
+              }
               value={state.values}
               onChange={(values) => onDropdownFilterChange(def.ref, values)}
               options={options}

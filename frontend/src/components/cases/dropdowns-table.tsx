@@ -23,6 +23,7 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react"
+import dynamic from "next/dynamic"
 import { useCallback, useEffect, useId, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
@@ -42,7 +43,14 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { IconPicker } from "@/components/form/icon-picker"
+import type { IconPickerProps } from "@/components/form/icon-picker"
+
+const IconPicker = dynamic<IconPickerProps>(
+  () => import("@/components/form/icon-picker").then((mod) => mod.IconPicker),
+  { ssr: false }
+)
+
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,7 +88,6 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { resolveLucideIcon } from "@/lib/lucide-icon-resolver"
 
 const updateDefinitionSchema = z.object({
   name: z
@@ -180,10 +187,19 @@ export function DropdownsTable({
               ),
               cell: ({ row }) => {
                 const def = row.original
-                const Icon = resolveLucideIcon(def.icon_name) ?? ListIcon
                 return (
                   <div className="flex items-center gap-2">
-                    <Icon className="size-4 text-muted-foreground" />
+                    {def.icon_name ? (
+                      <DynamicLucideIcon
+                        name={def.icon_name}
+                        className="size-4 text-muted-foreground"
+                        fallback={
+                          <ListIcon className="size-4 text-muted-foreground" />
+                        }
+                      />
+                    ) : (
+                      <ListIcon className="size-4 text-muted-foreground" />
+                    )}
                     <span className="text-xs text-foreground/80">
                       {def.name}
                     </span>

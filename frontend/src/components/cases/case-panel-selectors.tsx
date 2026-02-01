@@ -15,6 +15,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CaseValueDisplay } from "@/components/cases/case-value-display"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import {
   Select,
   SelectContent,
@@ -24,7 +25,6 @@ import {
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
 import { getDisplayName } from "@/lib/auth"
-import { resolveLucideIcon } from "@/lib/lucide-icon-resolver"
 import { cn, linearStyles } from "@/lib/utils"
 
 /**
@@ -377,8 +377,6 @@ export function CaseDropdownSelect({
   const currentOption = definition.options?.find(
     (o) => o.id === currentValue?.option_id
   )
-  const ResolvedIcon = resolveLucideIcon(currentOption?.icon_name)
-
   return (
     <Select
       value={currentOptionId}
@@ -394,8 +392,14 @@ export function CaseDropdownSelect({
             </span>
             {currentOption ? (
               <div className="flex items-center gap-1.5 text-xs">
-                {ResolvedIcon ? (
-                  <ResolvedIcon className="size-3.5" />
+                {currentOption.icon_name ? (
+                  <DynamicLucideIcon
+                    name={currentOption.icon_name}
+                    className="size-3.5"
+                    fallback={
+                      <CircleIcon className="size-3.5 text-muted-foreground" />
+                    }
+                  />
                 ) : currentOption.color ? (
                   <div
                     className="size-2 shrink-0 rounded-full"
@@ -417,12 +421,14 @@ export function CaseDropdownSelect({
           <span className="text-muted-foreground">None</span>
         </SelectItem>
         {definition.options?.map((opt) => {
-          const OptIcon = resolveLucideIcon(opt.icon_name)
           return (
             <SelectItem key={opt.id} value={opt.id}>
               <div className="flex items-center gap-1.5">
-                {OptIcon ? (
-                  <OptIcon className="size-3.5" />
+                {opt.icon_name ? (
+                  <DynamicLucideIcon
+                    name={opt.icon_name}
+                    className="size-3.5"
+                  />
                 ) : opt.color ? (
                   <div
                     className="size-2 shrink-0 rounded-full"

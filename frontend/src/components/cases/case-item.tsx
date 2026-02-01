@@ -42,6 +42,7 @@ import {
   EventCreatedAt,
   EventUpdatedAt,
 } from "@/components/cases/cases-feed-event"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   ContextMenu,
@@ -58,7 +59,6 @@ import {
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
 import { getDisplayName } from "@/lib/auth"
-import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
