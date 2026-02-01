@@ -1,13 +1,15 @@
 "use client"
 
+import { useQuery } from "@tanstack/react-query"
 import { ReactFlowProvider } from "@xyflow/react"
-import { LogOut, Shield } from "lucide-react"
+import { LogOut, Plus, Shield } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-import { useParams, usePathname } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { organizationGetCurrentOrgMember } from "@/client"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
@@ -168,20 +170,60 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
+  const { createWorkspace } = useWorkspaceManager()
+  const router = useRouter()
+  const [isCreating, setIsCreating] = useState(false)
+
+  // Fetch current user's org membership to check their org role
+  const { data: currentOrgMember } = useQuery({
+    queryKey: ["current-org-member"],
+    queryFn: organizationGetCurrentOrgMember,
+    retry: false, // Don't retry on 404 (user not in org)
+  })
+
   const handleLogout = async () => {
     await logout()
   }
+
+  const handleCreateWorkspace = async () => {
+    setIsCreating(true)
+    try {
+      const workspace = await createWorkspace({ name: "New Workspace" })
+      router.replace(`/workspaces/${workspace.id}/workflows`)
+    } catch (error) {
+      console.error("Error creating workspace", error)
+      setIsCreating(false)
+    }
+  }
+
+  // Check if user is org admin/owner via platform role OR org membership role
+  const isOrgAdminOrOwner =
+    user?.isOrgAdmin() ||
+    currentOrgMember?.role === "admin" ||
+    currentOrgMember?.role === "owner"
+
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
-        You are not a member of any workspace. Please contact your
-        administrator.
+        {isOrgAdminOrOwner
+          ? "There are no workspaces yet. Create one to get started."
+          : "You are not a member of any workspace. Please contact your administrator."}
       </span>
       <div className="flex gap-2">
+        {isOrgAdminOrOwner && (
+          <Button
+            variant="default"
+            onClick={handleCreateWorkspace}
+            disabled={isCreating}
+          >
+            <Plus className="mr-2 size-4" />
+            <span>{isCreating ? "Creating..." : "Create workspace"}</span>
+          </Button>
+        )}
         {user?.isSuperuser && (
-          <Button variant="default" asChild>
+          <Button variant="outline" asChild>
             <Link href="/admin">
               <Shield className="mr-2 size-4" />
               <span>Admin</span>
