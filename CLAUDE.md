@@ -161,6 +161,22 @@ pnpm -C frontend check                      # Frontend lint + format (Biome)
 pnpm -C frontend run typecheck              # TypeScript type checking
 ```
 
+**Recommended pre-push hook**: Prevent pushes unless all checks pass.
+```bash
+cat > .git/hooks/pre-push <<'EOF'
+#!/bin/sh
+set -e
+
+uv run ruff check .
+uv run ruff format --check .
+uv run basedpyright --warnings --threads 4
+pnpm -C frontend check
+pnpm -C frontend run typecheck
+EOF
+
+chmod +x .git/hooks/pre-push
+```
+
 **Pre-commit hooks**: Runs automatically on commit:
 - Ruff (lint + format)
 - Gitleaks (secret detection)
