@@ -114,6 +114,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
     },
+    {
+      title: "Cases",
+      url: `${basePath}/cases`,
+      icon: LayersIcon,
+      isActive: pathname?.startsWith(`${basePath}/cases`),
+    },
     ...(agentPresetsEnabled
       ? [
           {
@@ -190,17 +196,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <Link href={`${basePath}/inbox`}>
                     <InboxIcon />
                     <span>Inbox</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname?.startsWith(`${basePath}/cases`)}
-                >
-                  <Link href={`${basePath}/cases`}>
-                    <LayersIcon />
-                    <span>Cases</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

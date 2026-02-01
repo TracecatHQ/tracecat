@@ -4,6 +4,8 @@ import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
 import React, { Suspense } from "react"
+import { SettingsModal } from "@/components/settings/settings-modal"
+import { SettingsModalProvider } from "@/components/settings/settings-modal-context"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
@@ -54,14 +56,17 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           )}
         >
           <DefaultQueryClientProvider>
-            <TooltipProvider>
-              {PostHogPageView && (
-                <Suspense fallback={null}>
-                  <PostHogPageView />
-                </Suspense>
-              )}
-              {children}
-            </TooltipProvider>
+            <SettingsModalProvider>
+              <TooltipProvider>
+                {PostHogPageView && (
+                  <Suspense fallback={null}>
+                    <PostHogPageView />
+                  </Suspense>
+                )}
+                {children}
+              </TooltipProvider>
+              <SettingsModal />
+            </SettingsModalProvider>
           </DefaultQueryClientProvider>
           <Toaster />
         </body>
