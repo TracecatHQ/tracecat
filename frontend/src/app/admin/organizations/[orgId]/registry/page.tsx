@@ -30,7 +30,7 @@ export default function AdminOrgRegistryPage({
               <h2 className="text-2xl font-semibold tracking-tight">
                 Registry repositories
               </h2>
-              <p className="text-md text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 Manage registry repositories for{" "}
                 {organization?.name ?? "organization"}.
               </p>

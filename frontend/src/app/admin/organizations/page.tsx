@@ -28,7 +28,7 @@ export default function AdminOrganizationsPage() {
             <h2 className="text-2xl font-semibold tracking-tight">
               Organizations
             </h2>
-            <p className="text-md text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Manage organizations on the platform.
             </p>
           </div>

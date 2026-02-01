@@ -112,7 +112,7 @@ export default function AdminOrganizationDetailPage({
               <h2 className="text-2xl font-semibold tracking-tight">
                 Edit organization
               </h2>
-              <p className="text-md text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 Update organization details for {organization.name}.
               </p>
             </div>

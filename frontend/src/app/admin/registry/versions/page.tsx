@@ -9,7 +9,7 @@ export default function AdminRegistryVersionsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">Versions</h2>
-            <p className="text-md text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Registry versions across all repositories. Promote a version to
               make it the current active version.
             </p>

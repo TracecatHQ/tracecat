@@ -26,7 +26,7 @@ export default function AdminTiersPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">Tiers</h2>
-            <p className="text-md text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Manage subscription tiers and resource limits.
             </p>
           </div>

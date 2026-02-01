@@ -44,7 +44,7 @@ export default function AdminOrgTierPage({
               <h2 className="text-2xl font-semibold tracking-tight">
                 Tier assignment
               </h2>
-              <p className="text-md text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 Manage tier assignment for{" "}
                 {organization?.name ?? "organization"}.
               </p>

@@ -330,7 +330,7 @@ Available predefined roles:
       <div className="flex w-full">
         <div className="items-start space-y-3 text-left">
           <h2 className="text-2xl font-semibold tracking-tight">Title</h2>
-          <p className="text-md text-muted-foreground">Subtitle</p>
+          <p className="text-base text-muted-foreground">Subtitle</p>
         </div>
         {/* Optional: action buttons on the right */}
         {/* <div className="ml-auto flex items-center space-x-2">...</div> */}
@@ -339,7 +339,7 @@ Available predefined roles:
     </div>
   </div>
   ```
-  Key rules: outer `size-full overflow-auto` wrapper, inner container with `max-w-[1000px]`, `space-y-12` section spacing, `h2` for page title, `text-md` on subtitle, `space-y-3` title-subtitle gap. For pages with a back link, place it above the `flex w-full` header div.
+  Key rules: outer `size-full overflow-auto` wrapper, inner container with `max-w-[1000px]`, `space-y-12` section spacing, `h2` for page title, `text-base` on subtitle, `space-y-3` title-subtitle gap. For pages with a back link, place it above the `flex w-full` header div.
 
 ### Code Quality
 - **Ruff**: Line length 88, comprehensive linting rules

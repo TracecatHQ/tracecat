@@ -145,7 +145,7 @@ export default function AdminTierDetailPage({
               <h2 className="text-2xl font-semibold tracking-tight">
                 Edit tier
               </h2>
-              <p className="text-md text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 Update tier details for {tier.display_name}.
               </p>
             </div>

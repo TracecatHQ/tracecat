@@ -12,7 +12,7 @@ export default function AdminRegistryPage() {
             <h2 className="text-2xl font-semibold tracking-tight">
               Repositories
             </h2>
-            <p className="text-md text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Platform registry repositories and their sync status.
             </p>
           </div>

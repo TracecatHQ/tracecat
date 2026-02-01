@@ -17,7 +17,7 @@ export default function AdminSettingsPage() {
             <h2 className="text-2xl font-semibold tracking-tight">
               Platform settings
             </h2>
-            <p className="text-md text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Configure global platform settings.
             </p>
           </div>
