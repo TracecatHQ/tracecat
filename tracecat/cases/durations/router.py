@@ -191,11 +191,17 @@ async def list_case_durations(
         await session.commit()
     except Exception:
         await session.rollback()
-        logger.exception(
+        logger.error(
             "Failed to sync case durations before listing",
             case_id=str(case_id),
         )
-    return await service.list_durations(case_id)
+    try:
+        return await service.list_durations(case_id)
+    except TracecatNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(err),
+        ) from err
 
 
 @durations_router.get("/{duration_id}", response_model=CaseDurationRead)
