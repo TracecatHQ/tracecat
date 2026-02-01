@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-pnpm -C frontend lint-staged --quiet

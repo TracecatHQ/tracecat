@@ -5,7 +5,6 @@
 # Frontend build artifacts and dependencies
 frontend/.next
 frontend/node_modules
-frontend/.husky
 
 # Deployments (terraform, etc)
 deployments
