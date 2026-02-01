@@ -19,7 +19,6 @@ from fastapi import (
     status,
 )
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
-from pydantic import UUID4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,8 +85,8 @@ ORG_OVERRIDE_COOKIE = "tracecat-org-id"
 
 def get_role_from_user(
     user: User,
-    organization_id: UUID4,
-    workspace_id: UUID4 | None = None,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID | None = None,
     workspace_role: WorkspaceRole | None = None,
     org_role: OrgRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
@@ -195,119 +194,252 @@ OptionalUserDep = Annotated[User | None, Depends(optional_current_active_user)]
 OptionalApiKeyDep = Annotated[str | None, Security(api_key_header_scheme)]
 
 
-async def _role_dependency(
+# --- Helper Functions for Auth ---
+
+
+async def _get_membership_with_cache(
     *,
     request: Request,
     session: AsyncSession,
-    workspace_id: UUID4 | None = None,
-    user: User | None = None,
-    api_key: str | None = None,
-    allow_user: bool,
-    allow_service: bool,
-    allow_executor: bool = False,
-    require_workspace: Literal["yes", "no", "optional"],
-    min_access_level: AccessLevel | None = None,
-    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
-) -> Role:
-    if user and allow_user:
-        if is_unprivileged(user) and workspace_id is not None:
-            # Unprivileged user trying to target a workspace
-            # Check if we have a cache available (from middleware)
-            auth_cache = getattr(request.state, "auth_cache", None)
+    workspace_id: uuid.UUID,
+    user: User,
+) -> MembershipWithOrg:
+    """Resolve workspace membership using cache when available.
 
-            membership_with_org: MembershipWithOrg | None = None
-            if auth_cache:
-                # Try to get from cache first
-                cached_membership = auth_cache["memberships"].get(str(workspace_id))
-                # Validate cached membership belongs to requesting user
-                if (
-                    cached_membership is not None
-                    and cached_membership.user_id == user.id
-                ):
-                    # Convert cached Membership to MembershipWithOrg by fetching org_id
-                    svc = MembershipService(session)
-                    membership_with_org = await svc.get_membership(
-                        workspace_id=workspace_id, user_id=user.id
-                    )
-                    logger.debug(
-                        "Using cached membership",
-                        user_id=user.id,
-                        workspace_id=workspace_id,
-                        cached=True,
-                    )
-                elif not auth_cache["membership_checked"]:
-                    # Load all memberships once if not already done
-                    svc = MembershipService(session)
-                    all_memberships = await svc.list_user_memberships(user_id=user.id)
+    Uses request-scoped cache from middleware if present, otherwise falls back
+    to direct database query.
 
-                    # Check cache size limit to prevent memory exhaustion
-                    if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
-                        logger.warning(
-                            "User has excessive memberships, caching disabled for security",
-                            user_id=user.id,
-                            membership_count=len(all_memberships),
-                            max_allowed=MAX_CACHED_MEMBERSHIPS,
-                        )
-                        # Find membership without caching - fetch with org_id
-                        membership_with_org = await svc.get_membership(
-                            workspace_id=workspace_id, user_id=user.id
-                        )
-                    else:
-                        # Cache all memberships with user context
-                        auth_cache["user_id"] = user.id
-                        auth_cache["memberships"] = {
-                            str(m.workspace_id): m for m in all_memberships
-                        }
-                        auth_cache["membership_checked"] = True
-                        auth_cache["all_memberships"] = all_memberships
+    Raises:
+        HTTPException(403): If user is not a member of the workspace.
+    """
+    membership_with_org: MembershipWithOrg | None = None
+    auth_cache = getattr(request.state, "auth_cache", None)
 
-                        # Get the specific membership with org_id
-                        membership_with_org = await svc.get_membership(
-                            workspace_id=workspace_id, user_id=user.id
-                        )
+    if auth_cache is not None:
+        cached_membership = auth_cache["memberships"].get(str(workspace_id))
+        # Validate cached membership belongs to requesting user
+        if cached_membership is not None and cached_membership.user_id == user.id:
+            # Convert cached Membership to MembershipWithOrg by fetching org_id
+            svc = MembershipService(session)
+            membership_with_org = await svc.get_membership(
+                workspace_id=workspace_id, user_id=user.id
+            )
+            logger.debug(
+                "Using cached membership",
+                user_id=user.id,
+                workspace_id=workspace_id,
+                cached=True,
+            )
+        elif not auth_cache["membership_checked"]:
+            # Load all memberships once if not already done
+            svc = MembershipService(session)
+            all_memberships = await svc.list_user_memberships(user_id=user.id)
 
-                        logger.debug(
-                            "Loaded and cached all user memberships",
-                            user_id=user.id,
-                            workspace_count=len(all_memberships),
-                            workspace_id=workspace_id,
-                            found=membership_with_org is not None,
-                        )
-                elif auth_cache.get("user_id") != user.id:
-                    # Cache belongs to different user - security fallback
-                    logger.warning(
-                        "Cache user mismatch, falling back to direct query",
-                        cache_user_id=auth_cache.get("user_id"),
-                        request_user_id=user.id,
-                    )
-                    svc = MembershipService(session)
-                    membership_with_org = await svc.get_membership(
-                        workspace_id=workspace_id, user_id=user.id
-                    )
-            else:
-                # No cache available (e.g., in tests), fall back to direct query
-                svc = MembershipService(session)
+            # Check cache size limit to prevent memory exhaustion
+            if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
+                logger.warning(
+                    "User has excessive memberships, caching disabled for security",
+                    user_id=user.id,
+                    membership_count=len(all_memberships),
+                    max_allowed=MAX_CACHED_MEMBERSHIPS,
+                )
+                # Find membership without caching - fetch with org_id
                 membership_with_org = await svc.get_membership(
                     workspace_id=workspace_id, user_id=user.id
                 )
-                logger.debug(
-                    "No cache available, using direct query",
-                    user_id=user.id,
-                    workspace_id=workspace_id,
+            else:
+                # Cache all memberships with user context
+                auth_cache["user_id"] = user.id
+                auth_cache["memberships"] = {
+                    str(m.workspace_id): m for m in all_memberships
+                }
+                auth_cache["membership_checked"] = True
+                auth_cache["all_memberships"] = all_memberships
+
+                # Get the specific membership with org_id
+                membership_with_org = await svc.get_membership(
+                    workspace_id=workspace_id, user_id=user.id
                 )
 
-            if membership_with_org is None:
                 logger.debug(
-                    "User is not a member of this workspace",
-                    user=user,
+                    "Loaded and cached all user memberships",
+                    user_id=user.id,
+                    workspace_count=len(all_memberships),
                     workspace_id=workspace_id,
+                    found=membership_with_org is not None,
                 )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                )
-            # 2. Check if they have the appropriate workspace role
-            if isinstance(require_workspace_roles, WorkspaceRole):
-                require_workspace_roles = [require_workspace_roles]
+        elif auth_cache.get("user_id") != user.id:
+            # Cache belongs to different user - security fallback
+            logger.warning(
+                "Cache user mismatch, falling back to direct query",
+                cache_user_id=auth_cache.get("user_id"),
+                request_user_id=user.id,
+            )
+            svc = MembershipService(session)
+            membership_with_org = await svc.get_membership(
+                workspace_id=workspace_id, user_id=user.id
+            )
+    else:
+        # No cache available (e.g., in tests), fall back to direct query
+        svc = MembershipService(session)
+        membership_with_org = await svc.get_membership(
+            workspace_id=workspace_id, user_id=user.id
+        )
+        logger.debug(
+            "No cache available, using direct query",
+            user_id=user.id,
+            workspace_id=workspace_id,
+        )
+
+    if membership_with_org is None:
+        logger.debug(
+            "User is not a member of this workspace",
+            user=user,
+            workspace_id=workspace_id,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    return membership_with_org
+
+
+async def _resolve_org_for_superuser(
+    request: Request,
+    session: AsyncSession,
+) -> uuid.UUID:
+    """Resolve organization context for a superuser from cookie.
+
+    Superusers must explicitly select an organization via the ORG_OVERRIDE_COOKIE.
+
+    Raises:
+        HTTPException(428): If no valid org cookie is set.
+    """
+    if org_override := request.cookies.get(ORG_OVERRIDE_COOKIE):
+        try:
+            candidate_org_id = uuid.UUID(org_override)
+            # Validate that the organization actually exists
+            org_exists_stmt = select(Organization.id).where(
+                Organization.id == candidate_org_id
+            )
+            org_exists_result = await session.execute(org_exists_stmt)
+            if org_exists_result.scalar_one_or_none() is not None:
+                return candidate_org_id
+            logger.warning(
+                "Organization from cookie does not exist",
+                org_id=candidate_org_id,
+            )
+        except ValueError:
+            logger.warning(
+                "Invalid org override cookie format",
+                org_override=org_override,
+            )
+
+    # No cookie, invalid cookie, or org doesn't exist - prompt for org selection
+    raise HTTPException(
+        status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+        detail="Organization selection required",
+    )
+
+
+async def _resolve_org_for_regular_user(
+    session: AsyncSession,
+    user: User,
+) -> uuid.UUID:
+    """Resolve organization context for a regular user from their memberships.
+
+    Raises:
+        HTTPException(400): If user has no org memberships or multiple orgs.
+    """
+    org_mem_stmt = select(OrganizationMembership.organization_id).where(
+        OrganizationMembership.user_id == user.id
+    )
+    org_membership_result = await session.execute(org_mem_stmt)
+    org_ids = {row[0] for row in org_membership_result.all()}
+
+    if len(org_ids) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User has no organization memberships",
+        )
+    if len(org_ids) == 1:
+        return next(iter(org_ids))
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Multiple organizations found. Provide workspace_id to select an organization.",
+    )
+
+
+async def _get_org_role(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+) -> OrgRole | None:
+    """Fetch the user's organization-level role."""
+    org_mem_stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user_id,
+        OrganizationMembership.organization_id == organization_id,
+    )
+    org_membership_result = await session.execute(org_mem_stmt)
+    if org_mem := org_membership_result.scalar_one_or_none():
+        return org_mem.role
+    return None
+
+
+async def _authenticate_user(
+    *,
+    request: Request,
+    session: AsyncSession,
+    user: User,
+    workspace_id: uuid.UUID | None,
+    require_workspace_roles: list[WorkspaceRole] | None,
+) -> Role:
+    """Authenticate user, resolve workspace/org context, and return Role.
+
+    Handles:
+    1. Workspace membership validation (if workspace_id provided)
+    2. Organization context resolution (superuser vs regular user)
+    3. Org role fetching (org owners/admins bypass workspace membership checks)
+    4. Role construction
+    """
+    workspace_role: WorkspaceRole | None = None
+    organization_id: uuid.UUID
+    org_role: OrgRole | None = None
+
+    if is_unprivileged(user) and workspace_id is not None:
+        # Unprivileged user targeting a workspace
+        # First resolve org from workspace to check org-level permissions
+        resolved_org_id = await _get_workspace_org_id(workspace_id)
+        if resolved_org_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workspace not found",
+            )
+        organization_id = resolved_org_id
+
+        # Check if user is an org owner/admin - they can access all workspaces
+        org_role = await _get_org_role(session, user.id, organization_id)
+        is_org_admin = org_role in (
+            OrgRole.OWNER,
+            OrgRole.ADMIN,
+        )  # Can't use Role.is_org_admin yet - Role not built
+
+        if is_org_admin:
+            # Org owners/admins bypass workspace membership checks
+            logger.debug(
+                "Org admin bypassing workspace membership check",
+                user_id=user.id,
+                workspace_id=workspace_id,
+                org_role=org_role,
+            )
+        else:
+            # Regular user - validate workspace membership
+            membership_with_org = await _get_membership_with_cache(
+                request=request,
+                session=session,
+                workspace_id=workspace_id,
+                user=user,
+            )
+
+            # Check workspace role requirements
             if (
                 require_workspace_roles
                 and membership_with_org.membership.role not in require_workspace_roles
@@ -322,159 +454,122 @@ async def _role_dependency(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="You cannot perform this operation",
                 )
-            # User has appropriate workspace role
+
             workspace_role = membership_with_org.membership.role
-            organization_id = membership_with_org.org_id
-        else:
-            # No workspace specified; determine org context
-            workspace_role = None
-            organization_id: UUID4 | None = None
-
-            if user.is_superuser:
-                # Superusers must explicitly select an organization via cookie
-                org_override = request.cookies.get(ORG_OVERRIDE_COOKIE)
-                if org_override:
-                    try:
-                        candidate_org_id = uuid.UUID(org_override)
-                        # Validate that the organization actually exists
-                        org_exists_stmt = select(Organization.id).where(
-                            Organization.id == candidate_org_id
-                        )
-                        org_exists_result = await session.execute(org_exists_stmt)
-                        if org_exists_result.scalar_one_or_none() is not None:
-                            organization_id = candidate_org_id
-                        else:
-                            logger.warning(
-                                "Organization from cookie does not exist",
-                                user_id=user.id,
-                                org_id=candidate_org_id,
-                            )
-                    except ValueError:
-                        logger.warning(
-                            "Invalid org override cookie format",
-                            user_id=user.id,
-                            org_override=org_override,
-                        )
-                if organization_id is None:
-                    # No cookie, invalid cookie, or org doesn't exist - prompt for org selection
-                    raise HTTPException(
-                        status_code=status.HTTP_428_PRECONDITION_REQUIRED,
-                        detail="Organization selection required",
-                    )
-            else:
-                # Regular users: infer org from memberships
-                svc = MembershipService(session)
-                memberships_with_org = await svc.list_user_memberships_with_org(
-                    user_id=user.id
-                )
-                org_ids = {m.org_id for m in memberships_with_org}
-                if len(org_ids) == 0:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="User has no organization memberships",
-                    )
-                elif len(org_ids) == 1:
-                    organization_id = next(iter(org_ids))
-                else:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Multiple organizations found. Provide workspace_id to select an organization.",
-                    )
-
-        # Fetch org-level role from OrganizationMembership
-        org_role: OrgRole | None = None
-        org_membership_stmt = select(OrganizationMembership.role).where(
-            OrganizationMembership.user_id == user.id,
-            OrganizationMembership.organization_id == organization_id,
-        )
-        org_membership_result = await session.execute(org_membership_stmt)
-        if org_role_value := org_membership_result.scalar_one_or_none():
-            org_role = org_role_value
-
-        role = get_role_from_user(
-            user,
-            workspace_id=workspace_id,
-            workspace_role=workspace_role,
-            organization_id=organization_id,
-            org_role=org_role,
-        )
-    elif api_key and allow_service:
-        role = await _authenticate_service(request, api_key)
-    elif allow_executor:
-        token = _get_bearer_token(request)
-        if not token:
-            logger.info("Missing executor bearer token")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
-            )
-        try:
-            token_payload = verify_executor_token(token)
-        except ValueError as exc:
-            logger.info("Invalid executor token", error=str(exc))
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
-            ) from exc
-
-        # Derive access_level from DB lookup on user_id (prevents privilege escalation)
-        access_level = AccessLevel.BASIC  # Default for system/anonymous executions
-        if token_payload.user_id is not None:
-            stmt = select(User.role).where(User.id == token_payload.user_id)  # pyright: ignore[reportArgumentType]
-            result = await session.execute(stmt)
-            user_role = result.scalar_one_or_none()
-            if user_role is not None:
-                access_level = USER_ROLE_TO_ACCESS_LEVEL.get(
-                    user_role, AccessLevel.BASIC
-                )
-
-        # Look up organization_id from workspace (cached, immutable relationship)
-        organization_id = None
-        if token_payload.workspace_id is not None:
-            organization_id = await _get_workspace_org_id(token_payload.workspace_id)
-
-        # Construct Role from token payload + derived access_level + organization_id
-        role = Role(
-            type="service",
-            service_id="tracecat-executor",
-            workspace_id=token_payload.workspace_id,
-            organization_id=organization_id,
-            user_id=token_payload.user_id,
-            access_level=access_level,
-        )
-
-        if require_workspace == "yes":
-            if role.workspace_id is None:
-                logger.warning("Executor role missing workspace_id", role=role)
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                )
-            if workspace_id is not None and str(role.workspace_id) != str(workspace_id):
-                logger.warning(
-                    "Executor role workspace mismatch",
-                    role_workspace_id=role.workspace_id,
-                    request_workspace_id=workspace_id,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                )
     else:
-        logger.debug("Invalid authentication or authorization", user=user)
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        # No workspace specified or privileged user; determine org context
+        if user.is_superuser:
+            organization_id = await _resolve_org_for_superuser(request, session)
+        else:
+            organization_id = await _resolve_org_for_regular_user(session, user)
 
-    # Structural checks
-    if role is None:
-        logger.warning("Invalid role", role=role)
+    # Fetch org-level role if not already fetched
+    if org_role is None:
+        org_role = await _get_org_role(session, user.id, organization_id)
+
+    return get_role_from_user(
+        user,
+        workspace_id=workspace_id,
+        workspace_role=workspace_role,
+        organization_id=organization_id,
+        org_role=org_role,
+    )
+
+
+async def _authenticate_executor(
+    *,
+    request: Request,
+    session: AsyncSession,
+    workspace_id: uuid.UUID | None,
+    require_workspace: Literal["yes", "no", "optional"],
+) -> Role:
+    """Authenticate executor via JWT bearer token and return Role.
+
+    Derives access_level from DB lookup on user_id to prevent privilege escalation.
+    """
+    token = _get_bearer_token(request)
+    if not token:
+        logger.info("Missing executor bearer token")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized",
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
         )
+
+    try:
+        token_payload = verify_executor_token(token)
+    except ValueError as exc:
+        logger.info("Invalid executor token", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        ) from exc
+
+    # Derive access_level from DB lookup on user_id (prevents privilege escalation)
+    access_level = AccessLevel.BASIC  # Default for system/anonymous executions
+    if token_payload.user_id is not None:
+        stmt = select(User.role).where(User.id == token_payload.user_id)  # pyright: ignore[reportArgumentType]
+        result = await session.execute(stmt)
+        user_role = result.scalar_one_or_none()
+        if user_role is not None:
+            access_level = USER_ROLE_TO_ACCESS_LEVEL.get(user_role, AccessLevel.BASIC)
+
+    # Look up organization_id from workspace (cached, immutable relationship)
+    organization_id = None
+    if token_payload.workspace_id is not None:
+        organization_id = await _get_workspace_org_id(token_payload.workspace_id)
+
+    # Construct Role from token payload + derived access_level + organization_id
+    role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=token_payload.workspace_id,
+        organization_id=organization_id,
+        user_id=token_payload.user_id,
+        access_level=access_level,
+    )
+
+    # Validate workspace requirements for executor
+    if require_workspace == "yes":
+        if role.workspace_id is None:
+            logger.warning("Executor role missing workspace_id", role=role)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+        if workspace_id is not None and str(role.workspace_id) != str(workspace_id):
+            logger.warning(
+                "Executor role workspace mismatch",
+                role_workspace_id=role.workspace_id,
+                request_workspace_id=workspace_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+
+    return role
+
+
+def _validate_role(
+    role: Role,
+    *,
+    require_workspace: Literal["yes", "no", "optional"],
+    min_access_level: AccessLevel | None,
+) -> Role:
+    """Validate structural requirements on the authenticated role.
+
+    Raises:
+        HTTPException(401): If role is None.
+        HTTPException(403): If workspace required but missing, or access level insufficient.
+    """
 
     if require_workspace == "yes" and role.workspace_id is None:
         logger.warning("User does not have access to this workspace", role=role)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     # TODO(security): If min_access_level is not set, we should require max privilege by default
-    if min_access_level is not None:
-        if role.access_level < min_access_level:
+    if min_access_level is not None and role.access_level < min_access_level:
+        # Also grant ADMIN access if user is an org owner/admin
+        # This allows org owners/admins to perform org-level admin operations
+        # (like creating workspaces) without requiring platform admin privileges
+        is_org_admin = role.org_role in (OrgRole.OWNER, OrgRole.ADMIN)
+        if not (min_access_level == AccessLevel.ADMIN and is_org_admin):
             logger.warning(
                 "User does not have the appropriate access level",
                 role=role,
@@ -483,6 +578,75 @@ async def _role_dependency(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
+
+    return role
+
+
+# --- Main Auth Orchestrator ---
+
+
+async def _role_dependency(
+    *,
+    request: Request,
+    session: AsyncSession,
+    workspace_id: uuid.UUID | None = None,
+    user: User | None = None,
+    api_key: str | None = None,
+    allow_user: bool,
+    allow_service: bool,
+    allow_executor: bool = False,
+    require_workspace: Literal["yes", "no", "optional"],
+    min_access_level: AccessLevel | None = None,
+    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
+) -> Role:
+    """Main dependency that orchestrates authentication and authorization.
+
+    Delegates to the appropriate auth handler based on credentials and allowed
+    auth types, then validates the resulting role.
+    """
+    # Normalize require_workspace_roles to list
+    ws_roles_list: list[WorkspaceRole] | None = None
+    if isinstance(require_workspace_roles, WorkspaceRole):
+        ws_roles_list = [require_workspace_roles]
+    elif require_workspace_roles:
+        ws_roles_list = list(require_workspace_roles)
+
+    # Dispatch to appropriate auth handler
+    role: Role | None = None
+
+    if user and allow_user:
+        role = await _authenticate_user(
+            request=request,
+            session=session,
+            user=user,
+            workspace_id=workspace_id,
+            require_workspace_roles=ws_roles_list,
+        )
+    elif api_key and allow_service:
+        role = await _authenticate_service(request, api_key)
+    elif allow_executor:
+        role = await _authenticate_executor(
+            request=request,
+            session=session,
+            workspace_id=workspace_id,
+            require_workspace=require_workspace,
+        )
+    else:
+        logger.debug("Invalid authentication or authorization", user=user)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    if role is None:
+        logger.warning("Invalid role", role=role)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+    # Validate structural requirements and set context
+    role = _validate_role(
+        role,
+        require_workspace=require_workspace,
+        min_access_level=min_access_level,
+    )
     ctx_role.set(role)
     return role
 
@@ -565,7 +729,7 @@ def RoleACL(
         async def role_dependency_req_ws(
             request: Request,
             session: AsyncDBSession,
-            workspace_id: UUID4 = GetWsDep(...),
+            workspace_id: uuid.UUID = GetWsDep(...),
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
@@ -594,7 +758,7 @@ def RoleACL(
         async def role_dependency_opt_ws(
             request: Request,
             session: AsyncDBSession,
-            workspace_id: UUID4 | None = Query(None),
+            workspace_id: uuid.UUID | None = Query(None),
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
