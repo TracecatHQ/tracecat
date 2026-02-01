@@ -296,6 +296,7 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceReadMinimal,
   type WorkspaceUpdate,
   workflowExecutionsCreateDraftWorkflowExecution,
   workflowExecutionsCreateWorkflowExecution,
@@ -783,7 +784,13 @@ export function useWorkspaceManager() {
       await workspacesCreateWorkspace({
         requestBody: params,
       }),
-    onSuccess: () => {
+    onSuccess: (newWorkspace) => {
+      // Optimistically add the new workspace to the cache so it's immediately
+      // available in the workspace selector after navigation
+      queryClient.setQueryData<WorkspaceReadMinimal[]>(["workspaces"], (old) =>
+        old ? [...old, newWorkspace] : [newWorkspace]
+      )
+      // Still invalidate to ensure consistency with server
       queryClient.invalidateQueries({ queryKey: ["workspaces"] })
       toast({
         title: "Created workspace",
