@@ -370,7 +370,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <DatabaseIcon {...rest} />
       </div>
     ),
-    tools: createIconRenderer(BlocksIcon),
+    tools: createIconRenderer((props: IconProps) => <BlocksIcon {...props} />),
     "tools.datadog": createIconRenderer(DatadogIcon),
     // Emailrep namespace
     "tools.emailrep": createIconRenderer(EmailrepIcon, {
