@@ -1,18 +1,21 @@
 "use client"
 
+import Cookies from "js-cookie"
 import {
   BookOpenIcon,
   BuildingIcon,
   ChevronLeftIcon,
   CrownIcon,
   LayersIcon,
+  LogOutIcon,
   Settings2Icon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import type * as React from "react"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
+import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
   SidebarContent,
@@ -26,11 +29,24 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/hooks/use-auth"
+
+const ORG_OVERRIDE_COOKIE = "tracecat-org-id"
 
 export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const router = useRouter()
+  const { user } = useAuth()
+
+  const orgOverrideCookie = Cookies.get(ORG_OVERRIDE_COOKIE)
+  const isInOrgOverrideMode = user?.isSuperuser && !!orgOverrideCookie
+
+  function handleExitOrgContext() {
+    Cookies.remove(ORG_OVERRIDE_COOKIE, { path: "/" })
+    router.push("/admin/organizations")
+  }
 
   const navPlatform = [
     {
@@ -126,7 +142,19 @@ export function AdminSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarUserNav />
+        {isInOrgOverrideMode ? (
+          <SidebarMenu>
+            <Separator className="my-1" />
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={handleExitOrgContext}>
+                <LogOutIcon />
+                <span>Exit org context</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        ) : (
+          <SidebarUserNav />
+        )}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
