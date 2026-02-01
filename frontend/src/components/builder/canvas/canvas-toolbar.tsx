@@ -294,7 +294,7 @@ function ToolbarCategoryDropdown({
                   className="flex cursor-pointer items-center gap-3 py-2"
                 >
                   {getIcon(action.action, {
-                    className: "size-8 rounded-md border bg-muted/30 p-1.5",
+                    className: "size-8 rounded-md border p-1.5",
                   })}
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate text-xs font-medium">

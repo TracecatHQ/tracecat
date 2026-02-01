@@ -15,6 +15,7 @@
  */
 import {
   Blend,
+  BlocksIcon,
   BoxIcon,
   Building2Icon,
   Code,
@@ -369,6 +370,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <DatabaseIcon {...rest} />
       </div>
     ),
+    tools: createIconRenderer(BlocksIcon),
     "tools.datadog": createIconRenderer(DatadogIcon),
     // Emailrep namespace
     "tools.emailrep": createIconRenderer(EmailrepIcon, {
@@ -382,10 +384,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.urlscan": createIconRenderer(UrlscanIcon),
     "tools.virustotal": createIconRenderer(VirusTotalIcon),
     "tools.pagerduty": createIconRenderer(PagerDutyToolIcon, {
-      wrapperClassName: "rounded-xl bg-green-400/20",
+      wrapperClassName: "rounded-xl",
     }),
     "tools.gophish": createIconRenderer(GophishToolIcon, {
-      wrapperClassName: "rounded-full bg-blue-400/20",
+      wrapperClassName: "rounded-full",
       iconClassName: "h-full w-auto",
     }),
     "tools.servicenow": createIconRenderer(ServiceNowIcon),

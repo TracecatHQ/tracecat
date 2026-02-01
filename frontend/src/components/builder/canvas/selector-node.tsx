@@ -481,7 +481,7 @@ function ActionCommandGroup({
               onSelect={async () => await handleSelect(action)}
             >
               {getIcon(action.action, {
-                className: "size-8 rounded-md border bg-muted/30 p-1.5",
+                className: "size-8 rounded-md border p-1.5",
               })}
               <div className="flex min-w-0 flex-col">
                 <span className="truncate text-xs font-medium">
@@ -504,7 +504,7 @@ function ActionCommandGroup({
               onSelect={async () => await handleSelect(action)}
             >
               {getIcon(action.action, {
-                className: "size-8 rounded-md border bg-muted/30 p-1.5",
+                className: "size-8 rounded-md border p-1.5",
               })}
               <div className="flex min-w-0 flex-col">
                 <span className="truncate text-xs font-medium">
