@@ -855,6 +855,7 @@ class WorkflowExecutionsService:
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
             TriggerType.MANUAL,
+            TriggerType.CASE,
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 

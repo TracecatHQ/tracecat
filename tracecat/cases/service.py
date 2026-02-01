@@ -20,6 +20,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -73,6 +74,7 @@ from tracecat.db.models import (
     User,
     Workflow,
 )
+from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
@@ -1317,6 +1319,25 @@ class CaseEventsService(BaseWorkspaceService):
         self.session.add(db_event)
         # Flush so that generated fields (e.g., id) are available if needed
         await self.session.flush()
+
+        event_id = str(db_event.id)
+        event_type = (
+            db_event.type.value if hasattr(db_event.type, "value") else db_event.type
+        )
+        created_at = db_event.created_at or datetime.now(UTC)
+        case_id = str(case.id)
+        workspace_id = str(case.workspace_id)
+
+        async def _publish_case_event() -> None:
+            await publish_case_event_payload(
+                event_id=event_id,
+                case_id=case_id,
+                workspace_id=workspace_id,
+                event_type=event_type,
+                created_at=created_at,
+            )
+
+        add_after_commit_callback(self.session, _publish_case_event)
 
         # Auto-sync durations whenever an event is created
         durations_service = CaseDurationService(session=self.session, role=self.role)

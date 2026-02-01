@@ -77,7 +77,7 @@ def resolve_time_anchor_activity(
     ensuring the same time anchor is used across workflow resets.
 
     For scheduled workflows, uses TemporalScheduledStartTime (the intended schedule time).
-    For other triggers (webhook, manual), uses the workflow start time.
+    For other triggers (webhook, manual, case), uses the workflow start time.
     """
     if inputs.trigger_type == TriggerType.SCHEDULED and inputs.scheduled_start_time:
         return inputs.scheduled_start_time

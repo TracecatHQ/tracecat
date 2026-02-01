@@ -5,9 +5,9 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
-from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.models import Case, CaseEvent, CaseTag, CaseTagLink
+from tracecat.contexts import ctx_run
+from tracecat.db.models import Case, CaseTag, CaseTagLink
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
 from tracecat.service import BaseWorkspaceService
@@ -39,23 +39,31 @@ class CaseTagsService(BaseWorkspaceService):
         tag: CaseTag,
         event_type: CaseEventType,
     ) -> None:
-        event = CaseEvent(
-            workspace_id=self.workspace_id,
-            case_id=case.id,
-            type=event_type,
-            data={
-                "tag_id": str(tag.id),
-                "tag_ref": tag.ref,
-                "tag_name": tag.name,
-            },
-            user_id=self.role.user_id,
-        )
-        self.session.add(event)
-        await self.session.flush()
+        from tracecat.cases.schemas import TagAddedEvent, TagRemovedEvent
+        from tracecat.cases.service import CaseEventsService
 
-        # Auto-sync durations after creating an event
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
+        match event_type:
+            case CaseEventType.TAG_ADDED:
+                payload = TagAddedEvent(
+                    tag_id=tag.id,
+                    tag_ref=tag.ref,
+                    tag_name=tag.name,
+                )
+            case CaseEventType.TAG_REMOVED:
+                payload = TagRemovedEvent(
+                    tag_id=tag.id,
+                    tag_ref=tag.ref,
+                    tag_name=tag.name,
+                )
+            case _:
+                raise ValueError(f"Unsupported tag event type: {event_type}")
+
+        run_ctx = ctx_run.get()
+        if hasattr(payload, "wf_exec_id"):
+            payload.wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
+        events_service = CaseEventsService(session=self.session, role=self.role)
+        await events_service.create_event(case=case, event=payload)
 
     async def list_workspace_tags(self) -> Sequence[CaseTag]:
         """List all tags available in the current workspace."""

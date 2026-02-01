@@ -15,15 +15,12 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
     CaseDropdownValueSet,
 )
-from tracecat.cases.durations.service import CaseDurationService
-from tracecat.cases.enums import CaseEventType
 from tracecat.contexts import ctx_run
 from tracecat.db.models import (
     Case,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
-    CaseEvent,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService
@@ -346,28 +343,21 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         run_ctx = ctx_run.get()
         wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
 
-        event = CaseEvent(
-            workspace_id=self.workspace_id,
-            case_id=case_id,
-            type=CaseEventType.DROPDOWN_VALUE_CHANGED,
-            data={
-                "definition_id": str(definition_id),
-                "definition_ref": definition.ref,
-                "definition_name": definition.name,
-                "old_option_id": str(old_option_id) if old_option_id else None,
-                "old_option_label": old_option_label,
-                "new_option_id": str(params.option_id) if params.option_id else None,
-                "new_option_label": new_option_label,
-                "wf_exec_id": wf_exec_id,
-            },
-            user_id=self.role.user_id,
-        )
-        self.session.add(event)
-        await self.session.flush()
+        from tracecat.cases.schemas import DropdownValueChangedEvent
+        from tracecat.cases.service import CaseEventsService
 
-        # Auto-sync durations after creating an event
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case_id)
+        event = DropdownValueChangedEvent(
+            definition_id=str(definition_id),
+            definition_ref=definition.ref,
+            definition_name=definition.name,
+            old_option_id=str(old_option_id) if old_option_id else None,
+            old_option_label=old_option_label,
+            new_option_id=str(params.option_id) if params.option_id else None,
+            new_option_label=new_option_label,
+            wf_exec_id=wf_exec_id,
+        )
+        events_service = CaseEventsService(session=self.session, role=self.role)
+        await events_service.create_event(case=case, event=event)
 
         await self.session.commit()
         await self.session.refresh(row)
