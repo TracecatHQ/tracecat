@@ -4,9 +4,11 @@ import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
+  Blocks,
   Check,
   ChevronDown,
   ClockPlus,
+  DiamondPlus,
   FileUpIcon,
   Flag,
   Flame,
@@ -88,10 +90,7 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
-import {
-  NewCredentialsDialog,
-  NewCredentialsDialogTrigger,
-} from "@/components/workspaces/add-workspace-secret"
+import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import {
   NewVariableDialog,
   NewVariableDialogTrigger,
@@ -859,47 +858,64 @@ function MembersActions() {
 }
 
 function CredentialsActions() {
-  const workspaceId = useWorkspaceId()
-  const pathname = usePathname()
-  const isOnCatalogPage = pathname?.includes("/credentials/catalog")
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [initialView, setInitialView] = useState<"tools" | "custom">("custom")
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="inline-flex items-center rounded-md border bg-transparent">
-        <Link
-          href={`/workspaces/${workspaceId}/credentials`}
-          className={cn(
-            "flex h-7 items-center gap-1.5 rounded-l-sm px-2.5 text-xs font-medium transition-colors",
-            !isOnCatalogPage
-              ? "bg-background text-accent-foreground"
-              : "bg-accent text-muted-foreground hover:bg-muted/50"
-          )}
-        >
-          <Key className="h-3.5 w-3.5" />
-          Credentials
-        </Link>
-        <Link
-          href={`/workspaces/${workspaceId}/credentials/catalog`}
-          className={cn(
-            "flex h-7 items-center gap-1.5 rounded-r-sm px-2.5 text-xs font-medium transition-colors",
-            isOnCatalogPage
-              ? "bg-background text-accent-foreground"
-              : "bg-accent text-muted-foreground hover:bg-muted/50"
-          )}
-        >
-          <Search className="h-3.5 w-3.5" />
-          Catalog
-        </Link>
-      </div>
-      <NewCredentialsDialog>
-        <NewCredentialsDialogTrigger asChild>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-white">
             <Plus className="mr-1 h-3.5 w-3.5" />
             Add credential
+            <ChevronDown className="ml-1 h-3.5 w-3.5" />
           </Button>
-        </NewCredentialsDialogTrigger>
-      </NewCredentialsDialog>
-    </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuItem
+            onSelect={() => {
+              setInitialView("tools")
+              setDialogOpen(true)
+            }}
+          >
+            <Blocks className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Tools</span>
+              <span className="text-xs text-muted-foreground">
+                From out-of-the-box integrations
+              </span>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              setInitialView("custom")
+              setDialogOpen(true)
+            }}
+          >
+            <DiamondPlus className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Custom</span>
+              <span className="text-xs text-muted-foreground">
+                Add your own credentials
+              </span>
+            </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <CreateCredentialDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        initialView={initialView}
+      />
+    </>
   )
 }
 
