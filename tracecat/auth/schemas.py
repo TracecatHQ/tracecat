@@ -48,6 +48,14 @@ class UserReadMinimal(BaseModel):
 class UserCreate(schemas.BaseUserCreate):
     first_name: str | None = None
     last_name: str | None = None
+    invitation_token: str | None = None
+
+    def create_update_dict(self) -> dict[str, Any]:
+        # Exclude invitation_token from the dict passed to the database
+        # since it's not a column on the User model
+        d = super().create_update_dict()
+        d.pop("invitation_token", None)
+        return d
 
 
 class UserUpdate(schemas.BaseUserUpdate):

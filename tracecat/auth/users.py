@@ -34,23 +34,19 @@ from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
-from tracecat.auth.types import AccessLevel, PlatformRole, Role, system_role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.authz.service import MembershipService
+from tracecat.auth.types import AccessLevel, PlatformRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
-from tracecat.db.models import AccessToken, OAuthAccount, Organization, User
+from tracecat.db.models import AccessToken, OAuthAccount, User
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.workspaces.schemas import WorkspaceMembershipCreate
-from tracecat.workspaces.service import WorkspaceService
 
 
 class InvalidEmailException(FastAPIUsersException):
@@ -72,6 +68,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
         self.role = bootstrap_role()
+        # Store invitation token between create() and on_after_register()
+        self._pending_invitation_token: str | None = None
 
     async def update(
         self,
@@ -177,6 +175,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         request: Request | None = None,
     ) -> User:
         await self.validate_email(user_create.email)
+
+        # Extract and store invitation token for use in on_after_register()
+        # This allows atomic invitation acceptance during registration
+        if isinstance(user_create, UserCreate) and user_create.invitation_token:
+            self._pending_invitation_token = user_create.invitation_token
+
         try:
             return await super().create(user_create, safe, request)
         except UserAlreadyExists:
@@ -204,7 +208,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def on_after_register(
         self, user: User, request: Request | None = None
     ) -> None:
-        self.logger.info(f"User {user.id} has registered.")
+        self.logger.info("User registered", user_id=str(user.id), email=user.email)
 
         # Log audit event for user registration
         platform_role = PlatformRole(
@@ -217,186 +221,63 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 resource_id=user.id,
             )
 
-        # Check if this user should be promoted to superuser
-        async with get_async_session_context_manager() as session:
-            users = await list_users(session=session)
-            superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
-            is_first_user = (
-                len(users) == 1 and superadmin_email and user.email == superadmin_email
-            )
+        # Promote to superuser if email matches configured superadmin email
+        # No count/lock needed - email uniqueness ensures only one user can have this email
+        superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
+        if superadmin_email and user.email == superadmin_email:
+            update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
+            await self.admin_update(user_update=update_params, user=user)
+            self.logger.info("User promoted to superadmin", email=user.email)
 
-            if is_first_user:
-                # This is the first user and matches the designated superadmin email
-                update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
-                # NOTE(security): Bypass safety to create superadmin
-                await self.admin_update(user_update=update_params, user=user)
-                self.logger.info("First user promoted to superadmin", email=user.email)
+        # Accept invitation atomically if token was provided during registration
+        # This eliminates race conditions in the invitation flow
+        if self._pending_invitation_token:
+            await self._accept_invitation_atomically(user)
 
-            # Add user to the default organization
-            # First user becomes OWNER, subsequent users become MEMBER
-            await self._add_user_to_default_organization(
-                session=session,
-                user=user,
-                org_role=OrgRole.OWNER if is_first_user else OrgRole.MEMBER,
-            )
+        # NOTE: We do NOT add users to any organization/workspace here unless invited.
+        # - Superusers have implicit access to all orgs (get OrgRole.OWNER in get_role_from_user)
+        # - Regular users get org membership via invitation acceptance flow
+        # - Workspace membership is managed separately by workspace admins
 
-            if len(users) > 1 and await get_setting(
-                "app_create_workspace_on_register", default=False
-            ):
-                # Check if we should auto-create a workspace for the user
-                self.logger.info("Creating workspace for new user", user=user.email)
-                try:
-                    # Determine workspace name
-                    if user.first_name:
-                        workspace_name = f"{user.first_name}'s Workspace"
-                    else:
-                        # Remove domain from email to use as workspace name
-                        email_username = user.email.split("@")[0]
-                        workspace_name = f"{email_username}'s Workspace"
+    async def _accept_invitation_atomically(self, user: User) -> None:
+        """Accept an invitation during registration if a token was provided.
 
-                    # Create workspace with the system role
-                    sys_role = system_role()
-                    ws_svc = WorkspaceService(session, role=sys_role)
-                    workspace = await ws_svc.create_workspace(
-                        name=workspace_name, users=[user]
-                    )
-                    # Add user to workspace as a workspace admin
-                    membership_svc = MembershipService(session, role=sys_role)
-                    await membership_svc.create_membership(
-                        workspace_id=workspace.id,
-                        params=WorkspaceMembershipCreate(
-                            user_id=user.id, role=WorkspaceRole.ADMIN
-                        ),
-                    )
-                    self.logger.info(
-                        "Created workspace for new user",
-                        workspace_id=workspace.id,
-                        workspace_name=workspace_name,
-                        user_id=user.id,
-                        user_email=user.email,
-                    )
-                except Exception as e:
-                    self.logger.error(
-                        "Failed to create workspace for new user",
-                        error=str(e),
-                        user_id=user.id,
-                        user_email=user.email,
-                    )
-
-    async def _add_user_to_default_organization(
-        self,
-        *,
-        session: AsyncSession,
-        user: User,
-        org_role: OrgRole,
-    ) -> None:
-        """Add a newly registered user to the default organization and workspace.
-
-        The default organization is the first organization in the system,
-        which is created during app startup via `setup_default_organization`.
-        The default workspace is the first workspace in that organization,
-        created via `setup_workspace_defaults`.
-
-        The auth system determines organization membership via workspace memberships,
-        so users must have a workspace membership to access authenticated endpoints.
-
-        Args:
-            session: Database session.
-            user: The newly registered user.
-            org_role: The role to assign (OWNER for first user, MEMBER for others).
+        Errors during invitation acceptance are logged but do NOT fail registration.
+        This ensures users can still register even if the invitation is invalid/expired.
         """
-        # Import here to avoid circular import with organization.service
-        from tracecat.db.models import Membership, Workspace
-        from tracecat.organization.service import OrgService
+        # Import here to avoid circular import (organization.service imports from auth.users)
+        from tracecat.organization.service import accept_invitation_for_user
+
+        token = self._pending_invitation_token
+        self._pending_invitation_token = None  # Clear to prevent reuse
+
+        if not token:
+            return
 
         try:
-            # Get the default (first) organization, ordered by created_at for determinism
-            result = await session.execute(
-                select(Organization).order_by(Organization.created_at).limit(1)
-            )
-            org = result.scalar_one_or_none()
-
-            if org is None:
-                self.logger.warning(
-                    "No organization found, skipping org membership creation",
-                    user_id=str(user.id),
-                    user_email=user.email,
+            async with get_async_session_context_manager() as session:
+                membership = await accept_invitation_for_user(
+                    session, user_id=user.id, token=token
                 )
-                return
-
-            # Create a role with organization context for the OrgService
-            service_role = Role(
-                type="service",
-                service_id="tracecat-api",
-                access_level=AccessLevel.ADMIN,
-                organization_id=org.id,
-            )
-
-            # Add user to organization membership table
-            org_service = OrgService(session, role=service_role)
-            await org_service.add_member(
-                user_id=user.id,
-                organization_id=org.id,
-                role=org_role,
-            )
-            self.logger.info(
-                "Added user to default organization",
-                user_id=str(user.id),
-                user_email=user.email,
-                organization_id=str(org.id),
-                org_role=org_role.value,
-            )
-
-            # Also add user to the default workspace in the organization
-            # The auth system checks workspace memberships to determine org context
-            ws_result = await session.execute(
-                select(Workspace)
-                .where(Workspace.organization_id == org.id)
-                .order_by(Workspace.created_at)
-                .limit(1)
-            )
-            workspace = ws_result.scalar_one_or_none()
-
-            if workspace is None:
-                self.logger.warning(
-                    "No workspace found in organization, skipping workspace membership",
+                self.logger.info(
+                    "Invitation accepted during registration",
                     user_id=str(user.id),
-                    user_email=user.email,
-                    organization_id=str(org.id),
+                    email=user.email,
+                    org_id=str(membership.organization_id),
                 )
-                return
-
-            # Add user to workspace with appropriate role
-            workspace_role = (
-                WorkspaceRole.ADMIN
-                if org_role == OrgRole.OWNER
-                else WorkspaceRole.EDITOR
-            )
-            membership = Membership(
-                user_id=user.id,
-                workspace_id=workspace.id,
-                role=workspace_role,
-            )
-            session.add(membership)
-            await session.commit()
-            await session.refresh(membership)
-
-            self.logger.info(
-                "Added user to default workspace",
-                user_id=str(user.id),
-                user_email=user.email,
-                workspace_id=str(workspace.id),
-                workspace_role=workspace_role.value,
-            )
-        except IntegrityError as e:
-            # User may already be a member (e.g., race condition or retry)
+        except TracecatNotFoundError:
             self.logger.warning(
-                "User may already be a member of default organization/workspace",
-                error=str(e),
+                "Invitation token not found during registration",
                 user_id=str(user.id),
-                user_email=user.email,
+                email=user.email,
             )
-            await session.rollback()
+        except TracecatAuthorizationError as e:
+            self.logger.warning(
+                "Invitation acceptance failed during registration",
+                user_id=str(user.id),
+                email=user.email,
+                error=str(e),
+            )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
