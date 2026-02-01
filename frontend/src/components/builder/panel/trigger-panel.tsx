@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
+  ActivityIcon,
   BanIcon,
   CalendarClockIcon,
   ChevronDownIcon,
@@ -16,13 +17,14 @@ import {
   Trash2Icon,
   WebhookIcon,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   $WebhookMethod,
   $WebhookStatus,
   ApiError,
+  type CaseEventType,
   type SchedulesCreateScheduleData,
   type WebhookMethod,
   type WebhookRead,
@@ -33,7 +35,12 @@ import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { CustomTagInput, type Tag } from "@/components/tags-input"
+import {
+  CustomTagInput,
+  type Suggestion,
+  type Tag,
+  MultiTagCommandInput,
+} from "@/components/tags-input"
 import {
   Accordion,
   AccordionContent,
@@ -116,6 +123,9 @@ import {
   useGenerateWebhookApiKey,
   useRevokeWebhookApiKey,
   useSchedules,
+  useCaseTagCatalog,
+  useCaseTrigger,
+  useUpsertCaseTrigger,
   useUpdateWebhook,
 } from "@/lib/hooks"
 import {
@@ -128,6 +138,141 @@ import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
+
+const CASE_EVENT_SUGGESTIONS: Suggestion[] = [
+  {
+    id: "case_created",
+    label: "Case created",
+    value: "case_created",
+    group: "Case",
+  },
+  {
+    id: "case_updated",
+    label: "Case updated",
+    value: "case_updated",
+    group: "Case",
+  },
+  {
+    id: "case_closed",
+    label: "Case closed",
+    value: "case_closed",
+    group: "Case",
+  },
+  {
+    id: "case_reopened",
+    label: "Case reopened",
+    value: "case_reopened",
+    group: "Case",
+  },
+  {
+    id: "case_viewed",
+    label: "Case viewed",
+    value: "case_viewed",
+    group: "Case",
+  },
+  {
+    id: "status_changed",
+    label: "Status changed",
+    value: "status_changed",
+    group: "Fields",
+  },
+  {
+    id: "priority_changed",
+    label: "Priority changed",
+    value: "priority_changed",
+    group: "Fields",
+  },
+  {
+    id: "severity_changed",
+    label: "Severity changed",
+    value: "severity_changed",
+    group: "Fields",
+  },
+  {
+    id: "fields_changed",
+    label: "Fields changed",
+    value: "fields_changed",
+    group: "Fields",
+  },
+  {
+    id: "assignee_changed",
+    label: "Assignee changed",
+    value: "assignee_changed",
+    group: "Fields",
+  },
+  {
+    id: "payload_changed",
+    label: "Payload changed",
+    value: "payload_changed",
+    group: "Fields",
+  },
+  {
+    id: "attachment_created",
+    label: "Attachment added",
+    value: "attachment_created",
+    group: "Attachments",
+  },
+  {
+    id: "attachment_deleted",
+    label: "Attachment removed",
+    value: "attachment_deleted",
+    group: "Attachments",
+  },
+  {
+    id: "tag_added",
+    label: "Tag added",
+    value: "tag_added",
+    group: "Tags",
+  },
+  {
+    id: "tag_removed",
+    label: "Tag removed",
+    value: "tag_removed",
+    group: "Tags",
+  },
+  {
+    id: "task_created",
+    label: "Task created",
+    value: "task_created",
+    group: "Tasks",
+  },
+  {
+    id: "task_deleted",
+    label: "Task deleted",
+    value: "task_deleted",
+    group: "Tasks",
+  },
+  {
+    id: "task_status_changed",
+    label: "Task status changed",
+    value: "task_status_changed",
+    group: "Tasks",
+  },
+  {
+    id: "task_priority_changed",
+    label: "Task priority changed",
+    value: "task_priority_changed",
+    group: "Tasks",
+  },
+  {
+    id: "task_workflow_changed",
+    label: "Task workflow changed",
+    value: "task_workflow_changed",
+    group: "Tasks",
+  },
+  {
+    id: "task_assignee_changed",
+    label: "Task assignee changed",
+    value: "task_assignee_changed",
+    group: "Tasks",
+  },
+  {
+    id: "dropdown_value_changed",
+    label: "Dropdown value changed",
+    value: "dropdown_value_changed",
+    group: "Dropdowns",
+  },
+]
 
 const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
   const maybeNormalized =
@@ -277,6 +422,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
         defaultValue={[
           "trigger-settings",
           "trigger-webhooks",
+          "trigger-case-triggers",
           "trigger-schedules",
         ]}
       >
@@ -309,6 +455,24 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
           <AccordionContent>
             <div className="px-4 my-4 space-y-2">
               <ScheduleControls workflowId={workflow.id} />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Case Triggers */}
+        <AccordionItem
+          value="trigger-case-triggers"
+          id="trigger-case-triggers"
+        >
+          <AccordionTrigger className="px-4 text-xs font-bold">
+            <div className="flex items-center">
+              <ActivityIcon className="mr-3 size-4" />
+              <span>Case triggers</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="px-4 my-4 space-y-2">
+              <CaseTriggerControls workflowId={workflow.id} />
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -1018,6 +1182,182 @@ export function WebhookControls({
   )
 }
 
+export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
+  const workspaceId = useWorkspaceId()
+  const {
+    data: caseTrigger,
+    isLoading: isLoadingCaseTrigger,
+    error: caseTriggerError,
+  } = useCaseTrigger(workspaceId, workflowId)
+  const { mutateAsync: upsertCaseTrigger, isPending: isUpdatingCaseTrigger } =
+    useUpsertCaseTrigger(workspaceId, workflowId)
+  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
+
+  const [status, setStatus] = useState<"online" | "offline">("offline")
+  const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])
+  const [tagFilters, setTagFilters] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!caseTrigger) {
+      return
+    }
+    setStatus(caseTrigger.status)
+    setEventTypes(caseTrigger.event_types ?? [])
+    setTagFilters(caseTrigger.tag_filters ?? [])
+  }, [caseTrigger])
+
+  const persist = useCallback(
+    async (nextStatus: "online" | "offline", nextEvents: CaseEventType[], nextTags: string[]) => {
+      await upsertCaseTrigger({
+        status: nextStatus,
+        event_types: nextEvents,
+        tag_filters: nextTags,
+      })
+    },
+    [upsertCaseTrigger]
+  )
+
+  const handleStatusToggle = useCallback(
+    async (checked: boolean) => {
+      const nextStatus = checked ? "online" : "offline"
+      if (nextStatus === "online" && eventTypes.length === 0) {
+        toast({
+          title: "Select case events",
+          description: "Choose at least one case event before enabling.",
+          variant: "destructive",
+        })
+        return
+      }
+      setStatus(nextStatus)
+      await persist(nextStatus, eventTypes, tagFilters)
+      toast({
+        title: "Case trigger updated",
+        description: `Case triggers are now ${nextStatus}.`,
+      })
+    },
+    [eventTypes, persist, tagFilters]
+  )
+
+  const handleEventTypesChange = useCallback(
+    async (values: string[]) => {
+      const nextEvents = values as CaseEventType[]
+      const wasOnline = status === "online"
+      const nextStatus =
+        wasOnline && nextEvents.length === 0 ? "offline" : status
+
+      setEventTypes(nextEvents)
+      if (nextStatus !== status) {
+        setStatus(nextStatus)
+      }
+
+      await persist(nextStatus, nextEvents, tagFilters)
+
+      if (wasOnline && nextEvents.length === 0) {
+        toast({
+          title: "Case triggers disabled",
+          description: "Select an event type to re-enable case triggers.",
+        })
+      } else {
+        toast({
+          title: "Case events updated",
+          description: "Case trigger events saved successfully.",
+        })
+      }
+    },
+    [persist, status, tagFilters]
+  )
+
+  const handleTagFiltersChange = useCallback(
+    async (values: string[]) => {
+      setTagFilters(values)
+      await persist(status, eventTypes, values)
+      toast({
+        title: "Tag allowlist updated",
+        description: "Case trigger tag filters saved successfully.",
+      })
+    },
+    [eventTypes, persist, status]
+  )
+
+  const tagSuggestions = useMemo(() => {
+    return (caseTags ?? []).map((tag) => ({
+      id: tag.id,
+      label: tag.name,
+      value: tag.ref,
+      description: tag.ref,
+    }))
+  }, [caseTags])
+
+  if (isLoadingCaseTrigger) {
+    return <CenteredSpinner />
+  }
+
+  if (caseTriggerError) {
+    return (
+      <AlertNotification
+        variant="destructive"
+        title="Failed to load case triggers"
+        description="We couldn't load the case trigger configuration."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Enable case triggers</Label>
+          <p className="text-xs text-muted-foreground">
+            Trigger workflows when selected case events occur.
+          </p>
+        </div>
+        <Switch
+          checked={status === "online"}
+          onCheckedChange={handleStatusToggle}
+          disabled={isUpdatingCaseTrigger}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Case events</Label>
+        <MultiTagCommandInput
+          value={eventTypes}
+          onChange={handleEventTypesChange}
+          suggestions={CASE_EVENT_SUGGESTIONS}
+          searchKeys={["label", "value", "group"]}
+          placeholder="Select case events..."
+          disabled={isUpdatingCaseTrigger}
+          allowCustomTags={false}
+        />
+        <p className="text-xs text-muted-foreground">
+          Choose which case events will fire this workflow.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Tag allowlist</Label>
+        <MultiTagCommandInput
+          value={tagFilters}
+          onChange={handleTagFiltersChange}
+          suggestions={tagSuggestions}
+          searchKeys={["label", "value", "description"]}
+          placeholder={
+            caseTagsIsLoading ? "Loading tags..." : "Select case tags..."
+          }
+          disabled={isUpdatingCaseTrigger || caseTagsIsLoading}
+          allowCustomTags={false}
+        />
+        <p className="text-xs text-muted-foreground">
+          If empty, no tag filtering is applied.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Uses current case tags; workflow-originated events are ignored.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export function ScheduleControls({ workflowId }: { workflowId: string }) {
   const {
     schedules,
@@ -1426,7 +1766,6 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       toast({
         title: "Cannot create schedule",
         description: "You must commit the workflow before creating a schedule.",
-        variant: "destructive",
       })
       return
     }
