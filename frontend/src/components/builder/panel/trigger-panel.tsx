@@ -1373,10 +1373,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
   }
   if (schedulesError || !schedules) {
     return (
-      <AlertNotification
-        level="error"
-        message="Failed to load schedules."
-      />
+      <AlertNotification level="error" message="Failed to load schedules." />
     )
   }
 
