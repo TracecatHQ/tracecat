@@ -2,21 +2,18 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { type OrgMemberRead, organizationGetCurrentOrgMember } from "@/client"
+import { useAuth } from "@/hooks/use-auth"
 
 /**
- * Hook to fetch the current user's organization membership.
+ * Hook to fetch the current user's organization membership and permissions.
  *
- * Returns the org membership details including the user's org role
- * (member, admin, or owner).
- *
- * Use `hasOrgAdminRole` to check if the user has org admin/owner privileges.
- * Combine with `user.isPlatformAdmin()` for full org administration check:
- *
- * ```ts
- * const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
- * ```
+ * Returns:
+ * - `membership`: The org membership details including org role
+ * - `hasOrgAdminRole`: Whether user has org admin/owner role
+ * - `canAdministerOrg`: Whether user can administer the org (platform admin OR org admin/owner)
  */
 export function useOrgMembership() {
+  const { user } = useAuth()
   const {
     data: membership,
     isLoading,
@@ -31,10 +28,14 @@ export function useOrgMembership() {
   const hasOrgAdminRole =
     membership?.role === "admin" || membership?.role === "owner"
 
+  // Check if user can administer the org (platform admin OR org admin/owner)
+  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
+
   return {
     membership,
     isLoading,
     error,
     hasOrgAdminRole,
+    canAdministerOrg,
   }
 }

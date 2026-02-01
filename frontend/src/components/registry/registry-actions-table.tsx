@@ -24,14 +24,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
 import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useRegistryActions } from "@/lib/hooks"
 
 export function RegistryActionsTable() {
-  const { user } = useAuth()
-  const { hasOrgAdminRole } = useOrgMembership()
-  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
+  const { canAdministerOrg } = useOrgMembership()
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =

@@ -169,7 +169,7 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const { hasOrgAdminRole } = useOrgMembership()
+  const { canAdministerOrg } = useOrgMembership()
   const { createWorkspace } = useWorkspaceManager()
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
@@ -188,9 +188,6 @@ function NoWorkspaces() {
       setIsCreating(false)
     }
   }
-
-  // Check if user can administer org (platform admin OR org admin/owner role)
-  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
 
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">

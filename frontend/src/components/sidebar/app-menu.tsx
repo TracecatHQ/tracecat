@@ -36,7 +36,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/hooks/use-auth"
 import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -46,14 +45,10 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
-  const { user } = useAuth()
-  const { hasOrgAdminRole } = useOrgMembership()
+  const { canAdministerOrg } = useOrgMembership()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
-
-  // Check if user can administer org (platform admin OR org admin/owner role)
-  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
 

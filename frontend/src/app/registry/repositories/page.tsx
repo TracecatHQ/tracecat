@@ -11,15 +11,14 @@ import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useRegistryRepositoriesReload } from "@/lib/hooks"
 
 export default function RegistryRepositoriesPage() {
-  const { user, userIsLoading } = useAuth()
-  const { hasOrgAdminRole, isLoading: orgMembershipLoading } =
+  const { userIsLoading } = useAuth()
+  const { canAdministerOrg, isLoading: orgMembershipLoading } =
     useOrgMembership()
   const router = useRouter()
   const { reloadRegistryRepositories, reloadRegistryRepositoriesIsPending } =
     useRegistryRepositoriesReload()
 
   const isLoading = userIsLoading || orgMembershipLoading
-  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
 
   useEffect(() => {
     if (!canAdministerOrg && !isLoading) {

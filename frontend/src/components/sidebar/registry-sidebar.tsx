@@ -17,17 +17,13 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/hooks/use-auth"
 import { useOrgMembership } from "@/hooks/use-org-membership"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useAuth()
-  const { hasOrgAdminRole } = useOrgMembership()
+  const { canAdministerOrg } = useOrgMembership()
   const pathname = usePathname()
-
-  const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
 
   const navMain = [
     {
