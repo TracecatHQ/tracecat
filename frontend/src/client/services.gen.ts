@@ -143,6 +143,24 @@ import type {
   CaseAttachmentsDownloadAttachmentResponse,
   CaseAttachmentsListAttachmentsData,
   CaseAttachmentsListAttachmentsResponse,
+  CaseDropdownsAddDropdownOptionData,
+  CaseDropdownsAddDropdownOptionResponse,
+  CaseDropdownsCreateDropdownDefinitionData,
+  CaseDropdownsCreateDropdownDefinitionResponse,
+  CaseDropdownsDeleteDropdownDefinitionData,
+  CaseDropdownsDeleteDropdownDefinitionResponse,
+  CaseDropdownsDeleteDropdownOptionData,
+  CaseDropdownsDeleteDropdownOptionResponse,
+  CaseDropdownsGetDropdownDefinitionData,
+  CaseDropdownsGetDropdownDefinitionResponse,
+  CaseDropdownsListDropdownDefinitionsData,
+  CaseDropdownsListDropdownDefinitionsResponse,
+  CaseDropdownsReorderDropdownOptionsData,
+  CaseDropdownsReorderDropdownOptionsResponse,
+  CaseDropdownsUpdateDropdownDefinitionData,
+  CaseDropdownsUpdateDropdownDefinitionResponse,
+  CaseDropdownsUpdateDropdownOptionData,
+  CaseDropdownsUpdateDropdownOptionResponse,
   CaseDurationsCreateCaseDurationData,
   CaseDurationsCreateCaseDurationDefinitionData,
   CaseDurationsCreateCaseDurationDefinitionResponse,
@@ -183,6 +201,8 @@ import type {
   CasesDeleteTaskResponse,
   CasesGetCaseData,
   CasesGetCaseResponse,
+  CasesListCaseDropdownValuesData,
+  CasesListCaseDropdownValuesResponse,
   CasesListCasesData,
   CasesListCasesResponse,
   CasesListCommentsData,
@@ -199,6 +219,8 @@ import type {
   CasesRemoveTagResponse,
   CasesSearchCasesData,
   CasesSearchCasesResponse,
+  CasesSetCaseDropdownValueData,
+  CasesSetCaseDropdownValueResponse,
   CasesUpdateCaseData,
   CasesUpdateCaseResponse,
   CasesUpdateCommentData,
@@ -5865,6 +5887,7 @@ export const tablesImportCsv = (
  * @param data.severity Filter by case severity
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.tags Filter by tag IDs or slugs (AND logic)
+ * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
@@ -5886,6 +5909,7 @@ export const casesListCases = (
       severity: data.severity,
       assignee_id: data.assigneeId,
       tags: data.tags,
+      dropdown: data.dropdown,
       order_by: data.orderBy,
       sort: data.sort,
       workspace_id: data.workspaceId,
@@ -6759,6 +6783,319 @@ export const caseAttachmentsDeleteAttachment = (
 }
 
 /**
+ * List Dropdown Definitions
+ * List all dropdown definitions for the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CaseDropdownDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsListDropdownDefinitions = (
+  data: CaseDropdownsListDropdownDefinitionsData
+): CancelablePromise<CaseDropdownsListDropdownDefinitionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/case-dropdowns",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Dropdown Definition
+ * Create a new dropdown definition with initial options.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDropdownDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsCreateDropdownDefinition = (
+  data: CaseDropdownsCreateDropdownDefinitionData
+): CancelablePromise<CaseDropdownsCreateDropdownDefinitionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/case-dropdowns",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Dropdown Definition
+ * Get a single dropdown definition.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.workspaceId
+ * @returns CaseDropdownDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsGetDropdownDefinition = (
+  data: CaseDropdownsGetDropdownDefinitionData
+): CancelablePromise<CaseDropdownsGetDropdownDefinitionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/case-dropdowns/{definition_id}",
+    path: {
+      definition_id: data.definitionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Dropdown Definition
+ * Update a dropdown definition.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDropdownDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsUpdateDropdownDefinition = (
+  data: CaseDropdownsUpdateDropdownDefinitionData
+): CancelablePromise<CaseDropdownsUpdateDropdownDefinitionResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/case-dropdowns/{definition_id}",
+    path: {
+      definition_id: data.definitionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Dropdown Definition
+ * Delete a dropdown definition and all its options/values.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsDeleteDropdownDefinition = (
+  data: CaseDropdownsDeleteDropdownDefinitionData
+): CancelablePromise<CaseDropdownsDeleteDropdownDefinitionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/case-dropdowns/{definition_id}",
+    path: {
+      definition_id: data.definitionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Dropdown Option
+ * Add a new option to a dropdown definition.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDropdownOptionRead Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsAddDropdownOption = (
+  data: CaseDropdownsAddDropdownOptionData
+): CancelablePromise<CaseDropdownsAddDropdownOptionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/case-dropdowns/{definition_id}/options",
+    path: {
+      definition_id: data.definitionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Dropdown Option
+ * Update an option within a dropdown definition.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.optionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDropdownOptionRead Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsUpdateDropdownOption = (
+  data: CaseDropdownsUpdateDropdownOptionData
+): CancelablePromise<CaseDropdownsUpdateDropdownOptionResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/case-dropdowns/{definition_id}/options/{option_id}",
+    path: {
+      definition_id: data.definitionId,
+      option_id: data.optionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Dropdown Option
+ * Delete an option from a dropdown definition.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.optionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsDeleteDropdownOption = (
+  data: CaseDropdownsDeleteDropdownOptionData
+): CancelablePromise<CaseDropdownsDeleteDropdownOptionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/case-dropdowns/{definition_id}/options/{option_id}",
+    path: {
+      definition_id: data.definitionId,
+      option_id: data.optionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reorder Dropdown Options
+ * Reorder options within a dropdown definition.
+ * @param data The data for the request.
+ * @param data.definitionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseDropdownsReorderDropdownOptions = (
+  data: CaseDropdownsReorderDropdownOptionsData
+): CancelablePromise<CaseDropdownsReorderDropdownOptionsResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/case-dropdowns/{definition_id}/options/reorder",
+    path: {
+      definition_id: data.definitionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Dropdown Values
+ * List all dropdown values for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseDropdownValueRead Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseDropdownValues = (
+  data: CasesListCaseDropdownValuesData
+): CancelablePromise<CasesListCaseDropdownValuesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/dropdowns",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Set Case Dropdown Value
+ * Set or clear a dropdown value for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.definitionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseDropdownValueRead Successful Response
+ * @throws ApiError
+ */
+export const casesSetCaseDropdownValue = (
+  data: CasesSetCaseDropdownValueData
+): CancelablePromise<CasesSetCaseDropdownValueResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/cases/{case_id}/dropdowns/{definition_id}",
+    path: {
+      case_id: data.caseId,
+      definition_id: data.definitionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Case Duration Definitions
  * List all case duration definitions for the active workspace.
  * @param data The data for the request.
@@ -6893,7 +7230,7 @@ export const caseDurationsDeleteCaseDurationDefinition = (
 
 /**
  * List Case Durations
- * List persisted case durations for the provided case.
+ * Sync and list case durations for the provided case.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId

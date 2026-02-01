@@ -1,7 +1,9 @@
 "use client"
 
-import { UserIcon } from "lucide-react"
+import { CircleIcon, UserIcon } from "lucide-react"
 import type {
+  CaseDropdownDefinitionRead,
+  CaseDropdownValueRead,
   CasePriority,
   CaseSeverity,
   CaseStatus,
@@ -13,6 +15,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CaseValueDisplay } from "@/components/cases/case-value-display"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import {
   Select,
   SelectContent,
@@ -352,5 +355,92 @@ export function AssignedUser({
         {displayName}
       </span>
     </div>
+  )
+}
+
+// --- Case Dropdown Select ---
+
+const NONE_VALUE = "__NONE__"
+
+interface CaseDropdownSelectProps {
+  definition: CaseDropdownDefinitionRead
+  currentValue: CaseDropdownValueRead | undefined
+  onValueChange: (optionId: string | null) => void
+}
+
+export function CaseDropdownSelect({
+  definition,
+  currentValue,
+  onValueChange,
+}: CaseDropdownSelectProps) {
+  const currentOptionId = currentValue?.option_id ?? NONE_VALUE
+  const currentOption = definition.options?.find(
+    (o) => o.id === currentValue?.option_id
+  )
+  return (
+    <Select
+      value={currentOptionId}
+      onValueChange={(val) => onValueChange(val === NONE_VALUE ? null : val)}
+    >
+      <SelectTrigger
+        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+      >
+        <SelectValue>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {definition.name}
+            </span>
+            {currentOption ? (
+              <div className="flex items-center gap-1.5 text-xs">
+                {currentOption.icon_name ? (
+                  <DynamicLucideIcon
+                    name={currentOption.icon_name}
+                    className="size-3.5"
+                    fallback={
+                      <CircleIcon className="size-3.5 text-muted-foreground" />
+                    }
+                  />
+                ) : currentOption.color ? (
+                  <div
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: currentOption.color }}
+                  />
+                ) : (
+                  <CircleIcon className="size-3.5 text-muted-foreground" />
+                )}
+                <span>{currentOption.label}</span>
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground">None</span>
+            )}
+          </div>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NONE_VALUE}>
+          <span className="text-muted-foreground">None</span>
+        </SelectItem>
+        {definition.options?.map((opt) => {
+          return (
+            <SelectItem key={opt.id} value={opt.id}>
+              <div className="flex items-center gap-1.5">
+                {opt.icon_name ? (
+                  <DynamicLucideIcon
+                    name={opt.icon_name}
+                    className="size-3.5"
+                  />
+                ) : opt.color ? (
+                  <div
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: opt.color }}
+                  />
+                ) : null}
+                <span>{opt.label}</span>
+              </div>
+            </SelectItem>
+          )
+        })}
+      </SelectContent>
+    </Select>
   )
 }

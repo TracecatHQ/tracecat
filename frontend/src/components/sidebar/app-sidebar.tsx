@@ -4,12 +4,12 @@ import {
   BlocksIcon,
   ChevronDown,
   InboxIcon,
+  LayersIcon,
   LayersPlus,
   LockKeyholeIcon,
   type LucideIcon,
   SquareMousePointerIcon,
   SquarePen,
-  SquareStackIcon,
   Table2Icon,
   UsersIcon,
   VariableIcon,
@@ -199,7 +199,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive={pathname?.startsWith(`${basePath}/cases`)}
                 >
                   <Link href={`${basePath}/cases`}>
-                    <SquareStackIcon />
+                    <LayersIcon />
                     <span>Cases</span>
                   </Link>
                 </SidebarMenuButton>

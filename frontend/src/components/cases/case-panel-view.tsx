@@ -14,6 +14,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
+  CaseDropdownDefinitionRead,
   CaseDurationDefinitionRead,
   CaseDurationRead,
   CaseFieldRead,
@@ -30,6 +31,7 @@ import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
   type AssigneeInfo,
   AssigneeSelect,
+  CaseDropdownSelect,
   PrioritySelect,
   SeveritySelect,
 } from "@/components/cases/case-panel-selectors"
@@ -80,11 +82,13 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
+  useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
   useCaseTagCatalog,
   useGetCase,
   useRemoveCaseTag,
+  useSetCaseDropdownValue,
   useUpdateCase,
 } from "@/lib/hooks"
 import { parseISODuration } from "@/lib/time"
@@ -225,6 +229,7 @@ function formatIsoDurationCompact(duration?: string | null): string | null {
 }
 
 function formatElapsedDuration(start: Date, end: Date): string {
+  if (start >= end) return "0s"
   const elapsed = intervalToDuration({ start, end })
   return formatDurationComponents(elapsed)
 }
@@ -454,6 +459,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const searchParams = useSearchParams()
   const { isFeatureEnabled } = useFeatureFlag()
   const caseTasksEnabled = isFeatureEnabled("case-tasks")
+  const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
@@ -480,6 +486,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
   const { caseTags } = useCaseTagCatalog(workspaceId)
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(workspaceId)
+  const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { toast } = useToast()
   const customFields = useMemo(
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
@@ -743,6 +751,28 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         workspaceMembers={members ?? []}
                         onValueChange={handleAssigneeChange}
                       />
+                      {caseDropdownsEnabled &&
+                        dropdownDefinitions?.map(
+                          (def: CaseDropdownDefinitionRead) => {
+                            const currentValue = caseData.dropdown_values?.find(
+                              (dv) => dv.definition_id === def.id
+                            )
+                            return (
+                              <CaseDropdownSelect
+                                key={def.id}
+                                definition={def}
+                                currentValue={currentValue}
+                                onValueChange={(optionId) =>
+                                  setDropdownValue.mutate({
+                                    caseId: caseData.id,
+                                    definitionId: def.id,
+                                    optionId,
+                                  })
+                                }
+                              />
+                            )
+                          }
+                        )}
                       <CaseDurationMetrics
                         durations={caseDurations}
                         definitions={caseDurationDefinitions}
