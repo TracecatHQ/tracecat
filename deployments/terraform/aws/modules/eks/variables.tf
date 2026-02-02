@@ -170,7 +170,7 @@ variable "temporal_cluster_namespace" {
   default     = ""
 }
 
-variable "temporal_cluster_api_key_secret_arn" {
+variable "temporal_secret_arn" {
   description = "ARN of AWS Secrets Manager secret containing Temporal API key (plain text) - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""

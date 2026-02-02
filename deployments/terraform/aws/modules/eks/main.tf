@@ -26,7 +26,7 @@ locals {
     var.tracecat_secrets_arn,
     local.rds_master_secret_arn,
     aws_secretsmanager_secret.redis_url.arn,
-    var.temporal_cluster_api_key_secret_arn,
+    var.temporal_secret_arn,
   ])
 
   # External Secrets Operator settings

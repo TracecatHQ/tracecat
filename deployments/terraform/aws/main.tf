@@ -56,7 +56,7 @@ module "eks" {
   temporal_mode                         = var.temporal_mode
   temporal_cluster_url                  = var.temporal_cluster_url
   temporal_cluster_namespace            = var.temporal_cluster_namespace
-  temporal_cluster_api_key_secret_arn   = var.temporal_cluster_api_key_secret_arn
+  temporal_secret_arn                   = var.temporal_secret_arn
   external_secrets_namespace            = var.external_secrets_namespace
   external_secrets_service_account_name = var.external_secrets_service_account_name
 

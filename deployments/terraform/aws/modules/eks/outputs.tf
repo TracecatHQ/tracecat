@@ -63,6 +63,12 @@ output "tracecat_namespace" {
   value       = kubernetes_namespace.tracecat.metadata[0].name
 }
 
+output "cluster_auth_token" {
+  description = "Authentication token for the EKS cluster"
+  value       = data.aws_eks_cluster_auth.tracecat.token
+  sensitive   = true
+}
+
 output "oidc_provider_arn" {
   description = "ARN of the OIDC provider for IRSA"
   value       = aws_iam_openid_connect_provider.eks.arn

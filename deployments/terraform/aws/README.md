@@ -92,7 +92,7 @@ The deployment variables are:
 ```bash
 export TF_VAR_temporal_cluster_url="us-west-2.aws.api.temporal.io:7233"
 export TF_VAR_temporal_cluster_namespace="my-temporal-namespace"
-export TF_VAR_temporal_cluster_api_key_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-temporal-api-key-secret"
+export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-temporal-api-key-secret"
 ```
 
 ## Snapshots and restore

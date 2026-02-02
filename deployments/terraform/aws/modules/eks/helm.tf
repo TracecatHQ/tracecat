@@ -598,7 +598,7 @@ resource "helm_release" "tracecat" {
 
   # External cluster API key via ESO
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
     content {
       name  = "externalSecrets.temporal.enabled"
       value = "true"
@@ -606,15 +606,15 @@ resource "helm_release" "tracecat" {
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
     content {
       name  = "externalSecrets.temporal.secretArn"
-      value = var.temporal_cluster_api_key_secret_arn
+      value = var.temporal_secret_arn
     }
   }
 
   dynamic "set" {
-    for_each = var.temporal_mode == "cloud" && var.temporal_cluster_api_key_secret_arn != "" ? [1] : []
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
     content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"

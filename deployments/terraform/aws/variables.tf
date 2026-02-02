@@ -5,6 +5,12 @@ variable "aws_region" {
   default     = "us-west-2"
 }
 
+variable "aws_role_arn" {
+  description = "(Optional) IAM role ARN to assume for cross-account deployment"
+  type        = string
+  default     = null
+}
+
 # Domain and DNS
 variable "domain_name" {
   description = "Domain name for Tracecat (e.g., tracecat.example.com)"
@@ -169,7 +175,7 @@ variable "temporal_cluster_namespace" {
   default     = ""
 }
 
-variable "temporal_cluster_api_key_secret_arn" {
+variable "temporal_secret_arn" {
   description = "ARN of AWS Secrets Manager secret containing Temporal API key (plain text) - required when temporal_mode is 'cloud'"
   type        = string
   default     = ""
