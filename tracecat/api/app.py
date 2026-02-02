@@ -50,6 +50,7 @@ from tracecat.auth.users import (
     fastapi_users,
 )
 from tracecat.authz.seeding import seed_all_system_data
+from tracecat.authz.rbac.router import user_scopes_router
 from tracecat.cases.attachments.internal_router import (
     router as internal_case_attachments_router,
 )
@@ -454,13 +455,46 @@ def create_app(**kwargs) -> FastAPI:
         vcs_router,
         dependencies=[Depends(feature_flag_dep(FeatureFlag.GIT_SYNC))],
     )
-    # RBAC routers
-    app.include_router(rbac_scopes_router)
-    app.include_router(rbac_roles_router)
-    app.include_router(rbac_groups_router)
-    app.include_router(rbac_assignments_router)
-    app.include_router(rbac_user_assignments_router)
+    # RBAC routers - user_scopes_router is always included (OSS)
     app.include_router(user_scopes_router)
+
+    # EE-only RBAC management endpoints - gated by feature flag
+    from tracecat_ee.rbac.router import (
+        assignments_router as rbac_assignments_router,
+    )
+    from tracecat_ee.rbac.router import (
+        groups_router as rbac_groups_router,
+    )
+    from tracecat_ee.rbac.router import (
+        roles_router as rbac_roles_router,
+    )
+    from tracecat_ee.rbac.router import (
+        scopes_router as rbac_scopes_router,
+    )
+    from tracecat_ee.rbac.router import (
+        user_assignments_router as rbac_user_assignments_router,
+    )
+
+    app.include_router(
+        rbac_scopes_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.RBAC))],
+    )
+    app.include_router(
+        rbac_roles_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.RBAC))],
+    )
+    app.include_router(
+        rbac_groups_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.RBAC))],
+    )
+    app.include_router(
+        rbac_assignments_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.RBAC))],
+    )
+    app.include_router(
+        rbac_user_assignments_router,
+        dependencies=[Depends(feature_flag_dep(FeatureFlag.RBAC))],
+    )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

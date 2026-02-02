@@ -291,28 +291,3 @@ class UserRoleAssignmentList(BaseModel):
 
     items: list[UserRoleAssignmentReadWithDetails]
     total: int
-
-
-# =============================================================================
-# User Scopes Schemas
-# =============================================================================
-
-
-class UserScopesRead(BaseModel):
-    """Read schema for a user's effective scopes."""
-
-    scopes: list[str] = Field(
-        ..., description="List of effective scope strings for the user"
-    )
-    org_role_scopes: list[str] = Field(
-        default_factory=list, description="Scopes from organization role"
-    )
-    workspace_role_scopes: list[str] = Field(
-        default_factory=list, description="Scopes from workspace role"
-    )
-    group_scopes: list[str] = Field(
-        default_factory=list, description="Scopes from group memberships"
-    )
-    user_role_scopes: list[str] = Field(
-        default_factory=list, description="Scopes from direct user role assignments"
-    )

@@ -8689,6 +8689,28 @@ export const vcsGetGithubAppCredentialsStatus =
   }
 
 /**
+ * Get My Scopes
+ * Get the current user's effective scopes.
+ *
+ * Returns a breakdown of scopes by source:
+ * - org_role_scopes: From org membership role (OWNER/ADMIN/MEMBER)
+ * - workspace_role_scopes: From workspace membership role (if in workspace context)
+ * - group_scopes: From group memberships and their role assignments (EE only)
+ * - user_role_scopes: From direct user role assignments (EE only)
+ *
+ * The combined `scopes` list is what's actually used for authorization.
+ * @returns UserScopesRead Successful Response
+ * @throws ApiError
+ */
+export const usersGetMyScopes =
+  (): CancelablePromise<UsersGetMyScopesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me/scopes",
+    })
+  }
+
+/**
  * List Scopes
  * List scopes available to the organization.
  *
@@ -9349,28 +9371,6 @@ export const rbacDeleteUserAssignment = (
     },
   })
 }
-
-/**
- * Get My Scopes
- * Get the current user's effective scopes.
- *
- * Returns a breakdown of scopes by source:
- * - org_role_scopes: From org membership role (OWNER/ADMIN/MEMBER)
- * - workspace_role_scopes: From workspace membership role (if in workspace context)
- * - group_scopes: From group memberships and their role assignments
- * - user_role_scopes: From direct user role assignments
- *
- * The combined `scopes` list is what's actually used for authorization.
- * @returns UserScopesRead Successful Response
- * @throws ApiError
- */
-export const usersGetMyScopes =
-  (): CancelablePromise<UsersGetMyScopesResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me/scopes",
-    })
-  }
 
 /**
  * Users:Current User
