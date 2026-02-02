@@ -272,6 +272,10 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
     required = set(scopes)
 
     def check_scopes():
+        # Empty required scopes means no restrictions
+        if not required:
+            return
+
         user_scopes = ctx_scopes.get()
 
         # Platform superuser has "*" scope - bypass all checks

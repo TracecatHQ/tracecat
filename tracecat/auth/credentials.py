@@ -114,7 +114,7 @@ def compute_effective_scopes(role: Role) -> frozenset[str]:
     if role.workspace_id and role.workspace_role:
         # Org admins/owners already have workspace scopes via their org role
         # Regular members need their workspace role scopes
-        if role.org_role not in (OrgRole.OWNER, OrgRole.ADMIN):
+        if not role.is_org_admin:
             scope_set |= PRESET_ROLE_SCOPES.get(role.workspace_role, set())
 
     # Note: Group-based scopes (from group_assignment table) will be added in PR 4
