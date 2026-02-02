@@ -366,17 +366,40 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # DNS resolution: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
-    # when enable_dns: true. Write resolv.conf to socket_dir (not job_dir) because
-    # job_dir is mounted read-write at /work inside the sandbox.
+    # Network config: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
+    # when enable_dns: true. Docker export leaves /etc files empty since Docker
+    # manages them at runtime. Write to socket_dir (not job_dir) because job_dir
+    # is mounted read-write at /work inside the sandbox.
     if enable_internet_access:
         resolv_conf_path = socket_dir / "resolv.conf"
         resolv_conf_path.write_text("nameserver 10.255.255.1\n")
+
+        hosts_path = socket_dir / "hosts"
+        hosts_path.write_text(
+            "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n"
+        )
+
+        # nsswitch.conf tells glibc how to resolve hostnames: check /etc/hosts
+        # first ("files"), then fall back to DNS. Without this, hostname
+        # resolution may fail even with valid /etc/hosts and /etc/resolv.conf.
+        nsswitch_path = socket_dir / "nsswitch.conf"
+        nsswitch_path.write_text(
+            "passwd:         files\n"
+            "group:          files\n"
+            "shadow:         files\n"
+            "hosts:          files dns\n"
+            "networks:       files\n"
+            "protocols:      files\n"
+            "services:       files\n"
+        )
+
         lines.extend(
             [
                 "",
-                "# DNS resolution - point to pasta gateway for DNS forwarding",
+                "# Network config - DNS and hostname resolution",
                 f'mount {{ src: "{resolv_conf_path}" dst: "/etc/resolv.conf" is_bind: true rw: false }}',
+                f'mount {{ src: "{hosts_path}" dst: "/etc/hosts" is_bind: true rw: false }}',
+                f'mount {{ src: "{nsswitch_path}" dst: "/etc/nsswitch.conf" is_bind: true rw: false }}',
             ]
         )
 
