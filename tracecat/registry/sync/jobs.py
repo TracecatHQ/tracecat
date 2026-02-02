@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import tracecat_registry
 from packaging.version import Version
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.seeding import seed_registry_scopes_bulk
@@ -196,7 +197,7 @@ async def _seed_registry_scopes(
         inserted = await seed_registry_scopes_bulk(session, action_keys)
         await session.commit()
         logger.info("Registry scopes seeded", inserted=inserted, total=len(action_keys))
-    except Exception as e:
+    except DBAPIError as e:
         logger.warning("Failed to seed registry scopes", error=str(e))
-        # Don't fail the sync if scope seeding fails
+        # Don't fail the sync if scope seeding fails due to DB errors
         await session.rollback()
