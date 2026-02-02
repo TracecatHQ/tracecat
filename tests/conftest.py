@@ -881,8 +881,10 @@ def mock_user_id() -> uuid.UUID:
 
 @pytest.fixture(scope="session")
 def mock_org_id() -> uuid.UUID:
-    # Predictable uuid4 for testing
-    return uuid.UUID("00000000-0000-4444-aaaa-000000000000")
+    # Worker-specific org ID for pytest-xdist isolation
+    # Each worker gets a unique org ID to avoid conflicts in shared resources (e.g., MinIO)
+    # Format: 00000000-0000-4444-aaaa-00000000000N where N is worker number
+    return uuid.UUID(f"00000000-0000-4444-aaaa-{WORKER_OFFSET:012d}")
 
 
 @pytest.fixture(scope="function")
@@ -931,10 +933,11 @@ async def test_organization(mock_org_id):
         org = result.scalar_one_or_none()
         if org is None:
             # Create test organization
+            # Use WORKER_OFFSET in slug to avoid collisions in parallel xdist workers
             org = Organization(
                 id=mock_org_id,
                 name="Test Organization",
-                slug=f"test-org-{mock_org_id.hex[:8]}",
+                slug=f"test-org-{WORKER_OFFSET}",
                 is_active=True,
             )
             session.add(org)
@@ -971,10 +974,11 @@ async def session_test_organization(session, mock_org_id):
     org = result.scalar_one_or_none()
     if org is None:
         # Create test organization in the test's session
+        # Use WORKER_OFFSET in slug to avoid collisions in parallel xdist workers
         org = Organization(
             id=mock_org_id,
             name="Test Organization",
-            slug=f"test-org-{mock_org_id.hex[:8]}",
+            slug=f"test-org-{WORKER_OFFSET}",
             is_active=True,
         )
         session.add(org)

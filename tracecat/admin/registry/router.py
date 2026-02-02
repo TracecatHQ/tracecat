@@ -6,15 +6,15 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
-from tracecat_ee.admin.registry.schemas import (
+from tracecat.admin.registry.schemas import (
     RegistryStatusResponse,
     RegistrySyncResponse,
     RegistryVersionPromoteResponse,
     RegistryVersionRead,
 )
-from tracecat_ee.admin.registry.service import AdminRegistryService
+from tracecat.admin.registry.service import AdminRegistryService
+from tracecat.auth.credentials import SuperuserRole
+from tracecat.db.dependencies import AsyncDBSession
 
 router = APIRouter(prefix="/registry", tags=["admin:registry"])
 
