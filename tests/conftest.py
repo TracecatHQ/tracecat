@@ -933,10 +933,11 @@ async def test_organization(mock_org_id):
         org = result.scalar_one_or_none()
         if org is None:
             # Create test organization
+            # Use WORKER_OFFSET in slug to avoid collisions in parallel xdist workers
             org = Organization(
                 id=mock_org_id,
                 name="Test Organization",
-                slug=f"test-org-{mock_org_id.hex[:8]}",
+                slug=f"test-org-{WORKER_OFFSET}",
                 is_active=True,
             )
             session.add(org)
@@ -973,10 +974,11 @@ async def session_test_organization(session, mock_org_id):
     org = result.scalar_one_or_none()
     if org is None:
         # Create test organization in the test's session
+        # Use WORKER_OFFSET in slug to avoid collisions in parallel xdist workers
         org = Organization(
             id=mock_org_id,
             name="Test Organization",
-            slug=f"test-org-{mock_org_id.hex[:8]}",
+            slug=f"test-org-{WORKER_OFFSET}",
             is_active=True,
         )
         session.add(org)
