@@ -276,7 +276,7 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     VALUES (
                         :org_id,
                         'Test Organization',
-                        'test',
+                        :org_slug,
                         true,
                         now(),
                         now()
@@ -284,7 +284,10 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                     ON CONFLICT (id) DO NOTHING
                     """
                 ),
-                {"org_id": str(TEST_ORG_ID)},
+                {
+                    "org_id": str(TEST_ORG_ID),
+                    "org_slug": f"test-org-{TEST_ORG_ID.hex[:8]}",
+                },
             )
             session.commit()
             # Create a registry repository for core actions
