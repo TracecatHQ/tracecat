@@ -34,7 +34,7 @@ terraform {
 }
 
 locals {
-  aws_role_arn = var.aws_role_name != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
+  aws_role_arn = var.aws_role_name != null && var.aws_account_id != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
 }
 
 check "cross_account_config" {
