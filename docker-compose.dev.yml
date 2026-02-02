@@ -150,6 +150,8 @@ services:
       - SYS_ADMIN
     security_opt:
       - seccomp:unconfined
+    devices:
+      - /dev/net/tun:/dev/net/tun
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}

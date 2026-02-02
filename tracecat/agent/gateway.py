@@ -7,8 +7,6 @@ via JWT tokens minted by the agent executor.
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
@@ -18,7 +16,7 @@ from litellm.types.utils import CallTypesLiteral
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
-from tracecat.identifiers import WorkspaceID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
 # -----------------------------------------------------------------------------
@@ -27,7 +25,8 @@ from tracecat.logger import logger
 
 
 async def get_provider_credentials(
-    workspace_id: uuid.UUID,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
     provider: str,
     use_workspace_creds: bool = False,
 ) -> dict[str, str] | None:
@@ -38,6 +37,7 @@ async def get_provider_credentials(
         user_id=None,
         service_id="tracecat-llm-gateway",
         workspace_id=workspace_id,
+        organization_id=organization_id,
     )
 
     async with AgentManagementService.with_session(role=role) as service:
@@ -74,6 +74,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         api_key="llm-token",
         metadata={
             "workspace_id": str(claims.workspace_id),
+            "organization_id": str(claims.organization_id),
             "session_id": str(claims.session_id),
             "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
@@ -100,6 +101,7 @@ class TracecatCallbackHandler(CustomLogger):
     ):
         """Inject credentials and model settings before LLM call."""
         workspace_id: str = user_api_key_dict.metadata.get("workspace_id", "")
+        organization_id: str = user_api_key_dict.metadata.get("organization_id", "")
         use_workspace_creds: bool = user_api_key_dict.metadata.get(
             "use_workspace_credentials", True
         )
@@ -125,6 +127,7 @@ class TracecatCallbackHandler(CustomLogger):
         # Fetch credentials via AgentManagementService
         creds = await get_provider_credentials(
             workspace_id=WorkspaceID(workspace_id),
+            organization_id=OrganizationID(organization_id),
             provider=provider,
             use_workspace_creds=use_workspace_creds,
         )

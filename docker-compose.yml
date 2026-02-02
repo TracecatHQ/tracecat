@@ -145,6 +145,9 @@ services:
       - SYS_ADMIN
     security_opt:
       - seccomp:unconfined
+     # Required for pasta userspace networking (creates TAP device in sandbox netns)
+    devices:
+      - /dev/net/tun:/dev/net/tun
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
