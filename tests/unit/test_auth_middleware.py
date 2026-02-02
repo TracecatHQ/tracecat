@@ -405,9 +405,7 @@ async def test_cache_user_id_validation():
             "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
             {UserRole.BASIC: AccessLevel.BASIC},
         ),
-        patch(
-            "tracecat.auth.credentials._get_workspace_org_id", return_value=org_id
-        ),
+        patch("tracecat.auth.credentials._get_workspace_org_id", return_value=org_id),
         patch("tracecat.auth.credentials._get_org_role", return_value=None),
     ):
         # Mock session with proper execute() and scalar_one_or_none() chain
