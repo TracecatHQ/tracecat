@@ -33,13 +33,24 @@ terraform {
   }
 }
 
+locals {
+  aws_role_arn = var.aws_role_name != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
+}
+
+check "cross_account_config" {
+  assert {
+    condition     = var.aws_role_name == null || var.aws_account_id != null
+    error_message = "aws_account_id is required when aws_role_name is set for cross-account deployment"
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 
   dynamic "assume_role" {
-    for_each = var.aws_role_arn != null ? [1] : []
+    for_each = local.aws_role_arn != null ? [1] : []
     content {
-      role_arn = var.aws_role_arn
+      role_arn = local.aws_role_arn
     }
   }
 

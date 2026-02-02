@@ -76,4 +76,7 @@ module "eks" {
   waf_rate_limit = var.waf_rate_limit
 
   tags = var.tags
+
+  # Feature Flags
+  feature_flags = var.feature_flags
 }

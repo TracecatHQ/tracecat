@@ -5,8 +5,14 @@ variable "aws_region" {
   default     = "us-west-2"
 }
 
-variable "aws_role_arn" {
-  description = "(Optional) IAM role ARN to assume for cross-account deployment"
+variable "aws_role_name" {
+  description = "(Optional) IAM role name to assume for cross-account deployment"
+  type        = string
+  default     = null
+}
+
+variable "aws_account_id" {
+  description = "(Optional) AWS account ID to deploy into. Required when aws_role_name is set."
   type        = string
   default     = null
 }
@@ -269,4 +275,11 @@ variable "tags" {
     Project   = "tracecat"
     ManagedBy = "terraform"
   }
+}
+
+# Feature Flags
+variable "feature_flags" {
+  description = "Comma-separated feature flags (e.g. 'git-sync,case-tasks')"
+  type        = string
+  default     = ""
 }

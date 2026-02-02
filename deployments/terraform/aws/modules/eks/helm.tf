@@ -621,6 +621,15 @@ resource "helm_release" "tracecat" {
     }
   }
 
+  # Enterprise feature flags
+  dynamic "set" {
+    for_each = var.feature_flags != "" ? [1] : []
+    content {
+      name  = "enterprise.featureFlags"
+      value = var.feature_flags
+    }
+  }
+
   depends_on = [
     helm_release.aws_load_balancer_controller,
     null_resource.external_secrets_cluster_store,

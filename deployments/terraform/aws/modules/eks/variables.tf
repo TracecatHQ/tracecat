@@ -262,3 +262,10 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# Feature Flags
+variable "feature_flags" {
+  description = "Comma-separated feature flags"
+  type        = string
+  default     = ""
+}
