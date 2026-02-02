@@ -346,10 +346,10 @@ export function CreateCredentialDialog({
         title: "Secret created",
         description: `Secret "${secretName}" has been created successfully.`,
       })
+      methods.reset()
     } catch (error) {
       console.log(error)
     }
-    methods.reset()
   }
 
   const onValidationFailed = () => {

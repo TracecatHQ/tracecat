@@ -364,7 +364,7 @@ export default function IntegrationsPage() {
       })) ?? []
 
     return [...oauthItems, ...mcpItems, ...credentialItems]
-  }, [providers, mcpIntegrations, integrations, secretDefinitions])
+  }, [providers, mcpIntegrations, secretDefinitions])
 
   const filteredIntegrations = useMemo(() => {
     const filtered = allIntegrations.filter((item) => {
@@ -433,6 +433,12 @@ export default function IntegrationsPage() {
   const connectGrantType = searchParams?.get(
     "grant_type"
   ) as OAuthGrantType | null
+
+  useEffect(() => {
+    if (!connectParam) {
+      lastHandledConnectRef.current = null
+    }
+  }, [connectParam])
 
   const clearConnectParams = useCallback(() => {
     const params = new URLSearchParams(searchParams?.toString() || "")
