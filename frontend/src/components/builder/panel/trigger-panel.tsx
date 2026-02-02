@@ -129,8 +129,13 @@ import {
   durationToISOString,
 } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import {
+  type TriggerPanelTab,
+  TriggerPanelTabs,
+} from "@/components/builder/panel/trigger-panel-tabs"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 
@@ -386,6 +391,8 @@ const formatScheduleDate = (value?: string | null) => {
 }
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
+  const { triggerPanelTab, setTriggerPanelTab } = useWorkflowBuilder()
+
   return (
     <div className="overflow-auto size-full">
       <div className="grid grid-cols-3">
@@ -411,7 +418,10 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
         </div>
       </div>
       <Tabs
-        defaultValue="trigger-webhooks"
+        value={triggerPanelTab}
+        onValueChange={(value) => {
+          setTriggerPanelTab(value as TriggerPanelTab)
+        }}
         className="mt-1 flex h-full w-full flex-col"
       >
         <div className="w-full">
@@ -419,21 +429,21 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
             <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                value="trigger-webhooks"
+                value={TriggerPanelTabs.webhook}
               >
                 <WebhookIcon className="mr-2 size-4" />
                 <span>Webhook</span>
               </TabsTrigger>
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                value="trigger-schedules"
+                value={TriggerPanelTabs.schedules}
               >
                 <CalendarClockIcon className="mr-2 size-4" />
                 <span>Schedules</span>
               </TabsTrigger>
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                value="trigger-case-triggers"
+                value={TriggerPanelTabs.caseTriggers}
               >
                 <SquarePlay className="mr-2 size-4" />
                 <span>Case triggers</span>
@@ -443,7 +453,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
           <Separator />
         </div>
         <div className="flex-1 overflow-auto">
-          <TabsContent value="trigger-webhooks" className="pb-8">
+          <TabsContent value={TriggerPanelTabs.webhook} className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <WebhookControls
                 webhook={workflow.webhook}
@@ -451,12 +461,15 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
               />
             </div>
           </TabsContent>
-          <TabsContent value="trigger-schedules" className="pb-8">
+          <TabsContent value={TriggerPanelTabs.schedules} className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <ScheduleControls workflowId={workflow.id} />
             </div>
           </TabsContent>
-          <TabsContent value="trigger-case-triggers" className="pb-8">
+          <TabsContent
+            value={TriggerPanelTabs.caseTriggers}
+            className="pb-8"
+          >
             <div className="px-4 my-4 space-y-2">
               <CaseTriggerControls workflowId={workflow.id} />
             </div>

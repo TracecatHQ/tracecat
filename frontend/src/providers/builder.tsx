@@ -23,6 +23,10 @@ import type {
 } from "@/components/builder/canvas/canvas"
 import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
 import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
+import {
+  DEFAULT_TRIGGER_PANEL_TAB,
+  type TriggerPanelTab,
+} from "@/components/builder/panel/trigger-panel-tabs"
 import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
@@ -42,6 +46,8 @@ interface ReactFlowContextType {
   toggleSidebar: () => void
   toggleActionPanel: () => void
   expandSidebarAndFocusEvents: () => void
+  triggerPanelTab: TriggerPanelTab
+  setTriggerPanelTab: React.Dispatch<SetStateAction<TriggerPanelTab>>
   selectedActionEventRef?: string
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
   currentExecutionId: string | null
@@ -72,6 +78,9 @@ export const WorkflowBuilderProvider: React.FC<
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   const [isActionPanelCollapsed, setIsActionPanelCollapsed] =
     React.useState(false)
+  const [triggerPanelTab, setTriggerPanelTab] = useState<TriggerPanelTab>(
+    DEFAULT_TRIGGER_PANEL_TAB
+  )
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
@@ -89,6 +98,7 @@ export const WorkflowBuilderProvider: React.FC<
     setSelectedNodeId(null)
     setCurrentExecutionId(null)
     setActionDrafts({})
+    setTriggerPanelTab(DEFAULT_TRIGGER_PANEL_TAB)
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
@@ -186,6 +196,8 @@ export const WorkflowBuilderProvider: React.FC<
       isSidebarCollapsed,
       toggleSidebar,
       expandSidebarAndFocusEvents,
+      triggerPanelTab,
+      setTriggerPanelTab,
       actionPanelRef,
       isActionPanelCollapsed,
       toggleActionPanel,
@@ -210,6 +222,8 @@ export const WorkflowBuilderProvider: React.FC<
       isSidebarCollapsed,
       toggleSidebar,
       expandSidebarAndFocusEvents,
+      triggerPanelTab,
+      setTriggerPanelTab,
       actionPanelRef,
       isActionPanelCollapsed,
       toggleActionPanel,

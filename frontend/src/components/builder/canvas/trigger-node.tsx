@@ -5,7 +5,6 @@ import {
   Shield,
   ShieldOff,
   SquarePlay,
-  Tag,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
@@ -13,6 +12,11 @@ import {
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
+import {
+  DEFAULT_TRIGGER_PANEL_TAB,
+  type TriggerPanelTab,
+  TriggerPanelTabs,
+} from "@/components/builder/panel/trigger-panel-tabs"
 import { getIcon } from "@/components/icons"
 import {
   Card,
@@ -37,7 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
-import { useCaseTagCatalog, useCaseTrigger, useSchedules } from "@/lib/hooks"
+import { useCaseTrigger, useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -49,11 +53,6 @@ export type TriggerNodeData = {
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
 
-const formatCaseEventLabel = (value: string) => {
-  const formatted = value.replace(/_/g, " ")
-  return formatted.charAt(0).toUpperCase() + formatted.slice(1).toLowerCase()
-}
-
 export default React.memo(function TriggerNode({
   id,
   type,
@@ -61,7 +60,13 @@ export default React.memo(function TriggerNode({
   selected,
 }: NodeProps<TriggerNodeType>) {
   const { workflow } = useWorkflow()
-  const { reactFlow, workspaceId, workflowId } = useWorkflowBuilder()
+  const {
+    reactFlow,
+    workspaceId,
+    workflowId,
+    actionPanelRef,
+    setTriggerPanelTab,
+  } = useWorkflowBuilder()
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
   const {
     data: caseTrigger,
@@ -72,20 +77,24 @@ export default React.memo(function TriggerNode({
   const tagFilters = caseTrigger?.tag_filters ?? []
   const isCaseTriggerEnabled = caseTrigger?.status === "online"
   const eventKey = useMemo(() => caseEventTypes.join("|"), [caseEventTypes])
-  const { caseTags } = useCaseTagCatalog(workspaceId, {
-    enabled: tagFilters.length > 0,
-  })
-  const caseTagLabelMap = useMemo(() => {
-    return new Map((caseTags ?? []).map((tag) => [tag.ref, tag.name]))
-  }, [caseTags])
-  const tagFilterLabels = useMemo(
-    () => tagFilters.map((tagRef) => caseTagLabelMap.get(tagRef) ?? tagRef),
-    [caseTagLabelMap, tagFilters]
-  )
+  const hasCaseTriggerConfig =
+    caseEventTypes.length > 0 || tagFilters.length > 0
   const cardRef = useRef<HTMLDivElement>(null)
   const previousHeightRef = useRef<number | null>(null)
   const pendingHeightAdjustmentRef = useRef(false)
   const lastEventKeyRef = useRef<string | null>(null)
+  const openTriggerPanel = useCallback(
+    (tab: TriggerPanelTab) => {
+      setTriggerPanelTab(tab)
+      if (actionPanelRef.current?.isCollapsed()) {
+        actionPanelRef.current.expand()
+      }
+    },
+    [actionPanelRef, setTriggerPanelTab]
+  )
+  const handleDefaultPanelOpen = useCallback(() => {
+    openTriggerPanel(DEFAULT_TRIGGER_PANEL_TAB)
+  }, [openTriggerPanel])
 
   const pushNodesDown = useCallback(
     (delta: number) => {
@@ -175,6 +184,7 @@ export default React.memo(function TriggerNode({
   return (
     <Card
       ref={cardRef}
+      onClickCapture={handleDefaultPanelOpen}
       className={cn(
         "w-64",
         nodeStyles.common,
@@ -238,11 +248,12 @@ export default React.memo(function TriggerNode({
               {/* Webhook status */}
               <div
                 className={cn(
-                  "flex h-8 items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
+                  "flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
                   workflow?.webhook.status === "offline"
                     ? "bg-muted-foreground/5 text-muted-foreground/50"
                     : "bg-background text-emerald-500"
                 )}
+                onClick={() => openTriggerPanel(TriggerPanelTabs.webhook)}
               >
                 <WebhookIcon className="size-3" />
                 <span>Webhook</span>
@@ -256,17 +267,22 @@ export default React.memo(function TriggerNode({
                 />
               </div>
               {/* Schedule table */}
-              <div className="rounded-lg border">
+              <div
+                className="rounded-lg border cursor-pointer"
+                onClick={() => openTriggerPanel(TriggerPanelTabs.schedules)}
+              >
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
               {/* Case triggers */}
-              <div className="rounded-lg border">
+              <div
+                className="rounded-lg border cursor-pointer"
+                onClick={() => openTriggerPanel(TriggerPanelTabs.caseTriggers)}
+              >
                 <TriggerNodeCaseTriggersTable
                   isLoading={caseTriggerIsLoading}
                   error={caseTriggerError}
-                  eventTypes={caseEventTypes}
-                  tags={tagFilterLabels}
                   enabled={isCaseTriggerEnabled}
+                  hasConfig={hasCaseTriggerConfig}
                 />
               </div>
             </div>
@@ -439,15 +455,13 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
 function TriggerNodeCaseTriggersTable({
   isLoading,
   error,
-  eventTypes,
-  tags,
   enabled,
+  hasConfig,
 }: {
   isLoading: boolean
   error: unknown
-  eventTypes: string[]
-  tags: string[]
   enabled: boolean
+  hasConfig: boolean
 }) {
   if (isLoading) {
     return (
@@ -485,8 +499,8 @@ function TriggerNodeCaseTriggersTable({
 
   return (
     <Table>
-      <TableHeader>
-        <TableRow>
+      <TableHeader className="[&_tr]:border-b-0">
+        <TableRow className="border-b-0">
           <TableHead className="h-8 text-center text-xs" colSpan={2}>
             <div className="flex items-center justify-center gap-1">
               <SquarePlay className="size-3" />
@@ -502,39 +516,13 @@ function TriggerNodeCaseTriggersTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {eventTypes.length === 0 ? (
+        {!hasConfig && (
           <TableRow className="justify-center text-xs text-muted-foreground">
             <TableCell className="h-8 bg-muted-foreground/5 text-center">
-              No events
+              No case triggers
             </TableCell>
           </TableRow>
-        ) : (
-          eventTypes.map((eventType) => (
-            <TableRow
-              key={eventType}
-              className="items-center text-center text-xs text-muted-foreground"
-            >
-              <TableCell>
-                <div className="flex w-full items-center justify-center gap-2">
-                  <span>{formatCaseEventLabel(eventType)}</span>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))
         )}
-        {tags.map((tag) => (
-          <TableRow
-            key={tag}
-            className="items-center text-center text-xs text-muted-foreground"
-          >
-            <TableCell>
-              <div className="flex w-full items-center justify-center gap-2">
-                <Tag className="size-3" />
-                <span>{tag}</span>
-              </div>
-            </TableCell>
-          </TableRow>
-        ))}
       </TableBody>
     </Table>
   )
