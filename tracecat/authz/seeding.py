@@ -210,7 +210,7 @@ async def seed_system_scopes(session: AsyncSession) -> int:
             "resource": resource,
             "action": action,
             "description": description,
-            "source": ScopeSource.SYSTEM,
+            "source": ScopeSource.PLATFORM,
             "source_ref": None,
             "organization_id": None,
         }
@@ -244,6 +244,7 @@ async def seed_registry_scope(
 
     Creates a scope for `action:{action_key}:execute` if it doesn't exist.
     Registry scopes have organization_id=NULL and source='registry'.
+    Uses upsert (ON CONFLICT DO NOTHING) for concurrency safety.
 
     Args:
         session: Database session
@@ -251,35 +252,40 @@ async def seed_registry_scope(
         description: Optional description for the scope
 
     Returns:
-        The created or existing Scope, or None if upsert had no effect
+        The created or existing Scope
     """
     scope_name = f"action:{action_key}:execute"
+    scope_id = uuid4()
 
-    # Check if scope already exists
-    stmt = select(Scope).where(
-        Scope.name == scope_name, Scope.organization_id.is_(None)
-    )
-    result = await session.execute(stmt)
-    existing = result.scalar_one_or_none()
-
-    if existing:
-        return existing
-
-    # Create new scope
-    scope = Scope(
-        id=uuid4(),
+    # Use upsert for concurrency safety
+    stmt = pg_insert(Scope).values(
+        id=scope_id,
         name=scope_name,
         resource="action",
         action="execute",
         description=description or f"Execute {action_key} action",
-        source=ScopeSource.REGISTRY,
+        source=ScopeSource.PLATFORM,
         source_ref=action_key,
         organization_id=None,
     )
-    session.add(scope)
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=["name"], index_where=Scope.organization_id.is_(None)
+    )
+    result = await session.execute(stmt)
     await session.flush()
 
-    logger.debug("Registry scope created", scope_name=scope_name, action_key=action_key)
+    # Re-query to get the scope (whether newly inserted or already existing)
+    select_stmt = select(Scope).where(
+        Scope.name == scope_name, Scope.organization_id.is_(None)
+    )
+    select_result = await session.execute(select_stmt)
+    scope = select_result.scalar_one_or_none()
+
+    if result.rowcount and result.rowcount > 0:  # pyright: ignore[reportAttributeAccessIssue]
+        logger.debug(
+            "Registry scope created", scope_name=scope_name, action_key=action_key
+        )
+
     return scope
 
 
@@ -311,7 +317,7 @@ async def seed_registry_scopes_bulk(
             "resource": "action",
             "action": "execute",
             "description": f"Execute {key} action",
-            "source": ScopeSource.REGISTRY,
+            "source": ScopeSource.PLATFORM,
             "source_ref": key,
             "organization_id": None,
         }
@@ -343,8 +349,9 @@ async def seed_system_roles_for_org(
 ) -> int:
     """Seed system roles (Admin, Editor, Viewer) for an organization.
 
-    Creates the three system roles with their associated scopes if they don't exist.
+    Creates the system roles with their associated scopes if they don't exist.
     System roles are identified by their well-known slugs.
+    Uses upsert (ON CONFLICT DO NOTHING) for concurrency safety.
 
     Args:
         session: Database session
@@ -366,36 +373,52 @@ async def seed_system_roles_for_org(
 
     roles_created = 0
 
-    for slug, name, description, scope_names in PRESET_ROLE_DEFINITIONS:
-        # Check if role already exists
-        existing_stmt = select(Role.id).where(
-            Role.organization_id == organization_id,
-            Role.slug == slug,
+    # Prepare role values with pre-generated IDs
+    role_values = []
+    role_id_by_slug: dict[str, UUID] = {}
+    for slug, name, description, _ in PRESET_ROLE_DEFINITIONS:
+        role_id = uuid4()
+        role_id_by_slug[slug] = role_id
+        role_values.append(
+            {
+                "id": role_id,
+                "name": name,
+                "slug": slug,
+                "description": description,
+                "organization_id": organization_id,
+                "created_by": None,  # System-created
+            }
         )
-        existing_result = await session.execute(existing_stmt)
-        existing_role_id = existing_result.scalar_one_or_none()
 
-        if existing_role_id is not None:
-            logger.debug(
-                "System role already exists",
+    # Bulk upsert roles - concurrency safe
+    role_stmt = pg_insert(Role).values(role_values)
+    role_stmt = role_stmt.on_conflict_do_nothing(
+        index_elements=["organization_id", "slug"]
+    )
+    result = await session.execute(role_stmt)
+    roles_created = result.rowcount if result.rowcount else 0  # pyright: ignore[reportAttributeAccessIssue]
+
+    # Re-query to get actual role IDs (may differ if roles already existed)
+    existing_roles_stmt = select(Role.id, Role.slug).where(
+        Role.organization_id == organization_id,
+        Role.slug.in_([slug for slug, _, _, _ in PRESET_ROLE_DEFINITIONS]),
+    )
+    existing_roles_result = await session.execute(existing_roles_stmt)
+    actual_role_id_by_slug: dict[str | None, UUID] = {
+        slug: role_id for role_id, slug in existing_roles_result.tuples().all()
+    }
+
+    # Link scopes to roles
+    for slug, _, _, scope_names in PRESET_ROLE_DEFINITIONS:
+        role_id = actual_role_id_by_slug.get(slug)
+        if role_id is None:
+            logger.warning(
+                "Role not found after upsert",
                 slug=slug,
                 organization_id=organization_id,
             )
             continue
 
-        # Create the role
-        role = Role(
-            id=uuid4(),
-            name=name,
-            slug=slug,
-            description=description,
-            organization_id=organization_id,
-            created_by=None,  # System-created
-        )
-        session.add(role)
-        await session.flush()  # Get the role ID
-
-        # Link scopes to the role
         role_scope_values = []
         for scope_name in scope_names:
             scope_id = scope_name_to_id.get(scope_name)
@@ -406,20 +429,12 @@ async def seed_system_roles_for_org(
                     role_slug=slug,
                 )
                 continue
-            role_scope_values.append({"role_id": role.id, "scope_id": scope_id})
+            role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
 
         if role_scope_values:
             role_scope_stmt = pg_insert(RoleScope).values(role_scope_values)
             role_scope_stmt = role_scope_stmt.on_conflict_do_nothing()
             await session.execute(role_scope_stmt)
-
-        roles_created += 1
-        logger.debug(
-            "System role created",
-            slug=slug,
-            organization_id=organization_id,
-            num_scopes=len(role_scope_values),
-        )
 
     await session.commit()
     logger.info(
