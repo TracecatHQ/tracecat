@@ -4,7 +4,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.enums import WorkspaceRole
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 
@@ -36,8 +36,7 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
             # Also grant ADMIN access if user is an org owner/admin
             # This allows org owners/admins to perform org-level admin operations
             # (like creating workspaces) without requiring platform admin privileges
-            is_org_admin = user_role.org_role in (OrgRole.OWNER, OrgRole.ADMIN)
-            if not (level == AccessLevel.ADMIN and is_org_admin):
+            if not (level == AccessLevel.ADMIN and user_role.is_org_admin):
                 raise TracecatAuthorizationError(
                     f"User does not have required access level: {level.name}"
                 )
