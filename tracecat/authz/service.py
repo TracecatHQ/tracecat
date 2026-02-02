@@ -70,6 +70,12 @@ class MembershipService(BaseService):
 
         Roles are looked up from UserRoleAssignment table.
         """
+        # Get workspace to determine organization_id
+        workspace = await self.session.get(Workspace, workspace_id)
+        if workspace is None:
+            return []
+        organization_id = workspace.organization_id
+
         # Get all members of the workspace
         members_stmt = (
             select(User)
@@ -84,6 +90,7 @@ class MembershipService(BaseService):
 
         # Get role assignments for these users in this workspace
         # Include both workspace-specific assignments and org-wide assignments (workspace_id IS NULL)
+        # Filter by organization_id to ensure we only get roles from this org
         user_ids = [u.id for u in users]
         role_stmt = (
             select(
@@ -94,6 +101,7 @@ class MembershipService(BaseService):
             .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
             .where(
                 UserRoleAssignment.user_id.in_(user_ids),
+                UserRoleAssignment.organization_id == organization_id,
                 or_(
                     UserRoleAssignment.workspace_id == workspace_id,
                     UserRoleAssignment.workspace_id.is_(None),

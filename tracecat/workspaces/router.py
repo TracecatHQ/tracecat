@@ -10,12 +10,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.auth.types import Role
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import SLUG_TO_WORKSPACE_ROLE, MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as RoleModel
-from tracecat.db.models import UserRoleAssignment
+from tracecat.db.models import UserRoleAssignment, Workspace
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatManagementError,
@@ -246,6 +246,14 @@ async def list_workspace_memberships(
     session: AsyncDBSession,
 ) -> list[WorkspaceMembershipRead]:
     """List memberships of a workspace."""
+    # Get workspace to determine organization_id
+    workspace = await session.get(Workspace, workspace_id)
+    if workspace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+
     service = MembershipService(session, role=role)
     memberships = await service.list_memberships(workspace_id)
 
@@ -254,6 +262,7 @@ async def list_workspace_memberships(
 
     # Look up roles from RBAC tables
     # Include both workspace-specific assignments and org-wide assignments (workspace_id IS NULL)
+    # Filter by organization_id to ensure we only get roles from this org
     user_ids = [m.user_id for m in memberships]
     role_stmt = (
         select(
@@ -264,6 +273,7 @@ async def list_workspace_memberships(
         .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
         .where(
             UserRoleAssignment.user_id.in_(user_ids),
+            UserRoleAssignment.organization_id == workspace.organization_id,
             or_(
                 UserRoleAssignment.workspace_id == workspace_id,
                 UserRoleAssignment.workspace_id.is_(None),
@@ -380,11 +390,13 @@ async def get_workspace_membership(
 
     # Look up role from RBAC tables
     # Include both workspace-specific assignments and org-wide assignments (workspace_id IS NULL)
+    # Filter by organization_id to ensure we only get roles from this org
     role_stmt = (
         select(UserRoleAssignment.workspace_id, RoleModel.slug)
-        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+        .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
         .where(
             UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == membership_with_org.org_id,
             or_(
                 UserRoleAssignment.workspace_id == workspace_id,
                 UserRoleAssignment.workspace_id.is_(None),
@@ -397,6 +409,9 @@ async def get_workspace_membership(
     # Prefer workspace-specific assignment over org-wide
     slug: str | None = None
     for ws_id, role_slug in rows:
+        if role_slug is None:
+            # Skip assignments without a slug (custom roles)
+            continue
         if ws_id is not None:
             # Workspace-specific assignment takes precedence
             slug = role_slug
