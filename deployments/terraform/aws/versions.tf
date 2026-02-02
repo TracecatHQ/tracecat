@@ -37,13 +37,6 @@ locals {
   aws_role_arn = var.aws_role_name != null && var.aws_account_id != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
 }
 
-check "cross_account_config" {
-  assert {
-    condition     = var.aws_role_name == null || var.aws_account_id != null
-    error_message = "aws_account_id is required when aws_role_name is set for cross-account deployment"
-  }
-}
-
 provider "aws" {
   region = var.aws_region
 

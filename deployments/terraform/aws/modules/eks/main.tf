@@ -12,7 +12,7 @@ data "http" "rds_ca_bundle" {
 }
 
 locals {
-  aws_region     = data.aws_region.current.name
+  aws_region     = data.aws_region.current.region
   aws_account_id = data.aws_caller_identity.current.account_id
 
   # RDS identifier suffix to avoid clashes during snapshot restore
