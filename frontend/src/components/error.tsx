@@ -7,7 +7,10 @@ import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 // Error components must be Client Components
 import { useEffect } from "react"
-import { ApiError, type OrgRead } from "@/client"
+import {
+  ApiError,
+  type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
+} from "@/client"
 import { type AlertLevel, AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import { useAdminOrganizations } from "@/hooks/use-admin"

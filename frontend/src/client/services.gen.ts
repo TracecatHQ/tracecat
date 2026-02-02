@@ -308,6 +308,7 @@ import type {
   OrganizationGetInvitationByTokenResponse,
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
+  OrganizationGetOrganizationResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListOrgMembersResponse,
@@ -462,16 +463,22 @@ import type {
   TagsListTagsResponse,
   TagsUpdateTagData,
   TagsUpdateTagResponse,
+  TriggersCreateCaseTriggerData,
+  TriggersCreateCaseTriggerResponse,
   TriggersCreateWebhookData,
   TriggersCreateWebhookResponse,
   TriggersDeleteWebhookApiKeyData,
   TriggersDeleteWebhookApiKeyResponse,
   TriggersGenerateWebhookApiKeyData,
   TriggersGenerateWebhookApiKeyResponse,
+  TriggersGetCaseTriggerData,
+  TriggersGetCaseTriggerResponse,
   TriggersGetWebhookData,
   TriggersGetWebhookResponse,
   TriggersRevokeWebhookApiKeyData,
   TriggersRevokeWebhookApiKeyResponse,
+  TriggersUpdateCaseTriggerData,
+  TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
   UsersSearchUserData,
@@ -781,6 +788,7 @@ export const publicReceiveInteraction = (
  * ------------
  * - Basic: Can list workspaces where they are a member.
  * - Admin: Can list all workspaces regardless of membership.
+ * - Org Owner/Admin: Can list all workspaces in the organization.
  * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
@@ -1547,6 +1555,93 @@ export const triggersUpdateWebhook = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/workflows/{workflow_id}/webhook",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Case Trigger
+ * Create or replace the case trigger configuration for a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersCreateCaseTrigger = (
+  data: TriggersCreateCaseTriggerData
+): CancelablePromise<TriggersCreateCaseTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/case-trigger",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Case Trigger
+ * Get the case trigger configuration for a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns CaseTriggerRead Successful Response
+ * @throws ApiError
+ */
+export const triggersGetCaseTrigger = (
+  data: TriggersGetCaseTriggerData
+): CancelablePromise<TriggersGetCaseTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/{workflow_id}/case-trigger",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Case Trigger
+ * Update the case trigger configuration for a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const triggersUpdateCaseTrigger = (
+  data: TriggersUpdateCaseTriggerData
+): CancelablePromise<TriggersUpdateCaseTriggerResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workflows/{workflow_id}/case-trigger",
     path: {
       workflow_id: data.workflowId,
     },
@@ -2924,7 +3019,7 @@ export const tagsDeleteTag = (
 
 /**
  * Search User
- * Create new user.
+ * Search for a user by email.
  * @param data The data for the request.
  * @param data.email
  * @param data.workspaceId
@@ -2948,11 +3043,30 @@ export const usersSearchUser = (
 }
 
 /**
+ * Get Organization
+ * Get the current organization.
+ *
+ * Returns basic information about the organization the authenticated user belongs to.
+ * @returns tracecat__organization__schemas__OrgRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrganization =
+  (): CancelablePromise<OrganizationGetOrganizationResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization",
+    })
+  }
+
+/**
  * Get Current Org Member
  * Get the current user's organization membership.
  *
  * Returns the organization membership details for the authenticated user,
  * including their org role (member, admin, or owner).
+ *
+ * This endpoint doesn't require admin access - any authenticated org member
+ * can view their own membership details.
  * @returns OrgMemberRead Successful Response
  * @throws ApiError
  */
@@ -3903,7 +4017,7 @@ export const approvalsSubmitApprovals = (
 /**
  * List Organizations
  * List all organizations.
- * @returns OrgRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgRead Successful Response
  * @throws ApiError
  */
 export const adminListOrganizations =
@@ -3919,7 +4033,7 @@ export const adminListOrganizations =
  * Create a new organization.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgRead Successful Response
  * @throws ApiError
  */
 export const adminCreateOrganization = (
@@ -3941,7 +4055,7 @@ export const adminCreateOrganization = (
  * Get organization by ID.
  * @param data The data for the request.
  * @param data.orgId
- * @returns OrgRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgRead Successful Response
  * @throws ApiError
  */
 export const adminGetOrganization = (
@@ -3965,7 +4079,7 @@ export const adminGetOrganization = (
  * @param data The data for the request.
  * @param data.orgId
  * @param data.requestBody
- * @returns OrgRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgRead Successful Response
  * @throws ApiError
  */
 export const adminUpdateOrganization = (

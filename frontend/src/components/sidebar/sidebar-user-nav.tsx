@@ -9,12 +9,19 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrganization } from "@/hooks/use-organization"
 
 export function SidebarUserNav() {
   const { user } = useAuth()
   const { setOpen } = useSettingsModal()
+  const { organization, isLoading } = useOrganization()
 
   return (
     <SidebarMenu>
@@ -29,12 +36,19 @@ export function SidebarUserNav() {
 
       {user?.isSuperuser && (
         <SidebarMenuItem>
-          <SidebarMenuButton asChild tooltip="Admin">
-            <Link href="/admin">
-              <ShieldCheckIcon className="size-4" />
-              <span>Admin</span>
-            </Link>
-          </SidebarMenuButton>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <SidebarMenuButton asChild>
+                <Link href="/admin">
+                  <ShieldCheckIcon className="size-4" />
+                  <span>Admin</span>
+                </Link>
+              </SidebarMenuButton>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {isLoading ? "..." : (organization?.name ?? "Organization")}
+            </TooltipContent>
+          </Tooltip>
         </SidebarMenuItem>
       )}
 
