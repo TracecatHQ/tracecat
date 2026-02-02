@@ -1,16 +1,9 @@
 "use client"
 
-import { ScopeGuard } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { WorkspaceMembersTable } from "@/components/workspaces/workspace-members-table"
-import { WorkspaceRbacGroups } from "@/components/workspaces/workspace-rbac-groups"
-import { WorkspaceRbacRoles } from "@/components/workspaces/workspace-rbac-roles"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
-
-const tabTriggerClassName =
-  "rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 
 export default function WorkspaceMembersPage() {
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
@@ -39,40 +32,7 @@ export default function WorkspaceMembersPage() {
             </p>
           </div>
         </div>
-        <Tabs defaultValue="members" className="w-full">
-          <TabsList className="inline-flex h-auto w-auto justify-start gap-0 rounded-none border-b border-border/30 bg-transparent p-0">
-            <TabsTrigger value="members" className={tabTriggerClassName}>
-              Members
-            </TabsTrigger>
-            <ScopeGuard
-              scope="workspace:rbac:read"
-              fallback={null}
-              loading={null}
-            >
-              <TabsTrigger value="roles" className={tabTriggerClassName}>
-                Roles
-              </TabsTrigger>
-              <TabsTrigger value="groups" className={tabTriggerClassName}>
-                Groups
-              </TabsTrigger>
-            </ScopeGuard>
-          </TabsList>
-          <TabsContent value="members" className="mt-6">
-            <WorkspaceMembersTable workspace={workspace} />
-          </TabsContent>
-          <ScopeGuard
-            scope="workspace:rbac:read"
-            fallback={null}
-            loading={null}
-          >
-            <TabsContent value="roles" className="mt-6">
-              <WorkspaceRbacRoles workspaceId={workspace.id} />
-            </TabsContent>
-            <TabsContent value="groups" className="mt-6">
-              <WorkspaceRbacGroups workspaceId={workspace.id} />
-            </TabsContent>
-          </ScopeGuard>
-        </Tabs>
+        <WorkspaceMembersTable workspace={workspace} />
       </div>
     </div>
   )
