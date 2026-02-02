@@ -31,6 +31,10 @@ import {
   type WorkflowRead,
 } from "@/client"
 import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
+import {
+  type TriggerPanelTab,
+  TriggerPanelTabs,
+} from "@/components/builder/panel/trigger-panel-tabs"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -105,6 +109,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -112,7 +117,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useCaseTagCatalog,
   useCaseTrigger,
@@ -132,10 +136,6 @@ import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
-import {
-  type TriggerPanelTab,
-  TriggerPanelTabs,
-} from "@/components/builder/panel/trigger-panel-tabs"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 
@@ -466,10 +466,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
               <ScheduleControls workflowId={workflow.id} />
             </div>
           </TabsContent>
-          <TabsContent
-            value={TriggerPanelTabs.caseTriggers}
-            className="pb-8"
-          >
+          <TabsContent value={TriggerPanelTabs.caseTriggers} className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <CaseTriggerControls workflowId={workflow.id} />
             </div>
@@ -726,7 +723,9 @@ export function WebhookControls({
             <FormItem>
               <div className="flex items-center justify-between gap-4 rounded-md border p-3">
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold">Enable webhook</Label>
+                  <Label className="text-xs font-semibold">
+                    Enable webhook
+                  </Label>
                   <p className="text-xs text-muted-foreground">
                     {field.value === "online"
                       ? "Webhook is currently active and receiving requests"
