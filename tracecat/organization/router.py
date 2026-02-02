@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
@@ -51,7 +51,7 @@ OrgAdminRole = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
 ]
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.controls import require_access_level, require_workspace_role
+from tracecat.authz.controls import require_org_role, require_workspace_role
 from tracecat.authz.enums import OrgRole, OwnerType, WorkspaceRole
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
@@ -45,7 +45,7 @@ class WorkspaceService(BaseOrgService):
     service_name = "workspace"
     _load_only = ["id", "name"]
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def admin_list_workspaces(
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
@@ -89,7 +89,7 @@ class WorkspaceService(BaseOrgService):
         return result.scalars().all()
 
     @audit_log(resource_type="workspace", action="create")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def create_workspace(
         self,
         name: str,
@@ -148,7 +148,7 @@ class WorkspaceService(BaseOrgService):
         return result.scalar_one_or_none()
 
     @audit_log(resource_type="workspace", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_workspace(
         self, workspace: Workspace, params: WorkspaceUpdate
     ) -> Workspace:
@@ -163,7 +163,7 @@ class WorkspaceService(BaseOrgService):
         return workspace
 
     @audit_log(resource_type="workspace", action="delete")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         all_workspaces = await self.admin_list_workspaces()

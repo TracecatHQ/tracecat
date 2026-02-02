@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import Role
 from tracecat.auth.enums import AuthType
-from tracecat.auth.types import AccessLevel
+from tracecat.authz.enums import OrgRole
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
@@ -37,7 +37,7 @@ OrgAdminUserRole = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
 ]
 

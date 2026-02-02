@@ -1,10 +1,11 @@
 import asyncio
 import functools
+import warnings
 from collections.abc import Callable, Coroutine
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 
@@ -22,7 +23,15 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
     """Decorator that protects a `Service` method with a minimum access level requirement.
 
     If the caller does not have at least the required access level, a TracecatAuthorizationError is raised.
+
+    .. deprecated::
+        Use `@require_org_role` instead. This decorator will be removed in a future version.
     """
+    warnings.warn(
+        "require_access_level is deprecated, use require_org_role instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     def check(self: HasRole):
         if not hasattr(self, "role"):
@@ -33,14 +42,64 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
 
         user_role = self.role
         if user_role.access_level < level:
-            # Also grant ADMIN access if user is an org owner/admin
-            # This allows org owners/admins to perform org-level admin operations
-            # (like creating workspaces) without requiring platform admin privileges
-            if not (level == AccessLevel.ADMIN and user_role.is_org_admin):
-                raise TracecatAuthorizationError(
-                    f"User does not have required access level: {level.name}"
-                )
+            raise TracecatAuthorizationError(
+                f"User does not have required access level: {level.name}"
+            )
         logger.debug("Access level ok", user_id=user_role.user_id, level=level.name)
+
+    def decorator(fn: T) -> T:
+        if asyncio.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def async_wrapper(self: HasRole, *args, **kwargs):
+                check(self)
+                return await fn(self, *args, **kwargs)
+
+            return cast(T, async_wrapper)
+
+        else:
+
+            @functools.wraps(fn)
+            def wrapper(self: HasRole, *args, **kwargs):
+                check(self)
+                return fn(self, *args, **kwargs)
+
+            return cast(T, wrapper)
+
+    return decorator
+
+
+def require_org_role(*roles: OrgRole) -> Callable[[T], T]:
+    """Decorator that protects a Service method with an org role requirement.
+
+    If the caller does not have a required org role, a TracecatAuthorizationError is raised.
+    Platform superusers bypass this check.
+    """
+
+    def check(self: HasRole):
+        if not hasattr(self, "role"):
+            raise AttributeError("Service must have a 'role' attribute")
+        if not isinstance(self.role, Role):
+            raise ValueError("Invalid role type")
+
+        user_role = self.role
+        # Platform superusers bypass org role checks
+        if user_role.is_platform_superuser:
+            logger.debug(
+                "Platform superuser bypassing org role check",
+                user_id=user_role.user_id,
+            )
+            return
+
+        if user_role.org_role not in roles:
+            raise TracecatAuthorizationError(
+                f"User does not have required org role: {roles}"
+            )
+        logger.debug(
+            "Org role check ok",
+            user_id=user_role.user_id,
+            org_role=user_role.org_role,
+        )
 
     def decorator(fn: T) -> T:
         if asyncio.iscoroutinefunction(fn):

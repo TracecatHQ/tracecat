@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.api_keys import generate_api_key
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.controls import require_access_level
+from tracecat.auth.types import Role
+from tracecat.authz.controls import require_org_role
+from tracecat.authz.enums import OrgRole
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.models import OrganizationSetting
@@ -178,7 +179,7 @@ class SettingsService(BaseOrgService):
         return setting
 
     @audit_log(resource_type="organization_setting", action="create")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
@@ -211,7 +212,7 @@ class SettingsService(BaseOrgService):
         return setting
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_org_setting(
         self, setting: OrganizationSetting, params: SettingUpdate
     ) -> OrganizationSetting:
@@ -231,7 +232,7 @@ class SettingsService(BaseOrgService):
         return updated_setting
 
     @audit_log(resource_type="organization_setting", action="delete")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_org_setting(self, setting: OrganizationSetting) -> None:
         """Delete an organization setting."""
         if setting.key in self._system_keys():
@@ -266,7 +267,7 @@ class SettingsService(BaseOrgService):
         await self.session.commit()
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_git_settings(self, params: GitSettingsUpdate) -> None:
         self.logger.info(f"Updating Git settings: {params}")
         # Ignore read-only fields
@@ -274,37 +275,37 @@ class SettingsService(BaseOrgService):
         await self._update_grouped_settings(git_settings, params)
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_saml_settings(self, params: SAMLSettingsUpdate) -> None:
         saml_settings = await self.list_org_settings(keys=SAMLSettingsUpdate.keys())
         await self._update_grouped_settings(saml_settings, params)
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
         audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
         await self._update_grouped_settings(audit_settings, params)
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_auth_settings(self, params: AuthSettingsUpdate) -> None:
         auth_settings = await self.list_org_settings(keys=AuthSettingsUpdate.keys())
         await self._update_grouped_settings(auth_settings, params)
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_oauth_settings(self, params: OAuthSettingsUpdate) -> None:
         oauth_settings = await self.list_org_settings(keys=OAuthSettingsUpdate.keys())
         await self._update_grouped_settings(oauth_settings, params)
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
 
     @audit_log(resource_type="organization_setting", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
@@ -312,7 +313,7 @@ class SettingsService(BaseOrgService):
     # Audit API Key Management
 
     @audit_log(resource_type="organization_setting", action="create")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def generate_audit_api_key(self) -> AuditApiKeyGenerateResponse:
         """Generate a new API key for the audit webhook.
 
@@ -386,7 +387,7 @@ class SettingsService(BaseOrgService):
         )
 
     @audit_log(resource_type="organization_setting", action="delete")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def revoke_audit_api_key(self) -> None:
         """Revoke the current audit webhook API key."""
         # Clear all API key related settings

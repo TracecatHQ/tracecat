@@ -41,6 +41,7 @@ from tracecat import config
 from tracecat.api.app import app
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import OrgRole
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
@@ -52,6 +53,7 @@ async def table_test_role(svc_workspace: Workspace) -> Role:
     return Role(
         type="service",
         access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),

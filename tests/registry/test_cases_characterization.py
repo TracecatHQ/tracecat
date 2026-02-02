@@ -65,6 +65,7 @@ from tracecat.auth.dependencies import (
     WorkspaceUserRole,
 )
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import OrgRole
 from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionCreate,
     CaseDurationEventAnchor,
@@ -89,6 +90,7 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
     return Role(
         type="service",
         access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
