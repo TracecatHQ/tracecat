@@ -34,6 +34,7 @@ Session.vim
 .netrwhist
 
 # Chart dependencies
-**/charts/*.tgz
+# Note: chart tarballs are committed for TFC remote execution
+# **/charts/*.tgz
 
 .history
