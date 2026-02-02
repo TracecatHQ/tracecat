@@ -71,7 +71,13 @@ import {
   useRbacRoles,
 } from "@/lib/hooks"
 
-export function WorkspaceRbacGroups({ workspaceId }: { workspaceId: string }) {
+export function WorkspaceRbacGroups({
+  workspaceId,
+  hideCreateButton = false,
+}: {
+  workspaceId: string
+  hideCreateButton?: boolean
+}) {
   const [selectedGroup, setSelectedGroup] =
     useState<GroupReadWithMembers | null>(null)
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
@@ -193,12 +199,14 @@ export function WorkspaceRbacGroups({ workspaceId }: { workspaceId: string }) {
               </div>
             }
             right={
-              <DialogTrigger asChild>
-                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                  <PlusIcon className="mr-2 size-4" />
-                  Create group
-                </Button>
-              </DialogTrigger>
+              hideCreateButton ? null : (
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                    <PlusIcon className="mr-2 size-4" />
+                    Create group
+                  </Button>
+                </DialogTrigger>
+              )
             }
           />
 

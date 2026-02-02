@@ -41,7 +41,13 @@ import { groupScopesByResource } from "@/lib/rbac"
 
 const workspaceCategoryFilter = (key: string) => key !== "organization"
 
-export function WorkspaceRbacRoles({ workspaceId }: { workspaceId: string }) {
+export function WorkspaceRbacRoles({
+  workspaceId,
+  hideCreateButton = false,
+}: {
+  workspaceId: string
+  hideCreateButton?: boolean
+}) {
   const [selectedRole, setSelectedRole] = useState<RoleReadWithScopes | null>(
     null
   )
@@ -162,12 +168,14 @@ export function WorkspaceRbacRoles({ workspaceId }: { workspaceId: string }) {
               </div>
             }
             right={
-              <DialogTrigger asChild>
-                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                  <PlusIcon className="mr-2 size-4" />
-                  Create role
-                </Button>
-              </DialogTrigger>
+              hideCreateButton ? null : (
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                    <PlusIcon className="mr-2 size-4" />
+                    Create role
+                  </Button>
+                </DialogTrigger>
+              )
             }
           />
 
