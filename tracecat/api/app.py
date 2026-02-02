@@ -66,6 +66,7 @@ from tracecat.cases.tag_definitions.router import (
 )
 from tracecat.cases.tags.internal_router import router as internal_case_tags_router
 from tracecat.cases.tags.router import router as case_tags_router
+from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.router import router as editor_router
@@ -156,6 +157,14 @@ async def lifespan(app: FastAPI):
     )
     logger.debug("Spawned background task for platform registry sync")
 
+    case_trigger_task = None
+    if config.TRACECAT__CASE_TRIGGERS_ENABLED:
+        case_trigger_task = asyncio.create_task(
+            start_case_trigger_consumer(),
+            name="case_trigger_consumer",
+        )
+        logger.debug("Spawned background task for case trigger consumer")
+
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
@@ -192,6 +201,15 @@ async def lifespan(app: FastAPI):
             logger.warning(
                 "Platform registry sync task failed before shutdown", error=e
             )
+
+    if case_trigger_task is not None:
+        case_trigger_task.cancel()
+        try:
+            await case_trigger_task
+        except asyncio.CancelledError:
+            logger.debug("Case trigger consumer task cancelled")
+        except Exception as e:
+            logger.warning("Case trigger consumer stopped with error", error=e)
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):

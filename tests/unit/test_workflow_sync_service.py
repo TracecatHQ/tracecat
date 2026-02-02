@@ -528,6 +528,7 @@ class TestWorkflowImportServiceFolders:
         )
         workflow_import_service._create_schedules = AsyncMock()
         workflow_import_service._update_webhook = AsyncMock()
+        workflow_import_service._update_case_trigger = AsyncMock()
         workflow_import_service._create_tags = AsyncMock()
 
         with patch(
@@ -566,6 +567,7 @@ class TestWorkflowImportServiceFolders:
         workflow_import_service._ensure_folder_exists = AsyncMock()
         workflow_import_service._create_schedules = AsyncMock()
         workflow_import_service._update_webhook = AsyncMock()
+        workflow_import_service._update_case_trigger = AsyncMock()
         workflow_import_service._create_tags = AsyncMock()
 
         with patch(

@@ -65,6 +65,7 @@ import { useWorkflow } from "@/providers/workflow"
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172
 const defaultNodeHeight = 36
+const triggerNodeAutoLayoutGap = 64
 
 const fitViewOptions: FitViewOptions = {
   minZoom: 0.75,
@@ -122,6 +123,30 @@ function getLayoutedElements(
 
     return newNode
   })
+
+  if (!isHorizontal) {
+    const triggerNode = newNodes.find((node) => node.type === TriggerTypename)
+    if (triggerNode) {
+      const triggerY = triggerNode.position.y
+      const adjustedNodes = newNodes.map((node) => {
+        if (node.id === triggerNode.id) {
+          return node
+        }
+        if (node.position.y <= triggerY) {
+          return node
+        }
+        return {
+          ...node,
+          position: {
+            ...node.position,
+            y: node.position.y + triggerNodeAutoLayoutGap,
+          },
+        }
+      })
+
+      return { nodes: adjustedNodes, edges }
+    }
+  }
 
   return { nodes: newNodes, edges }
 }

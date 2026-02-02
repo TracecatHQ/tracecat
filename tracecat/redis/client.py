@@ -2,14 +2,14 @@
 
 import asyncio
 import base64
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from typing import Any
 
 import boto3
 import redis.asyncio as redis
 from botocore.exceptions import ClientError
 from redis.asyncio.connection import ConnectionPool
-from redis.exceptions import RedisError
+from redis.exceptions import RedisError, ResponseError
 from redis.typing import KeyT, StreamIdT
 from tenacity import (
     retry,
@@ -207,6 +207,180 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type((RedisError, RuntimeError)),
     )
+    async def xgroup_create(
+        self,
+        stream_key: str,
+        group_name: str,
+        *,
+        id: str = "$",
+        mkstream: bool = True,
+        ignore_busygroup: bool = False,
+    ) -> bool:
+        """Create a consumer group for a Redis stream."""
+        try:
+            client = await self._get_client()
+            return await client.xgroup_create(
+                name=stream_key, groupname=group_name, id=id, mkstream=mkstream
+            )
+        except ResponseError as e:
+            if ignore_busygroup and "BUSYGROUP" in str(e):
+                logger.debug(
+                    "Redis consumer group already exists",
+                    stream_key=stream_key,
+                    group_name=group_name,
+                )
+                return False
+            logger.error(
+                "Failed to create Redis consumer group",
+                stream_key=stream_key,
+                group_name=group_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to create Redis consumer group",
+                stream_key=stream_key,
+                group_name=group_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def xreadgroup(
+        self,
+        group_name: str,
+        consumer_name: str,
+        streams: dict[KeyT, StreamIdT],
+        count: int | None = None,
+        block: int | None = None,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        """Read from Redis streams using a consumer group."""
+        try:
+            client = await self._get_client()
+            return await client.xreadgroup(
+                groupname=group_name,
+                consumername=consumer_name,
+                streams=streams,
+                count=count,
+                block=block,
+            )
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to read from Redis consumer group",
+                streams=list(streams.keys()),
+                group_name=group_name,
+                consumer_name=consumer_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def xack(
+        self, stream_key: str, group_name: str, message_ids: list[str]
+    ) -> int:
+        """Acknowledge messages in a consumer group."""
+        try:
+            client = await self._get_client()
+            return await client.xack(stream_key, group_name, *message_ids)
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to ack Redis stream messages",
+                stream_key=stream_key,
+                group_name=group_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def xpending_range(
+        self,
+        stream_key: str,
+        group_name: str,
+        min_id: str,
+        max_id: str,
+        count: int,
+        *,
+        consumer: str | None = None,
+        idle: int | None = None,
+    ) -> list[Any]:
+        """Fetch pending messages in a consumer group."""
+        try:
+            client = await self._get_client()
+            return await client.xpending_range(
+                name=stream_key,
+                groupname=group_name,
+                min=min_id,
+                max=max_id,
+                count=count,
+                consumername=consumer,
+                idle=idle,
+            )
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to fetch pending Redis messages",
+                stream_key=stream_key,
+                group_name=group_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def xclaim(
+        self,
+        stream_key: str,
+        group_name: str,
+        consumer_name: str,
+        min_idle_time: int,
+        message_ids: Sequence[StreamIdT],
+    ) -> list[tuple[str, dict[str, str]]]:
+        """Claim pending messages for a consumer."""
+        try:
+            client = await self._get_client()
+            return await client.xclaim(
+                name=stream_key,
+                groupname=group_name,
+                consumername=consumer_name,
+                min_idle_time=min_idle_time,
+                message_ids=list(message_ids),
+            )
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to claim Redis pending messages",
+                stream_key=stream_key,
+                group_name=group_name,
+                consumer_name=consumer_name,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
     async def xrange(
         self,
         stream_key: str,
@@ -255,6 +429,85 @@ class RedisClient:
             resolved = await value
             return bool(resolved)
         return bool(value)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def set_if_not_exists(
+        self, key: str, value: str, *, expire_seconds: int
+    ) -> bool:
+        """Set a value only if the key does not exist (SET NX)."""
+        try:
+            client = await self._get_client()
+            result = await client.set(name=key, value=value, nx=True, ex=expire_seconds)
+            return bool(result)
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to set Redis key if not exists",
+                key=key,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def set(
+        self,
+        key: str,
+        value: str,
+        *,
+        expire_seconds: int | None = None,
+    ) -> bool:
+        """Set a Redis key with an optional TTL."""
+        try:
+            client = await self._get_client()
+            result = await client.set(name=key, value=value, ex=expire_seconds)
+            return bool(result)
+        except (RedisError, RuntimeError) as e:
+            logger.error(
+                "Failed to set Redis key",
+                key=key,
+                error=str(e),
+            )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def exists(self, key: str) -> bool:
+        """Check if a Redis key exists."""
+        try:
+            client = await self._get_client()
+            result = await client.exists(key)
+            return bool(result)
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to check Redis key existence", key=key, error=str(e))
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def delete(self, key: str) -> int:
+        """Delete a Redis key."""
+        try:
+            client = await self._get_client()
+            return await client.delete(key)
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to delete Redis key", key=key, error=str(e))
+            await self._reset_connection()
+            raise
 
     async def close(self) -> None:
         """Close the Redis connection."""

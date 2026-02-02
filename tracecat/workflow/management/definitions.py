@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from temporalio import activity
 
-from tracecat.db.models import WorkflowDefinition
+from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers.workflow import WorkflowID
@@ -24,9 +25,17 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
     async def get_definition_by_workflow_id(
         self, workflow_id: WorkflowID, *, version: int | None = None
     ) -> WorkflowDefinition | None:
-        statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.workspace_id == self.workspace_id,
-            WorkflowDefinition.workflow_id == workflow_id,
+        statement = (
+            select(WorkflowDefinition)
+            .where(
+                WorkflowDefinition.workspace_id == self.workspace_id,
+                WorkflowDefinition.workflow_id == workflow_id,
+            )
+            .options(
+                selectinload(WorkflowDefinition.workflow).selectinload(
+                    Workflow.case_trigger
+                )
+            )
         )
         if version:
             statement = statement.where(WorkflowDefinition.version == version)

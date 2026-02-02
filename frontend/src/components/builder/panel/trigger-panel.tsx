@@ -13,33 +13,38 @@ import {
   MoreHorizontalIcon,
   PlusCircleIcon,
   RotateCcwIcon,
+  SquarePlay,
   Trash2Icon,
   WebhookIcon,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   $WebhookMethod,
   $WebhookStatus,
   ApiError,
+  type CaseEventType,
   type SchedulesCreateScheduleData,
   type WebhookMethod,
   type WebhookRead,
   type WorkflowRead,
 } from "@/client"
 import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
+import {
+  type TriggerPanelTab,
+  TriggerPanelTabs,
+} from "@/components/builder/panel/trigger-panel-tabs"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { CustomTagInput, type Tag } from "@/components/tags-input"
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
+  CustomTagInput,
+  MultiTagCommandInput,
+  type Suggestion,
+  type Tag,
+} from "@/components/tags-input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,6 +109,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -111,12 +117,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import {
+  useCaseTagCatalog,
+  useCaseTrigger,
   useDeleteWebhookApiKey,
   useGenerateWebhookApiKey,
   useRevokeWebhookApiKey,
   useSchedules,
   useUpdateWebhook,
+  useUpsertCaseTrigger,
 } from "@/lib/hooks"
 import {
   durationSchema,
@@ -124,10 +134,146 @@ import {
   durationToISOString,
 } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
+
+const CASE_EVENT_SUGGESTIONS: Suggestion[] = [
+  {
+    id: "case_created",
+    label: "Case created",
+    value: "case_created",
+    group: "Case",
+  },
+  {
+    id: "case_updated",
+    label: "Case updated",
+    value: "case_updated",
+    group: "Case",
+  },
+  {
+    id: "case_closed",
+    label: "Case closed",
+    value: "case_closed",
+    group: "Case",
+  },
+  {
+    id: "case_reopened",
+    label: "Case reopened",
+    value: "case_reopened",
+    group: "Case",
+  },
+  {
+    id: "case_viewed",
+    label: "Case viewed",
+    value: "case_viewed",
+    group: "Case",
+  },
+  {
+    id: "status_changed",
+    label: "Status changed",
+    value: "status_changed",
+    group: "Fields",
+  },
+  {
+    id: "priority_changed",
+    label: "Priority changed",
+    value: "priority_changed",
+    group: "Fields",
+  },
+  {
+    id: "severity_changed",
+    label: "Severity changed",
+    value: "severity_changed",
+    group: "Fields",
+  },
+  {
+    id: "fields_changed",
+    label: "Fields changed",
+    value: "fields_changed",
+    group: "Fields",
+  },
+  {
+    id: "assignee_changed",
+    label: "Assignee changed",
+    value: "assignee_changed",
+    group: "Fields",
+  },
+  {
+    id: "payload_changed",
+    label: "Payload changed",
+    value: "payload_changed",
+    group: "Fields",
+  },
+  {
+    id: "attachment_created",
+    label: "Attachment added",
+    value: "attachment_created",
+    group: "Attachments",
+  },
+  {
+    id: "attachment_deleted",
+    label: "Attachment removed",
+    value: "attachment_deleted",
+    group: "Attachments",
+  },
+  {
+    id: "tag_added",
+    label: "Tag added",
+    value: "tag_added",
+    group: "Tags",
+  },
+  {
+    id: "tag_removed",
+    label: "Tag removed",
+    value: "tag_removed",
+    group: "Tags",
+  },
+  {
+    id: "task_created",
+    label: "Task created",
+    value: "task_created",
+    group: "Tasks",
+  },
+  {
+    id: "task_deleted",
+    label: "Task deleted",
+    value: "task_deleted",
+    group: "Tasks",
+  },
+  {
+    id: "task_status_changed",
+    label: "Task status changed",
+    value: "task_status_changed",
+    group: "Tasks",
+  },
+  {
+    id: "task_priority_changed",
+    label: "Task priority changed",
+    value: "task_priority_changed",
+    group: "Tasks",
+  },
+  {
+    id: "task_workflow_changed",
+    label: "Task workflow changed",
+    value: "task_workflow_changed",
+    group: "Tasks",
+  },
+  {
+    id: "task_assignee_changed",
+    label: "Task assignee changed",
+    value: "task_assignee_changed",
+    group: "Tasks",
+  },
+  {
+    id: "dropdown_value_changed",
+    label: "Dropdown value changed",
+    value: "dropdown_value_changed",
+    group: "Dropdowns",
+  },
+]
 
 const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
   const maybeNormalized =
@@ -246,6 +392,9 @@ const formatScheduleDate = (value?: string | null) => {
 }
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
+  const { triggerPanelTab, setTriggerPanelTab } = useWorkflowBuilder()
+  const { isFeatureEnabled } = useFeatureFlag()
+
   return (
     <div className="overflow-auto size-full">
       <div className="grid grid-cols-3">
@@ -270,49 +419,66 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
           </h3>
         </div>
       </div>
-      <Separator />
-      {/* Metadata */}
-      <Accordion
-        type="multiple"
-        defaultValue={[
-          "trigger-settings",
-          "trigger-webhooks",
-          "trigger-schedules",
-        ]}
+      <Tabs
+        value={triggerPanelTab}
+        onValueChange={(value) => {
+          setTriggerPanelTab(value as TriggerPanelTab)
+        }}
+        className="mt-1 flex h-full w-full flex-col"
       >
-        {/* Webhooks */}
-        <AccordionItem value="trigger-webhooks" id="trigger-webhooks">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <WebhookIcon className="mr-3 size-4" />
-              <span>Webhook</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
+        <div className="w-full">
+          <div className="flex items-center justify-start">
+            <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value={TriggerPanelTabs.webhook}
+              >
+                <WebhookIcon className="mr-2 size-4" />
+                <span>Webhook</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value={TriggerPanelTabs.schedules}
+              >
+                <CalendarClockIcon className="mr-2 size-4" />
+                <span>Schedules</span>
+              </TabsTrigger>
+              {isFeatureEnabled("case-triggers") && (
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value={TriggerPanelTabs.caseTriggers}
+                >
+                  <SquarePlay className="mr-2 size-4" />
+                  <span>Case triggers</span>
+                </TabsTrigger>
+              )}
+            </TabsList>
+          </div>
+          <Separator />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <TabsContent value={TriggerPanelTabs.webhook} className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <WebhookControls
                 webhook={workflow.webhook}
                 workflowId={workflow.id}
               />
             </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Schedules */}
-        <AccordionItem value="trigger-schedules" id="trigger-schedules">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <CalendarClockIcon className="mr-3 size-4" />
-              <span>Schedules</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
+          </TabsContent>
+          <TabsContent value={TriggerPanelTabs.schedules} className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <ScheduleControls workflowId={workflow.id} />
             </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+          </TabsContent>
+          {isFeatureEnabled("case-triggers") && (
+            <TabsContent value={TriggerPanelTabs.caseTriggers} className="pb-8">
+              <div className="px-4 my-4 space-y-2">
+                <CaseTriggerControls workflowId={workflow.id} />
+              </div>
+            </TabsContent>
+          )}
+        </div>
+      </Tabs>
     </div>
   )
 }
@@ -561,10 +727,17 @@ export function WebhookControls({
           name="status"
           render={({ field }) => (
             <FormItem>
-              <div className="flex justify-between items-center">
-                <FormLabel className="flex gap-2 items-center text-xs font-medium">
-                  <span>Toggle Webhook</span>
-                </FormLabel>
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">
+                    Enable webhook
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {field.value === "online"
+                      ? "Webhook is currently active and receiving requests"
+                      : "Webhook is disabled"}
+                  </p>
+                </div>
                 <FormControl>
                   <Switch
                     checked={field.value === "online"}
@@ -574,11 +747,6 @@ export function WebhookControls({
                   />
                 </FormControl>
               </div>
-              <FormDescription className="text-xs">
-                {field.value === "online"
-                  ? "Webhook is currently active and receiving requests"
-                  : "Webhook is disabled"}
-              </FormDescription>
             </FormItem>
           )}
         />
@@ -589,7 +757,7 @@ export function WebhookControls({
           render={({ field }) => (
             <FormItem>
               <FormLabel className="flex gap-2 items-center text-xs font-medium">
-                <span>Allowed HTTP Methods</span>
+                <span>Allowed HTTP methods</span>
               </FormLabel>
               <FormControl>
                 <DropdownMenu>
@@ -648,7 +816,7 @@ export function WebhookControls({
           render={({ field }) => (
             <FormItem>
               <FormLabel className="text-xs font-medium">
-                <span>IP Allowlist</span>
+                <span>IP allowlist</span>
               </FormLabel>
               <FormControl>
                 <CustomTagInput
@@ -677,7 +845,7 @@ export function WebhookControls({
 
       <div className="space-y-3">
         <Label className="flex items-center gap-2 text-xs font-medium">
-          <span>API Key</span>
+          <span>API key</span>
         </Label>
         {hasActiveApiKey ? (
           <div className="rounded-lg border bg-muted/40 p-4 text-xs shadow-sm">
@@ -1018,6 +1186,201 @@ export function WebhookControls({
   )
 }
 
+export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
+  const workspaceId = useWorkspaceId()
+  const {
+    data: caseTrigger,
+    isLoading: isLoadingCaseTrigger,
+    error: caseTriggerError,
+  } = useCaseTrigger(workspaceId, workflowId)
+  const { mutateAsync: upsertCaseTrigger, isPending: isUpdatingCaseTrigger } =
+    useUpsertCaseTrigger(workspaceId, workflowId)
+  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
+
+  const [status, setStatus] = useState<"online" | "offline">("offline")
+  const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])
+  const [tagFilters, setTagFilters] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!caseTrigger) {
+      return
+    }
+    setStatus(caseTrigger.status)
+    setEventTypes(caseTrigger.event_types ?? [])
+    setTagFilters(caseTrigger.tag_filters ?? [])
+  }, [caseTrigger])
+
+  const persist = useCallback(
+    async (
+      nextStatus: "online" | "offline",
+      nextEvents: CaseEventType[],
+      nextTags: string[]
+    ) => {
+      await upsertCaseTrigger({
+        status: nextStatus,
+        event_types: nextEvents,
+        tag_filters: nextTags,
+      })
+    },
+    [upsertCaseTrigger]
+  )
+
+  const handleStatusToggle = useCallback(
+    async (checked: boolean) => {
+      const nextStatus = checked ? "online" : "offline"
+      if (nextStatus === "online" && eventTypes.length === 0) {
+        toast({
+          title: "Select case events",
+          description: "Choose at least one case event before enabling.",
+          variant: "destructive",
+        })
+        return
+      }
+      const previousStatus = status
+      setStatus(nextStatus)
+      try {
+        await persist(nextStatus, eventTypes, tagFilters)
+        toast({
+          title: "Case trigger updated",
+          description: `Case triggers are now ${nextStatus}.`,
+        })
+      } catch {
+        setStatus(previousStatus)
+      }
+    },
+    [eventTypes, persist, status, tagFilters]
+  )
+
+  const handleEventTypesChange = useCallback(
+    async (values: string[]) => {
+      const nextEvents = values as CaseEventType[]
+      const wasOnline = status === "online"
+      const nextStatus =
+        wasOnline && nextEvents.length === 0 ? "offline" : status
+
+      const previousEvents = eventTypes
+      const previousStatus = status
+      setEventTypes(nextEvents)
+      if (nextStatus !== status) {
+        setStatus(nextStatus)
+      }
+
+      try {
+        await persist(nextStatus, nextEvents, tagFilters)
+        if (wasOnline && nextEvents.length === 0) {
+          toast({
+            title: "Case triggers disabled",
+            description: "Select an event type to re-enable case triggers.",
+          })
+        } else {
+          toast({
+            title: "Case events updated",
+            description: "Case trigger events saved successfully.",
+          })
+        }
+      } catch {
+        setEventTypes(previousEvents)
+        setStatus(previousStatus)
+      }
+    },
+    [eventTypes, persist, status, tagFilters]
+  )
+
+  const handleTagFiltersChange = useCallback(
+    async (values: string[]) => {
+      const previousFilters = tagFilters
+      setTagFilters(values)
+      try {
+        await persist(status, eventTypes, values)
+        toast({
+          title: "Tag allowlist updated",
+          description: "Case trigger tag filters saved successfully.",
+        })
+      } catch {
+        setTagFilters(previousFilters)
+      }
+    },
+    [eventTypes, persist, status, tagFilters]
+  )
+
+  const tagSuggestions = useMemo(() => {
+    return (caseTags ?? []).map((tag) => ({
+      id: tag.id,
+      label: tag.name,
+      value: tag.ref,
+      description: tag.ref,
+    }))
+  }, [caseTags])
+
+  if (isLoadingCaseTrigger) {
+    return <CenteredSpinner />
+  }
+
+  if (caseTriggerError) {
+    return (
+      <AlertNotification
+        level="error"
+        message="Failed to load case trigger configuration."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Enable case triggers</Label>
+          <p className="text-xs text-muted-foreground">
+            Trigger workflows when selected case events occur.
+          </p>
+        </div>
+        <Switch
+          checked={status === "online"}
+          onCheckedChange={handleStatusToggle}
+          disabled={isUpdatingCaseTrigger}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Case events</Label>
+        <MultiTagCommandInput
+          value={eventTypes}
+          onChange={handleEventTypesChange}
+          suggestions={CASE_EVENT_SUGGESTIONS}
+          searchKeys={["label", "value", "group"]}
+          placeholder="Select case events..."
+          disabled={isUpdatingCaseTrigger}
+          allowCustomTags={false}
+        />
+        <p className="text-xs text-muted-foreground">
+          Choose which case events will fire this workflow.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Tag allowlist</Label>
+        <MultiTagCommandInput
+          value={tagFilters}
+          onChange={handleTagFiltersChange}
+          suggestions={tagSuggestions}
+          searchKeys={["label", "value", "description"]}
+          placeholder={
+            caseTagsIsLoading ? "Loading tags..." : "Select case tags..."
+          }
+          disabled={isUpdatingCaseTrigger || caseTagsIsLoading}
+          allowCustomTags={false}
+        />
+        <p className="text-xs text-muted-foreground">
+          If empty, no tag filtering is applied.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Uses current case tags; workflow-originated events are ignored.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export function ScheduleControls({ workflowId }: { workflowId: string }) {
   const {
     schedules,
@@ -1033,10 +1396,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
   }
   if (schedulesError || !schedules) {
     return (
-      <AlertNotification
-        title="Failed to load schedules"
-        message="There was an error when loading schedules."
-      />
+      <AlertNotification level="error" message="Failed to load schedules." />
     )
   }
 
@@ -1542,7 +1902,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
               })
             })}
           >
-            <ScrollArea className="flex-1 px-6">
+            <ScrollArea className="flex-1 px-6 pr-10">
               <div className="space-y-4 py-4">
                 <FormField
                   control={form.control}

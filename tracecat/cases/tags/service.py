@@ -5,9 +5,9 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
-from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.models import Case, CaseEvent, CaseTag, CaseTagLink
+from tracecat.contexts import ctx_run
+from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
 from tracecat.service import BaseWorkspaceService
@@ -39,23 +39,31 @@ class CaseTagsService(BaseWorkspaceService):
         tag: CaseTag,
         event_type: CaseEventType,
     ) -> None:
-        event = CaseEvent(
-            workspace_id=self.workspace_id,
-            case_id=case.id,
-            type=event_type,
-            data={
-                "tag_id": str(tag.id),
-                "tag_ref": tag.ref,
-                "tag_name": tag.name,
-            },
-            user_id=self.role.user_id,
-        )
-        self.session.add(event)
-        await self.session.flush()
+        from tracecat.cases.schemas import TagAddedEvent, TagRemovedEvent
+        from tracecat.cases.service import CaseEventsService
 
-        # Auto-sync durations after creating an event
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
+        match event_type:
+            case CaseEventType.TAG_ADDED:
+                payload = TagAddedEvent(
+                    tag_id=tag.id,
+                    tag_ref=tag.ref,
+                    tag_name=tag.name,
+                )
+            case CaseEventType.TAG_REMOVED:
+                payload = TagRemovedEvent(
+                    tag_id=tag.id,
+                    tag_ref=tag.ref,
+                    tag_name=tag.name,
+                )
+            case _:
+                raise ValueError(f"Unsupported tag event type: {event_type}")
+
+        run_ctx = ctx_run.get()
+        if hasattr(payload, "wf_exec_id"):
+            payload.wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
+        events_service = CaseEventsService(session=self.session, role=self.role)
+        await events_service.create_event(case=case, event=payload)
 
     async def list_workspace_tags(self) -> Sequence[CaseTag]:
         """List all tags available in the current workspace."""
@@ -157,6 +165,7 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
+        original_ref = tag.ref
         if params.name and params.name != tag.name:
             new_ref = slugify(params.name)
             if new_ref != tag.ref:
@@ -179,9 +188,42 @@ class CaseTagsService(BaseWorkspaceService):
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(tag, key, value)
 
+        if original_ref != tag.ref:
+            workspace_id = tag.workspace_id
+            if workspace_id is None:
+                raise ValueError("Case tag workspace is required")
+            await self._update_case_trigger_tag_filters(
+                workspace_id, original_ref, tag.ref
+            )
+
         await self.session.commit()
         await self.session.refresh(tag)
         return tag
+
+    async def _update_case_trigger_tag_filters(
+        self, workspace_id: uuid.UUID, old_ref: str, new_ref: str
+    ) -> None:
+        stmt = select(CaseTrigger).where(CaseTrigger.workspace_id == workspace_id)
+        result = await self.session.execute(stmt)
+        triggers = result.scalars().all()
+
+        for trigger in triggers:
+            if not trigger.tag_filters or old_ref not in trigger.tag_filters:
+                continue
+
+            updated_filters = [
+                new_ref if ref == old_ref else ref for ref in trigger.tag_filters
+            ]
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for ref in updated_filters:
+                if ref in seen:
+                    continue
+                seen.add(ref)
+                deduped.append(ref)
+            trigger.tag_filters = deduped
+            self.session.add(trigger)
 
     async def delete_tag(self, tag: CaseTag) -> None:
         """Delete a case tag definition."""

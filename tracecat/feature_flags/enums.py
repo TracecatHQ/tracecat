@@ -10,3 +10,4 @@ class FeatureFlag(StrEnum):
     CASE_DROPDOWNS = "case-dropdowns"
     CASE_DURATIONS = "case-durations"
     CASE_TASKS = "case-tasks"
+    CASE_TRIGGERS = "case-triggers"

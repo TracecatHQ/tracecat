@@ -20,7 +20,7 @@ import {
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
-  type ApiError,
+  ApiError,
   type AppSettingsRead,
   type AuditApiKeyGenerateResponse,
   type AuditSettingsRead,
@@ -314,8 +314,12 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import {
+  type CaseTriggerCreate,
+  type CaseTriggerRead,
   type CustomOAuthProviderCreateRequest,
   providersCreateCustomProvider,
+  triggersCreateCaseTrigger,
+  triggersGetCaseTrigger,
 } from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
@@ -519,6 +523,50 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   })
 
   return mutation
+}
+
+export function useCaseTrigger(workspaceId: string, workflowId: string) {
+  return useQuery<CaseTriggerRead | null, ApiError>({
+    queryKey: ["case-trigger", workspaceId, workflowId],
+    queryFn: async () => {
+      try {
+        return await triggersGetCaseTrigger({ workspaceId, workflowId })
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return null
+        }
+        throw error
+      }
+    },
+  })
+}
+
+export function useUpsertCaseTrigger(workspaceId: string, workflowId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (params: CaseTriggerCreate) =>
+      await triggersCreateCaseTrigger({
+        workspaceId,
+        workflowId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-trigger", workspaceId, workflowId],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update case trigger:", error)
+      queryClient.invalidateQueries({
+        queryKey: ["case-trigger", workspaceId, workflowId],
+      })
+      toast({
+        title: "Error updating case trigger",
+        description: "Could not update case trigger. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
 }
 
 export function useGenerateWebhookApiKey(

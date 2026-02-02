@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
@@ -63,6 +64,20 @@ class RemoteWebhook(BaseModel):
     """The methods of the webhook."""
     status: Status = Field(default="online")
     """Status of the webhook, either 'online' or 'offline'."""
+
+
+class RemoteCaseTrigger(BaseModel):
+    """Represents a case trigger configuration in a remote store."""
+
+    status: Status = Field(default="offline")
+    event_types: list[CaseEventType] = Field(default_factory=list)
+    tag_filters: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_event_types(self) -> "RemoteCaseTrigger":
+        if self.status == "online" and not self.event_types:
+            raise ValueError("event_types must be non-empty when status is online")
+        return self
 
 
 class RemoteWorkflowSchedule(BaseModel):
@@ -134,6 +149,9 @@ class RemoteWorkflowDefinition(BaseModel):
 
     webhook: RemoteWebhook | None = None
     """Webhook for the workflow."""
+
+    case_trigger: RemoteCaseTrigger | None = None
+    """Case trigger configuration for the workflow."""
 
     definition: DSLInput
 

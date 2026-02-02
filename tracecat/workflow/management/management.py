@@ -16,6 +16,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
+    CaseTrigger,
     Tag,
     Webhook,
     Workflow,
@@ -527,6 +528,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
         self.session.add(webhook)
         workflow.webhook = webhook
 
+        case_trigger = CaseTrigger(
+            workspace_id=self.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+        case_trigger.workflow = workflow
+        self.session.add(case_trigger)
+        workflow.case_trigger = case_trigger
+
         await self.session.commit()
         await self.session.refresh(workflow)
         return workflow
@@ -626,6 +638,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
             created_at=external_defn.created_at,
             updated_at=external_defn.updated_at,
         )
+        if external_defn.case_trigger is not None:
+            from tracecat.workflow.case_triggers.service import CaseTriggersService
+
+            case_trigger_service = CaseTriggersService(self.session, role=self.role)
+            await case_trigger_service.upsert_case_trigger(
+                WorkflowUUID.new(workflow.id),
+                external_defn.case_trigger,
+                create_missing_tags=True,
+                commit=False,
+            )
+            await self.session.commit()
         return workflow
 
     async def create_db_workflow_from_dsl(
@@ -679,6 +702,16 @@ class WorkflowsManagementService(BaseWorkspaceService):
         )
         self.session.add(webhook)
         workflow.webhook = webhook
+
+        case_trigger = CaseTrigger(
+            workspace_id=self.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+        self.session.add(case_trigger)
+        workflow.case_trigger = case_trigger
 
         # Create actions from DSL (actions have workflow_id set, relationship managed by FK)
         await self.create_actions_from_dsl(dsl, workflow.id)

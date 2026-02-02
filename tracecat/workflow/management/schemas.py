@@ -21,6 +21,7 @@ from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
 from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.actions.schemas import ActionRead
+from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 from tracecat.workflow.schedules.schemas import ScheduleRead
 
 
@@ -192,9 +193,22 @@ class ExternalWorkflowDefinition(BaseModel):
     )
     version: int = Field(default=1, gt=0)
     definition: DSLInput
+    case_trigger: CaseTriggerConfig | None = None
 
     @staticmethod
-    def from_database(defn: WorkflowDefinition) -> ExternalWorkflowDefinition:
+    def from_database(
+        defn: WorkflowDefinition,
+        *,
+        case_trigger: CaseTriggerConfig | None = None,
+    ) -> ExternalWorkflowDefinition:
+        if case_trigger is None and defn.workflow and defn.workflow.case_trigger:
+            case_trigger = CaseTriggerConfig.model_validate(
+                {
+                    "status": defn.workflow.case_trigger.status,
+                    "event_types": defn.workflow.case_trigger.event_types,
+                    "tag_filters": defn.workflow.case_trigger.tag_filters,
+                }
+            )
         return ExternalWorkflowDefinition(
             workspace_id=defn.workspace_id,
             workflow_id=WorkflowUUID.new(defn.workflow_id),
@@ -202,6 +216,7 @@ class ExternalWorkflowDefinition(BaseModel):
             updated_at=defn.updated_at,
             version=defn.version,
             definition=DSLInput.model_validate(defn.content),
+            case_trigger=case_trigger,
         )
 
     @field_validator("workflow_id", mode="before")

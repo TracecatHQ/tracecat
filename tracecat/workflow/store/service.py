@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import cast
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
@@ -10,6 +11,7 @@ from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.workflow.store.schemas import (
+    RemoteCaseTrigger,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -75,7 +77,7 @@ class WorkflowStoreService(BaseWorkspaceService):
         stable_path = get_definition_path(workflow_id)
         webhook = workflow.webhook
 
-        await self.session.refresh(workflow, ["tags", "folder"])
+        await self.session.refresh(workflow, ["tags", "folder", "case_trigger"])
 
         # Get folder path if workflow is in a folder
         folder_path = None
@@ -105,6 +107,22 @@ class WorkflowStoreService(BaseWorkspaceService):
                 methods=webhook.methods,
                 status=cast(Status, webhook.status),
             ),
+            case_trigger=RemoteCaseTrigger(
+                status=cast(Status, workflow.case_trigger.status)
+                if workflow.case_trigger
+                else "offline",
+                event_types=[
+                    CaseEventType(event_type)
+                    for event_type in workflow.case_trigger.event_types
+                ]
+                if workflow.case_trigger
+                else [],
+                tag_filters=workflow.case_trigger.tag_filters
+                if workflow.case_trigger
+                else [],
+            )
+            if workflow.case_trigger
+            else None,
             definition=dsl,
         )
         push_obj = PushObject(data=defn, path=stable_path)
