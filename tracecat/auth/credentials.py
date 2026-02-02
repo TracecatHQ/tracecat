@@ -743,17 +743,20 @@ async def _role_dependency(
     group_scopes: frozenset[str] | None = None
     user_role_scopes: frozenset[str] | None = None
     if role.user_id is not None and role.organization_id is not None:
-        from tracecat.authz.rbac.service import RBACService
+        try:
+            from tracecat_ee.rbac.service import RBACService
 
-        async with RBACService.with_session(role, session=session) as rbac_svc:
-            group_scopes = await rbac_svc.get_group_scopes(
-                role.user_id,
-                workspace_id=role.workspace_id,
-            )
-            user_role_scopes = await rbac_svc.get_user_role_scopes(
-                role.user_id,
-                workspace_id=role.workspace_id,
-            )
+            async with RBACService.with_session(role, session=session) as rbac_svc:
+                group_scopes = await rbac_svc.get_group_scopes(
+                    role.user_id,
+                    workspace_id=role.workspace_id,
+                )
+                user_role_scopes = await rbac_svc.get_user_role_scopes(
+                    role.user_id,
+                    workspace_id=role.workspace_id,
+                )
+        except ImportError:
+            pass  # EE not installed, use only preset role scopes
 
     # Compute and set effective scopes
     scopes = compute_effective_scopes(

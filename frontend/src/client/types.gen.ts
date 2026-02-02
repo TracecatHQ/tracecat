@@ -2427,6 +2427,7 @@ export type FeatureFlag =
   | "case-durations"
   | "case-tasks"
   | "case-triggers"
+  | "rbac"
 
 /**
  * Response model for feature flags.
@@ -8934,6 +8935,8 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
 
+export type UsersGetMyScopesResponse = UserScopesRead
+
 export type RbacListScopesData = {
   /**
    * Include system/registry scopes
@@ -9110,8 +9113,6 @@ export type RbacDeleteUserAssignmentData = {
 }
 
 export type RbacDeleteUserAssignmentResponse = void
-
-export type UsersGetMyScopesResponse = UserScopesRead
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -13315,6 +13316,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/users/me/scopes": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserScopesRead
+      }
+    }
+  }
   "/rbac/scopes": {
     get: {
       req: RbacListScopesData
@@ -13666,16 +13677,6 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
-      }
-    }
-  }
-  "/users/me/scopes": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserScopesRead
       }
     }
   }
