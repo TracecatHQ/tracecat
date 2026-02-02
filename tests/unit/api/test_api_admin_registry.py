@@ -5,10 +5,11 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import tracecat_ee.admin.registry.router as registry_router_module
 from fastapi import status
 from fastapi.testclient import TestClient
-from tracecat_ee.admin.registry.schemas import (
+
+import tracecat.admin.registry.router as registry_router_module
+from tracecat.admin.registry.schemas import (
     RegistryStatusResponse,
     RegistrySyncResponse,
     RegistryVersionPromoteResponse,
@@ -16,7 +17,6 @@ from tracecat_ee.admin.registry.schemas import (
     RepositoryStatus,
     RepositorySyncResult,
 )
-
 from tracecat.auth.types import Role
 
 
