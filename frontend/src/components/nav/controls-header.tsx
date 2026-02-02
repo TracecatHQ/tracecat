@@ -10,11 +10,10 @@ import {
   FileUpIcon,
   Flag,
   Flame,
-  Key,
+  Lock,
   PanelRight,
   PenLine,
   Plus,
-  Search,
   Sparkles,
   TagsIcon,
   Trash2,
@@ -24,7 +23,7 @@ import {
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { Fragment, type ReactNode, useCallback, useState } from "react"
-import { type CaseStatus, casesAddTag, type OAuthGrantType } from "@/client"
+import { type CaseStatus, casesAddTag } from "@/client"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
@@ -89,13 +88,10 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
-  NewCredentialsDialog,
-  NewCredentialsDialogTrigger,
-} from "@/components/workspaces/add-workspace-secret"
-import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
+import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -104,7 +100,6 @@ import {
   useCaseTagCatalog,
   useGetCase,
   useGetTable,
-  useIntegrationProvider,
   useUpdateCase,
 } from "@/lib/hooks"
 import { capitalizeFirst, cn } from "@/lib/utils"
@@ -288,7 +283,7 @@ function IntegrationsActions() {
           "
         >
           <DropdownMenuItem onSelect={() => setActiveDialog("oauth")}>
-            <Key className="size-4 text-foreground/80" />
+            <Lock className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
               <span>OAuth provider</span>
               <span className="text-xs text-muted-foreground">
@@ -859,47 +854,22 @@ function MembersActions() {
 }
 
 function CredentialsActions() {
-  const workspaceId = useWorkspaceId()
-  const pathname = usePathname()
-  const isOnCatalogPage = pathname?.includes("/credentials/catalog")
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="inline-flex items-center rounded-md border bg-transparent">
-        <Link
-          href={`/workspaces/${workspaceId}/credentials`}
-          className={cn(
-            "flex h-7 items-center gap-1.5 rounded-l-sm px-2.5 text-xs font-medium transition-colors",
-            !isOnCatalogPage
-              ? "bg-background text-accent-foreground"
-              : "bg-accent text-muted-foreground hover:bg-muted/50"
-          )}
-        >
-          <Key className="h-3.5 w-3.5" />
-          Credentials
-        </Link>
-        <Link
-          href={`/workspaces/${workspaceId}/credentials/catalog`}
-          className={cn(
-            "flex h-7 items-center gap-1.5 rounded-r-sm px-2.5 text-xs font-medium transition-colors",
-            isOnCatalogPage
-              ? "bg-background text-accent-foreground"
-              : "bg-accent text-muted-foreground hover:bg-muted/50"
-          )}
-        >
-          <Search className="h-3.5 w-3.5" />
-          Catalog
-        </Link>
-      </div>
-      <NewCredentialsDialog>
-        <NewCredentialsDialogTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add credential
-          </Button>
-        </NewCredentialsDialogTrigger>
-      </NewCredentialsDialog>
-    </div>
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => setDialogOpen(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add credential
+      </Button>
+
+      <CreateCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    </>
   )
 }
 
@@ -1056,44 +1026,6 @@ function TableDetailsActions() {
   return <TableInsertButton />
 }
 
-function IntegrationBreadcrumb({
-  providerId,
-  workspaceId,
-  grantType,
-}: {
-  providerId: string
-  workspaceId: string
-  grantType: OAuthGrantType
-}) {
-  const { provider } = useIntegrationProvider({
-    providerId,
-    workspaceId,
-    grantType,
-  })
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/integrations`}>
-              Integrations
-            </Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator className="shrink-0">
-          <span className="text-muted-foreground">/</span>
-        </BreadcrumbSeparator>
-        <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {provider?.metadata.name || providerId}
-          </BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  )
-}
-
 function AgentPresetBreadcrumb({
   presetId,
   workspaceId,
@@ -1228,24 +1160,6 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/integrations")) {
-    // Check if this is an integration detail page
-    const integrationMatch = pagePath.match(/^\/integrations\/([^/]+)$/)
-    if (integrationMatch && searchParams) {
-      const providerId = integrationMatch[1]
-      const grantType = searchParams.get("grant_type") as OAuthGrantType
-      if (grantType) {
-        return {
-          title: (
-            <IntegrationBreadcrumb
-              providerId={providerId}
-              workspaceId={workspaceId}
-              grantType={grantType}
-            />
-          ),
-        }
-      }
-    }
-
     return {
       title: "Integrations",
       actions: <IntegrationsActions />,

@@ -22,7 +22,6 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Form,
   FormControl,
@@ -113,12 +112,22 @@ interface ProviderConfigFormProps {
   provider: ProviderRead
   onSuccess?: () => void
   additionalButtons?: React.ReactNode
+  formId?: string
+  formRef?: React.Ref<HTMLFormElement>
+  hideActions?: boolean
+  submitLabel?: string
+  submitIcon?: React.ReactNode
 }
 
 export function ProviderConfigForm({
   provider,
   onSuccess,
   additionalButtons,
+  formId,
+  formRef,
+  hideActions = false,
+  submitLabel,
+  submitIcon,
 }: ProviderConfigFormProps) {
   const workspaceId = useWorkspaceId()
   const isMCP = isMCPProvider(provider)
@@ -187,7 +196,6 @@ export function ProviderConfigForm({
   const hasAuthHelp = hasHelpContent(providerAuthHelp)
   const hasTokenHelp = hasHelpContent(providerTokenHelp)
 
-  const currentScopes = integration?.requested_scopes ?? []
   const defaultScopesList = useMemo(
     () => (defaultScopes ?? []).filter((scope) => scope.trim().length > 0),
     [defaultScopes]
@@ -305,69 +313,16 @@ export function ProviderConfigForm({
 
   return (
     <div className="flex flex-col gap-6">
-      {integration && (
-        <Card className="bg-muted/40">
-          <CardHeader>
-            <CardTitle>Current configuration</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 text-sm">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <InfoRow label="Client ID">
-                {integration.client_id ? (
-                  <span className="font-mono">
-                    {integration.client_id.slice(0, 6)}****
-                    {integration.client_id.length > 10
-                      ? integration.client_id.slice(-4)
-                      : ""}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">Not configured</span>
-                )}
-              </InfoRow>
-              <InfoRow label="Client secret">
-                {integration.status !== "not_configured"
-                  ? "Configured"
-                  : "Not configured"}
-              </InfoRow>
-              <InfoRow label="Authorization endpoint">
-                {integration.authorization_endpoint ?? "Not configured"}
-              </InfoRow>
-              <InfoRow label="Token endpoint">
-                {integration.token_endpoint ?? "Not configured"}
-              </InfoRow>
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-muted-foreground">
-                Requested scopes
-              </span>
-              {currentScopes.length ? (
-                <div className="flex flex-wrap gap-1">
-                  {currentScopes.map((scope) => (
-                    <Badge key={scope} variant="outline" className="text-xs">
-                      {scope}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  No scopes configured
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Form {...form}>
         <form
+          id={formId}
+          ref={formRef}
           onSubmit={form.handleSubmit(onSubmit)}
           className="flex flex-col gap-6"
         >
-          <Card>
-            <CardHeader>
-              <CardTitle>Client credentials</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+          <div className="space-y-4">
+            <h3 className="font-medium">Client credentials</h3>
+            <div className="flex flex-col gap-4">
               <FormField
                 control={form.control}
                 name="client_id"
@@ -419,31 +374,29 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle>Endpoints</CardTitle>
-                {(defaultAuthEndpoint.length > 0 ||
-                  defaultTokenEndpoint.length > 0 ||
-                  authEndpointValue.length > 0 ||
-                  tokenEndpointValue.length > 0) && (
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="sm"
-                    className="px-0"
-                    onClick={handleResetEndpoints}
-                    disabled={isAtDefaultEndpoints}
-                  >
-                    Reset endpoints
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-medium">Endpoints</h3>
+              {(defaultAuthEndpoint.length > 0 ||
+                defaultTokenEndpoint.length > 0 ||
+                authEndpointValue.length > 0 ||
+                tokenEndpointValue.length > 0) && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="px-0"
+                  onClick={handleResetEndpoints}
+                  disabled={isAtDefaultEndpoints}
+                >
+                  Reset endpoints
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-col gap-4">
               {!isMCP && (hasAuthHelp || hasTokenHelp) && (
                 <Alert>
                   <Info className="h-4 w-4" />
@@ -509,14 +462,12 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Scopes</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+          <div className="space-y-4">
+            <h3 className="font-medium">Scopes</h3>
+            <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-muted-foreground">
@@ -580,22 +531,24 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
-            </CardContent>
-          </Card>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="submit"
-              variant={
-                integration?.status === "configured" ? "outline" : "default"
-              }
-              className="gap-2"
-              disabled={updateIntegrationIsPending}
-            >
-              <Save className="h-4 w-4" />
-              Save configuration
-            </Button>
-            {additionalButtons}
+            </div>
           </div>
+          {!hideActions && (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="submit"
+                variant={
+                  integration?.status === "configured" ? "outline" : "default"
+                }
+                className="gap-2"
+                disabled={updateIntegrationIsPending}
+              >
+                {submitIcon ?? <Save className="h-4 w-4" />}
+                {submitLabel ?? "Save configuration"}
+              </Button>
+              {additionalButtons}
+            </div>
+          )}
         </form>
       </Form>
     </div>
@@ -817,25 +770,10 @@ function ServiceAccountJsonUploader({
   )
 }
 
-function InfoRow({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="font-medium text-muted-foreground">{label}</span>
-      <span className="text-xs text-foreground break-all">{children}</span>
-    </div>
-  )
-}
-
 export function ProviderConfigFormSkeleton() {
   return (
-    <Card className="animate-pulse">
-      <CardContent className="flex flex-col gap-4 p-6">
+    <div className="animate-pulse rounded-lg border bg-card text-card-foreground shadow-sm">
+      <div className="flex flex-col gap-4 p-6">
         <div className="h-7 w-40 rounded-md bg-muted" />
         <div className="h-8 w-full rounded-md bg-muted" />
         <div className="h-8 w-full rounded-md bg-muted" />
@@ -844,7 +782,7 @@ export function ProviderConfigFormSkeleton() {
           <div className="h-10 w-32 rounded-md bg-muted" />
           <div className="h-10 w-24 rounded-md bg-muted" />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

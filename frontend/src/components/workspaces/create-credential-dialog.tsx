@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Trash2Icon,
 } from "lucide-react"
-import React, { type PropsWithChildren } from "react"
+import React from "react"
 import {
   type ArrayPath,
   type FieldPath,
@@ -18,19 +18,17 @@ import {
   useForm,
 } from "react-hook-form"
 import { z } from "zod"
-import type { SecretCreate } from "@/client"
+import type { SecretCreate, SecretDefinition } from "@/client"
 import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { sshKeyRegex } from "@/components/ssh-keys/ssh-key-utils"
 import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Form,
@@ -53,11 +51,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-interface NewCredentialsDialogProps
-  extends PropsWithChildren<
-    DialogProps & React.HTMLAttributes<HTMLDivElement>
-  > {}
 
 const pemCertificateRegex =
   /-----BEGIN CERTIFICATE-----(?:\r?\n)[A-Za-z0-9+/=\s]+(?:\r?\n)-----END CERTIFICATE-----/
@@ -89,7 +82,12 @@ const validatePemField = (
 
 const createSecretSchema = z
   .object({
-    name: z.string().default(""),
+    name: z
+      .string()
+      .trim()
+      .min(1, "Name is required.")
+      .max(100, "Name must be 100 characters or fewer.")
+      .default(""),
     description: z.string().max(255).default(""),
     environment: z
       .string()
@@ -101,6 +99,7 @@ const createSecretSchema = z
         z.object({
           key: z.string().optional(),
           value: z.string().optional(),
+          isOptional: z.boolean().optional(),
         })
       )
       .default([]),
@@ -126,7 +125,9 @@ const createSecretSchema = z
             message: "Key is required.",
           })
         }
-        if (!item.value?.trim()) {
+        // Only validate value if it's not an optional field from a template
+        // or if user has entered something
+        if (!item.isOptional && !item.value?.trim()) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["keys", index, "value"],
@@ -180,14 +181,24 @@ const createSecretSchema = z
 
 type CreateSecretForm = z.infer<typeof createSecretSchema>
 
-export function NewCredentialsDialog({
+interface CreateCredentialDialogProps extends DialogProps {
+  template?: SecretDefinition | null
+  onOpenChange: (open: boolean) => void
+  className?: string
+}
+
+export function CreateCredentialDialog({
+  template = null,
+  open,
+  onOpenChange,
   children,
   className,
-}: NewCredentialsDialogProps) {
-  const [showDialog, setShowDialog] = React.useState(false)
+}: CreateCredentialDialogProps) {
+  const selectedTool = template
   const workspaceId = useWorkspaceId()
   const { createSecret } = useWorkspaceSecrets(workspaceId)
 
+  // Form handling
   const methods = useForm<CreateSecretForm>({
     resolver: zodResolver(createSecretSchema),
     defaultValues: {
@@ -202,8 +213,53 @@ export function NewCredentialsDialog({
       ca_certificate: "",
     },
   })
+
+  // Reset form when dialog opens
+  React.useEffect(() => {
+    if (!open) return
+    if (selectedTool) {
+      const initialKeys = [
+        ...(selectedTool.keys || []).map((key) => ({
+          key,
+          value: "",
+          isOptional: false,
+        })),
+        ...(selectedTool.optional_keys || []).map((key) => ({
+          key,
+          value: "",
+          isOptional: true,
+        })),
+      ]
+
+      methods.reset({
+        name: selectedTool.name,
+        description: "",
+        environment: "default",
+        type: "custom",
+        keys: initialKeys.length > 0 ? initialKeys : [{ key: "", value: "" }],
+        private_key: "",
+        tls_certificate: "",
+        tls_private_key: "",
+        ca_certificate: "",
+      })
+      return
+    }
+    methods.reset({
+      name: "",
+      description: "",
+      environment: "",
+      type: "custom",
+      keys: [{ key: "", value: "" }],
+      private_key: "",
+      tls_certificate: "",
+      tls_private_key: "",
+      ca_certificate: "",
+    })
+  }, [open, selectedTool, methods])
+
   const { control, register } = methods
   const secretType = methods.watch("type")
+  const isTemplateSecret = Boolean(selectedTool)
 
   const renderTextareaField = (
     name: FieldPath<CreateSecretForm>,
@@ -240,36 +296,62 @@ export function NewCredentialsDialog({
       keys,
       ...rest
     } = values
-    const secretKeys = (() => {
-      switch (type) {
-        case "ssh-key":
-          return [{ key: "PRIVATE_KEY", value: private_key || "" }]
-        case "mtls":
-          return [
-            { key: "TLS_CERTIFICATE", value: tls_certificate || "" },
-            { key: "TLS_PRIVATE_KEY", value: tls_private_key || "" },
-          ]
-        case "ca-cert":
-          return [{ key: "CA_CERTIFICATE", value: ca_certificate || "" }]
-        default:
-          return keys.map(({ key, value }) => ({
+    const secretName = selectedTool?.name ?? values.name
+
+    let secretKeys: { key: string; value: string }[] = []
+
+    switch (type) {
+      case "ssh-key":
+        secretKeys = [{ key: "PRIVATE_KEY", value: private_key || "" }]
+        break
+      case "mtls":
+        secretKeys = [
+          { key: "TLS_CERTIFICATE", value: tls_certificate || "" },
+          { key: "TLS_PRIVATE_KEY", value: tls_private_key || "" },
+        ]
+        break
+      case "ca-cert":
+        secretKeys = [{ key: "CA_CERTIFICATE", value: ca_certificate || "" }]
+        break
+      default:
+        // Filter out optional keys with empty values
+        secretKeys = keys
+          .filter((k) => !k.isOptional || (k.value && k.value.trim() !== ""))
+          .map(({ key, value }) => ({
             key: key || "",
             value: value || "",
           }))
-      }
-    })()
+        break
+    }
+
+    if (type === "custom" && secretKeys.length === 0) {
+      toast({
+        title: "No keys provided",
+        description: "Please provide at least one key value.",
+        variant: "destructive",
+      })
+      return
+    }
+
     const secret: SecretCreate = {
       ...rest,
+      name: secretName,
       type,
       keys: secretKeys,
     }
     try {
       await createSecret(secret)
+      onOpenChange(false)
+      toast({
+        title: "Secret created",
+        description: `Secret "${secretName}" has been created successfully.`,
+      })
+      methods.reset()
     } catch (error) {
       console.log(error)
     }
-    methods.reset()
   }
+
   const onValidationFailed = () => {
     console.error("Form validation failed")
     toast({
@@ -277,6 +359,7 @@ export function NewCredentialsDialog({
       description: "A validation error occurred while adding the new secret.",
     })
   }
+
   const inputKey = "keys"
   const typedKey = inputKey as FieldPath<CreateSecretForm>
   const { fields, append, remove } = useFieldArray<CreateSecretForm>({
@@ -285,12 +368,17 @@ export function NewCredentialsDialog({
   })
 
   return (
-    <Dialog open={showDialog} onOpenChange={setShowDialog}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       {children}
       <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle>Create new secret</DialogTitle>
+          <DialogTitle>
+            {selectedTool
+              ? `Configure ${selectedTool.name}`
+              : "Create new secret"}
+          </DialogTitle>
         </DialogHeader>
+
         <CreateSecretTooltip />
         <Form {...methods}>
           <form
@@ -305,10 +393,17 @@ export function NewCredentialsDialog({
                 render={() => (
                   <FormItem>
                     <FormLabel className="text-sm">Name</FormLabel>
+                    {isTemplateSecret && (
+                      <FormDescription className="text-sm">
+                        This name is fixed by the selected template.
+                      </FormDescription>
+                    )}
                     <FormControl>
                       <Input
                         className="text-sm"
                         placeholder="Name (snake case)"
+                        readOnly={isTemplateSecret}
+                        aria-readonly={isTemplateSecret}
                         {...register("name")}
                       />
                     </FormControl>
@@ -358,53 +453,60 @@ export function NewCredentialsDialog({
                   </FormItem>
                 )}
               />
-              <FormField
-                key="type"
-                control={control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Type</FormLabel>
-                    <FormDescription className="text-sm">
-                      Choose how this secret is stored.
-                    </FormDescription>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="text-sm">
-                          <SelectValue placeholder="Select a type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="custom">
-                          <span className="flex items-center gap-2">
-                            <Braces className="size-4" />
-                            Key-value pair
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="ssh-key">
-                          <span className="flex items-center gap-2">
-                            <FileKey2 className="size-4" />
-                            SSH private key
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="mtls">
-                          <span className="flex items-center gap-2">
-                            <KeyRoundIcon className="size-4" />
-                            mTLS certificate + key
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="ca-cert">
-                          <span className="flex items-center gap-2">
-                            <ShieldCheck className="size-4" />
-                            CA certificate
-                          </span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+
+              {!selectedTool && (
+                <FormField
+                  key="type"
+                  control={control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Type</FormLabel>
+                      <FormDescription className="text-sm">
+                        Choose how this secret is stored.
+                      </FormDescription>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="text-sm">
+                            <SelectValue placeholder="Select a type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="custom">
+                            <span className="flex items-center gap-2">
+                              <Braces className="size-4" />
+                              Key-value pair
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="ssh-key">
+                            <span className="flex items-center gap-2">
+                              <FileKey2 className="size-4" />
+                              SSH private key
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="mtls">
+                            <span className="flex items-center gap-2">
+                              <KeyRoundIcon className="size-4" />
+                              mTLS certificate + key
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="ca-cert">
+                            <span className="flex items-center gap-2">
+                              <ShieldCheck className="size-4" />
+                              CA certificate
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
               {secretType === "custom" && (
                 <FormField
                   key={inputKey}
@@ -431,6 +533,15 @@ export function NewCredentialsDialog({
                                     }
                                   )}
                                   placeholder="Key"
+                                  disabled={
+                                    !!selectedTool &&
+                                    (selectedTool.keys?.includes(
+                                      field.key || ""
+                                    ) ||
+                                      selectedTool.optional_keys?.includes(
+                                        field.key || ""
+                                      ))
+                                  }
                                 />
                               </FormControl>
                               <FormControl className="flex-1">
@@ -440,10 +551,14 @@ export function NewCredentialsDialog({
                                   {...register(
                                     `${inputKey}.${index}.value` as const,
                                     {
-                                      required: true,
+                                      required: !field.isOptional,
                                     }
                                   )}
-                                  placeholder="Value"
+                                  placeholder={
+                                    field.isOptional
+                                      ? "Value (optional)"
+                                      : "Value"
+                                  }
                                   type="password"
                                 />
                               </FormControl>
@@ -452,7 +567,16 @@ export function NewCredentialsDialog({
                                 type="button"
                                 variant="ghost"
                                 onClick={() => remove(index)}
-                                disabled={fields.length === 1}
+                                disabled={
+                                  (!!selectedTool &&
+                                    (selectedTool.keys?.includes(
+                                      field.key || ""
+                                    ) ||
+                                      selectedTool.optional_keys?.includes(
+                                        field.key || ""
+                                      ))) ||
+                                  (!selectedTool && fields.length === 1)
+                                }
                               >
                                 <Trash2Icon className="size-3.5" />
                               </Button>
@@ -503,12 +627,10 @@ export function NewCredentialsDialog({
                 )}
             </div>
             <DialogFooter className="flex-shrink-0 pt-4">
-              <DialogClose asChild>
-                <Button className="ml-auto space-x-2" type="submit">
-                  <KeyRoundIcon className="mr-2 size-4" />
-                  Create secret
-                </Button>
-              </DialogClose>
+              <Button className="ml-auto space-x-2" type="submit">
+                <KeyRoundIcon className="mr-2 size-4" />
+                Create secret
+              </Button>
             </DialogFooter>
           </form>
         </Form>
@@ -516,5 +638,3 @@ export function NewCredentialsDialog({
     </Dialog>
   )
 }
-
-export const NewCredentialsDialogTrigger = DialogTrigger
