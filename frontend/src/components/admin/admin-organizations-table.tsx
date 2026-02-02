@@ -4,7 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import Cookies from "js-cookie"
 import Link from "next/link"
 import { useState } from "react"
-import type { OrgRead } from "@/client"
+import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,

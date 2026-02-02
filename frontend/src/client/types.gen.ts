@@ -1516,6 +1516,28 @@ export type CaseTaskUpdate = {
   } | null
 }
 
+export type CaseTriggerCreate = {
+  status?: "online" | "offline"
+  event_types?: Array<CaseEventType>
+  tag_filters?: Array<string>
+}
+
+export type status2 = "online" | "offline"
+
+export type CaseTriggerRead = {
+  id: string
+  workflow_id: string
+  status: "online" | "offline"
+  event_types: Array<CaseEventType>
+  tag_filters: Array<string>
+}
+
+export type CaseTriggerUpdate = {
+  status?: "online" | "offline" | null
+  event_types?: Array<CaseEventType> | null
+  tag_filters?: Array<string> | null
+}
+
 export type CaseUpdate = {
   summary?: string | null
   description?: string | null
@@ -2380,10 +2402,10 @@ export type FeatureFlag =
   | "git-sync"
   | "agent-approvals"
   | "agent-presets"
-  | "case-triggers"
   | "case-dropdowns"
   | "case-durations"
   | "case-tasks"
+  | "case-triggers"
 
 /**
  * Response model for feature flags.
@@ -3226,18 +3248,6 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
-}
-
-/**
- * Organization response.
- */
-export type OrgRead = {
-  id: string
-  name: string
-  slug: string
-  is_active: boolean
-  created_at: string
-  updated_at?: string | null
 }
 
 /**
@@ -4179,6 +4189,7 @@ export type Role = {
     | "tracecat-cli"
     | "tracecat-executor"
     | "tracecat-agent-executor"
+    | "tracecat-case-triggers"
     | "tracecat-llm-gateway"
     | "tracecat-mcp"
     | "tracecat-runner"
@@ -4196,6 +4207,7 @@ export type service_id =
   | "tracecat-cli"
   | "tracecat-executor"
   | "tracecat-agent-executor"
+  | "tracecat-case-triggers"
   | "tracecat-llm-gateway"
   | "tracecat-mcp"
   | "tracecat-runner"
@@ -4288,8 +4300,6 @@ export type ScheduleCreate = {
    */
   timeout?: number
 }
-
-export type status2 = "online" | "offline"
 
 export type ScheduleRead = {
   id: string
@@ -5350,7 +5360,7 @@ export type type4 = "schedule" | "webhook"
 /**
  * Trigger type for a workflow execution.
  */
-export type TriggerType = "manual" | "scheduled" | "webhook"
+export type TriggerType = "manual" | "scheduled" | "webhook" | "case"
 
 /**
  * Pydantic model for AI SDK UI Messages, used for validation between
@@ -6203,6 +6213,11 @@ export type Yaml = {
   component_id?: "yaml"
 }
 
+export type tracecat__organization__schemas__OrgRead = {
+  id: string
+  name: string
+}
+
 /**
  * Response model for registry sync operation.
  */
@@ -6238,6 +6253,18 @@ export type tracecat__registry__repositories__schemas__RegistryVersionRead = {
   commit_sha: string | null
   tarball_uri: string | null
   created_at: string
+}
+
+/**
+ * Organization response.
+ */
+export type tracecat_ee__admin__organizations__schemas__OrgRead = {
+  id: string
+  name: string
+  slug: string
+  is_active: boolean
+  created_at: string
+  updated_at?: string | null
 }
 
 /**
@@ -6558,6 +6585,29 @@ export type TriggersUpdateWebhookData = {
 }
 
 export type TriggersUpdateWebhookResponse = void
+
+export type TriggersCreateCaseTriggerData = {
+  requestBody: CaseTriggerCreate
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersCreateCaseTriggerResponse = CaseTriggerRead
+
+export type TriggersGetCaseTriggerData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersGetCaseTriggerResponse = CaseTriggerRead
+
+export type TriggersUpdateCaseTriggerData = {
+  requestBody: CaseTriggerUpdate
+  workflowId: string
+  workspaceId: string
+}
+
+export type TriggersUpdateCaseTriggerResponse = void
 
 export type TriggersGenerateWebhookApiKeyData = {
   workflowId: string
@@ -6962,6 +7012,9 @@ export type UsersSearchUserData = {
 
 export type UsersSearchUserResponse = UserRead
 
+export type OrganizationGetOrganizationResponse =
+  tracecat__organization__schemas__OrgRead
+
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberRead
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
@@ -7234,26 +7287,30 @@ export type ApprovalsSubmitApprovalsData = {
 
 export type ApprovalsSubmitApprovalsResponse = void
 
-export type AdminListOrganizationsResponse = Array<OrgRead>
+export type AdminListOrganizationsResponse =
+  Array<tracecat_ee__admin__organizations__schemas__OrgRead>
 
 export type AdminCreateOrganizationData = {
   requestBody: OrgCreate
 }
 
-export type AdminCreateOrganizationResponse = OrgRead
+export type AdminCreateOrganizationResponse =
+  tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminGetOrganizationData = {
   orgId: string
 }
 
-export type AdminGetOrganizationResponse = OrgRead
+export type AdminGetOrganizationResponse =
+  tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminUpdateOrganizationData = {
   orgId: string
   requestBody: OrgUpdate
 }
 
-export type AdminUpdateOrganizationResponse = OrgRead
+export type AdminUpdateOrganizationResponse =
+  tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminDeleteOrganizationData = {
   orgId: string
@@ -9077,6 +9134,47 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/case-trigger": {
+    post: {
+      req: TriggersCreateCaseTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTriggerRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: TriggersGetCaseTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTriggerRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TriggersUpdateCaseTriggerData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows/{workflow_id}/webhook/api-key": {
     post: {
       req: TriggersGenerateWebhookApiKeyData
@@ -9793,6 +9891,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat__organization__schemas__OrgRead
+      }
+    }
+  }
   "/organization/members/me": {
     get: {
       res: {
@@ -10342,7 +10450,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgRead>
+        200: Array<tracecat_ee__admin__organizations__schemas__OrgRead>
       }
     }
     post: {
@@ -10351,7 +10459,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: OrgRead
+        201: tracecat_ee__admin__organizations__schemas__OrgRead
         /**
          * Validation Error
          */
@@ -10366,7 +10474,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgRead
+        200: tracecat_ee__admin__organizations__schemas__OrgRead
         /**
          * Validation Error
          */
@@ -10379,7 +10487,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgRead
+        200: tracecat_ee__admin__organizations__schemas__OrgRead
         /**
          * Validation Error
          */

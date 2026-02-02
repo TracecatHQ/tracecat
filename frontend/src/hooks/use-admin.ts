@@ -36,7 +36,7 @@ import {
   adminUpdateTier,
   type OrganizationTierUpdate,
   type OrgCreate,
-  type OrgRead,
+  type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
   type PlatformRegistrySettingsUpdate,
   type TierCreate,

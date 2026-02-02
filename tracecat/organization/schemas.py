@@ -26,7 +26,7 @@ class OrgMemberRead(BaseModel):
 
 
 class OrgRead(BaseModel):
-    id: str
+    id: UUID
     name: str
 
 

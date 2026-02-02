@@ -5433,6 +5433,116 @@ export const $CaseTaskUpdate = {
   title: "CaseTaskUpdate",
 } as const
 
+export const $CaseTriggerCreate = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+      default: "offline",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+    },
+  },
+  type: "object",
+  title: "CaseTriggerCreate",
+} as const
+
+export const $CaseTriggerRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+    },
+    status: {
+      type: "string",
+      enum: ["online", "offline"],
+      title: "Status",
+    },
+    event_types: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Event Types",
+    },
+    tag_filters: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Filters",
+    },
+  },
+  type: "object",
+  required: ["id", "workflow_id", "status", "event_types", "tag_filters"],
+  title: "CaseTriggerRead",
+} as const
+
+export const $CaseTriggerUpdate = {
+  properties: {
+    status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["online", "offline"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    event_types: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseEventType",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Event Types",
+    },
+    tag_filters: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag Filters",
+    },
+  },
+  type: "object",
+  title: "CaseTriggerUpdate",
+} as const
+
 export const $CaseUpdate = {
   properties: {
     summary: {
@@ -7815,6 +7925,7 @@ export const $FeatureFlag = {
     "case-dropdowns",
     "case-durations",
     "case-tasks",
+    "case-triggers",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
@@ -10036,49 +10147,6 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
-} as const
-
-export const $OrgRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    slug: {
-      type: "string",
-      title: "Slug",
-    },
-    is_active: {
-      type: "boolean",
-      title: "Is Active",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Updated At",
-    },
-  },
-  type: "object",
-  required: ["id", "name", "slug", "is_active", "created_at"],
-  title: "OrgRead",
-  description: "Organization response.",
 } as const
 
 export const $OrgRegistryRepositoryRead = {
@@ -13054,6 +13122,7 @@ export const $Role = {
         "tracecat-cli",
         "tracecat-executor",
         "tracecat-agent-executor",
+        "tracecat-case-triggers",
         "tracecat-llm-gateway",
         "tracecat-mcp",
         "tracecat-runner",
@@ -16791,7 +16860,7 @@ export const $Trigger = {
 
 export const $TriggerType = {
   type: "string",
-  enum: ["manual", "scheduled", "webhook"],
+  enum: ["manual", "scheduled", "webhook", "case"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
 } as const
@@ -20157,6 +20226,23 @@ export const $Yaml = {
   title: "Yaml",
 } as const
 
+export const $tracecat__organization__schemas__OrgRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "OrgRead",
+} as const
+
 export const $tracecat__registry__repositories__schemas__RegistrySyncResponse =
   {
     properties: {
@@ -20319,6 +20405,49 @@ export const $tracecat__registry__repositories__schemas__RegistryVersionRead = {
   ],
   title: "RegistryVersionRead",
   description: "Response model for reading a registry version.",
+} as const
+
+export const $tracecat_ee__admin__organizations__schemas__OrgRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "slug", "is_active", "created_at"],
+  title: "OrgRead",
+  description: "Organization response.",
 } as const
 
 export const $tracecat_ee__admin__registry__schemas__RegistrySyncResponse = {

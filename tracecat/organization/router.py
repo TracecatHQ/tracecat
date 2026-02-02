@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
@@ -55,12 +56,34 @@ OrgAdminRole = Annotated[
 ]
 
 
-@router.get("", response_model=OrgRead, include_in_schema=False)
+@router.get("", response_model=OrgRead)
 async def get_organization(
     *,
     role: OrgUserRole,
+    session: AsyncDBSession,
 ) -> OrgRead:
-    raise NotImplementedError
+    """Get the current organization.
+
+    Returns basic information about the organization the authenticated user belongs to.
+    """
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    result = await session.execute(
+        select(Organization).where(Organization.id == role.organization_id)
+    )
+    org = result.scalar_one_or_none()
+
+    if org is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+
+    return OrgRead(id=org.id, name=org.name)
 
 
 @router.get("/members/me", response_model=OrgMemberRead)
@@ -105,23 +128,43 @@ async def get_current_org_member(
     result = await session.execute(statement)
     row = result.tuples().one_or_none()
 
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User is not a member of this organization",
+    if row is not None:
+        user, org_role = row
+        return OrgMemberRead(
+            user_id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=org_role,
+            is_active=user.is_active,
+            is_superuser=user.is_superuser,
+            is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
         )
 
-    user, org_role = row
-    return OrgMemberRead(
-        user_id=user.id,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        email=user.email,
-        role=org_role,
-        is_active=user.is_active,
-        is_superuser=user.is_superuser,
-        is_verified=user.is_verified,
-        last_login_at=user.last_login_at,
+    # No explicit membership found - check if user is a platform superuser
+    # Superusers have implicit owner access to all organizations
+    if role.is_platform_superuser:
+        user_result = await session.execute(
+            select(User).where(User.id == role.user_id)  # pyright: ignore[reportArgumentType]
+        )
+        user = user_result.scalar_one_or_none()
+        if user is not None:
+            return OrgMemberRead(
+                user_id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                role=OrgRole.OWNER,  # Superusers have implicit owner role
+                is_active=user.is_active,
+                is_superuser=user.is_superuser,
+                is_verified=user.is_verified,
+                last_login_at=user.last_login_at,
+            )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="User is not a member of this organization",
     )
 
 
