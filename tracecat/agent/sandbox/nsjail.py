@@ -23,6 +23,7 @@ subprocess instead of through nsjail. This is useful for:
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import sys
 import tempfile
@@ -30,7 +31,10 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.common.config import (
+    CONTROL_SOCKET_NAME,
+    TRACECAT__DISABLE_NSJAIL,
+)
 from tracecat.agent.common.exceptions import (
     AgentSandboxExecutionError,
     AgentSandboxTimeoutError,
@@ -177,7 +181,10 @@ async def spawn_jailed_runtime(
 
     # Direct subprocess mode for testing (no nsjail)
     if TRACECAT__DISABLE_NSJAIL:
-        return await _spawn_direct_runtime()
+        return await _spawn_direct_runtime(
+            socket_dir=socket_dir,
+            llm_socket_path=llm_socket_path,
+        )
 
     # NSJail mode for production - llm_socket_path is required
     if llm_socket_path is None:
@@ -196,7 +203,11 @@ async def spawn_jailed_runtime(
     )
 
 
-async def _spawn_direct_runtime() -> SpawnedRuntime:
+async def _spawn_direct_runtime(
+    *,
+    socket_dir: Path,
+    llm_socket_path: Path | None,
+) -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
     This bypasses nsjail and runs ClaudeAgentRuntime directly in the current
@@ -208,6 +219,8 @@ async def _spawn_direct_runtime() -> SpawnedRuntime:
         JAILED_CONTROL_SOCKET_PATH,
         TRUSTED_MCP_SOCKET_PATH,
     )
+
+    control_socket_path = socket_dir / CONTROL_SOCKET_NAME
 
     cmd = [
         sys.executable,
@@ -221,10 +234,21 @@ async def _spawn_direct_runtime() -> SpawnedRuntime:
         mcp_socket_path=str(TRUSTED_MCP_SOCKET_PATH),
     )
 
+    env = {
+        **dict(os.environ),
+        # Point the runtime at the orchestrator's per-job control socket.
+        "TRACECAT__AGENT_CONTROL_SOCKET_PATH": str(control_socket_path),
+    }
+    if llm_socket_path is not None:
+        # If the runtime uses LLMBridge (internet access disabled), it must connect
+        # to the orchestrator-side LLM socket.
+        env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
+
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
 
     return SpawnedRuntime(process=process, job_dir=None)

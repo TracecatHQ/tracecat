@@ -43,3 +43,20 @@ LLM_SOCKET_NAME = "llm.sock"
 
 JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 """Path to the LLM socket inside the jail."""
+
+# === Runtime socket overrides (primarily for direct subprocess mode) === #
+#
+# In NSJail mode, the orchestrator mounts per-job sockets into the jailed paths above.
+# In direct subprocess mode (TRACECAT__DISABLE_NSJAIL=true), there is no mount, so the
+# runtime must connect to the orchestrator's real socket paths.
+TRACECAT__AGENT_CONTROL_SOCKET_PATH = Path(
+    os.environ.get(
+        "TRACECAT__AGENT_CONTROL_SOCKET_PATH", str(JAILED_CONTROL_SOCKET_PATH)
+    )
+)
+"""Path to the orchestrator control socket for the runtime to connect to."""
+
+TRACECAT__AGENT_LLM_SOCKET_PATH = Path(
+    os.environ.get("TRACECAT__AGENT_LLM_SOCKET_PATH", str(JAILED_LLM_SOCKET_PATH))
+)
+"""Path to the orchestrator LLM socket for the runtime bridge to connect to."""
