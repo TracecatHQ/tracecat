@@ -1229,14 +1229,19 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
         })
         return
       }
+      const previousStatus = status
       setStatus(nextStatus)
-      await persist(nextStatus, eventTypes, tagFilters)
-      toast({
-        title: "Case trigger updated",
-        description: `Case triggers are now ${nextStatus}.`,
-      })
+      try {
+        await persist(nextStatus, eventTypes, tagFilters)
+        toast({
+          title: "Case trigger updated",
+          description: `Case triggers are now ${nextStatus}.`,
+        })
+      } catch {
+        setStatus(previousStatus)
+      }
     },
-    [eventTypes, persist, tagFilters]
+    [eventTypes, persist, status, tagFilters]
   )
 
   const handleEventTypesChange = useCallback(
@@ -1246,38 +1251,49 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
       const nextStatus =
         wasOnline && nextEvents.length === 0 ? "offline" : status
 
+      const previousEvents = eventTypes
+      const previousStatus = status
       setEventTypes(nextEvents)
       if (nextStatus !== status) {
         setStatus(nextStatus)
       }
 
-      await persist(nextStatus, nextEvents, tagFilters)
-
-      if (wasOnline && nextEvents.length === 0) {
-        toast({
-          title: "Case triggers disabled",
-          description: "Select an event type to re-enable case triggers.",
-        })
-      } else {
-        toast({
-          title: "Case events updated",
-          description: "Case trigger events saved successfully.",
-        })
+      try {
+        await persist(nextStatus, nextEvents, tagFilters)
+        if (wasOnline && nextEvents.length === 0) {
+          toast({
+            title: "Case triggers disabled",
+            description: "Select an event type to re-enable case triggers.",
+          })
+        } else {
+          toast({
+            title: "Case events updated",
+            description: "Case trigger events saved successfully.",
+          })
+        }
+      } catch {
+        setEventTypes(previousEvents)
+        setStatus(previousStatus)
       }
     },
-    [persist, status, tagFilters]
+    [eventTypes, persist, status, tagFilters]
   )
 
   const handleTagFiltersChange = useCallback(
     async (values: string[]) => {
+      const previousFilters = tagFilters
       setTagFilters(values)
-      await persist(status, eventTypes, values)
-      toast({
-        title: "Tag allowlist updated",
-        description: "Case trigger tag filters saved successfully.",
-      })
+      try {
+        await persist(status, eventTypes, values)
+        toast({
+          title: "Tag allowlist updated",
+          description: "Case trigger tag filters saved successfully.",
+        })
+      } catch {
+        setTagFilters(previousFilters)
+      }
     },
-    [eventTypes, persist, status]
+    [eventTypes, persist, status, tagFilters]
   )
 
   const tagSuggestions = useMemo(() => {
@@ -1763,6 +1779,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       toast({
         title: "Cannot create schedule",
         description: "You must commit the workflow before creating a schedule.",
+        variant: "destructive",
       })
       return
     }

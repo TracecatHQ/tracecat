@@ -316,12 +316,10 @@ import {
 import {
   type CaseTriggerCreate,
   type CaseTriggerRead,
-  type CaseTriggerUpdate,
   type CustomOAuthProviderCreateRequest,
   providersCreateCustomProvider,
   triggersCreateCaseTrigger,
   triggersGetCaseTrigger,
-  triggersUpdateCaseTrigger,
 } from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
@@ -548,31 +546,6 @@ export function useUpsertCaseTrigger(workspaceId: string, workflowId: string) {
   return useMutation({
     mutationFn: async (params: CaseTriggerCreate) =>
       await triggersCreateCaseTrigger({
-        workspaceId,
-        workflowId,
-        requestBody: params,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-trigger", workspaceId, workflowId],
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to update case trigger:", error)
-      toast({
-        title: "Error updating case trigger",
-        description: "Could not update case trigger. Please try again.",
-        variant: "destructive",
-      })
-    },
-  })
-}
-
-export function useUpdateCaseTrigger(workspaceId: string, workflowId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (params: CaseTriggerUpdate) =>
-      await triggersUpdateCaseTrigger({
         workspaceId,
         workflowId,
         requestBody: params,
