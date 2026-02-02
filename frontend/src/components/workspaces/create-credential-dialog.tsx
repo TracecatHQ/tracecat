@@ -4,15 +4,13 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import type { DialogProps } from "@radix-ui/react-dialog"
 import {
   Braces,
-  ChevronLeft,
   FileKey2,
   KeyRoundIcon,
   PlusCircle,
-  Search,
   ShieldCheck,
   Trash2Icon,
 } from "lucide-react"
-import React, { useMemo, useState } from "react"
+import React from "react"
 import {
   type ArrayPath,
   type FieldPath,
@@ -21,8 +19,6 @@ import {
 } from "react-hook-form"
 import { z } from "zod"
 import type { SecretCreate, SecretDefinition } from "@/client"
-import { SecretIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { sshKeyRegex } from "@/components/ssh-keys/ssh-key-utils"
 import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
@@ -44,7 +40,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Item, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item"
 import {
   Select,
   SelectContent,
@@ -54,7 +49,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useSecretDefinitions, useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const pemCertificateRegex =
@@ -182,47 +177,21 @@ const createSecretSchema = z
 type CreateSecretForm = z.infer<typeof createSecretSchema>
 
 interface CreateCredentialDialogProps extends DialogProps {
-  initialView?: "tools" | "custom"
+  template?: SecretDefinition | null
   onOpenChange: (open: boolean) => void
   className?: string
 }
 
 export function CreateCredentialDialog({
-  initialView = "custom",
+  template = null,
   open,
   onOpenChange,
   children,
   className,
 }: CreateCredentialDialogProps) {
-  const [view, setView] = useState<"tools" | "custom">(initialView)
-  const [selectedTool, setSelectedTool] = useState<SecretDefinition | null>(null)
+  const selectedTool = template
   const workspaceId = useWorkspaceId()
   const { createSecret } = useWorkspaceSecrets(workspaceId)
-  const {
-    secretDefinitions,
-    secretDefinitionsIsLoading,
-    secretDefinitionsError,
-  } = useSecretDefinitions(workspaceId)
-  const [searchQuery, setSearchQuery] = useState("")
-
-  // Reset state when dialog opens/closes
-  React.useEffect(() => {
-    if (open) {
-      setView(initialView)
-      setSelectedTool(null)
-      setSearchQuery("")
-    }
-  }, [open, initialView])
-
-  const filteredSecrets = useMemo(() => {
-    if (!secretDefinitions) return []
-
-    return secretDefinitions
-      .filter((secret) =>
-        secret.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [secretDefinitions, searchQuery])
 
   // Form handling
   const methods = useForm<CreateSecretForm>({
@@ -240,8 +209,9 @@ export function CreateCredentialDialog({
     },
   })
 
-  // Update form when tool is selected
+  // Reset form when dialog opens
   React.useEffect(() => {
+    if (!open) return
     if (selectedTool) {
       const initialKeys = [
         ...(selectedTool.keys || []).map((key) => ({
@@ -267,20 +237,20 @@ export function CreateCredentialDialog({
         tls_private_key: "",
         ca_certificate: "",
       })
-    } else if (view === "custom") {
-        methods.reset({
-            name: "",
-            description: "",
-            environment: "",
-            type: "custom",
-            keys: [{ key: "", value: "" }],
-            private_key: "",
-            tls_certificate: "",
-            tls_private_key: "",
-            ca_certificate: "",
-          })
+      return
     }
-  }, [selectedTool, view, methods])
+    methods.reset({
+      name: "",
+      description: "",
+      environment: "",
+      type: "custom",
+      keys: [{ key: "", value: "" }],
+      private_key: "",
+      tls_certificate: "",
+      tls_private_key: "",
+      ca_certificate: "",
+    })
+  }, [open, selectedTool, methods])
 
   const { control, register } = methods
   const secretType = methods.watch("type")
@@ -394,97 +364,38 @@ export function CreateCredentialDialog({
       {children}
       <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
         <DialogHeader className="flex-shrink-0">
-          <div className="flex items-center gap-2">
-            {selectedTool && (
-                <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="-ml-2 h-8 w-8" 
-                    onClick={() => setSelectedTool(null)}
-                >
-                    <ChevronLeft className="h-4 w-4" />
-                </Button>
-            )}
-            <DialogTitle>
-                {selectedTool ? `Configure ${selectedTool.name}` : (view === "tools" ? "Select tool" : "Create new secret")}
-            </DialogTitle>
-          </div>
+          <DialogTitle>
+            {selectedTool
+              ? `Configure ${selectedTool.name}`
+              : "Create new secret"}
+          </DialogTitle>
         </DialogHeader>
-        
-        {view === "tools" && !selectedTool ? (
-             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <div className="mb-4 flex-shrink-0 px-1">
-                    <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                        placeholder="Search secrets..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-9 border-gray-300 bg-gray-50 pl-10 text-sm focus:border-gray-400 focus:bg-white focus-visible:ring-0 focus-visible:ring-offset-0"
-                        autoFocus
-                    />
-                    </div>
-                </div>
 
-                {secretDefinitionsIsLoading ? (
-                    <CenteredSpinner />
-                ) : secretDefinitionsError ? (
-                    <div className="p-4 text-center text-red-500">{secretDefinitionsError.message}</div>
-                ) : (
-                    <div className="grid grid-cols-2 gap-2 overflow-y-auto p-1">
-                    {filteredSecrets.map((secret) => (
-                        <Item
-                        key={secret.name}
-                        variant="outline"
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => setSelectedTool(secret)}
-                        >
-                            <ItemMedia>
-                                <SecretIcon
-                                secretName={secret.name}
-                                className="size-7 rounded"
-                                />
-                            </ItemMedia>
-                            <ItemContent>
-                                <ItemTitle className="text-sm">{secret.name}</ItemTitle>
-                            </ItemContent>
-                        </Item>
-                    ))}
-                    {filteredSecrets.length === 0 && (
-                        <div className="col-span-2 py-8 text-center text-sm text-muted-foreground">
-                        No secrets found matching your search.
-                        </div>
-                    )}
-                    </div>
+        <CreateSecretTooltip />
+        <Form {...methods}>
+          <form
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
+              <FormField
+                key="name"
+                control={control}
+                name="name"
+                render={() => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        className="text-sm"
+                        placeholder="Name (snake case)"
+                        {...register("name")}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-             </div>
-        ) : (
-             <>
-                <CreateSecretTooltip />
-                <Form {...methods}>
-                <form
-                    onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
-                    className="flex flex-col flex-1 min-h-0"
-                >
-                    <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
-                    <FormField
-                        key="name"
-                        control={control}
-                        name="name"
-                        render={() => (
-                        <FormItem>
-                            <FormLabel className="text-sm">Name</FormLabel>
-                            <FormControl>
-                            <Input
-                                className="text-sm"
-                                placeholder="Name (snake case)"
-                                {...register("name")}
-                            />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
+              />
                     <FormField
                         key="description"
                         control={control}
@@ -678,17 +589,15 @@ export function CreateCredentialDialog({
                         "CA certificate",
                         "-----BEGIN CERTIFICATE-----"
                         )}
-                    </div>
-                    <DialogFooter className="flex-shrink-0 pt-4">
-                        <Button className="ml-auto space-x-2" type="submit">
-                        <KeyRoundIcon className="mr-2 size-4" />
-                        Create secret
-                        </Button>
-                    </DialogFooter>
-                </form>
-                </Form>
-            </>
-        )}
+            </div>
+            <DialogFooter className="flex-shrink-0 pt-4">
+              <Button className="ml-auto space-x-2" type="submit">
+                <KeyRoundIcon className="mr-2 size-4" />
+                Create secret
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   )

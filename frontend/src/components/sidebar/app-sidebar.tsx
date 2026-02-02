@@ -4,9 +4,9 @@ import {
   BlocksIcon,
   ChevronDown,
   InboxIcon,
+  KeyRound,
   LayersIcon,
   LayersPlus,
-  LockKeyholeIcon,
   type LucideIcon,
   SquareMousePointerIcon,
   SquarePen,
@@ -145,7 +145,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     {
       title: "Credentials",
       url: `${basePath}/credentials`,
-      icon: LockKeyholeIcon,
+      icon: KeyRound,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
     },
     {

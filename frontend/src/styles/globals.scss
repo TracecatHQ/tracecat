@@ -109,6 +109,10 @@
     /* Firefox */
   }
 
+  .icon-success {
+    color: hsl(var(--success));
+  }
+
   .editor-wrapper .monaco-editor {
     border-radius: 8px;
   }

@@ -1,21 +1,11 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Loader2, Plus } from "lucide-react"
 import React, { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ProviderIcon } from "@/components/icons"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,7 +26,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -47,7 +36,6 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   useCreateMcpIntegration,
-  useDeleteMcpIntegration,
   useGetMcpIntegration,
   useIntegrations,
   useUpdateMcpIntegration,
@@ -157,8 +145,6 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
-  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
-    useDeleteMcpIntegration(workspaceId)
   const { integrations, providers, integrationsIsLoading } =
     useIntegrations(workspaceId)
   const { mcpIntegration, mcpIntegrationIsLoading } = useGetMcpIntegration(
@@ -269,35 +255,8 @@ export function MCPIntegrationDialog({
     }
   }
 
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState("")
-
-  const handleDelete = async () => {
-    if (!mcpIntegrationId || !mcpIntegration) return
-    if (deleteConfirmText !== mcpIntegration.name) return
-
-    try {
-      await deleteMcpIntegration(mcpIntegrationId)
-      handleOpenChange(false)
-      setDeleteDialogOpen(false)
-      setDeleteConfirmText("")
-    } catch (error) {
-      // Error is handled by the hook's onError callback
-      console.error("Failed to delete MCP integration:", error)
-    }
-  }
-
-  const handleDeleteDialogOpenChange = (open: boolean) => {
-    setDeleteDialogOpen(open)
-    if (!open) {
-      setDeleteConfirmText("")
-    }
-  }
-
   const isPending =
-    createMcpIntegrationIsPending ||
-    updateMcpIntegrationIsPending ||
-    deleteMcpIntegrationIsPending
+    createMcpIntegrationIsPending || updateMcpIntegrationIsPending
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -565,104 +524,25 @@ export function MCPIntegrationDialog({
               )}
 
               <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                <div className="flex w-full items-center justify-between gap-2">
-                  {isEditMode && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setDeleteDialogOpen(true)}
-                      disabled={isPending}
-                      className="gap-2 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Delete
-                    </Button>
-                  )}
-                  <div className="flex flex-1 justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => handleOpenChange(false)}
-                      disabled={isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      className="gap-2"
-                      disabled={isPending}
-                    >
-                      {isPending && (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      )}
-                      {isEditMode ? "Update integration" : "Save integration"}
-                    </Button>
-                  </div>
+                <div className="flex w-full items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleOpenChange(false)}
+                    disabled={isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="gap-2" disabled={isPending}>
+                    {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {isEditMode ? "Update integration" : "Save integration"}
+                  </Button>
                 </div>
               </DialogFooter>
             </form>
           </Form>
         )}
       </DialogContent>
-      <AlertDialog
-        open={deleteDialogOpen}
-        onOpenChange={handleDeleteDialogOpenChange}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete MCP Integration</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-4">
-              <p>
-                Are you sure you want to delete{" "}
-                <strong>{mcpIntegration?.name}</strong>? This action cannot be
-                undone. Any agent presets using this integration will need to be
-                updated.
-              </p>
-              <div className="space-y-2">
-                <Label htmlFor="delete-confirm">
-                  Type <strong>{mcpIntegration?.name}</strong> to confirm:
-                </Label>
-                <Input
-                  id="delete-confirm"
-                  value={deleteConfirmText}
-                  onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      deleteConfirmText === mcpIntegration?.name &&
-                      !deleteMcpIntegrationIsPending
-                    ) {
-                      e.preventDefault()
-                      handleDelete()
-                    }
-                  }}
-                  placeholder="Enter integration name"
-                  disabled={deleteMcpIntegrationIsPending}
-                />
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMcpIntegrationIsPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={
-                deleteMcpIntegrationIsPending ||
-                deleteConfirmText !== mcpIntegration?.name
-              }
-              className="gap-2"
-            >
-              {deleteMcpIntegrationIsPending && (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              )}
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Dialog>
   )
 }

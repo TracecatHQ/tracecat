@@ -4,15 +4,13 @@ import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
-  Blocks,
   Check,
   ChevronDown,
   ClockPlus,
-  DiamondPlus,
   FileUpIcon,
   Flag,
   Flame,
-  Key,
+  Lock,
   PanelRight,
   PenLine,
   Plus,
@@ -286,7 +284,7 @@ function IntegrationsActions() {
           "
         >
           <DropdownMenuItem onSelect={() => setActiveDialog("oauth")}>
-            <Key className="size-4 text-foreground/80" />
+            <Lock className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
               <span>OAuth provider</span>
               <span className="text-xs text-muted-foreground">
@@ -858,61 +856,22 @@ function MembersActions() {
 
 function CredentialsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [initialView, setInitialView] = useState<"tools" | "custom">("custom")
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add credential
-            <ChevronDown className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="
-            [&_[data-radix-collection-item]]:flex
-            [&_[data-radix-collection-item]]:items-center
-            [&_[data-radix-collection-item]]:gap-2
-          "
-        >
-          <DropdownMenuItem
-            onSelect={() => {
-              setInitialView("tools")
-              setDialogOpen(true)
-            }}
-          >
-            <Blocks className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>Tools</span>
-              <span className="text-xs text-muted-foreground">
-                From out-of-the-box integrations
-              </span>
-            </div>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              setInitialView("custom")
-              setDialogOpen(true)
-            }}
-          >
-            <DiamondPlus className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>Custom</span>
-              <span className="text-xs text-muted-foreground">
-                Add your own credentials
-              </span>
-            </div>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => setDialogOpen(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add credential
+      </Button>
 
       <CreateCredentialDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        initialView={initialView}
       />
     </>
   )

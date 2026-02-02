@@ -115,7 +115,7 @@ export function OAuthIntegrationDialog({
           <div className="flex items-start gap-4">
             <ProviderIcon providerId={providerId} className="size-10" />
             <div className="space-y-1">
-              <DialogTitle>Connect {provider?.metadata.name}</DialogTitle>
+              <DialogTitle>{provider?.metadata.name}</DialogTitle>
               <DialogDescription>
                 {provider?.metadata.description ||
                   "Configure the provider credentials and connect."}
