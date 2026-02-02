@@ -230,7 +230,16 @@ async def test_remote_custom_registry_repo() -> None:
         f"Failed to get workspaces: {workspaces_response.text}"
     )
     workspaces = workspaces_response.json()
-    assert len(workspaces) > 0, "No workspaces found"
+    if not workspaces:
+        logger.info("No workspaces found, creating workspace for test org")
+        create_workspace_response = session.post(
+            f"{base_url}/workspaces",
+            json={"name": f"__integration_workspace_{uuid.uuid4().hex[:8]}"},
+        )
+        assert create_workspace_response.status_code == 201, (
+            f"Failed to create workspace: {create_workspace_response.text}"
+        )
+        workspaces = [create_workspace_response.json()]
     workspace_id = uuid.UUID(workspaces[0]["id"])
 
     # Fetch full workspace details to get organization_id
