@@ -237,8 +237,12 @@ async def registry_sync_worker(temporal_client):
 
 
 @pytest.fixture
-async def test_bucket(minio_client: Minio):
-    """Create test bucket for registry tarballs."""
+async def test_bucket(minio_client: Minio, mock_org_id: uuid.UUID):
+    """Create test bucket for registry tarballs.
+
+    Uses worker-specific org ID for cleanup to avoid conflicts in parallel test execution.
+    Each xdist worker has a unique mock_org_id, so cleanup only removes that worker's objects.
+    """
     bucket_name = TEST_BUCKET
 
     # Create bucket if it doesn't exist
@@ -247,9 +251,11 @@ async def test_bucket(minio_client: Minio):
 
     yield bucket_name
 
-    # Cleanup: remove all objects
+    # Cleanup: only remove objects with this worker's org ID prefix
+    # This avoids race conditions when multiple xdist workers share the bucket
+    org_prefix = str(mock_org_id)
     try:
-        objects = minio_client.list_objects(bucket_name, recursive=True)
+        objects = minio_client.list_objects(bucket_name, prefix=org_prefix, recursive=True)
         for obj in objects:
             if obj.object_name:
                 minio_client.remove_object(bucket_name, obj.object_name)
