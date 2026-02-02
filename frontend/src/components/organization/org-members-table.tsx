@@ -59,7 +59,7 @@ export function OrgMembersTable() {
   const handleChangeRole = async (role: UserRole) => {
     try {
       if (selectedMember) {
-        if (selectedMember.role === role) {
+        if (selectedMember.role_slug === role) {
           toast({
             title: "Update skipped",
             description: `User ${selectedMember.email} is already a ${role} member`,
@@ -161,7 +161,7 @@ export function OrgMembersTable() {
               enableHiding: false,
             },
             {
-              accessorKey: "role",
+              accessorKey: "role_slug",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
@@ -171,7 +171,7 @@ export function OrgMembersTable() {
               ),
               cell: ({ row }) => (
                 <div className="text-xs capitalize">
-                  {row.getValue<OrgMemberRead["role"]>("role")}
+                  {row.getValue<OrgMemberRead["role_slug"]>("role_slug") || "-"}
                 </div>
               ),
               enableSorting: true,
