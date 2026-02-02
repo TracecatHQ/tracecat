@@ -15,6 +15,11 @@ variable "aws_account_id" {
   description = "(Optional) AWS account ID to deploy into. Required when aws_role_name is set."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.aws_role_name == null || var.aws_account_id != null
+    error_message = "aws_account_id must be set when aws_role_name is provided."
+  }
 }
 
 # Domain and DNS

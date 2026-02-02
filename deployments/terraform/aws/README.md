@@ -39,8 +39,9 @@ Network hardening:
 export DOMAIN_NAME="tracecat.example.com"
 export AWS_REGION="us-west-2"
 export AWS_ACCOUNT_ID="123456789012"
-# (Optional) AWS role to assume
-export AWS_ROLE_ARN="arn:aws:iam::123456789012:role/YourRole"
+# (Optional) AWS role name to assume for cross-account deploys.
+# If you set AWS_ROLE_NAME, you must also set AWS_ACCOUNT_ID.
+export AWS_ROLE_NAME="YourRole"
 
 # Either hardcode or use AWS CLI to get hosted zone ID
 hosted_zone_id=$(aws route53 list-hosted-zones | jq -r '.HostedZones[] | select(.Name == "'$DOMAIN_NAME'.") | .Id')
@@ -65,7 +66,7 @@ export TF_VAR_hosted_zone_id=$HOSTED_ZONE_ID
 export TF_VAR_aws_region=$AWS_REGION
 export TF_VAR_aws_account_id=$AWS_ACCOUNT_ID
 # Optional
-export TF_VAR_aws_role_arn=$AWS_ROLE_ARN
+export TF_VAR_aws_role_name=$AWS_ROLE_NAME
 
 terraform init
 terraform apply

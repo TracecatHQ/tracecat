@@ -37,6 +37,13 @@ locals {
   aws_role_arn = var.aws_role_name != null && var.aws_account_id != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
 }
 
+check "aws_role_requires_account_id" {
+  assert {
+    condition     = var.aws_role_name == null || var.aws_account_id != null
+    error_message = "aws_account_id must be set when aws_role_name is provided."
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 
