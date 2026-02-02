@@ -93,7 +93,12 @@ class DurableAgentWorkflow:
         self._turn: int = 0
         if args.role.workspace_id is None:
             raise ApplicationError("Role must have a workspace ID", non_retryable=True)
+        if args.role.organization_id is None:
+            raise ApplicationError(
+                "Role must have an organization ID", non_retryable=True
+            )
         self.workspace_id = args.role.workspace_id
+        self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
@@ -296,6 +301,7 @@ class DurableAgentWorkflow:
         )
         litellm_auth_token = mint_llm_token(
             workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
             session_id=self.session_id,
             model=cfg.model_name,
             provider=cfg.model_provider,

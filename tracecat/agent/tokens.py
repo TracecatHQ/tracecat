@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from tracecat import config
 from tracecat.agent.types import OutputType
-from tracecat.identifiers import UserID, WorkspaceID
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # -----------------------------------------------------------------------------
 # MCP Token (for tool execution)
@@ -209,6 +209,7 @@ LLM_REQUIRED_CLAIMS = (
     "iat",
     "exp",
     "workspace_id",
+    "organization_id",
     "session_id",
     "model",
     "provider",
@@ -224,6 +225,7 @@ class LLMTokenClaims(BaseModel):
 
     # Identity
     workspace_id: WorkspaceID = Field(..., description="Workspace UUID")
+    organization_id: OrganizationID = Field(..., description="Organization UUID")
     session_id: uuid.UUID = Field(..., description="Agent session UUID")
 
     # Model configuration
@@ -255,6 +257,7 @@ class LLMTokenClaims(BaseModel):
 def mint_llm_token(
     *,
     workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
     session_id: uuid.UUID,
     model: str,
     provider: str,
@@ -269,8 +272,9 @@ def mint_llm_token(
     jailed runtime. The runtime cannot decode or modify it - it's opaque.
 
     Args:
-        workspace_id: The workspace UUID as string
-        session_id: The agent session UUID as string
+        workspace_id: The workspace UUID
+        organization_id: The organization UUID
+        session_id: The agent session UUID
         model: The model to use for this run
         provider: The provider for the model (e.g., openai, anthropic, bedrock)
         model_settings: Model-specific settings (temperature, max_tokens,
@@ -297,6 +301,7 @@ def mint_llm_token(
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
         # Identity claims
         "workspace_id": str(workspace_id),
+        "organization_id": str(organization_id),
         "session_id": str(session_id),
         # Model configuration
         "model": model,
