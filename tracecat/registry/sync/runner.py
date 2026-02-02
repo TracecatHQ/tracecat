@@ -126,13 +126,12 @@ class RegistrySyncRunner:
                     raise RegistrySyncRunnerError(
                         "git_url is required for git origin type"
                     )
-                package_path = await self._clone_repository(
+                package_path, commit_sha = await self._clone_repository(
                     git_url=request.git_url,
                     commit_sha=request.commit_sha,
                     ssh_key=request.ssh_key,
                     work_dir=work_dir,
                 )
-                commit_sha = request.commit_sha
             else:
                 raise RegistrySyncRunnerError(
                     f"Unknown origin type: {request.origin_type}"
@@ -214,17 +213,17 @@ class RegistrySyncRunner:
         commit_sha: str | None,
         ssh_key: str | None,
         work_dir: Path,
-    ) -> Path:
+    ) -> tuple[Path, str]:
         """Clone a git repository to a local directory.
 
         Args:
             git_url: Git SSH URL (git+ssh://...).
-            commit_sha: Commit SHA to checkout.
+            commit_sha: Commit SHA to checkout (if None, uses HEAD).
             ssh_key: SSH private key for authentication.
             work_dir: Working directory for the clone.
 
         Returns:
-            Path to the cloned repository.
+            Tuple of (path to cloned repository, resolved commit SHA).
 
         Raises:
             GitCloneError: If clone fails.
@@ -330,7 +329,21 @@ class RegistrySyncRunner:
                     error_msg = stderr.decode().strip()
                     raise GitCloneError(f"Failed to checkout commit: {error_msg}")
 
-            return clone_path
+            # Get the resolved commit SHA (verify the checkout worked)
+            rev_parse_cmd = ["git", "rev-parse", "HEAD"]
+            process = await asyncio.create_subprocess_exec(
+                *rev_parse_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(clone_path),
+                env=git_env,
+            )
+            stdout, stderr = await process.communicate()
+            if process.returncode != 0:
+                error_msg = stderr.decode().strip()
+                raise GitCloneError(f"Failed to get commit SHA: {error_msg}")
+            resolved_sha = stdout.decode().strip()
+            return clone_path, resolved_sha
 
         finally:
             # Clean up SSH key from memory and disk
