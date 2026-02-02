@@ -184,6 +184,7 @@ type CreateSecretForm = z.infer<typeof createSecretSchema>
 interface CreateCredentialDialogProps extends DialogProps {
   initialView?: "tools" | "custom"
   onOpenChange: (open: boolean) => void
+  className?: string
 }
 
 export function CreateCredentialDialog({

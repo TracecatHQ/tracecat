@@ -26,7 +26,7 @@ import {
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { Fragment, type ReactNode, useCallback, useState } from "react"
-import { type CaseStatus, casesAddTag, type OAuthGrantType } from "@/client"
+import { type CaseStatus, casesAddTag } from "@/client"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
@@ -103,7 +103,6 @@ import {
   useCaseTagCatalog,
   useGetCase,
   useGetTable,
-  useIntegrationProvider,
   useUpdateCase,
 } from "@/lib/hooks"
 import { capitalizeFirst, cn } from "@/lib/utils"
@@ -1072,44 +1071,6 @@ function TableDetailsActions() {
   return <TableInsertButton />
 }
 
-function IntegrationBreadcrumb({
-  providerId,
-  workspaceId,
-  grantType,
-}: {
-  providerId: string
-  workspaceId: string
-  grantType: OAuthGrantType
-}) {
-  const { provider } = useIntegrationProvider({
-    providerId,
-    workspaceId,
-    grantType,
-  })
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/integrations`}>
-              Integrations
-            </Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator className="shrink-0">
-          <span className="text-muted-foreground">/</span>
-        </BreadcrumbSeparator>
-        <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {provider?.metadata.name || providerId}
-          </BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  )
-}
-
 function AgentPresetBreadcrumb({
   presetId,
   workspaceId,
@@ -1244,24 +1205,6 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/integrations")) {
-    // Check if this is an integration detail page
-    const integrationMatch = pagePath.match(/^\/integrations\/([^/]+)$/)
-    if (integrationMatch && searchParams) {
-      const providerId = integrationMatch[1]
-      const grantType = searchParams.get("grant_type") as OAuthGrantType
-      if (grantType) {
-        return {
-          title: (
-            <IntegrationBreadcrumb
-              providerId={providerId}
-              workspaceId={workspaceId}
-              grantType={grantType}
-            />
-          ),
-        }
-      }
-    }
-
     return {
       title: "Integrations",
       actions: <IntegrationsActions />,
