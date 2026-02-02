@@ -917,8 +917,6 @@ def RoleACL(
             )
 
         return Depends(role_dependency_not_req_ws)
-    else:
-        raise ValueError(f"Invalid require_workspace value: {require_workspace}")
 
 
 # --- Platform-level (Superuser) Authentication ---

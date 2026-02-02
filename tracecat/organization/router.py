@@ -18,6 +18,10 @@ from tracecat.db.models import (
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import (
+    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -220,12 +224,25 @@ async def get_current_org_member(
             detail="No organization context",
         )
 
-    # Query user and membership directly (no admin access required)
+    # Query user, membership, and org-level role assignment
+    # We need to left join on UserRoleAssignment and Role to get the org-level role
     statement = (
-        select(User, OrganizationMembership.role)
+        select(User, RoleModel.id, RoleModel.slug)
         .join(
             OrganizationMembership,
             OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
+        )
+        .outerjoin(
+            UserRoleAssignment,
+            and_(
+                UserRoleAssignment.user_id == User.id,  # pyright: ignore[reportArgumentType]
+                UserRoleAssignment.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
+                UserRoleAssignment.workspace_id.is_(None),  # Org-level assignment
+            ),
+        )
+        .outerjoin(
+            RoleModel,
+            RoleModel.id == UserRoleAssignment.role_id,
         )
         .where(
             and_(
@@ -238,13 +255,14 @@ async def get_current_org_member(
     row = result.tuples().one_or_none()
 
     if row is not None:
-        user, org_role = row
+        user, role_id, role_slug = row
         return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=org_role,
+            role_id=role_id,
+            role_slug=role_slug,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
@@ -263,7 +281,8 @@ async def get_current_org_member(
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                role=OrgRole.OWNER,  # Superusers have implicit owner role
+                role_id=None,
+                role_slug=OrgRole.OWNER,  # Superusers have implicit owner role
                 is_active=user.is_active,
                 is_verified=user.is_verified,
                 last_login_at=user.last_login_at,

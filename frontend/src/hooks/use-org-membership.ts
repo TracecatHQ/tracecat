@@ -26,7 +26,7 @@ export function useOrgMembership() {
 
   // Check if user has org-level admin/owner role (not platform admin)
   const hasOrgAdminRole =
-    membership?.role === "admin" || membership?.role === "owner"
+    membership?.role_slug === "admin" || membership?.role_slug === "owner"
 
   // Check if user can administer the org (platform admin OR org admin/owner)
   const canAdministerOrg = user?.isPlatformAdmin() || hasOrgAdminRole
