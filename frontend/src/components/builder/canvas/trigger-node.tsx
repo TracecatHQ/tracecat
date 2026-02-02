@@ -4,17 +4,16 @@ import {
   CalendarClockIcon,
   Shield,
   ShieldOff,
+  SquarePlay,
   Tag,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
-  Zap,
 } from "lucide-react"
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
 import { getIcon } from "@/components/icons"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardDescription,
@@ -50,15 +49,10 @@ export type TriggerNodeData = {
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
 
-const formatCaseEventLabel = (value: string) =>
-  value
-    .split("_")
-    .map((segment) =>
-      segment.length > 0
-        ? `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`
-        : segment
-    )
-    .join(" ")
+const formatCaseEventLabel = (value: string) => {
+  const formatted = value.replace(/_/g, " ")
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1).toLowerCase()
+}
 
 export default React.memo(function TriggerNode({
   id,
@@ -77,7 +71,6 @@ export default React.memo(function TriggerNode({
   const caseEventTypes = caseTrigger?.event_types ?? []
   const tagFilters = caseTrigger?.tag_filters ?? []
   const isCaseTriggerEnabled = caseTrigger?.status === "online"
-  const caseTriggerStatusLabel = isCaseTriggerEnabled ? "Enabled" : "Disabled"
   const eventKey = useMemo(() => caseEventTypes.join("|"), [caseEventTypes])
   const { caseTags } = useCaseTagCatalog(workspaceId, {
     enabled: tagFilters.length > 0,
@@ -89,7 +82,6 @@ export default React.memo(function TriggerNode({
     () => tagFilters.map((tagRef) => caseTagLabelMap.get(tagRef) ?? tagRef),
     [caseTagLabelMap, tagFilters]
   )
-  const tagFilterCount = tagFilters.length
   const cardRef = useRef<HTMLDivElement>(null)
   const previousHeightRef = useRef<number | null>(null)
   const pendingHeightAdjustmentRef = useRef(false)
@@ -268,103 +260,14 @@ export default React.memo(function TriggerNode({
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
               {/* Case triggers */}
-              <div className="rounded-lg border p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 text-xs font-medium">
-                    <Zap className="size-3" />
-                    <span>Case triggers</span>
-                  </div>
-                  {caseTriggerIsLoading ? (
-                    <Skeleton className="h-4 w-16" />
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "text-[11px] font-semibold",
-                        isCaseTriggerEnabled
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
-                          : "border-muted-foreground/30 bg-muted text-muted-foreground"
-                      )}
-                    >
-                      {caseTriggerError
-                        ? "Unavailable"
-                        : caseTriggerStatusLabel}
-                    </Badge>
-                  )}
-                </div>
-                <div className="mt-2 space-y-2">
-                  {caseTriggerIsLoading ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-3 w-24" />
-                      <div className="flex flex-wrap gap-1">
-                        <Skeleton className="h-4 w-20" />
-                        <Skeleton className="h-4 w-16" />
-                      </div>
-                      <Skeleton className="h-3 w-20" />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span>Case events</span>
-                          <span>{caseEventTypes.length} selected</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {caseEventTypes.length > 0 ? (
-                            caseEventTypes.map((eventType) => (
-                              <Badge
-                                key={eventType}
-                                variant="secondary"
-                                className="text-[11px] font-medium"
-                              >
-                                {formatCaseEventLabel(eventType)}
-                              </Badge>
-                            ))
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">
-                              No case events selected
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Tag className="size-3" />
-                          <span>Tag filter</span>
-                        </div>
-                        {tagFilterCount > 0 ? (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="outline"
-                                  className="cursor-default text-[11px] font-semibold"
-                                >
-                                  Enabled ({tagFilterCount})
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" align="end">
-                                <div className="flex max-w-56 flex-wrap gap-1">
-                                  {tagFilterLabels.map((tagLabel) => (
-                                    <Badge
-                                      key={tagLabel}
-                                      variant="secondary"
-                                      className="text-[11px]"
-                                    >
-                                      {tagLabel}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ) : (
-                          <span>Disabled</span>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
+              <div className="rounded-lg border">
+                <TriggerNodeCaseTriggersTable
+                  isLoading={caseTriggerIsLoading}
+                  error={caseTriggerError}
+                  eventTypes={caseEventTypes}
+                  tags={tagFilterLabels}
+                  enabled={isCaseTriggerEnabled}
+                />
               </div>
             </div>
           </div>
@@ -524,10 +427,114 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
               className="h-8 bg-muted-foreground/5 text-center"
               colSpan={4}
             >
-              No Schedules
+              No schedules
             </TableCell>
           </TableRow>
         )}
+      </TableBody>
+    </Table>
+  )
+}
+
+function TriggerNodeCaseTriggersTable({
+  isLoading,
+  error,
+  eventTypes,
+  tags,
+  enabled,
+}: {
+  isLoading: boolean
+  error: unknown
+  eventTypes: string[]
+  tags: string[]
+  enabled: boolean
+}) {
+  if (isLoading) {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="h-8 text-center text-xs" colSpan={2}>
+              <div className="flex items-center justify-center gap-1">
+                <Skeleton className="size-3" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow className="items-center text-center text-xs">
+            <TableCell>
+              <div className="flex w-full items-center justify-center gap-2">
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center p-2">
+        <UnplugIcon className="size-4 text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="h-8 text-center text-xs" colSpan={2}>
+            <div className="flex items-center justify-center gap-1">
+              <SquarePlay className="size-3" />
+              <span>Case triggers</span>
+              <span
+                className={cn(
+                  "ml-1 inline-block size-2 rounded-full",
+                  enabled ? "bg-emerald-500" : "bg-muted"
+                )}
+              />
+            </div>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {eventTypes.length === 0 ? (
+          <TableRow className="justify-center text-xs text-muted-foreground">
+            <TableCell className="h-8 bg-muted-foreground/5 text-center">
+              No events
+            </TableCell>
+          </TableRow>
+        ) : (
+          eventTypes.map((eventType) => (
+            <TableRow
+              key={eventType}
+              className="items-center text-center text-xs text-muted-foreground"
+            >
+              <TableCell>
+                <div className="flex w-full items-center justify-center gap-2">
+                  <span>{formatCaseEventLabel(eventType)}</span>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))
+        )}
+        {tags.map((tag) => (
+          <TableRow
+            key={tag}
+            className="items-center text-center text-xs text-muted-foreground"
+          >
+            <TableCell>
+              <div className="flex w-full items-center justify-center gap-2">
+                <Tag className="size-3" />
+                <span>{tag}</span>
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
       </TableBody>
     </Table>
   )

@@ -557,6 +557,9 @@ export function useUpsertCaseTrigger(workspaceId: string, workflowId: string) {
     },
     onError: (error) => {
       console.error("Failed to update case trigger:", error)
+      queryClient.invalidateQueries({
+        queryKey: ["case-trigger", workspaceId, workflowId],
+      })
       toast({
         title: "Error updating case trigger",
         description: "Could not update case trigger. Please try again.",

@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import * as ipaddr from "ipaddr.js"
 import {
-  ActivityIcon,
   BanIcon,
   CalendarClockIcon,
   ChevronDownIcon,
@@ -14,6 +13,7 @@ import {
   MoreHorizontalIcon,
   PlusCircleIcon,
   RotateCcwIcon,
+  SquarePlay,
   Trash2Icon,
   WebhookIcon,
 } from "lucide-react"
@@ -41,12 +41,6 @@ import {
   type Suggestion,
   type Tag,
 } from "@/components/tags-input"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,6 +112,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useCaseTagCatalog,
   useCaseTrigger,
@@ -415,65 +410,59 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
           </h3>
         </div>
       </div>
-      <Separator />
-      {/* Metadata */}
-      <Accordion
-        type="multiple"
-        defaultValue={[
-          "trigger-settings",
-          "trigger-webhooks",
-          "trigger-case-triggers",
-          "trigger-schedules",
-        ]}
+      <Tabs
+        defaultValue="trigger-webhooks"
+        className="mt-1 flex h-full w-full flex-col"
       >
-        {/* Webhooks */}
-        <AccordionItem value="trigger-webhooks" id="trigger-webhooks">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <WebhookIcon className="mr-3 size-4" />
-              <span>Webhook</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
+        <div className="w-full">
+          <div className="flex items-center justify-start">
+            <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="trigger-webhooks"
+              >
+                <WebhookIcon className="mr-2 size-4" />
+                <span>Webhook</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="trigger-schedules"
+              >
+                <CalendarClockIcon className="mr-2 size-4" />
+                <span>Schedules</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="trigger-case-triggers"
+              >
+                <SquarePlay className="mr-2 size-4" />
+                <span>Case triggers</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+          <Separator />
+        </div>
+        <div className="flex-1 overflow-auto">
+          <TabsContent value="trigger-webhooks" className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <WebhookControls
                 webhook={workflow.webhook}
                 workflowId={workflow.id}
               />
             </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Schedules */}
-        <AccordionItem value="trigger-schedules" id="trigger-schedules">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <CalendarClockIcon className="mr-3 size-4" />
-              <span>Schedules</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
+          </TabsContent>
+          <TabsContent value="trigger-schedules" className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <ScheduleControls workflowId={workflow.id} />
             </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Case Triggers */}
-        <AccordionItem value="trigger-case-triggers" id="trigger-case-triggers">
-          <AccordionTrigger className="px-4 text-xs font-bold">
-            <div className="flex items-center">
-              <ActivityIcon className="mr-3 size-4" />
-              <span>Case triggers</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
+          </TabsContent>
+          <TabsContent value="trigger-case-triggers" className="pb-8">
             <div className="px-4 my-4 space-y-2">
               <CaseTriggerControls workflowId={workflow.id} />
             </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+          </TabsContent>
+        </div>
+      </Tabs>
     </div>
   )
 }
@@ -722,10 +711,15 @@ export function WebhookControls({
           name="status"
           render={({ field }) => (
             <FormItem>
-              <div className="flex justify-between items-center">
-                <FormLabel className="flex gap-2 items-center text-xs font-medium">
-                  <span>Toggle Webhook</span>
-                </FormLabel>
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Enable webhook</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {field.value === "online"
+                      ? "Webhook is currently active and receiving requests"
+                      : "Webhook is disabled"}
+                  </p>
+                </div>
                 <FormControl>
                   <Switch
                     checked={field.value === "online"}
@@ -735,11 +729,6 @@ export function WebhookControls({
                   />
                 </FormControl>
               </div>
-              <FormDescription className="text-xs">
-                {field.value === "online"
-                  ? "Webhook is currently active and receiving requests"
-                  : "Webhook is disabled"}
-              </FormDescription>
             </FormItem>
           )}
         />
@@ -750,7 +739,7 @@ export function WebhookControls({
           render={({ field }) => (
             <FormItem>
               <FormLabel className="flex gap-2 items-center text-xs font-medium">
-                <span>Allowed HTTP Methods</span>
+                <span>Allowed HTTP methods</span>
               </FormLabel>
               <FormControl>
                 <DropdownMenu>
@@ -809,7 +798,7 @@ export function WebhookControls({
           render={({ field }) => (
             <FormItem>
               <FormLabel className="text-xs font-medium">
-                <span>IP Allowlist</span>
+                <span>IP allowlist</span>
               </FormLabel>
               <FormControl>
                 <CustomTagInput
@@ -838,7 +827,7 @@ export function WebhookControls({
 
       <div className="space-y-3">
         <Label className="flex items-center gap-2 text-xs font-medium">
-          <span>API Key</span>
+          <span>API key</span>
         </Label>
         {hasActiveApiKey ? (
           <div className="rounded-lg border bg-muted/40 p-4 text-xs shadow-sm">
@@ -1895,7 +1884,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
               })
             })}
           >
-            <ScrollArea className="flex-1 px-6">
+            <ScrollArea className="flex-1 px-6 pr-10">
               <div className="space-y-4 py-4">
                 <FormField
                   control={form.control}
