@@ -41,6 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useCaseTrigger, useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -68,6 +69,7 @@ export default React.memo(function TriggerNode({
     setTriggerPanelTab,
   } = useWorkflowBuilder()
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
+  const { isFeatureEnabled } = useFeatureFlag()
   const {
     data: caseTrigger,
     isLoading: caseTriggerIsLoading,
@@ -274,17 +276,21 @@ export default React.memo(function TriggerNode({
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
               {/* Case triggers */}
-              <div
-                className="rounded-lg border cursor-pointer"
-                onClick={() => openTriggerPanel(TriggerPanelTabs.caseTriggers)}
-              >
-                <TriggerNodeCaseTriggersTable
-                  isLoading={caseTriggerIsLoading}
-                  error={caseTriggerError}
-                  enabled={isCaseTriggerEnabled}
-                  hasConfig={hasCaseTriggerConfig}
-                />
-              </div>
+              {isFeatureEnabled("case-triggers") && (
+                <div
+                  className="rounded-lg border cursor-pointer"
+                  onClick={() =>
+                    openTriggerPanel(TriggerPanelTabs.caseTriggers)
+                  }
+                >
+                  <TriggerNodeCaseTriggersTable
+                    isLoading={caseTriggerIsLoading}
+                    error={caseTriggerError}
+                    enabled={isCaseTriggerEnabled}
+                    hasConfig={hasCaseTriggerConfig}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </>

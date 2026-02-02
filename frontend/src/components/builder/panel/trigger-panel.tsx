@@ -117,6 +117,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import {
   useCaseTagCatalog,
   useCaseTrigger,
@@ -392,6 +393,7 @@ const formatScheduleDate = (value?: string | null) => {
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   const { triggerPanelTab, setTriggerPanelTab } = useWorkflowBuilder()
+  const { isFeatureEnabled } = useFeatureFlag()
 
   return (
     <div className="overflow-auto size-full">
@@ -441,13 +443,15 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
                 <CalendarClockIcon className="mr-2 size-4" />
                 <span>Schedules</span>
               </TabsTrigger>
-              <TabsTrigger
-                className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                value={TriggerPanelTabs.caseTriggers}
-              >
-                <SquarePlay className="mr-2 size-4" />
-                <span>Case triggers</span>
-              </TabsTrigger>
+              {isFeatureEnabled("case-triggers") && (
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value={TriggerPanelTabs.caseTriggers}
+                >
+                  <SquarePlay className="mr-2 size-4" />
+                  <span>Case triggers</span>
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
           <Separator />
@@ -466,11 +470,13 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
               <ScheduleControls workflowId={workflow.id} />
             </div>
           </TabsContent>
-          <TabsContent value={TriggerPanelTabs.caseTriggers} className="pb-8">
-            <div className="px-4 my-4 space-y-2">
-              <CaseTriggerControls workflowId={workflow.id} />
-            </div>
-          </TabsContent>
+          {isFeatureEnabled("case-triggers") && (
+            <TabsContent value={TriggerPanelTabs.caseTriggers} className="pb-8">
+              <div className="px-4 my-4 space-y-2">
+                <CaseTriggerControls workflowId={workflow.id} />
+              </div>
+            </TabsContent>
+          )}
         </div>
       </Tabs>
     </div>
