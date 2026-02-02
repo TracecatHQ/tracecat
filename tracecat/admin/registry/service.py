@@ -19,13 +19,24 @@ from tracecat.admin.registry.schemas import (
     RepositoryStatus,
     RepositorySyncResult,
 )
-from tracecat.db.models import PlatformRegistryRepository, PlatformRegistryVersion
+from tracecat.db.models import (
+    PlatformRegistryIndex,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+)
 from tracecat.parse import safe_url
+from tracecat.registry.actions.schemas import IndexEntry, RegistryActionRead
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
+from tracecat.registry.repositories.schemas import (
+    RegistryRepositoryRead,
+    RegistryRepositoryReadMinimal,
+)
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
 from tracecat.service import BasePlatformService
 
@@ -37,6 +48,113 @@ class AdminRegistryService(BasePlatformService):
     """Platform-level registry management."""
 
     service_name: ClassVar[str] = "admin_registry"
+
+    async def list_repositories(self) -> list[RegistryRepositoryReadMinimal]:
+        """List all platform registry repositories."""
+        stmt = select(
+            PlatformRegistryRepository.id,
+            PlatformRegistryRepository.origin,
+            PlatformRegistryRepository.last_synced_at,
+            PlatformRegistryRepository.commit_sha,
+            PlatformRegistryRepository.current_version_id,
+        )
+        result = await self.session.execute(stmt)
+        rows = result.tuples().all()
+        return [
+            RegistryRepositoryReadMinimal(
+                id=id,
+                origin=origin,
+                last_synced_at=last_synced_at,
+                commit_sha=commit_sha,
+                current_version_id=current_version_id,
+            )
+            for id, origin, last_synced_at, commit_sha, current_version_id in rows
+        ]
+
+    async def get_repository(self, repository_id: uuid.UUID) -> RegistryRepositoryRead:
+        """Get a specific platform registry repository with its actions."""
+        repos_service = PlatformRegistryReposService(self.session)
+        repo = await repos_service.get_repository_by_id(repository_id)
+        if repo is None:
+            raise ValueError(f"Platform repository {repository_id} not found")
+
+        actions = await self._list_platform_actions(repository_id)
+        return RegistryRepositoryRead(
+            id=repo.id,
+            origin=repo.origin,
+            last_synced_at=repo.last_synced_at,
+            commit_sha=repo.commit_sha,
+            current_version_id=repo.current_version_id,
+            actions=actions,
+        )
+
+    async def _list_platform_actions(
+        self, repository_id: uuid.UUID
+    ) -> list[RegistryActionRead]:
+        """List actions from platform registry index for a specific repository."""
+        statement = (
+            select(
+                PlatformRegistryIndex.id,
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.action_type,
+                PlatformRegistryIndex.description,
+                PlatformRegistryIndex.default_title,
+                PlatformRegistryIndex.display_group,
+                PlatformRegistryIndex.options,
+                PlatformRegistryIndex.doc_url,
+                PlatformRegistryIndex.author,
+                PlatformRegistryIndex.deprecated,
+                PlatformRegistryVersion.manifest,
+                PlatformRegistryRepository.origin,
+                PlatformRegistryRepository.id.label("repo_id"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                PlatformRegistryRepository.id == repository_id,
+                PlatformRegistryRepository.current_version_id
+                == PlatformRegistryVersion.id,
+            )
+        )
+
+        result = await self.session.execute(statement)
+        rows = result.all()
+
+        actions: list[RegistryActionRead] = []
+        for row in rows:
+            manifest = RegistryVersionManifest.model_validate(row.manifest)
+            action_name = f"{row.namespace}.{row.name}"
+            manifest_action = manifest.actions.get(action_name)
+            if manifest_action:
+                index_entry = IndexEntry(
+                    id=row.id,
+                    namespace=row.namespace,
+                    name=row.name,
+                    action_type=row.action_type,
+                    description=row.description,
+                    default_title=row.default_title,
+                    display_group=row.display_group,
+                    options=row.options or {},
+                    doc_url=row.doc_url,
+                    author=row.author,
+                    deprecated=row.deprecated,
+                )
+                actions.append(
+                    RegistryActionRead.from_index_and_manifest(
+                        index_entry,
+                        manifest_action,
+                        row.origin,
+                        row.repo_id,
+                    )
+                )
+        return actions
 
     async def sync_all_repositories(self, force: bool = False) -> RegistrySyncResponse:
         """Sync all platform registry repositories."""
