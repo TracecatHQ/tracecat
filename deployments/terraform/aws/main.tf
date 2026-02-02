@@ -59,6 +59,8 @@ module "eks" {
   temporal_secret_arn                   = var.temporal_secret_arn
   external_secrets_namespace            = var.external_secrets_namespace
   external_secrets_service_account_name = var.external_secrets_service_account_name
+  external_dns_namespace                = var.external_dns_namespace
+  external_dns_service_account_name     = var.external_dns_service_account_name
 
   # Replica Counts
   api_replicas            = var.api_replicas

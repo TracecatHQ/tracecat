@@ -1,41 +1,65 @@
-# Route53 DNS Record for ALB Ingress
-# The ALB is created by the AWS Load Balancer Controller based on the Ingress resource.
+# ExternalDNS manages Route53 records for Kubernetes ingress resources.
+resource "helm_release" "external_dns" {
+  name             = "external-dns"
+  repository       = "https://kubernetes-sigs.github.io/external-dns/"
+  chart            = "external-dns"
+  namespace        = var.external_dns_namespace
+  create_namespace = true
+  wait             = true
+  timeout          = 600
 
-data "kubernetes_ingress_v1" "tracecat" {
-  metadata {
-    name      = "tracecat"
-    namespace = kubernetes_namespace.tracecat.metadata[0].name
+  set {
+    name  = "provider"
+    value = "aws"
+  }
+
+  set {
+    name  = "policy"
+    value = "sync"
+  }
+
+  set {
+    name  = "registry"
+    value = "txt"
+  }
+
+  set {
+    name  = "txtOwnerId"
+    value = var.cluster_name
+  }
+
+  set {
+    name  = "domainFilters[0]"
+    value = var.domain_name
+  }
+
+  set {
+    name  = "sources[0]"
+    value = "ingress"
+  }
+
+  set {
+    name  = "aws.region"
+    value = local.aws_region
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = var.external_dns_service_account_name
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.external_dns.arn
   }
 
   depends_on = [
-    helm_release.aws_load_balancer_controller,
-    helm_release.tracecat
+    aws_eks_node_group.tracecat,
+    aws_iam_role_policy.external_dns
   ]
-}
-
-data "aws_elb_hosted_zone_id" "alb" {}
-
-locals {
-  tracecat_ingress_hostname = try(data.kubernetes_ingress_v1.tracecat.status[0].load_balancer[0].ingress[0].hostname, "")
-}
-
-resource "aws_route53_record" "tracecat" {
-  zone_id = var.hosted_zone_id
-  name    = var.domain_name
-  type    = "A"
-
-  alias {
-    name                   = local.tracecat_ingress_hostname
-    zone_id                = data.aws_elb_hosted_zone_id.alb.id
-    evaluate_target_health = true
-  }
-
-  lifecycle {
-    precondition {
-      condition     = local.tracecat_ingress_hostname != ""
-      error_message = "Tracecat ingress does not have a load balancer hostname yet. Re-apply after the ALB is provisioned."
-    }
-  }
-
-  depends_on = [data.kubernetes_ingress_v1.tracecat]
 }

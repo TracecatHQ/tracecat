@@ -33,6 +33,7 @@ resource "helm_release" "tracecat" {
           "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
           "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
           "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+          "external-dns.alpha.kubernetes.io/hostname"  = var.domain_name
         },
         var.enable_waf ? {
           "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.main[0].arn

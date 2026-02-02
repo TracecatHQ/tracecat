@@ -194,6 +194,18 @@ variable "external_secrets_service_account_name" {
   default     = "external-secrets"
 }
 
+variable "external_dns_namespace" {
+  description = "Kubernetes namespace for ExternalDNS."
+  type        = string
+  default     = "external-dns"
+}
+
+variable "external_dns_service_account_name" {
+  description = "Service account name for ExternalDNS."
+  type        = string
+  default     = "external-dns"
+}
+
 # Replica Counts
 variable "api_replicas" {
   description = "Number of API replicas"
