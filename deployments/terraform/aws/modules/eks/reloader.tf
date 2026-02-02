@@ -2,8 +2,8 @@
 # https://github.com/stakater/Reloader
 #
 # This is critical for handling AWS Secrets Manager rotation (e.g., RDS password
-# rotation every 7 days). When External Secrets Operator syncs updated credentials,
-# Reloader triggers rolling restarts so pods pick up the new values.
+# rotation). When External Secrets Operator syncs updated credentials, Reloader
+# triggers rolling restarts so pods pick up the new values.
 
 resource "helm_release" "reloader" {
   name             = "reloader"

@@ -88,10 +88,6 @@ resource "aws_db_instance" "tracecat" {
   username                    = var.rds_snapshot_identifier == "" ? var.rds_master_username : null
   manage_master_user_password = true
 
-  master_user_secret_rotation {
-    automatically_after = "365d"
-  }
-
   db_subnet_group_name   = aws_db_subnet_group.tracecat.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
@@ -112,6 +108,14 @@ resource "aws_db_instance" "tracecat" {
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-postgres-${local.rds_suffix}"
   })
+}
+
+resource "aws_secretsmanager_secret_rotation" "rds_master_password" {
+  secret_id = aws_db_instance.tracecat.master_user_secret[0].secret_arn
+
+  rotation_rules {
+    schedule_expression = var.rds_password_rotation_schedule
+  }
 }
 
 # Create additional databases for Temporal using a Kubernetes job

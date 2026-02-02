@@ -140,6 +140,12 @@ variable "rds_allow_vpc_cidr_fallback" {
   default     = true
 }
 
+variable "rds_password_rotation_schedule" {
+  description = "Rotation schedule expression for the RDS master password (e.g. 'rate(365 days)', 'rate(7 days)')"
+  type        = string
+  default     = "rate(365 days)"
+}
+
 variable "elasticache_node_type" {
   description = "ElastiCache node type"
   type        = string
