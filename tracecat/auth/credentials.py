@@ -938,8 +938,8 @@ async def _authenticated_user_only(
         is_platform_superuser=user.is_superuser,
         # organization_id intentionally None - user may not belong to any org
     )
-    # Superusers get "*" scope (all access)
-    ctx_scopes.set(frozenset({"*"}))
+    scopes = compute_effective_scopes(role)
+    ctx_scopes.set(scopes)
     ctx_role.set(role)
     return role
 
