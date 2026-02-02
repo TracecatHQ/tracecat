@@ -17,12 +17,12 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useAuth()
+  const { canAdministerOrg } = useOrgMembership()
   const pathname = usePathname()
 
   const navMain = [
@@ -32,8 +32,8 @@ export function RegistrySidebar({
       icon: BookOpenIcon,
       isActive: pathname?.includes("/registry/actions"),
     },
-    ...(user?.isOrgAdmin()
-      ? // Only show repositories if the user is an org admin
+    ...(canAdministerOrg
+      ? // Only show repositories if the user can administer the org
         [
           {
             title: "Repositories",

@@ -1,13 +1,13 @@
 "use client"
 
 import { ReactFlowProvider } from "@xyflow/react"
-import { LogOut, Shield } from "lucide-react"
+import { LogOut, Plus, Shield } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-import { useParams, usePathname } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
@@ -16,6 +16,7 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { WorkflowProvider } from "@/providers/workflow"
@@ -168,20 +169,48 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
+  const { canAdministerOrg } = useOrgMembership()
+  const { createWorkspace } = useWorkspaceManager()
+  const router = useRouter()
+  const [isCreating, setIsCreating] = useState(false)
+
   const handleLogout = async () => {
     await logout()
   }
+
+  const handleCreateWorkspace = async () => {
+    setIsCreating(true)
+    try {
+      const workspace = await createWorkspace({ name: "New Workspace" })
+      router.replace(`/workspaces/${workspace.id}/workflows`)
+    } catch (error) {
+      console.error("Error creating workspace", error)
+      setIsCreating(false)
+    }
+  }
+
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
-        You are not a member of any workspace. Please contact your
-        administrator.
+        {canAdministerOrg
+          ? "There are no workspaces yet. Create one to get started."
+          : "You are not a member of any workspace. Please contact your administrator."}
       </span>
       <div className="flex gap-2">
+        {canAdministerOrg && (
+          <Button
+            variant="default"
+            onClick={handleCreateWorkspace}
+            disabled={isCreating}
+          >
+            <Plus className="mr-2 size-4" />
+            <span>{isCreating ? "Creating..." : "Create workspace"}</span>
+          </Button>
+        )}
         {user?.isSuperuser && (
-          <Button variant="default" asChild>
+          <Button variant="outline" asChild>
             <Link href="/admin">
               <Shield className="mr-2 size-4" />
               <span>Admin</span>

@@ -33,9 +33,13 @@ def require_access_level(level: AccessLevel) -> Callable[[T], T]:
 
         user_role = self.role
         if user_role.access_level < level:
-            raise TracecatAuthorizationError(
-                f"User does not have required access level: {level.name}"
-            )
+            # Also grant ADMIN access if user is an org owner/admin
+            # This allows org owners/admins to perform org-level admin operations
+            # (like creating workspaces) without requiring platform admin privileges
+            if not (level == AccessLevel.ADMIN and user_role.is_org_admin):
+                raise TracecatAuthorizationError(
+                    f"User does not have required access level: {level.name}"
+                )
         logger.debug("Access level ok", user_id=user_role.user_id, level=level.name)
 
     def decorator(fn: T) -> T:
@@ -75,11 +79,13 @@ def require_workspace_role(*roles: WorkspaceRole) -> Callable[[T], T]:
             raise ValueError("Invalid role type")
 
         user_role = self.role
-        if user_role.access_level == AccessLevel.ADMIN:
+        # Platform admins and org owners/admins bypass workspace role checks
+        if user_role.is_privileged:
             logger.info(
-                "Org admin can access all workspace roles",
+                "Privileged user bypassing workspace role check",
                 user_id=user_role.user_id,
                 workspace_role=user_role.workspace_role,
+                is_org_admin=user_role.is_org_admin,
             )
             return
 

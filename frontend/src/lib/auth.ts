@@ -36,10 +36,17 @@ export function userIsPrivileged(
   if (!user) {
     return false
   }
-  return userIsOrgAdmin(user) || membership?.role === "admin"
+  return userIsPlatformAdmin(user) || membership?.role === "admin"
 }
 
-export function userIsOrgAdmin(user?: UserRead | null): boolean {
+/**
+ * Check if user has platform-level admin privileges.
+ *
+ * This checks the platform role (superuser or role=admin), NOT the
+ * organization membership role. For org-level admin checks, use
+ * the useOrgMembership hook's canAdministerOrg.
+ */
+export function userIsPlatformAdmin(user?: UserRead | null): boolean {
   return user?.is_superuser || user?.role === "admin"
 }
 
@@ -105,10 +112,14 @@ export class User {
   }
 
   /**
-   * Returns true if the user is a platform admin.
+   * Returns true if the user has platform-level admin privileges.
+   *
+   * This checks the platform role (superuser or role=admin), NOT the
+   * organization membership role. For org-level admin checks, use
+   * the useOrgMembership hook's canAdministerOrg.
    */
-  isOrgAdmin(): boolean {
-    return userIsOrgAdmin(this.user)
+  isPlatformAdmin(): boolean {
+    return userIsPlatformAdmin(this.user)
   }
 
   /**

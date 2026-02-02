@@ -92,9 +92,11 @@ async def list_workspaces(
     ------------
     - Basic: Can list workspaces where they are a member.
     - Admin: Can list all workspaces regardless of membership.
+    - Org Owner/Admin: Can list all workspaces in the organization.
     """
     service = WorkspaceService(session, role=role)
-    if role.access_level == AccessLevel.ADMIN:
+    # Platform admins and org owners/admins can see all workspaces
+    if role.is_privileged:
         workspaces = await service.admin_list_workspaces()
     else:
         if role.user_id is None:

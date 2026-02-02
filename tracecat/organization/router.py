@@ -2,7 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
@@ -12,6 +12,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
     OrganizationInvitation,
+    OrganizationMembership,
     User,
 )
 from tracecat.exceptions import (
@@ -60,6 +61,68 @@ async def get_organization(
     role: OrgUserRole,
 ) -> OrgRead:
     raise NotImplementedError
+
+
+@router.get("/members/me", response_model=OrgMemberRead)
+async def get_current_org_member(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> OrgMemberRead:
+    """Get the current user's organization membership.
+
+    Returns the organization membership details for the authenticated user,
+    including their org role (member, admin, or owner).
+
+    This endpoint doesn't require admin access - any authenticated org member
+    can view their own membership details.
+    """
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not authenticated",
+        )
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    # Query user and membership directly (no admin access required)
+    statement = (
+        select(User, OrganizationMembership.role)
+        .join(
+            OrganizationMembership,
+            OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
+        )
+        .where(
+            and_(
+                User.id == role.user_id,  # pyright: ignore[reportArgumentType]
+                OrganizationMembership.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
+            )
+        )
+    )
+    result = await session.execute(statement)
+    row = result.tuples().one_or_none()
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User is not a member of this organization",
+        )
+
+    user, org_role = row
+    return OrgMemberRead(
+        user_id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        role=org_role,
+        is_active=user.is_active,
+        is_superuser=user.is_superuser,
+        is_verified=user.is_verified,
+        last_login_at=user.last_login_at,
+    )
 
 
 @router.get("/members", response_model=list[OrgMemberRead])

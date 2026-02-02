@@ -35,7 +35,11 @@ import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
-export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
+interface SignInProps extends React.HTMLProps<HTMLDivElement> {
+  returnUrl?: string | null
+}
+
+export function SignIn({ className, returnUrl }: SignInProps) {
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
@@ -94,7 +98,14 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
           <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
             <div className="mt-4 text-center">
               Don&apos;t have an account?{" "}
-              <Link href="/sign-up" className="underline">
+              <Link
+                href={
+                  returnUrl
+                    ? `/sign-up?returnUrl=${encodeURIComponent(returnUrl)}`
+                    : "/sign-up"
+                }
+                className="underline"
+              >
                 Sign up
               </Link>
             </div>

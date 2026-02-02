@@ -59,6 +59,23 @@ class Role(BaseModel):
         """Check if this role has superuser (platform admin) privileges."""
         return self.is_platform_superuser
 
+    @property
+    def is_org_admin(self) -> bool:
+        """Check if this role has org owner/admin privileges.
+
+        Org owners and admins can access all workspaces in their organization
+        without explicit workspace membership.
+        """
+        return self.org_role in (OrgRole.OWNER, OrgRole.ADMIN)
+
+    @property
+    def is_privileged(self) -> bool:
+        """Check if this role has elevated privileges (platform admin or org admin).
+
+        Privileged roles bypass workspace membership checks.
+        """
+        return self.access_level == AccessLevel.ADMIN or self.is_org_admin
+
     def to_headers(self) -> dict[str, str]:
         headers = {
             "x-tracecat-role-type": self.type,

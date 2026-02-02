@@ -17020,6 +17020,17 @@ export const $UserCreate = {
       ],
       title: "Last Name",
     },
+    invitation_token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invitation Token",
+    },
   },
   type: "object",
   required: ["email", "password"],

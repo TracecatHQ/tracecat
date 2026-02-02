@@ -303,6 +303,7 @@ import type {
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
+  OrganizationGetCurrentOrgMemberResponse,
   OrganizationGetInvitationByTokenData,
   OrganizationGetInvitationByTokenResponse,
   OrganizationGetInvitationTokenData,
@@ -2945,6 +2946,23 @@ export const usersSearchUser = (
     },
   })
 }
+
+/**
+ * Get Current Org Member
+ * Get the current user's organization membership.
+ *
+ * Returns the organization membership details for the authenticated user,
+ * including their org role (member, admin, or owner).
+ * @returns OrgMemberRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetCurrentOrgMember =
+  (): CancelablePromise<OrganizationGetCurrentOrgMemberResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/members/me",
+    })
+  }
 
 /**
  * List Org Members

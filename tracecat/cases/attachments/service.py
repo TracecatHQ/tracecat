@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
 from tracecat.cases.schemas import AttachmentCreatedEvent, AttachmentDeletedEvent
 from tracecat.contexts import ctx_run
@@ -497,7 +497,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         if (
             self.role.type == "user"
             and attachment.file.creator_id != self.role.user_id
-            and self.role.access_level < AccessLevel.ADMIN
+            and not self.role.is_privileged
         ):
             raise TracecatAuthorizationError(
                 "You don't have permission to delete this attachment"

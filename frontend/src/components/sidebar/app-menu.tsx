@@ -36,7 +36,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -45,7 +45,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
-  const { user } = useAuth()
+  const { canAdministerOrg } = useOrgMembership()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
@@ -209,7 +209,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             </Dialog>
 
             <DropdownMenuSeparator />
-            {user?.isPrivileged() && (
+            {canAdministerOrg && (
               <DropdownMenuItem asChild>
                 <Link
                   href="/organization"

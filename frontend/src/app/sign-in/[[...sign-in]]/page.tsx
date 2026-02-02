@@ -26,7 +26,10 @@ function SignInContent() {
 
   return (
     <div className="flex size-full items-center justify-center">
-      <SignIn className="flex size-16 w-full justify-center" />
+      <SignIn
+        className="flex size-16 w-full justify-center"
+        returnUrl={returnUrl}
+      />
     </div>
   )
 }

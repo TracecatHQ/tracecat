@@ -9,7 +9,7 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { ApiError, organizationGetInvitationByToken } from "@/client"
+import { ApiError } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,67 +59,15 @@ interface SignUpProps extends React.HTMLProps<HTMLDivElement> {
 
 export function SignUp({ className, returnUrl }: SignUpProps) {
   const { user } = useAuth()
-  const { logout } = useAuthActions()
   const router = useRouter()
-  const [invitationEmailMismatch, setInvitationEmailMismatch] = useState(false)
 
   useEffect(() => {
-    // Don't redirect if there's an invitation email mismatch
-    if (user && !invitationEmailMismatch) {
-      // Redirect to returnUrl if provided, otherwise to workspaces
-      const redirectTo = returnUrl || "/workspaces"
-      router.push(redirectTo)
+    if (user) {
+      // Always redirect to /workspaces after login
+      // Invitation acceptance is handled atomically during registration
+      router.push("/workspaces")
     }
-  }, [user, router, returnUrl, invitationEmailMismatch])
-
-  // Show error state if email doesn't match invitation
-  if (invitationEmailMismatch && user) {
-    return (
-      <div
-        className={cn(
-          "container flex size-full items-center justify-center",
-          className
-        )}
-      >
-        <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
-          <CardHeader className="items-center space-y-2 text-center">
-            <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
-            <CardTitle className="text-2xl">Wrong account</CardTitle>
-            <CardDescription>
-              This invitation was sent to a different email address. Please sign
-              in with the email address the invitation was sent to.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg border bg-muted/50 p-4">
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Signed in as</span>
-                  <span className="font-medium">{user.email}</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Button
-                className="w-full"
-                onClick={() => {
-                  const redirectUrl = returnUrl
-                    ? `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`
-                    : "/sign-in"
-                  logout(redirectUrl)
-                }}
-              >
-                Sign in with a different account
-              </Button>
-              <Button asChild variant="ghost" className="w-full">
-                <Link href="/workspaces">Go to workspaces</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </div>
-      </div>
-    )
-  }
+  }, [user, router])
 
   return (
     <div
@@ -138,10 +86,7 @@ export function SignUp({ className, returnUrl }: SignUpProps) {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4">
-            <BasicRegistrationForm
-              returnUrl={returnUrl}
-              onInvitationEmailMismatch={() => setInvitationEmailMismatch(true)}
-            />
+            <BasicRegistrationForm returnUrl={returnUrl} />
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
@@ -172,7 +117,6 @@ type BasicLoginForm = z.infer<typeof basicRegistrationSchema>
 
 interface BasicRegistrationFormProps {
   returnUrl?: string | null
-  onInvitationEmailMismatch?: () => void
 }
 
 /**
@@ -194,7 +138,6 @@ function extractInvitationToken(returnUrl: string | null): string | null {
 
 export function BasicRegistrationForm({
   returnUrl,
-  onInvitationEmailMismatch,
 }: BasicRegistrationFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const { register, login } = useAuthActions()
@@ -209,6 +152,11 @@ export function BasicRegistrationForm({
   const onSubmit = async (values: BasicLoginForm) => {
     try {
       setIsLoading(true)
+
+      // Extract invitation token to pass during registration
+      // This enables atomic invitation acceptance during registration
+      const invitationToken = extractInvitationToken(returnUrl ?? null)
+
       /**
        * XXX(auth): The user cannot set is_active or is_superuser itself at registration.
        * Only a superuser can do it by PATCHing the user.
@@ -217,8 +165,10 @@ export function BasicRegistrationForm({
         requestBody: {
           email: values.email,
           password: values.password,
+          ...(invitationToken && { invitation_token: invitationToken }),
         },
       })
+
       // On successful registration, log the user in
       await login({
         formData: {
@@ -226,26 +176,9 @@ export function BasicRegistrationForm({
           password: values.password,
         },
       })
-
-      // After successful login, check if this is an invitation flow
-      const invitationToken = extractInvitationToken(returnUrl ?? null)
-      if (invitationToken && onInvitationEmailMismatch) {
-        try {
-          const invitation = await organizationGetInvitationByToken({
-            token: invitationToken,
-          })
-          // If email doesn't match, notify parent to show error
-          if (invitation.email_matches === false) {
-            onInvitationEmailMismatch()
-          }
-        } catch {
-          // Failed to fetch invitation, let the redirect happen and handle error there
-          console.error("Failed to fetch invitation for email check")
-        }
-      }
+      // Redirect is handled by the useEffect in SignUp component
     } catch (error) {
       if (error instanceof ApiError) {
-        console.log("ApiError registering user", error)
         const apiError = error as TracecatApiError
 
         // Handle both string and object error details
@@ -284,7 +217,6 @@ export function BasicRegistrationForm({
             }
           } else {
             // Handle RequestValidationError case
-            console.log("Validation error", detail)
             form.setError("email", {
               message: detail[0].msg || "Unknown error",
             })
