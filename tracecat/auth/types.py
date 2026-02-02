@@ -120,9 +120,10 @@ class PlatformRole(BaseModel):
 
 
 def system_role() -> Role:
-    """Role for system actions."""
+    """Role for system actions with platform superuser privileges."""
     return Role(
         type="service",
         service_id="tracecat-api",
         access_level=AccessLevel.ADMIN,
+        is_platform_superuser=True,
     )
