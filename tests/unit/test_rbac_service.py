@@ -7,10 +7,10 @@ import uuid
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.rbac.service import RBACService
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import OrgRole, ScopeSource
-from tracecat.authz.rbac.service import RBACService
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Organization,
@@ -52,7 +52,6 @@ async def user(session: AsyncSession, org: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=org.id,
-        role=OrgRole.ADMIN,
     )
     session.add(membership)
     await session.commit()
