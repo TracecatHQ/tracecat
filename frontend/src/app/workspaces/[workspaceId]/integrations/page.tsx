@@ -589,21 +589,19 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col max-w-[1600px] mx-auto px-8 pb-10 pt-0">
-      <div className="-mx-8">
-        <IntegrationsHeader
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          typeFilters={typeFilters}
-          onTypeFilterToggle={handleTypeFilterToggle}
-          connectionFilter={connectionFilter}
-          onConnectionFilterChange={setConnectionFilter}
-        />
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <IntegrationsHeader
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        typeFilters={typeFilters}
+        onTypeFilterToggle={handleTypeFilterToggle}
+        connectionFilter={connectionFilter}
+        onConnectionFilterChange={setConnectionFilter}
+      />
 
       {/* Integrations List */}
       <ScrollArea className="mt-6 flex-1 min-h-0 [&>[data-radix-scroll-area-viewport]]:[scrollbar-width:none] [&>[data-radix-scroll-area-viewport]::-webkit-scrollbar]:hidden [&>[data-orientation=vertical]]:!hidden [&>[data-orientation=horizontal]]:!hidden">
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-2 px-8 pb-10 md:grid-cols-2 xl:grid-cols-3">
           {filteredIntegrations.map((item) => {
             const isOAuth = item.type === "oauth"
             const isCredential = item.type === "credential"

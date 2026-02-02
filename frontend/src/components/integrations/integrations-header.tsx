@@ -85,7 +85,7 @@ const TYPE_FILTER_OPTIONS: Array<{
        </header>
 
       {/* Row 2: Filters */}
-      <div className="flex w-full flex-wrap items-center gap-2 py-2 pl-4 pr-4">
+      <div className="flex w-full flex-wrap items-center gap-2 py-2 pl-3 pr-4">
          {TYPE_FILTER_OPTIONS.map((option) => {
            const isActive = typeFilters.includes(option.value)
           const Icon = option.icon
