@@ -25,7 +25,8 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
 )
 from tracecat.parse import safe_url
-from tracecat.registry.actions.schemas import IndexEntry, RegistryActionRead
+from tracecat.registry.actions.schemas import RegistryActionRead
+from tracecat.registry.actions.types import IndexEntry
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
