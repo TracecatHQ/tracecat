@@ -119,89 +119,83 @@ resource "aws_secretsmanager_secret_rotation" "rds_master_password" {
 }
 
 # Create additional databases for Temporal using a Kubernetes job
-resource "null_resource" "create_temporal_databases" {
+resource "kubernetes_job_v1" "create_temporal_databases" {
   count = var.temporal_mode == "self-hosted" ? 1 : 0
 
-  triggers = {
-    rds_address = aws_db_instance.tracecat.address
-    namespace   = kubernetes_namespace.tracecat.metadata[0].name
+  metadata {
+    name      = "temporal-db-setup"
+    namespace = kubernetes_namespace.tracecat.metadata[0].name
+    labels = {
+      "tracecat.com/access-postgres" = "true"
+    }
   }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -euo pipefail
-      # Wait for ExternalSecret to exist and sync the credentials before creating the job.
-      for i in $(seq 1 12); do
-        if kubectl get externalsecrets.external-secrets.io tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} >/dev/null 2>&1; then
-          break
-        fi
-        echo "Waiting for tracecat-postgres-secrets ExternalSecret... ($i/12)"
-        sleep 5
-      done
+  spec {
+    ttl_seconds_after_finished = 300
 
-      echo "Waiting for tracecat-postgres-secrets to be ready..."
-      if ! kubectl wait --for=condition=Ready externalsecrets.external-secrets.io/tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} --timeout=120s; then
-        echo "ExternalSecret tracecat-postgres-secrets did not become ready"
-        kubectl describe externalsecrets.external-secrets.io tracecat-postgres-secrets -n ${kubernetes_namespace.tracecat.metadata[0].name} || true
-        exit 1
-      fi
+    template {
+      metadata {
+        labels = {
+          "tracecat.com/access-postgres" = "true"
+        }
+      }
 
-      kubectl delete job temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} --ignore-not-found
+      spec {
+        restart_policy = "Never"
 
-      cat <<EOF | kubectl apply -f -
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: temporal-db-setup
-  namespace: ${kubernetes_namespace.tracecat.metadata[0].name}
-  labels:
-    tracecat.com/access-postgres: "true"
-spec:
-  ttlSecondsAfterFinished: 300
-  template:
-    metadata:
-      labels:
-        tracecat.com/access-postgres: "true"
-    spec:
-      restartPolicy: Never
-      containers:
-      - name: db-setup
-        image: postgres:16
-        env:
-        - name: PGHOST
-          value: "${aws_db_instance.tracecat.address}"
-        - name: PGUSER
-          value: "${var.rds_master_username}"
-        - name: PGDATABASE
-          value: "tracecat"
-        - name: PGPASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: tracecat-postgres-credentials
-              key: password
-        command:
-        - /bin/sh
-        - -c
-        - |
-          psql -c "SELECT 1 FROM pg_database WHERE datname = 'temporal'" | grep -q 1 || psql -c "CREATE DATABASE temporal"
-          psql -c "SELECT 1 FROM pg_database WHERE datname = 'temporal_visibility'" | grep -q 1 || psql -c "CREATE DATABASE temporal_visibility"
-          echo "Temporal databases created successfully"
-EOF
+        container {
+          name  = "db-setup"
+          image = "postgres:16"
 
-      echo "Waiting for temporal-db-setup job to complete..."
-      if ! kubectl wait --for=condition=complete job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} --timeout=120s; then
-        echo "temporal-db-setup job did not complete; dumping logs for debugging"
-        kubectl logs job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} || true
-        kubectl describe job/temporal-db-setup -n ${kubernetes_namespace.tracecat.metadata[0].name} || true
-        exit 1
-      fi
-    EOT
+          env {
+            name  = "PGHOST"
+            value = aws_db_instance.tracecat.address
+          }
+
+          env {
+            name  = "PGUSER"
+            value = var.rds_master_username
+          }
+
+          env {
+            name  = "PGDATABASE"
+            value = "tracecat"
+          }
+
+          env {
+            name = "PGPASSWORD"
+            value_from {
+              secret_key_ref {
+                name = "tracecat-postgres-credentials"
+                key  = "password"
+              }
+            }
+          }
+
+          command = [
+            "/bin/sh",
+            "-c",
+            <<-EOT
+            psql -c "SELECT 1 FROM pg_database WHERE datname = 'temporal'" | grep -q 1 || psql -c "CREATE DATABASE temporal"
+            psql -c "SELECT 1 FROM pg_database WHERE datname = 'temporal_visibility'" | grep -q 1 || psql -c "CREATE DATABASE temporal_visibility"
+            echo "Temporal databases created successfully"
+            EOT
+          ]
+        }
+      }
+    }
+  }
+
+  wait_for_completion = true
+
+  timeouts {
+    create = "10m"
   }
 
   depends_on = [
     aws_db_instance.tracecat,
-    null_resource.tracecat_postgres_sg_policy,
-    null_resource.postgres_credentials_external_secret,
+    kubernetes_manifest.tracecat_postgres_sg_policy,
+    kubernetes_manifest.postgres_credentials_external_secret,
     kubernetes_namespace.tracecat
   ]
 }

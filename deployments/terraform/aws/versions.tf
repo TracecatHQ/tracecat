@@ -22,10 +22,6 @@ terraform {
       source  = "hashicorp/random"
       version = "3.7.2"
     }
-    null = {
-      source  = "hashicorp/null"
-      version = "3.2.4"
-    }
     http = {
       source  = "hashicorp/http"
       version = "3.4.0"

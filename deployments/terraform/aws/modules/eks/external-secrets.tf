@@ -9,6 +9,8 @@ resource "helm_release" "external_secrets" {
   chart            = "external-secrets"
   namespace        = var.external_secrets_namespace
   create_namespace = true
+  wait             = true
+  timeout          = 600
 
   set {
     name  = "installCRDs"
@@ -33,116 +35,77 @@ resource "helm_release" "external_secrets" {
 
 # ClusterSecretStore for AWS Secrets Manager
 # This is referenced by the Helm chart's ExternalSecret resources
-# Using null_resource with kubectl because kubernetes_manifest has CRD timing issues
-resource "null_resource" "external_secrets_cluster_store" {
-  # Triggers ensure re-creation if any of these values change
-  triggers = {
-    store_name = local.external_secrets_store_name
-    region     = local.aws_region
-    sa_name    = var.external_secrets_service_account_name
-    namespace  = var.external_secrets_namespace
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Wait for CRDs to be registered (up to 60 seconds)
-      for i in $(seq 1 12); do
-        if kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1; then
-          echo "CRD found, applying ClusterSecretStore..."
-          break
-        fi
-        echo "Waiting for External Secrets CRDs to be registered... ($i/12)"
-        sleep 5
-      done
-
-      cat <<EOF | kubectl apply -f -
-apiVersion: external-secrets.io/v1
-kind: ClusterSecretStore
-metadata:
-  name: ${local.external_secrets_store_name}
-  labels:
-    app.kubernetes.io/managed-by: terraform
-    app.kubernetes.io/part-of: tracecat
-spec:
-  provider:
-    aws:
-      service: SecretsManager
-      region: ${local.aws_region}
-      auth:
-        jwt:
-          serviceAccountRef:
-            name: ${var.external_secrets_service_account_name}
-            namespace: ${var.external_secrets_namespace}
-EOF
-    EOT
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "kubectl delete clustersecretstore ${self.triggers.store_name} --ignore-not-found"
+resource "kubernetes_manifest" "external_secrets_cluster_store" {
+  manifest = {
+    apiVersion = "external-secrets.io/v1"
+    kind       = "ClusterSecretStore"
+    metadata = {
+      name   = local.external_secrets_store_name
+      labels = local.common_labels
+    }
+    spec = {
+      provider = {
+        aws = {
+          service = "SecretsManager"
+          region  = local.aws_region
+          auth = {
+            jwt = {
+              serviceAccountRef = {
+                name      = var.external_secrets_service_account_name
+                namespace = var.external_secrets_namespace
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   depends_on = [helm_release.external_secrets]
 }
 
 # ExternalSecret for PostgreSQL credentials (needed before Helm installs when Temporal is self-hosted).
-resource "null_resource" "postgres_credentials_external_secret" {
+resource "kubernetes_manifest" "postgres_credentials_external_secret" {
   count = var.temporal_mode == "self-hosted" ? 1 : 0
 
-  triggers = {
-    secret_arn = local.rds_master_secret_arn
-    namespace  = kubernetes_namespace.tracecat.metadata[0].name
-    store_name = local.external_secrets_store_name
+  manifest = {
+    apiVersion = "external-secrets.io/v1"
+    kind       = "ExternalSecret"
+    metadata = {
+      name      = "tracecat-postgres-secrets"
+      namespace = kubernetes_namespace.tracecat.metadata[0].name
+      labels    = local.common_labels
+    }
+    spec = {
+      refreshInterval = "1m"
+      secretStoreRef = {
+        kind = "ClusterSecretStore"
+        name = local.external_secrets_store_name
+      }
+      target = {
+        name           = "tracecat-postgres-credentials"
+        creationPolicy = "Owner"
+      }
+      data = [
+        {
+          secretKey = "username"
+          remoteRef = {
+            key      = local.rds_master_secret_arn
+            property = "username"
+          }
+        },
+        {
+          secretKey = "password"
+          remoteRef = {
+            key      = local.rds_master_secret_arn
+            property = "password"
+          }
+        }
+      ]
+    }
   }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Wait for ExternalSecret CRD to be registered (up to 60 seconds)
-      for i in $(seq 1 12); do
-        if kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1; then
-          echo "ExternalSecret CRD found, applying PostgreSQL ExternalSecret..."
-          break
-        fi
-        echo "Waiting for ExternalSecret CRD to be registered... ($i/12)"
-        sleep 5
-      done
-
-      cat <<EOF | kubectl apply -f -
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: tracecat-postgres-secrets
-  namespace: ${kubernetes_namespace.tracecat.metadata[0].name}
-  labels:
-    app.kubernetes.io/managed-by: terraform
-    app.kubernetes.io/part-of: tracecat
-spec:
-  refreshInterval: "1m"
-  secretStoreRef:
-    kind: ClusterSecretStore
-    name: ${local.external_secrets_store_name}
-  target:
-    name: tracecat-postgres-credentials
-    creationPolicy: Owner
-  data:
-    - secretKey: username
-      remoteRef:
-        key: ${local.rds_master_secret_arn}
-        property: username
-    - secretKey: password
-      remoteRef:
-        key: ${local.rds_master_secret_arn}
-        property: password
-EOF
-    EOT
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "kubectl delete externalsecrets.external-secrets.io tracecat-postgres-secrets -n ${self.triggers.namespace} --ignore-not-found"
-  }
-
-  depends_on = [null_resource.external_secrets_cluster_store, kubernetes_namespace.tracecat]
+  depends_on = [kubernetes_manifest.external_secrets_cluster_store, kubernetes_namespace.tracecat]
 }
 
 # Note: ExternalSecret resources are created by the Tracecat Helm chart,
@@ -156,5 +119,6 @@ EOF
 # Terraform only manages:
 # - ESO Helm release (installs the operator)
 # - ClusterSecretStore (provides AWS Secrets Manager access)
+# - PostgreSQL ExternalSecret when Temporal is self-hosted
 #
 # The Helm chart handles ExternalSecret lifecycle including for Temporal setup.

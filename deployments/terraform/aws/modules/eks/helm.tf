@@ -632,8 +632,8 @@ resource "helm_release" "tracecat" {
 
   depends_on = [
     helm_release.aws_load_balancer_controller,
-    null_resource.external_secrets_cluster_store,
+    kubernetes_manifest.external_secrets_cluster_store,
     aws_secretsmanager_secret_version.redis_url,
-    null_resource.create_temporal_databases
+    kubernetes_job_v1.create_temporal_databases
   ]
 }
