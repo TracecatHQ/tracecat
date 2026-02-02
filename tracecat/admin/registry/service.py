@@ -5,12 +5,20 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
+from tracecat.admin.registry.schemas import (
+    RegistryStatusResponse,
+    RegistrySyncResponse,
+    RegistryVersionPromoteResponse,
+    RegistryVersionRead,
+    RepositoryStatus,
+    RepositorySyncResult,
+)
 from tracecat.db.models import PlatformRegistryRepository, PlatformRegistryVersion
 from tracecat.parse import safe_url
 from tracecat.registry.constants import (
@@ -20,15 +28,9 @@ from tracecat.registry.constants import (
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
 from tracecat.service import BasePlatformService
-from tracecat_ee.admin.registry.schemas import (
-    RegistryStatusResponse,
-    RegistrySyncResponse,
-    RegistryVersionPromoteResponse,
-    RegistryVersionRead,
-    RepositoryStatus,
-    RepositorySyncResult,
-)
-from tracecat_ee.admin.settings.service import AdminSettingsService
+
+if TYPE_CHECKING:
+    from tracecat_ee.admin.settings.service import AdminSettingsService
 
 
 class AdminRegistryService(BasePlatformService):
@@ -90,10 +92,10 @@ class AdminRegistryService(BasePlatformService):
                 )
                 created = True
 
-        settings_service = AdminSettingsService(self.session, role=self.role)
-        settings = await settings_service.get_registry_settings()
-        if settings.git_repo_url:
-            cleaned_url = safe_url(settings.git_repo_url)
+        # Custom git repo URL is an EE feature - conditionally import
+        custom_git_url = await self._get_custom_git_repo_url()
+        if custom_git_url:
+            cleaned_url = safe_url(custom_git_url)
             if cleaned_url not in origins:
                 self.session.add(PlatformRegistryRepository(origin=cleaned_url))
                 created = True
@@ -108,6 +110,26 @@ class AdminRegistryService(BasePlatformService):
             repos = list(result.scalars().all())
 
         return repos
+
+    async def _get_custom_git_repo_url(self) -> str | None:
+        """Get custom git repo URL from EE settings (if available)."""
+        try:
+            from tracecat_ee.admin.settings.service import (
+                AdminSettingsService as EEAdminSettingsService,
+            )
+
+            settings_service: AdminSettingsService = EEAdminSettingsService(
+                self.session, role=self.role
+            )
+            settings = await settings_service.get_registry_settings()
+            return settings.git_repo_url
+        except ImportError:
+            # EE not installed, skip custom git repo URL
+            return None
+        except Exception:
+            # Any other error, skip custom git repo URL
+            self.logger.debug("Failed to get custom git repo URL from EE settings")
+            return None
 
     async def _sync_repository(
         self, repo: PlatformRegistryRepository, force: bool = False

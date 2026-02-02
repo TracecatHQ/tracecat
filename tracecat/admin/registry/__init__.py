@@ -1,0 +1,1 @@
+"""Platform-level registry management."""
