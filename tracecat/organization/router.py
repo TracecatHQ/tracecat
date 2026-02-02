@@ -18,6 +18,8 @@ from tracecat.db.models import (
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -235,16 +237,29 @@ async def get_current_org_member(
         )
     )
     result = await session.execute(statement)
-    row = result.tuples().one_or_none()
+    user = result.scalar_one_or_none()
 
-    if row is not None:
-        user, org_role = row
-        return OrgMemberDetail(
+    if user is not None:
+        # Get their org-level role from RBAC tables
+        role_stmt = (
+            select(UserRoleAssignment.role_id, RoleModel.slug)
+            .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+            .where(
+                UserRoleAssignment.user_id == role.user_id,
+                UserRoleAssignment.organization_id == role.organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        role_result = await session.execute(role_stmt)
+        role_row = role_result.one_or_none()
+        role_slug = role_row[1] if role_row else None
+
+        return OrgMemberRead(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=org_role,
+            role=role_slug,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,

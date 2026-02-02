@@ -738,6 +738,35 @@ async def _role_dependency(
         require_workspace=require_workspace,
         min_access_level=min_access_level,
     )
+
+    # Compute group and user role scopes if user has an organization context
+    group_scopes: frozenset[str] | None = None
+    user_role_scopes: frozenset[str] | None = None
+    if role.user_id is not None and role.organization_id is not None:
+        from tracecat.authz.rbac.service import RBACService
+
+        async with RBACService.with_session(role, session=session) as rbac_svc:
+            group_scopes = await rbac_svc.get_group_scopes(
+                role.user_id,
+                workspace_id=role.workspace_id,
+            )
+            user_role_scopes = await rbac_svc.get_user_role_scopes(
+                role.user_id,
+                workspace_id=role.workspace_id,
+            )
+
+    # Compute and set effective scopes
+    scopes = compute_effective_scopes(
+        role, group_scopes=group_scopes, user_role_scopes=user_role_scopes
+    )
+    ctx_scopes.set(scopes)
+    logger.debug(
+        "Computed effective scopes",
+        scope_count=len(scopes),
+        group_scope_count=len(group_scopes) if group_scopes else 0,
+        user_role_scope_count=len(user_role_scopes) if user_role_scopes else 0,
+    )
+
     ctx_role.set(role)
     return role
 
