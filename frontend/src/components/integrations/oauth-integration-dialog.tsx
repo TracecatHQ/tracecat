@@ -84,7 +84,13 @@ export function OAuthIntegrationDialog({
     if (result?.success) {
       onOpenChange(false)
     }
-  }, [connectProvider, isAuthCodeGrant, onOpenChange, providerId, testConnection])
+  }, [
+    connectProvider,
+    isAuthCodeGrant,
+    onOpenChange,
+    providerId,
+    testConnection,
+  ])
 
   const handleConnectClick = useCallback(() => {
     if (!requiresConfig) {

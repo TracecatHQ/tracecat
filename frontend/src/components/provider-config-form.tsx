@@ -196,7 +196,6 @@ export function ProviderConfigForm({
   const hasAuthHelp = hasHelpContent(providerAuthHelp)
   const hasTokenHelp = hasHelpContent(providerTokenHelp)
 
-  const currentScopes = integration?.requested_scopes ?? []
   const defaultScopesList = useMemo(
     () => (defaultScopes ?? []).filter((scope) => scope.trim().length > 0),
     [defaultScopes]
@@ -314,7 +313,6 @@ export function ProviderConfigForm({
 
   return (
     <div className="flex flex-col gap-6">
-
       <Form {...form}>
         <form
           id={formId}
@@ -771,7 +769,6 @@ function ServiceAccountJsonUploader({
     </>
   )
 }
-
 
 export function ProviderConfigFormSkeleton() {
   return (

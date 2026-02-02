@@ -5,7 +5,6 @@ import { useMemo } from "react"
 import type { OAuthGrantType } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Dialog,
   DialogContent,
@@ -13,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -102,113 +102,120 @@ export function OAuthIntegrationDetailsDialog({
             </div>
           )}
 
-          {!providerIsLoading && !integrationIsLoading && provider && integration && (
-            <div className="space-y-8">
-              <div className="space-y-6">
-                <h3 className="font-medium">Configuration</h3>
-                <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm">
-                  <div className="flex flex-col gap-1.5">
-                    <span className="font-medium text-muted-foreground">
-                      {clientIdLabel}
-                    </span>
-                    <span className="font-mono text-xs text-foreground break-all">
-                      {maskValue(integration.client_id)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <span className="font-medium text-muted-foreground">
-                      Client secret
-                    </span>
-                    <span className="text-xs text-foreground">
-                      {integration.status !== "not_configured"
-                        ? "Configured"
-                        : "Not configured"}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <span className="font-medium text-muted-foreground">
-                      Authorization endpoint
-                    </span>
-                    <span className="text-xs text-foreground break-all">
-                      {integration.authorization_endpoint ||
-                        provider.default_authorization_endpoint ||
-                        "Not configured"}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <span className="font-medium text-muted-foreground">
-                      Token endpoint
-                    </span>
-                    <span className="text-xs text-foreground break-all">
-                      {integration.token_endpoint ||
-                        provider.default_token_endpoint ||
-                        "Not configured"}
-                    </span>
-                  </div>
-                  {tokenExpires && (
+          {!providerIsLoading &&
+            !integrationIsLoading &&
+            provider &&
+            integration && (
+              <div className="space-y-8">
+                <div className="space-y-6">
+                  <h3 className="font-medium">Configuration</h3>
+                  <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm">
                     <div className="flex flex-col gap-1.5">
-                      <span className="font-medium text-muted-foreground">Expires</span>
-                      <span className="text-xs text-foreground">{tokenExpires}</span>
+                      <span className="font-medium text-muted-foreground">
+                        {clientIdLabel}
+                      </span>
+                      <span className="font-mono text-xs text-foreground break-all">
+                        {maskValue(integration.client_id)}
+                      </span>
                     </div>
-                  )}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="font-medium text-muted-foreground">
+                        Client secret
+                      </span>
+                      <span className="text-xs text-foreground">
+                        {integration.status !== "not_configured"
+                          ? "Configured"
+                          : "Not configured"}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="font-medium text-muted-foreground">
+                        Authorization endpoint
+                      </span>
+                      <span className="text-xs text-foreground break-all">
+                        {integration.authorization_endpoint ||
+                          provider.default_authorization_endpoint ||
+                          "Not configured"}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="font-medium text-muted-foreground">
+                        Token endpoint
+                      </span>
+                      <span className="text-xs text-foreground break-all">
+                        {integration.token_endpoint ||
+                          provider.default_token_endpoint ||
+                          "Not configured"}
+                      </span>
+                    </div>
+                    {tokenExpires && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="font-medium text-muted-foreground">
+                          Expires
+                        </span>
+                        <span className="text-xs text-foreground">
+                          {tokenExpires}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-6">
-                <h3 className="font-medium">Scopes</h3>
-                <div className="space-y-4">
-                  {hasScopes ? (
-                    <>
-                      {requestedScopes.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-muted-foreground">
-                              Requested scopes
-                            </span>
+                <div className="space-y-6">
+                  <h3 className="font-medium">Scopes</h3>
+                  <div className="space-y-4">
+                    {hasScopes ? (
+                      <>
+                        {requestedScopes.length > 0 && (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-muted-foreground">
+                                Requested scopes
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {requestedScopes.map((scope) => (
+                                <Badge
+                                  key={`requested-${scope}`}
+                                  variant="secondary"
+                                  className="text-xs"
+                                >
+                                  {scope}
+                                </Badge>
+                              ))}
+                            </div>
                           </div>
-                          <div className="flex flex-wrap gap-1">
-                            {requestedScopes.map((scope) => (
-                              <Badge
-                                key={`requested-${scope}`}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                {scope}
-                              </Badge>
-                            ))}
+                        )}
+                        {grantedScopes.length > 0 && (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-muted-foreground">
+                                Granted scopes
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {grantedScopes.map((scope) => (
+                                <Badge
+                                  key={`granted-${scope}`}
+                                  variant="outline"
+                                  className="text-xs"
+                                >
+                                  {scope}
+                                </Badge>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                      {grantedScopes.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-muted-foreground">
-                              Granted scopes
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {grantedScopes.map((scope) => (
-                              <Badge
-                                key={`granted-${scope}`}
-                                variant="outline"
-                                className="text-xs"
-                              >
-                                {scope}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      No scopes configured for this integration.
-                    </p>
-                  )}
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No scopes configured for this integration.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
         </ScrollArea>
       </DialogContent>
     </Dialog>

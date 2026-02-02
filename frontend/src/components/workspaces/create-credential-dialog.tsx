@@ -225,7 +225,7 @@ export function CreateCredentialDialog({
           isOptional: true,
         })),
       ]
-      
+
       methods.reset({
         name: selectedTool.name,
         description: "",
@@ -318,12 +318,12 @@ export function CreateCredentialDialog({
     }
 
     if (type === "custom" && secretKeys.length === 0) {
-        toast({
-            title: "No keys provided",
-            description: "Please provide at least one key value.",
-            variant: "destructive",
-        })
-        return
+      toast({
+        title: "No keys provided",
+        description: "Please provide at least one key value.",
+        variant: "destructive",
+      })
+      return
     }
 
     const secret: SecretCreate = {
@@ -396,199 +396,220 @@ export function CreateCredentialDialog({
                   </FormItem>
                 )}
               />
-                    <FormField
-                        key="description"
-                        control={control}
-                        name="description"
-                        render={() => (
-                        <FormItem>
-                            <FormLabel className="text-sm">Description</FormLabel>
-                            <FormDescription className="text-sm">
-                            A description for this secret.
-                            </FormDescription>
-                            <FormControl>
-                            <Input
-                                className="text-sm"
-                                placeholder="Description"
-                                {...register("description")}
-                            />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-                    <FormField
-                        key="environment"
-                        control={control}
-                        name="environment"
-                        render={() => (
-                        <FormItem>
-                            <FormLabel className="text-sm">Environment</FormLabel>
-                            <FormDescription className="text-sm">
-                            The workflow&apos;s target execution environment.
-                            </FormDescription>
-                            <FormControl>
-                            <Input
-                                className="text-sm"
-                                placeholder='Default environment: "default"'
-                                {...register("environment")}
-                            />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-                    
-                    {!selectedTool && (
-                        <FormField
-                            key="type"
-                            control={control}
-                            name="type"
-                            render={({ field }) => (
-                            <FormItem>
-                                <FormLabel className="text-sm">Type</FormLabel>
-                                <FormDescription className="text-sm">
-                                Choose how this secret is stored.
-                                </FormDescription>
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                <FormControl>
-                                    <SelectTrigger className="text-sm">
-                                    <SelectValue placeholder="Select a type" />
-                                    </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                    <SelectItem value="custom">
-                                    <span className="flex items-center gap-2">
-                                        <Braces className="size-4" />
-                                        Key-value pair
-                                    </span>
-                                    </SelectItem>
-                                    <SelectItem value="ssh-key">
-                                    <span className="flex items-center gap-2">
-                                        <FileKey2 className="size-4" />
-                                        SSH private key
-                                    </span>
-                                    </SelectItem>
-                                    <SelectItem value="mtls">
-                                    <span className="flex items-center gap-2">
-                                        <KeyRoundIcon className="size-4" />
-                                        mTLS certificate + key
-                                    </span>
-                                    </SelectItem>
-                                    <SelectItem value="ca-cert">
-                                    <span className="flex items-center gap-2">
-                                        <ShieldCheck className="size-4" />
-                                        CA certificate
-                                    </span>
-                                    </SelectItem>
-                                </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                            )}
-                        />
-                    )}
+              <FormField
+                key="description"
+                control={control}
+                name="description"
+                render={() => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Description</FormLabel>
+                    <FormDescription className="text-sm">
+                      A description for this secret.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        className="text-sm"
+                        placeholder="Description"
+                        {...register("description")}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                key="environment"
+                control={control}
+                name="environment"
+                render={() => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Environment</FormLabel>
+                    <FormDescription className="text-sm">
+                      The workflow&apos;s target execution environment.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        className="text-sm"
+                        placeholder='Default environment: "default"'
+                        {...register("environment")}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                    {secretType === "custom" && (
-                        <FormField
-                        key={inputKey}
-                        control={control}
-                        name={typedKey}
-                        render={() => (
-                            <FormItem>
-                            <FormLabel className="text-sm">Keys</FormLabel>
-                            <div className="flex flex-col space-y-2">
-                                {fields.map((field, index) => {
-                                return (
-                                    <div
-                                    key={`${field.id}.${index}`}
-                                    className="flex w-full items-center gap-2"
-                                    >
-                                    <FormControl className="flex-1">
-                                        <Input
-                                        id={`key-${index}`}
-                                        className="text-sm"
-                                        {...register(
-                                            `${inputKey}.${index}.key` as const,
-                                            {
-                                            required: true,
-                                            }
-                                        )}
-                                        placeholder="Key"
-                                        disabled={!!selectedTool && (selectedTool.keys?.includes(field.key || "") || selectedTool.optional_keys?.includes(field.key || ""))}
-                                        />
-                                    </FormControl>
-                                    <FormControl className="flex-1">
-                                        <Input
-                                        id={`value-${index}`}
-                                        className="text-sm"
-                                        {...register(
-                                            `${inputKey}.${index}.value` as const,
-                                            {
-                                            required: !field.isOptional,
-                                            }
-                                        )}
-                                        placeholder={field.isOptional ? "Value (optional)" : "Value"}
-                                        type="password"
-                                        />
-                                    </FormControl>
+              {!selectedTool && (
+                <FormField
+                  key="type"
+                  control={control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Type</FormLabel>
+                      <FormDescription className="text-sm">
+                        Choose how this secret is stored.
+                      </FormDescription>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="text-sm">
+                            <SelectValue placeholder="Select a type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="custom">
+                            <span className="flex items-center gap-2">
+                              <Braces className="size-4" />
+                              Key-value pair
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="ssh-key">
+                            <span className="flex items-center gap-2">
+                              <FileKey2 className="size-4" />
+                              SSH private key
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="mtls">
+                            <span className="flex items-center gap-2">
+                              <KeyRoundIcon className="size-4" />
+                              mTLS certificate + key
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="ca-cert">
+                            <span className="flex items-center gap-2">
+                              <ShieldCheck className="size-4" />
+                              CA certificate
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        onClick={() => remove(index)}
-                                        disabled={
-                                            (!!selectedTool && (selectedTool.keys?.includes(field.key || "") || selectedTool.optional_keys?.includes(field.key || ""))) || 
-                                            (!selectedTool && fields.length === 1)
-                                        }
-                                    >
-                                        <Trash2Icon className="size-3.5" />
-                                    </Button>
-                                    </div>
-                                )
-                                })}
-                                <Button
+              {secretType === "custom" && (
+                <FormField
+                  key={inputKey}
+                  control={control}
+                  name={typedKey}
+                  render={() => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Keys</FormLabel>
+                      <div className="flex flex-col space-y-2">
+                        {fields.map((field, index) => {
+                          return (
+                            <div
+                              key={`${field.id}.${index}`}
+                              className="flex w-full items-center gap-2"
+                            >
+                              <FormControl className="flex-1">
+                                <Input
+                                  id={`key-${index}`}
+                                  className="text-sm"
+                                  {...register(
+                                    `${inputKey}.${index}.key` as const,
+                                    {
+                                      required: true,
+                                    }
+                                  )}
+                                  placeholder="Key"
+                                  disabled={
+                                    !!selectedTool &&
+                                    (selectedTool.keys?.includes(
+                                      field.key || ""
+                                    ) ||
+                                      selectedTool.optional_keys?.includes(
+                                        field.key || ""
+                                      ))
+                                  }
+                                />
+                              </FormControl>
+                              <FormControl className="flex-1">
+                                <Input
+                                  id={`value-${index}`}
+                                  className="text-sm"
+                                  {...register(
+                                    `${inputKey}.${index}.value` as const,
+                                    {
+                                      required: !field.isOptional,
+                                    }
+                                  )}
+                                  placeholder={
+                                    field.isOptional
+                                      ? "Value (optional)"
+                                      : "Value"
+                                  }
+                                  type="password"
+                                />
+                              </FormControl>
+
+                              <Button
                                 type="button"
-                                variant="outline"
-                                onClick={() => append({ key: "", value: "" })}
-                                className="space-x-2 text-xs"
-                                >
-                                <PlusCircle className="mr-2 size-4" />
-                                Add Item
-                                </Button>
+                                variant="ghost"
+                                onClick={() => remove(index)}
+                                disabled={
+                                  (!!selectedTool &&
+                                    (selectedTool.keys?.includes(
+                                      field.key || ""
+                                    ) ||
+                                      selectedTool.optional_keys?.includes(
+                                        field.key || ""
+                                      ))) ||
+                                  (!selectedTool && fields.length === 1)
+                                }
+                              >
+                                <Trash2Icon className="size-3.5" />
+                              </Button>
                             </div>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                    )}
-                    {secretType === "ssh-key" && (
-                        <SshPrivateKeyField
-                        control={control}
-                        register={register}
-                        name="private_key"
-                        />
-                    )}
-                    {secretType === "mtls" && (
-                        <>
-                        {renderTextareaField(
-                            "tls_certificate",
-                            "TLS certificate",
-                            "-----BEGIN CERTIFICATE-----"
-                        )}
-                        {renderTextareaField(
-                            "tls_private_key",
-                            "TLS private key",
-                            "-----BEGIN PRIVATE KEY-----"
-                        )}
-                        </>
-                    )}
-                    {secretType === "ca-cert" &&
-                        renderTextareaField(
-                        "ca_certificate",
-                        "CA certificate",
-                        "-----BEGIN CERTIFICATE-----"
-                        )}
+                          )
+                        })}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => append({ key: "", value: "" })}
+                          className="space-x-2 text-xs"
+                        >
+                          <PlusCircle className="mr-2 size-4" />
+                          Add Item
+                        </Button>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              {secretType === "ssh-key" && (
+                <SshPrivateKeyField
+                  control={control}
+                  register={register}
+                  name="private_key"
+                />
+              )}
+              {secretType === "mtls" && (
+                <>
+                  {renderTextareaField(
+                    "tls_certificate",
+                    "TLS certificate",
+                    "-----BEGIN CERTIFICATE-----"
+                  )}
+                  {renderTextareaField(
+                    "tls_private_key",
+                    "TLS private key",
+                    "-----BEGIN PRIVATE KEY-----"
+                  )}
+                </>
+              )}
+              {secretType === "ca-cert" &&
+                renderTextareaField(
+                  "ca_certificate",
+                  "CA certificate",
+                  "-----BEGIN CERTIFICATE-----"
+                )}
             </div>
             <DialogFooter className="flex-shrink-0 pt-4">
               <Button className="ml-auto space-x-2" type="submit">

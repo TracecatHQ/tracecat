@@ -14,7 +14,6 @@ import {
   PanelRight,
   PenLine,
   Plus,
-  Search,
   Sparkles,
   TagsIcon,
   Trash2,
@@ -88,11 +87,11 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
-import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
+import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -869,10 +868,7 @@ function CredentialsActions() {
         Add credential
       </Button>
 
-      <CreateCredentialDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-      />
+      <CreateCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>
   )
 }

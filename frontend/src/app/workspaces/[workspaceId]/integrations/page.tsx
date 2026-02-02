@@ -7,13 +7,17 @@ import {
   Lock,
   LockKeyhole,
   RotateCcw,
-  SquareAsterisk,
   Sparkles,
+  SquareAsterisk,
   WrenchIcon,
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { IntegrationStatus, OAuthGrantType, SecretDefinition } from "@/client"
+import type {
+  IntegrationStatus,
+  OAuthGrantType,
+  SecretDefinition,
+} from "@/client"
 import {
   integrationsConnectProvider,
   integrationsDisconnectIntegration,
@@ -47,6 +51,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
+import { Input } from "@/components/ui/input"
 import {
   Item,
   ItemActions,
@@ -54,10 +59,8 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import {
   Tooltip,
   TooltipContent,
@@ -65,6 +68,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
+import type { TracecatApiError } from "@/lib/errors"
 import {
   useDeleteMcpIntegration,
   useIntegrations,
@@ -72,7 +77,6 @@ import {
   useSecretDefinitions,
   useWorkspaceSecrets,
 } from "@/lib/hooks"
-import { type TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -168,13 +172,16 @@ export default function IntegrationsPage() {
     useDeleteMcpIntegration(workspaceId)
 
   const queryClient = useQueryClient()
-  const handleTypeFilterToggle = useCallback((filter: IntegrationTypeFilter) => {
-    setTypeFilters((prev) =>
-      prev.includes(filter)
-        ? prev.filter((value) => value !== filter)
-        : [...prev, filter]
-    )
-  }, [])
+  const handleTypeFilterToggle = useCallback(
+    (filter: IntegrationTypeFilter) => {
+      setTypeFilters((prev) =>
+        prev.includes(filter)
+          ? prev.filter((value) => value !== filter)
+          : [...prev, filter]
+      )
+    },
+    []
+  )
 
   const invalidateIntegrationQueries = useCallback(
     (providerId: string, grantType: OAuthGrantType) => {
@@ -240,8 +247,7 @@ export default function IntegrationsPage() {
     }: {
       providerId: string
       grantType: OAuthGrantType
-    }) =>
-      await integrationsTestConnection({ providerId, workspaceId }),
+    }) => await integrationsTestConnection({ providerId, workspaceId }),
     onSuccess: (result, variables) => {
       if (result.success) {
         invalidateIntegrationQueries(variables.providerId, variables.grantType)
@@ -269,7 +275,9 @@ export default function IntegrationsPage() {
 
   const integrationById = useMemo(
     () =>
-      new Map((integrations ?? []).map((integration) => [integration.id, integration])),
+      new Map(
+        (integrations ?? []).map((integration) => [integration.id, integration])
+      ),
     [integrations]
   )
 
@@ -422,9 +430,9 @@ export default function IntegrationsPage() {
   ])
 
   const connectParam = searchParams?.get("connect")
-  const connectGrantType = searchParams?.get("grant_type") as
-    | OAuthGrantType
-    | null
+  const connectGrantType = searchParams?.get(
+    "grant_type"
+  ) as OAuthGrantType | null
 
   const clearConnectParams = useCallback(() => {
     const params = new URLSearchParams(searchParams?.toString() || "")
@@ -610,14 +618,13 @@ export default function IntegrationsPage() {
             const isCustomMcp = isMcp && isCustomMcpIntegration(item)
             const status = getIntegrationStatus(item)
             const configuredEnvironments = isCredential
-              ? credentialEnvironments.get(item.name) ?? []
+              ? (credentialEnvironments.get(item.name) ?? [])
               : []
-            const isConnected =
-              isMcp
-                ? status === "connected"
-                : isCredential
-                  ? false
-                  : item.integration_status === "connected"
+            const isConnected = isMcp
+              ? status === "connected"
+              : isCredential
+                ? false
+                : item.integration_status === "connected"
             const isClickable =
               isCredential ||
               (isOAuth && isConnected) ||
@@ -651,12 +658,11 @@ export default function IntegrationsPage() {
             const TypeIcon = integrationTypeIcons[displayType]
             const typeLabel = integrationTypeLabels[displayType]
 
-            const mcpProviderIconId =
-              isMcp
-                ? item.slug.endsWith("_mcp")
-                  ? item.slug
-                  : `${item.slug}_mcp`
-                : null
+            const mcpProviderIconId = isMcp
+              ? item.slug.endsWith("_mcp")
+                ? item.slug
+                : `${item.slug}_mcp`
+              : null
 
             return (
               <Item
@@ -697,9 +703,15 @@ export default function IntegrationsPage() {
               >
                 <ItemMedia>
                   {isOAuth ? (
-                    <ProviderIcon providerId={item.id} className="size-7 rounded" />
+                    <ProviderIcon
+                      providerId={item.id}
+                      className="size-7 rounded"
+                    />
                   ) : isCredential ? (
-                    <SecretIcon secretName={item.name} className="size-7 rounded" />
+                    <SecretIcon
+                      secretName={item.name}
+                      className="size-7 rounded"
+                    />
                   ) : mcpProviderIconId ? (
                     <ProviderIcon
                       providerId={mcpProviderIconId}
@@ -816,14 +828,20 @@ export default function IntegrationsPage() {
                           size="sm"
                           className="h-7 px-3 text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:text-destructive-foreground border-destructive"
                           onClick={(event) => event.stopPropagation()}
-                          disabled={isDisabled || isDisconnecting || isDeletingMcp}
+                          disabled={
+                            isDisabled || isDisconnecting || isDeletingMcp
+                          }
                         >
                           Disconnect
                         </Button>
                       </AlertDialogTrigger>
-                      <AlertDialogContent onClick={(event) => event.stopPropagation()}>
+                      <AlertDialogContent
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Disconnect integration</AlertDialogTitle>
+                          <AlertDialogTitle>
+                            Disconnect integration
+                          </AlertDialogTitle>
                           <AlertDialogDescription className="space-y-4">
                             <p>
                               {`Are you sure you want to disconnect from ${item.name}?`}
