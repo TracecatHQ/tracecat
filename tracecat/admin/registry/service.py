@@ -172,11 +172,16 @@ class AdminRegistryService(BasePlatformService):
             )
         except Exception as exc:
             await self.session.rollback()
+            self.logger.exception(
+                "Failed to sync repository",
+                repository_id=str(repo.id),
+                origin=repo.origin,
+            )
             return RepositorySyncResult(
                 repository_id=repo.id,
                 repository_name=repo.origin,
                 success=False,
-                error=str(exc),
+                error=f"Failed to sync repository: {type(exc).__name__}",
                 version=None,
                 actions_count=None,
             )
