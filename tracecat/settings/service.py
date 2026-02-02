@@ -248,9 +248,20 @@ class SettingsService(BaseOrgService):
         self, settings: Sequence[OrganizationSetting], params: BaseModel
     ) -> None:
         updated_fields = params.model_dump(exclude_unset=True)
-        for setting in settings:
-            if setting.key in updated_fields:
-                params = SettingUpdate(value=updated_fields[setting.key])
+        settings_by_key = {setting.key: setting for setting in settings}
+        for key, value in updated_fields.items():
+            setting = settings_by_key.get(key)
+            if setting is None:
+                setting = await self._create_org_setting(
+                    SettingCreate(
+                        key=key,
+                        value=value,
+                        is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
+                    )
+                )
+                settings_by_key[key] = setting
+            else:
+                params = SettingUpdate(value=value)
                 await self._update_setting(setting, params)
         await self.session.commit()
 
