@@ -22,7 +22,7 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_access_level
+from tracecat.authz.controls import require_access_level, require_org_role
 from tracecat.authz.enums import OrgRole  # Still used for privilege escalation check
 from tracecat.db.models import (
     AccessToken,
@@ -147,13 +147,21 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Create membership
+        # Create membership (role is now tracked via UserRoleAssignment)
         membership = OrganizationMembership(
             user_id=user_id,
             organization_id=invitation.organization_id,
-            role=invitation.role,
         )
         session.add(membership)
+
+        # Create role assignment from invitation
+        role_assignment = UserRoleAssignment(
+            organization_id=invitation.organization_id,
+            user_id=user_id,
+            workspace_id=None,  # NULL = org-level assignment
+            role_id=invitation.role_id,
+        )
+        session.add(role_assignment)
 
         await session.commit()
         await session.refresh(membership)
@@ -181,6 +189,8 @@ async def accept_invitation_for_user(
         )
 
     return membership
+
+
 @dataclass(frozen=True)
 class MemberRoleInfo:
     """Role information for an organization member."""

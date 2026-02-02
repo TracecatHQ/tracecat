@@ -25,7 +25,7 @@ async def test_seed_system_scopes(session):
     # Verify scopes exist in database
     result = await session.execute(
         select(Scope).where(
-            Scope.source == ScopeSource.SYSTEM,
+            Scope.source == ScopeSource.PLATFORM,
             Scope.organization_id.is_(None),
         )
     )
@@ -52,7 +52,7 @@ async def test_seed_system_scopes_idempotent(session):
     # Verify count is still the same
     result = await session.execute(
         select(Scope).where(
-            Scope.source == ScopeSource.SYSTEM,
+            Scope.source == ScopeSource.PLATFORM,
             Scope.organization_id.is_(None),
         )
     )
@@ -72,7 +72,7 @@ async def test_seed_registry_scope(session):
     assert scope.name == f"action:{action_key}:execute"
     assert scope.resource == "action"
     assert scope.action == "execute"
-    assert scope.source == ScopeSource.REGISTRY
+    assert scope.source == ScopeSource.PLATFORM
     assert scope.source_ref == action_key
     assert scope.organization_id is None
 
@@ -112,7 +112,7 @@ async def test_seed_registry_scopes_bulk(session):
     # Verify scopes exist
     result = await session.execute(
         select(Scope).where(
-            Scope.source == ScopeSource.REGISTRY,
+            Scope.source == ScopeSource.PLATFORM,
             Scope.organization_id.is_(None),
         )
     )
