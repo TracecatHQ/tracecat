@@ -1,4 +1,4 @@
-"""Platform-level registry sync endpoints."""
+"""Platform-level registry management endpoints."""
 
 from __future__ import annotations
 
@@ -15,8 +15,36 @@ from tracecat.admin.registry.schemas import (
 from tracecat.admin.registry.service import AdminRegistryService
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.registry.repositories.schemas import (
+    RegistryRepositoryRead,
+    RegistryRepositoryReadMinimal,
+)
 
 router = APIRouter(prefix="/registry", tags=["admin:registry"])
+
+
+@router.get("/repos", response_model=list[RegistryRepositoryReadMinimal])
+async def list_platform_repositories(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+) -> list[RegistryRepositoryReadMinimal]:
+    """List all platform registry repositories."""
+    service = AdminRegistryService(session, role)
+    return await service.list_repositories()
+
+
+@router.get("/repos/{repository_id}", response_model=RegistryRepositoryRead)
+async def get_platform_repository(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    repository_id: uuid.UUID,
+) -> RegistryRepositoryRead:
+    """Get a specific platform registry repository."""
+    service = AdminRegistryService(session, role)
+    try:
+        return await service.get_repository(repository_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/sync", response_model=RegistrySyncResponse)
