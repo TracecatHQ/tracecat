@@ -1,9 +1,11 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 
+from tracecat.authz.enums import OrgRole
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
 
@@ -83,6 +85,13 @@ class OrgInvitationCreate(BaseModel):
     """UUID of the role to grant upon acceptance."""
     role_slug: str | None = None
     """Slug of the role to grant (e.g., 'admin', 'member', 'owner')."""
+
+    @model_validator(mode="after")
+    def validate_role_specified(self) -> Self:
+        """Ensure at least one of role_id or role_slug is provided."""
+        if self.role_id is None and self.role_slug is None:
+            raise ValueError("Either role_id or role_slug must be provided")
+        return self
 
 
 class OrgInvitationRead(BaseModel):

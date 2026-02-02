@@ -25,7 +25,7 @@ from tracecat.authz.scopes import (
     ORG_OWNER_SCOPES,
     VIEWER_SCOPES,
 )
-from tracecat.db.models import Role, RoleScope, Scope
+from tracecat.db.models import Organization, Role, RoleScope, Scope
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -360,7 +360,9 @@ async def seed_system_roles_for_org(
     # Get all system scope names -> IDs
     scope_stmt = select(Scope.id, Scope.name).where(Scope.organization_id.is_(None))
     scope_result = await session.execute(scope_stmt)
-    scope_name_to_id: dict[str, UUID] = {name: id_ for id_, name in scope_result.all()}
+    scope_name_to_id: dict[str, UUID] = {
+        name: id_ for id_, name in scope_result.tuples().all()
+    }
 
     roles_created = 0
 
@@ -445,8 +447,6 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
     Returns:
         Dict mapping organization_id to number of roles created
     """
-    from tracecat.db.models import Organization
-
     logger.info("Seeding system roles for all organizations")
 
     # Get all organizations
