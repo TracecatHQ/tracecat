@@ -88,6 +88,10 @@ resource "aws_db_instance" "tracecat" {
   username                    = var.rds_snapshot_identifier == "" ? var.rds_master_username : null
   manage_master_user_password = true
 
+  master_user_secret_rotation {
+    automatically_after = "365d"
+  }
+
   db_subnet_group_name   = aws_db_subnet_group.tracecat.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
