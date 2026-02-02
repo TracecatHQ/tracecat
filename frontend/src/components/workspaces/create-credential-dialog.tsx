@@ -82,7 +82,12 @@ const validatePemField = (
 
 const createSecretSchema = z
   .object({
-    name: z.string().default(""),
+    name: z
+      .string()
+      .trim()
+      .min(1, "Name is required.")
+      .max(100, "Name must be 100 characters or fewer.")
+      .default(""),
     description: z.string().max(255).default(""),
     environment: z
       .string()
@@ -254,6 +259,7 @@ export function CreateCredentialDialog({
 
   const { control, register } = methods
   const secretType = methods.watch("type")
+  const isTemplateSecret = Boolean(selectedTool)
 
   const renderTextareaField = (
     name: FieldPath<CreateSecretForm>,
@@ -290,6 +296,7 @@ export function CreateCredentialDialog({
       keys,
       ...rest
     } = values
+    const secretName = selectedTool?.name ?? values.name
 
     let secretKeys: { key: string; value: string }[] = []
 
@@ -328,6 +335,7 @@ export function CreateCredentialDialog({
 
     const secret: SecretCreate = {
       ...rest,
+      name: secretName,
       type,
       keys: secretKeys,
     }
@@ -336,7 +344,7 @@ export function CreateCredentialDialog({
       onOpenChange(false)
       toast({
         title: "Secret created",
-        description: `Secret "${values.name}" has been created successfully.`,
+        description: `Secret "${secretName}" has been created successfully.`,
       })
     } catch (error) {
       console.log(error)
@@ -385,10 +393,17 @@ export function CreateCredentialDialog({
                 render={() => (
                   <FormItem>
                     <FormLabel className="text-sm">Name</FormLabel>
+                    {isTemplateSecret && (
+                      <FormDescription className="text-sm">
+                        This name is fixed by the selected template.
+                      </FormDescription>
+                    )}
                     <FormControl>
                       <Input
                         className="text-sm"
                         placeholder="Name (snake case)"
+                        readOnly={isTemplateSecret}
+                        aria-readonly={isTemplateSecret}
                         {...register("name")}
                       />
                     </FormControl>
