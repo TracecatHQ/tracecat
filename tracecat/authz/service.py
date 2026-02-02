@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -83,17 +83,37 @@ class MembershipService(BaseService):
             return []
 
         # Get role assignments for these users in this workspace
+        # Include both workspace-specific assignments and org-wide assignments (workspace_id IS NULL)
         user_ids = [u.id for u in users]
         role_stmt = (
-            select(UserRoleAssignment.user_id, RoleModel.slug)
+            select(
+                UserRoleAssignment.user_id,
+                UserRoleAssignment.workspace_id,
+                RoleModel.slug,
+            )
             .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
             .where(
                 UserRoleAssignment.user_id.in_(user_ids),
-                UserRoleAssignment.workspace_id == workspace_id,
+                or_(
+                    UserRoleAssignment.workspace_id == workspace_id,
+                    UserRoleAssignment.workspace_id.is_(None),
+                ),
             )
         )
         role_result = await self.session.execute(role_stmt)
-        user_role_map = {row[0]: row[1] for row in role_result.all()}
+
+        # Build map preferring workspace-specific assignments over org-wide
+        user_role_map: dict[UserID, str] = {}
+        for uid, ws_id, slug in role_result.tuples().all():
+            if slug is None:
+                # Skip assignments without a slug (custom roles)
+                continue
+            if ws_id is not None:
+                # Workspace-specific assignment takes precedence
+                user_role_map[uid] = slug
+            elif uid not in user_role_map:
+                # Org-wide assignment as fallback
+                user_role_map[uid] = slug
 
         return [
             WorkspaceMember(
