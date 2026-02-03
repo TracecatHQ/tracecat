@@ -8,6 +8,7 @@ SENSITIVE_SETTINGS_KEYS = {
     "saml_idp_metadata_url",
     "audit_webhook_url",
     "audit_webhook_api_key",
+    "audit_webhook_custom_headers",
 }
 """Settings that are encrypted at rest."""
 
