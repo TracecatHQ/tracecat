@@ -87,6 +87,7 @@ resource "aws_eks_node_group" "tracecat" {
   node_role_arn   = aws_iam_role.eks_node_group.arn
   subnet_ids      = var.private_subnet_ids
 
+  capacity_type = "ON_DEMAND"
   instance_types = var.node_instance_types
   disk_size      = var.node_disk_size
 
@@ -102,10 +103,49 @@ resource "aws_eks_node_group" "tracecat" {
 
   # AL2023_ARM_64_STANDARD for Graviton (t4g) instances
   # AL2023_x86_64_STANDARD for Intel/AMD (t3, m5, etc.) instances
-  ami_type = length(regexall("^t4g|^m6g|^c6g|^r6g", var.node_instance_types[0])) > 0 ? "AL2023_ARM_64_STANDARD" : "AL2023_x86_64_STANDARD"
+  ami_type = var.node_ami_type
 
   labels = {
     "tracecat.com/purpose" = "tracecat"
+    "tracecat.com/capacity" = "on-demand"
+  }
+
+  tags = var.tags
+
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_worker_node_policy,
+    aws_iam_role_policy_attachment.eks_cni_policy,
+    aws_iam_role_policy_attachment.eks_container_registry_read
+  ]
+}
+
+resource "aws_eks_node_group" "tracecat_spot" {
+  count = var.spot_node_group_enabled ? 1 : 0
+
+  cluster_name    = aws_eks_cluster.tracecat.name
+  node_group_name = "${var.cluster_name}-spot-node-group"
+  node_role_arn   = aws_iam_role.eks_node_group.arn
+  subnet_ids      = var.private_subnet_ids
+
+  capacity_type  = "SPOT"
+  instance_types = var.spot_node_instance_types
+  disk_size      = var.node_disk_size
+
+  scaling_config {
+    desired_size = var.spot_node_desired_size
+    min_size     = var.spot_node_min_size
+    max_size     = var.spot_node_max_size
+  }
+
+  update_config {
+    max_unavailable = 1
+  }
+
+  ami_type = var.node_ami_type
+
+  labels = {
+    "tracecat.com/purpose"  = "tracecat"
+    "tracecat.com/capacity" = "spot"
   }
 
   tags = var.tags

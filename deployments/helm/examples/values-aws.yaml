@@ -57,6 +57,7 @@ tracecat:
 
 ingress:
   enabled: true
+  split: true
   className: alb
   host: tracecat.example.com
   annotations:
@@ -65,8 +66,48 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789:certificate/xxx
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/healthcheck-path: /ready
-    alb.ingress.kubernetes.io/healthcheck-port: "8000"
+    alb.ingress.kubernetes.io/group.name: tracecat
+  ui:
+    annotations:
+      alb.ingress.kubernetes.io/group.order: "20"
+      alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400
+      alb.ingress.kubernetes.io/healthcheck-path: /
+  api:
+    annotations:
+      alb.ingress.kubernetes.io/group.order: "10"
+      alb.ingress.kubernetes.io/healthcheck-path: /ready
+      alb.ingress.kubernetes.io/healthcheck-port: "8000"
+
+ui:
+  replicas: 2
+
+api:
+  replicas: 2
+
+worker:
+  replicas: 8
+
+executor:
+  replicas: 4
+
+agentExecutor:
+  replicas: 2
+
+scheduling:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: tracecat.com/capacity
+                operator: In
+                values:
+                  - spot
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: tracecat.com/capacity
+      whenUnsatisfiable: ScheduleAnyway
 
 # Disable internal subcharts (using AWS managed services)
 postgres:

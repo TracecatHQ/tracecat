@@ -1,3 +1,41 @@
+locals {
+  tracecat_spot_scheduling = {
+    affinity = {
+      nodeAffinity = {
+        preferredDuringSchedulingIgnoredDuringExecution = [
+          {
+            weight = 100
+            preference = {
+              matchExpressions = [
+                {
+                  key      = "tracecat.com/capacity"
+                  operator = "In"
+                  values   = ["spot"]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+    topologySpreadConstraints = [
+      {
+        maxSkew           = 1
+        topologyKey       = "tracecat.com/capacity"
+        whenUnsatisfiable = "ScheduleAnyway"
+      }
+    ]
+  }
+
+  alb_group_name_raw = regexreplace(lower(var.cluster_name), "[^a-z0-9-]", "-")
+  alb_group_name_compact = trim(
+    regexreplace(local.alb_group_name_raw, "-+", "-"),
+    "-"
+  )
+  alb_group_name_truncated = substr(local.alb_group_name_compact, 0, 63)
+  alb_group_name = length(trim(local.alb_group_name_truncated, "-")) > 0 ? trim(local.alb_group_name_truncated, "-") : "tracecat"
+}
+
 # Tracecat Helm Release
 resource "helm_release" "tracecat" {
   name      = "tracecat"
@@ -20,9 +58,11 @@ resource "helm_release" "tracecat" {
   }
 
   # Use values for complex nested structures that don't work well with set blocks
-  values = [yamlencode({
+  values = [yamlencode(merge(
+  {
     ingress = {
       enabled   = true
+      split     = var.tracecat_ingress_split
       className = "alb"
       host      = var.domain_name
       annotations = merge(
@@ -32,13 +72,26 @@ resource "helm_release" "tracecat" {
           "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
           "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
           "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
-          "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+          "alb.ingress.kubernetes.io/group.name"       = local.alb_group_name
           "external-dns.alpha.kubernetes.io/hostname"  = var.domain_name
         },
         var.enable_waf ? {
           "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.main[0].arn
         } : {}
       )
+      ui = {
+        annotations = {
+          "alb.ingress.kubernetes.io/group.order"            = "20"
+          "alb.ingress.kubernetes.io/target-group-attributes" = "stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400"
+          "alb.ingress.kubernetes.io/healthcheck-path"       = "/"
+        }
+      }
+      api = {
+        annotations = {
+          "alb.ingress.kubernetes.io/group.order"      = "10"
+          "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+        }
+      }
     }
     urls = {
       publicApp = "https://${var.domain_name}"
@@ -51,7 +104,11 @@ resource "helm_release" "tracecat" {
         caCert   = data.http.rds_ca_bundle.response_body
       }
     }
-  })]
+  },
+  var.spot_node_group_enabled ? {
+    scheduling = local.tracecat_spot_scheduling
+  } : {}
+  ))]
 
   # External Secrets Operator Configuration
   # ESO syncs secrets from AWS Secrets Manager - no secrets in TF state

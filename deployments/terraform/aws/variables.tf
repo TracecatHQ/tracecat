@@ -62,7 +62,13 @@ variable "cluster_version" {
 variable "node_instance_types" {
   description = "Instance types for the EKS node group"
   type        = list(string)
-  default     = ["t3.large"]
+  default     = ["m7g.2xlarge"]
+}
+
+variable "node_ami_type" {
+  description = "AMI type for the EKS node group (AL2023_ARM_64_STANDARD or AL2023_x86_64_STANDARD)"
+  type        = string
+  default     = "AL2023_ARM_64_STANDARD"
 }
 
 variable "node_desired_size" {
@@ -89,6 +95,36 @@ variable "node_disk_size" {
   default     = 50
 }
 
+variable "spot_node_group_enabled" {
+  description = "Enable the spot managed node group."
+  type        = bool
+  default     = false
+}
+
+variable "spot_node_instance_types" {
+  description = "Instance types for the spot managed node group."
+  type        = list(string)
+  default     = ["m7g.2xlarge"]
+}
+
+variable "spot_node_desired_size" {
+  description = "Desired number of nodes in the spot managed node group."
+  type        = number
+  default     = 0
+}
+
+variable "spot_node_min_size" {
+  description = "Minimum number of nodes in the spot managed node group."
+  type        = number
+  default     = 0
+}
+
+variable "spot_node_max_size" {
+  description = "Maximum number of nodes in the spot managed node group."
+  type        = number
+  default     = 5
+}
+
 # Tracecat Configuration
 variable "tracecat_version" {
   description = "Version of the Tracecat Helm chart to deploy"
@@ -100,6 +136,12 @@ variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
   default     = "latest"
+}
+
+variable "tracecat_ingress_split" {
+  description = "Split Tracecat ingress into separate UI and API ingresses."
+  type        = bool
+  default     = true
 }
 
 variable "superadmin_email" {

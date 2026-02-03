@@ -136,6 +136,9 @@ See `examples/` for complete example configurations.
 | `ingress.className` | "" | Ingress class name (nginx, alb, etc.) |
 | `ingress.host` | tracecat.example.com | Hostname |
 | `ingress.annotations` | {} | Ingress annotations |
+| `ingress.split` | false | Split ingress into separate UI/API resources |
+| `ingress.ui.annotations` | {} | UI ingress annotations (merged with `ingress.annotations`) |
+| `ingress.api.annotations` | {} | API ingress annotations (merged with `ingress.annotations`) |
 | `ingress.tls` | [] | TLS configuration |
 
 ### Public URLs

@@ -26,18 +26,25 @@ module "eks" {
   acm_certificate_arn = module.network.acm_certificate_arn
 
   # Node Group Configuration
-  node_instance_types = var.node_instance_types
-  node_desired_size   = var.node_desired_size
-  node_min_size       = var.node_min_size
-  node_max_size       = var.node_max_size
-  node_disk_size      = var.node_disk_size
+  node_instance_types     = var.node_instance_types
+  node_ami_type           = var.node_ami_type
+  node_desired_size       = var.node_desired_size
+  node_min_size           = var.node_min_size
+  node_max_size           = var.node_max_size
+  node_disk_size          = var.node_disk_size
+  spot_node_group_enabled = var.spot_node_group_enabled
+  spot_node_instance_types = var.spot_node_instance_types
+  spot_node_desired_size  = var.spot_node_desired_size
+  spot_node_min_size      = var.spot_node_min_size
+  spot_node_max_size      = var.spot_node_max_size
 
   # Tracecat Configuration
-  domain_name        = var.domain_name
-  hosted_zone_id     = var.hosted_zone_id
-  tracecat_version   = var.tracecat_version
-  tracecat_image_tag = var.tracecat_image_tag
-  superadmin_email   = var.superadmin_email
+  domain_name            = var.domain_name
+  hosted_zone_id         = var.hosted_zone_id
+  tracecat_version       = var.tracecat_version
+  tracecat_image_tag     = var.tracecat_image_tag
+  tracecat_ingress_split = var.tracecat_ingress_split
+  superadmin_email       = var.superadmin_email
 
   # Tracecat Secrets (AWS Secrets Manager ARN)
   tracecat_secrets_arn = var.tracecat_secrets_arn

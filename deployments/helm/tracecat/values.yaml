@@ -78,12 +78,24 @@ securityContext:
   fsGroup: 1001
   runAsUser: 1001
 
+scheduling:
+  # Global pod scheduling defaults for all Tracecat workloads.
+  nodeSelector: {}
+  affinity: {}
+  topologySpreadConstraints: []
+  tolerations: []
+
 ingress:
   enabled: true
   className: ""
   annotations: {}
   host: tracecat.example.com
   tls: []
+  split: false
+  ui:
+    annotations: {}
+  api:
+    annotations: {}
 
 urls:
   publicApp: ""
