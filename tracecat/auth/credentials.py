@@ -565,14 +565,6 @@ def _validate_role(
         logger.warning("User does not have access to this workspace", role=role)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    # DEPRECATED: min_access_level - keep for backwards compatibility but log warning
-    if min_access_level is not None and role.access_level < min_access_level:
-        logger.warning(
-            "min_access_level is deprecated, use require_org_roles instead",
-            min_access_level=min_access_level,
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
     # Check org role requirement
     if require_org_roles is not None:
         if role.org_role not in require_org_roles and not role.is_platform_superuser:

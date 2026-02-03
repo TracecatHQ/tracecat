@@ -39,8 +39,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.audit.service import AuditService
-from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
-from tracecat.auth.types import AccessLevel, PlatformRole
+from tracecat.auth.schemas import UserCreate, UserUpdate
+from tracecat.auth.types import PlatformRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
 from tracecat.db.models import AccessToken, OAuthAccount, User
@@ -84,9 +84,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         set_fields = user_update.model_fields_set
 
         role = ctx_role.get()
-        is_unprivileged = role is not None and role.access_level != AccessLevel.ADMIN
+        is_unprivileged = role is not None and not role.is_privileged
         if not role or (
-            # Not admin and trying to change role or is_superuser
+            # Not privileged and trying to change role or is_superuser
             is_unprivileged and any(field in set_fields for field in denylist)
         ):
             raise PermissionsException("Operation not permitted")
@@ -225,7 +225,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # No count/lock needed - email uniqueness ensures only one user can have this email
         superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
         if superadmin_email and user.email == superadmin_email:
-            update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
+            update_params = UserUpdate(is_superuser=True)
             await self.admin_update(user_update=update_params, user=user)
             self.logger.info("User promoted to superadmin", email=user.email)
 
@@ -481,8 +481,8 @@ optional_current_active_user = fastapi_users.current_user(active=True, optional=
 
 
 def is_unprivileged(user: User) -> bool:
-    """Check if a user is not privileged (i.e. not an admin or superuser)."""
-    return user.role != UserRole.ADMIN and not user.is_superuser
+    """Check if a user is not privileged (i.e. not a superuser)."""
+    return not user.is_superuser
 
 
 async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
