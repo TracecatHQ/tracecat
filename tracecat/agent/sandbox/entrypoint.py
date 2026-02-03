@@ -19,10 +19,9 @@ from typing import TYPE_CHECKING
 import orjson
 
 from tracecat.agent.common.config import (
-    JAILED_CONTROL_SOCKET_PATH,
-    JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_CONTROL_SOCKET_PATH,
     TRACECAT__AGENT_LLM_SOCKET_PATH,
+    TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import (
@@ -85,14 +84,6 @@ async def run_sandboxed_runtime() -> None:
 
     llm_bridge: LLMBridge | None = None
     socket_writer: SocketStreamWriter | None = None
-    # In direct subprocess mode we point the runtime at a per-job control socket path
-    # (e.g., /tmp/tracecat-agent-jobs/.../control.sock). In nsjail mode the runtime
-    # uses the well-known jailed paths under /var/run/tracecat and nsjail mounts map
-    # them to per-job sockets.
-    is_direct_subprocess_mode = (
-        TRACECAT__AGENT_CONTROL_SOCKET_PATH != JAILED_CONTROL_SOCKET_PATH
-        or TRACECAT__AGENT_LLM_SOCKET_PATH != JAILED_LLM_SOCKET_PATH
-    )
 
     try:
         # Connect to orchestrator first to get config
@@ -112,7 +103,7 @@ async def run_sandboxed_runtime() -> None:
         #
         # In direct subprocess mode there's no network namespace, so binding 127.0.0.1:4000
         # can collide with the host LiteLLM process (which also uses port 4000).
-        if not payload.config.enable_internet_access and not is_direct_subprocess_mode:
+        if not (payload.config.enable_internet_access or TRACECAT__DISABLE_NSJAIL):
             llm_bridge = LLMBridge(socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH)
             await llm_bridge.start()
             logger.info("LLM bridge started (nsjail network-isolated mode)")
