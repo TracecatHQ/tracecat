@@ -26,6 +26,7 @@ spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "worker") | nindent 6 }}
       {{- if .Values.temporal.enabled }}
       initContainers:
         - name: wait-for-temporal-setup

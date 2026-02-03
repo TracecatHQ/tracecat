@@ -29,6 +29,7 @@ spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "api") | nindent 6 }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"

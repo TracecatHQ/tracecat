@@ -69,6 +69,53 @@ Service account name for Tracecat workloads
 {{- end }}
 
 {{/*
+Pod scheduling helpers (nodeSelector, affinity, tolerations, topology spread)
+*/}}
+{{- define "tracecat.topologySpreadConstraints" -}}
+{{- $root := .root -}}
+{{- $component := .component -}}
+{{- $constraints := .constraints -}}
+{{- if $constraints }}
+topologySpreadConstraints:
+{{- range $c := $constraints }}
+  - maxSkew: {{ $c.maxSkew | default 1 }}
+    topologyKey: {{ $c.topologyKey | quote }}
+    whenUnsatisfiable: {{ $c.whenUnsatisfiable | default "ScheduleAnyway" }}
+    {{- if $c.minDomains }}
+    minDomains: {{ $c.minDomains }}
+    {{- end }}
+    labelSelector:
+      matchLabels:
+        {{- include "tracecat.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "tracecat.podScheduling" -}}
+{{- $root := .root -}}
+{{- $component := .component -}}
+{{- $scheduling := $root.Values.scheduling -}}
+{{- if $scheduling }}
+{{- with $scheduling.nodeSelector }}
+nodeSelector:
+{{ toYaml . | nindent 2 }}
+{{- end }}
+{{- with $scheduling.affinity }}
+affinity:
+{{ toYaml . | nindent 2 }}
+{{- end }}
+{{- with $scheduling.tolerations }}
+tolerations:
+{{ toYaml . | nindent 2 }}
+{{- end }}
+{{- if $scheduling.topologySpreadConstraints }}
+{{ include "tracecat.topologySpreadConstraints" (dict "root" $root "component" $component "constraints" $scheduling.topologySpreadConstraints) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 =============================================================================
 PostgreSQL Helpers
 =============================================================================

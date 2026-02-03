@@ -19,6 +19,7 @@ spec:
     spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "ui") | nindent 6 }}
       containers:
         - name: ui
           image: "{{ .Values.uiImage.repository }}:{{ .Values.uiImage.tag | default .Chart.AppVersion }}"

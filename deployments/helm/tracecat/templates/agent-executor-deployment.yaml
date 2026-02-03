@@ -33,6 +33,7 @@ spec:
         {{- toYaml .Values.securityContext | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "agent-executor") | nindent 6 }}
       containers:
         - name: agent-executor
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
