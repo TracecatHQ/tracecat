@@ -30,6 +30,7 @@ from temporalio.worker import Worker
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import OrgRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
@@ -913,6 +914,7 @@ async def test_admin_role(test_workspace, mock_org_id):
         organization_id=mock_org_id,
         workspace_id=test_workspace.id,
         access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.ADMIN,
         service_id="tracecat-runner",
     )
     token = ctx_role.set(admin_role)
@@ -993,12 +995,13 @@ async def test_workspace(test_organization, mock_org_id):
     ws_id = uuid.uuid4()
     workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
-    # Use a role with organization_id for the WorkspaceService
+    # Use a role with organization_id and org_role for the WorkspaceService
     org_role = Role(
         type="service",
         service_id="tracecat-service",
         organization_id=mock_org_id,
         access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.OWNER,
     )
 
     async with WorkspaceService.with_session(role=org_role) as svc:
@@ -1203,6 +1206,7 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
     return Role(
         type="user",
         access_level=AccessLevel.ADMIN,
+        org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),

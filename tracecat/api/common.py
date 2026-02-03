@@ -47,13 +47,14 @@ def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:
             If None, creates a role without org scope (for platform-level operations).
 
     Returns:
-        Role: A service role with ADMIN access for the specified organization.
+        Role: A service role with platform superuser privileges for the specified organization.
     """
     return Role(
         type="service",
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-bootstrap",
         organization_id=organization_id,
+        is_platform_superuser=True,
     )
 
 

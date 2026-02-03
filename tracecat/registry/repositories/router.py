@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository
@@ -53,7 +54,7 @@ async def reload_registry_repositories(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
 ) -> None:
@@ -79,7 +80,7 @@ async def sync_registry_repository(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -441,7 +442,7 @@ async def create_registry_repository(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     params: RegistryRepositoryCreate,
@@ -485,7 +486,7 @@ async def update_registry_repository(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -521,7 +522,7 @@ async def delete_registry_repository(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -555,7 +556,7 @@ async def promote_registry_version(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,

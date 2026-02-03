@@ -551,29 +551,27 @@ def _validate_role(
     *,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None,
+    require_org_roles: list[OrgRole] | None = None,
 ) -> Role:
     """Validate structural requirements on the authenticated role.
 
     Raises:
         HTTPException(401): If role is None.
-        HTTPException(403): If workspace required but missing, or access level insufficient.
+        HTTPException(403): If workspace required but missing, org role requirement not met,
+            or access level insufficient.
     """
 
     if require_workspace == "yes" and role.workspace_id is None:
         logger.warning("User does not have access to this workspace", role=role)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    # TODO(security): If min_access_level is not set, we should require max privilege by default
-    if min_access_level is not None and role.access_level < min_access_level:
-        # Also grant ADMIN access if user is an org owner/admin
-        # This allows org owners/admins to perform org-level admin operations
-        # (like creating workspaces) without requiring platform admin privileges
-        is_org_admin = role.org_role in (OrgRole.OWNER, OrgRole.ADMIN)
-        if not (min_access_level == AccessLevel.ADMIN and is_org_admin):
+    # Check org role requirement
+    if require_org_roles is not None:
+        if role.org_role not in require_org_roles and not role.is_platform_superuser:
             logger.warning(
-                "User does not have the appropriate access level",
+                "User does not have required org role",
                 role=role,
-                min_access_level=min_access_level,
+                require_org_roles=require_org_roles,
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
@@ -597,6 +595,7 @@ async def _role_dependency(
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None = None,
+    require_org_roles: list[OrgRole] | None = None,
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Role:
     """Main dependency that orchestrates authentication and authorization.
@@ -646,6 +645,7 @@ async def _role_dependency(
         role,
         require_workspace=require_workspace,
         min_access_level=min_access_level,
+        require_org_roles=require_org_roles,
     )
     ctx_role.set(role)
     return role
@@ -658,6 +658,7 @@ def RoleACL(
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
     min_access_level: AccessLevel | None = None,
+    require_org_roles: list[OrgRole] | None = None,
     workspace_id_in_path: bool = False,
     require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Any:
@@ -716,6 +717,7 @@ def RoleACL(
                 allow_service=False,
                 allow_executor=True,
                 min_access_level=min_access_level,
+                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
             )
@@ -743,6 +745,7 @@ def RoleACL(
                 allow_service=allow_service,
                 allow_executor=allow_executor,
                 min_access_level=min_access_level,
+                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
             )
@@ -772,6 +775,7 @@ def RoleACL(
                 allow_service=allow_service,
                 allow_executor=allow_executor,
                 min_access_level=min_access_level,
+                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
             )
@@ -796,6 +800,7 @@ def RoleACL(
                 allow_service=allow_service,
                 allow_executor=allow_executor,
                 min_access_level=min_access_level,
+                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
                 require_workspace_roles=require_workspace_roles,
             )

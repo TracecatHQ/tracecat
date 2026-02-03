@@ -37,6 +37,7 @@ async def ensure_organization_defaults(
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-service",
         organization_id=org_id,
+        is_platform_superuser=True,
     )
 
     # Ensure settings exist (idempotent)

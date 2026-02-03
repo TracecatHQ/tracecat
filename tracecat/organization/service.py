@@ -21,7 +21,7 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_access_level
+from tracecat.authz.controls import require_org_role
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
@@ -186,7 +186,7 @@ class OrgService(BaseOrgService):
 
     # === Manage members ===
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_members(self) -> Sequence[tuple[User, OrgRole]]:
         """
         Retrieve a list of all members in the organization with their roles.
@@ -209,7 +209,7 @@ class OrgService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.tuples().all()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def get_member(self, user_id: UserID) -> tuple[User, OrgRole]:
         """Retrieve a member of the organization by their user ID.
 
@@ -237,7 +237,7 @@ class OrgService(BaseOrgService):
         return result.tuples().one()
 
     @audit_log(resource_type="organization_member", action="delete")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
         """
         Remove a member of the organization.
@@ -259,7 +259,7 @@ class OrgService(BaseOrgService):
             await user_manager.delete(user)
 
     @audit_log(resource_type="organization_member", action="update")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_member(
         self, user_id: UserID, params: UserUpdate
     ) -> tuple[User, OrgRole]:
@@ -326,14 +326,14 @@ class OrgService(BaseOrgService):
 
     # === Manage settings ===
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def get_settings(self) -> dict[str, str]:
         """Get the organization settings."""
         raise NotImplementedError
 
     # === Manage sessions ===
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
         """List all sessions for users in this organization."""
         statement = (
@@ -360,7 +360,7 @@ class OrgService(BaseOrgService):
         ]
 
     @audit_log(resource_type="organization_session", action="delete")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID (must belong to a user in this organization)."""
         statement = (
@@ -383,7 +383,7 @@ class OrgService(BaseOrgService):
     # === Manage invitations ===
 
     @audit_log(resource_type="organization_invitation", action="create")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def create_invitation(
         self,
         *,
@@ -462,7 +462,7 @@ class OrgService(BaseOrgService):
         await self.session.refresh(invitation)
         return invitation
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_invitations(
         self,
         *,
@@ -484,7 +484,7 @@ class OrgService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def get_invitation(self, invitation_id: uuid.UUID) -> OrganizationInvitation:
         """Get an invitation by ID (must belong to this organization).
 
@@ -656,7 +656,7 @@ class OrgService(BaseOrgService):
         return membership
 
     @audit_log(resource_type="organization_invitation", action="revoke")
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def revoke_invitation(
         self, invitation_id: uuid.UUID
     ) -> OrganizationInvitation:

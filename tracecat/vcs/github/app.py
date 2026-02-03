@@ -10,8 +10,8 @@ from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 from pydantic import ValidationError as PydanticValidationError
 
-from tracecat.auth.types import AccessLevel
-from tracecat.authz.controls import require_access_level
+from tracecat.authz.controls import require_org_role
+from tracecat.authz.enums import OrgRole
 from tracecat.exceptions import TracecatException, TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
@@ -37,7 +37,7 @@ class GitHubAppService(BaseOrgService):
     # Organization-level methods
     # ============================================================================
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def register_app(
         self,
         app_id: str,
@@ -108,7 +108,7 @@ class GitHubAppService(BaseOrgService):
 
         return config
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def register_existing_app(
         self,
         app_id: str,
@@ -149,7 +149,7 @@ class GitHubAppService(BaseOrgService):
             app_id, private_key_pem, webhook_secret, client_id
         )
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_github_app_credentials(
         self,
         app_id: str | None = None,
@@ -236,7 +236,7 @@ class GitHubAppService(BaseOrgService):
 
         return config
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def save_github_app_credentials(
         self,
         app_id: str,
@@ -299,7 +299,7 @@ class GitHubAppService(BaseOrgService):
                 # Re-raise other GitHubAppErrors
                 raise
 
-    @require_access_level(AccessLevel.ADMIN)
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_github_app_credentials(self) -> None:
         """Delete GitHub App credentials for the organization.
 

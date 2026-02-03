@@ -8,7 +8,12 @@ from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, Work
 
 
 class AccessLevel(IntEnum):
-    """Access control levels for roles."""
+    """Access control levels for roles.
+
+    .. deprecated::
+        Use `require_org_roles` in RoleACL or `@require_org_role` decorator instead.
+        This enum will be removed in a future version.
+    """
 
     BASIC = 0
     """The access level for workspace members."""
@@ -74,7 +79,7 @@ class Role(BaseModel):
 
         Privileged roles bypass workspace membership checks.
         """
-        return self.access_level == AccessLevel.ADMIN or self.is_org_admin
+        return self.is_platform_superuser or self.is_org_admin
 
     def to_headers(self) -> dict[str, str]:
         headers = {
@@ -115,9 +120,10 @@ class PlatformRole(BaseModel):
 
 
 def system_role() -> Role:
-    """Role for system actions."""
+    """Role for system actions with platform superuser privileges."""
     return Role(
         type="service",
         service_id="tracecat-api",
         access_level=AccessLevel.ADMIN,
+        is_platform_superuser=True,
     )

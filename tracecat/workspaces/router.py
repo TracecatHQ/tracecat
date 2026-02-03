@@ -9,8 +9,8 @@ from fastapi import (
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.auth.types import Role
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -54,7 +54,7 @@ OrgAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
 ]
 WorkspaceUserInPath = Annotated[
