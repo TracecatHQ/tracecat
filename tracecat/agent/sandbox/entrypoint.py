@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING
 
 import orjson
 
-from tracecat.agent.common.config import JAILED_CONTROL_SOCKET_PATH
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_CONTROL_SOCKET_PATH,
+    TRACECAT__AGENT_LLM_SOCKET_PATH,
+    TRACECAT__DISABLE_NSJAIL,
+)
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import (
     MessageType,
@@ -75,7 +79,7 @@ async def run_sandboxed_runtime() -> None:
       to gateway on port 4000. No bridge needed (would cause port conflicts
       across concurrent sandboxes).
     """
-    socket_path = JAILED_CONTROL_SOCKET_PATH
+    socket_path = TRACECAT__AGENT_CONTROL_SOCKET_PATH
     logger.info("Starting sandboxed runtime", socket_path=str(socket_path))
 
     llm_bridge: LLMBridge | None = None
@@ -93,13 +97,16 @@ async def run_sandboxed_runtime() -> None:
         # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
         payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
 
-        # Start LLM bridge only when network is isolated (no internet access)
-        # When internet is enabled, sandbox shares host network and SDK connects
-        # directly to gateway on port 4000
-        if not payload.config.enable_internet_access:
-            llm_bridge = LLMBridge()
+        # Start LLM bridge only when:
+        # - network is isolated (no internet access) AND
+        # - we are running in nsjail mode (port 4000 is namespaced, so no conflicts)
+        #
+        # In direct subprocess mode there's no network namespace, so binding 127.0.0.1:4000
+        # can collide with the host LiteLLM process (which also uses port 4000).
+        if not (payload.config.enable_internet_access or TRACECAT__DISABLE_NSJAIL):
+            llm_bridge = LLMBridge(socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH)
             await llm_bridge.start()
-            logger.info("LLM bridge started (network isolated mode)")
+            logger.info("LLM bridge started (nsjail network-isolated mode)")
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),

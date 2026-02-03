@@ -111,6 +111,7 @@ AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "HOME": "/home/agent",
     "USER": "agent",
+    "TRACECAT__DISABLE_NSJAIL": "false",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
     "LANG": "C.UTF-8",
