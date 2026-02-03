@@ -370,7 +370,6 @@ import type {
   RegistryRepositoriesListRepositoryVersionsResponse,
   RegistryRepositoriesPromoteRegistryVersionData,
   RegistryRepositoriesPromoteRegistryVersionResponse,
-  RegistryRepositoriesReloadRegistryRepositoriesResponse,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoriesSyncRegistryRepositoryResponse,
   RegistryRepositoriesUpdateRegistryRepositoryData,
@@ -4818,20 +4817,6 @@ export const editorFieldSchema =
   }
 
 /**
- * Reload Registry Repositories
- * Refresh all registry repositories.
- * @returns void Successful Response
- * @throws ApiError
- */
-export const registryRepositoriesReloadRegistryRepositories =
-  (): CancelablePromise<RegistryRepositoriesReloadRegistryRepositoriesResponse> => {
-    return __request(OpenAPI, {
-      method: "POST",
-      url: "/registry/repos/reload",
-    })
-  }
-
-/**
  * Sync Registry Repository
  * Sync an org-scoped registry repository.
  *
@@ -4898,6 +4883,9 @@ export const registryRepositoriesListRepositoryVersions = (
 /**
  * List Registry Repositories
  * List org-scoped registry repositories.
+ *
+ * This endpoint ensures org-scoped repositories (local, custom git) exist
+ * before returning the list. Platform registry is handled separately at startup.
  *
  * For platform registries (base registry), use the admin API at /admin/registry/repos.
  * @returns RegistryRepositoryReadMinimal Successful Response

@@ -22,7 +22,7 @@ from tracecat.exceptions import (
 from tracecat.git.utils import list_git_commits, parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.common import reload_registry
+from tracecat.registry.common import ensure_org_repositories
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_REPOS_PATH
 from tracecat.registry.repositories.schemas import (
     GitCommitInfo,
@@ -45,21 +45,6 @@ from tracecat.tiers.entitlements import Entitlement, check_entitlement
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
 # Controls
-
-
-@router.post("/reload", status_code=status.HTTP_204_NO_CONTENT)
-async def reload_registry_repositories(
-    *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
-    ),
-    session: AsyncDBSession,
-) -> None:
-    """Refresh all registry repositories."""
-    await reload_registry(session, role)
 
 
 @router.post(
@@ -277,8 +262,14 @@ async def list_registry_repositories(
 ) -> list[RegistryRepositoryReadMinimal]:
     """List org-scoped registry repositories.
 
+    This endpoint ensures org-scoped repositories (local, custom git) exist
+    before returning the list. Platform registry is handled separately at startup.
+
     For platform registries (base registry), use the admin API at /admin/registry/repos.
     """
+    # Ensure org-scoped repos exist before listing
+    await ensure_org_repositories(session, role)
+
     stmt = select(
         RegistryRepository.id,
         RegistryRepository.origin,
