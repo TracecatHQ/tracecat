@@ -7,6 +7,8 @@ import {
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
+  type AdminRegistryGetRegistryStatusResponse,
+  type AdminRegistryListRegistryVersionsResponse,
   type AdminUserRead,
   adminCreateOrganization,
   adminCreateTier,
@@ -389,7 +391,7 @@ export function useAdminRegistryStatus() {
     isLoading,
     error,
     refetch,
-  } = useQuery({
+  } = useQuery<AdminRegistryGetRegistryStatusResponse>({
     queryKey: ["admin", "registry", "status"],
     queryFn: adminRegistryGetRegistryStatus,
   })
@@ -410,7 +412,7 @@ export function useAdminRegistryVersions(
     data: versions,
     isLoading,
     error,
-  } = useQuery({
+  } = useQuery<AdminRegistryListRegistryVersionsResponse>({
     queryKey: ["admin", "registry", "versions", { repositoryId, limit }],
     queryFn: () => adminRegistryListRegistryVersions({ repositoryId, limit }),
   })

@@ -105,7 +105,6 @@ class AuthSandbox:
         logger.info(
             "Setting secrets",
             paths=self._secret_paths,
-            objs=self._secret_objs,
         )
         for name, kv in self._iter_secrets():
             if name not in self._context:
