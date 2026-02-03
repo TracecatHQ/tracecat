@@ -27,9 +27,9 @@ locals {
     ]
   }
 
-  alb_group_name_raw = regexreplace(lower(var.cluster_name), "[^a-z0-9-]", "-")
+  alb_group_name_raw = replace(lower(var.cluster_name), "/[^a-z0-9-]/", "-")
   alb_group_name_compact = trim(
-    regexreplace(local.alb_group_name_raw, "-+", "-"),
+    replace(local.alb_group_name_raw, "/-+/", "-"),
     "-"
   )
   alb_group_name_truncated = substr(local.alb_group_name_compact, 0, 63)
