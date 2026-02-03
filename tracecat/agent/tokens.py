@@ -40,6 +40,7 @@ MCP_REQUIRED_CLAIMS = (
     "iat",
     "exp",
     "workspace_id",
+    "organization_id",
     "allowed_actions",
     "session_id",
 )
@@ -84,6 +85,8 @@ class MCPTokenClaims(BaseModel):
     """Optional user ID for audit/traceability."""
     session_id: uuid.UUID
     """Agent session ID for traceability."""
+    organization_id: OrganizationID
+    """Organization UUID for authorization context."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
@@ -97,6 +100,7 @@ class MCPTokenClaims(BaseModel):
 def mint_mcp_token(
     *,
     workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
     allowed_actions: list[str],
     session_id: uuid.UUID,
     user_id: UserID | None = None,
@@ -110,12 +114,13 @@ def mint_mcp_token(
     This token is minted by the AgentExecutor (trusted) and passed to the
     jailed runtime. The runtime cannot decode or modify it - it's opaque.
 
-    The token contains minimal identity info (workspace_id, user_id) rather than
-    a full Role object. The Role is reconstructed on the trusted side when the
-    token is verified, providing better security isolation.
+    The token contains minimal identity info (workspace_id, organization_id, user_id)
+    rather than a full Role object. The Role is reconstructed on the trusted side
+    when the token is verified, providing better security isolation.
 
     Args:
         workspace_id: Workspace UUID for authorization context
+        organization_id: Organization UUID for authorization context
         allowed_actions: Set of allowed action names
         session_id: Agent session ID for traceability
         user_id: Optional user ID for audit/traceability
@@ -140,6 +145,7 @@ def mint_mcp_token(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
         "workspace_id": str(workspace_id),
+        "organization_id": str(organization_id),
         "allowed_actions": allowed_actions,
         "session_id": str(session_id),
     }

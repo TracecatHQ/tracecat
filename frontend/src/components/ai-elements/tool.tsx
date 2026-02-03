@@ -175,14 +175,27 @@ export const ToolOutput = ({
     ) {
       Output = null
     } else if (typeof output === "object") {
+      // Handle MCP content array format: [{"type": "text", "text": "..."}]
+      // Extract and parse the text content for pretty display
+      const displayOutput = extractMcpTextContent(output)
       Output = (
-        <CodeBlock code={JSON.stringify(output, null, 2)} language="json">
+        <CodeBlock
+          code={JSON.stringify(displayOutput, null, 2)}
+          language="json"
+        >
           <CodeBlockCopyButton />
         </CodeBlock>
       )
     } else if (typeof output === "string") {
+      // Try to parse JSON strings for pretty display
+      let displayOutput: string
+      try {
+        displayOutput = JSON.stringify(JSON.parse(output), null, 2)
+      } catch {
+        displayOutput = output
+      }
       Output = (
-        <CodeBlock code={output} language="json">
+        <CodeBlock code={displayOutput} language="json">
           <CodeBlockCopyButton />
         </CodeBlock>
       )
@@ -328,4 +341,37 @@ function parseValidationSummary(message: string):
   }
 
   return undefined
+}
+
+/**
+ * Extract and parse text content from MCP content array format.
+ * MCP returns: [{"type": "text", "text": "{...json...}"}]
+ * This extracts the text and parses it if it's JSON.
+ */
+function extractMcpTextContent(output: unknown): unknown {
+  if (!Array.isArray(output)) {
+    return output
+  }
+
+  // Check for MCP content array format
+  const firstItem = output[0]
+  if (
+    firstItem &&
+    typeof firstItem === "object" &&
+    "type" in firstItem &&
+    firstItem.type === "text" &&
+    "text" in firstItem &&
+    typeof firstItem.text === "string"
+  ) {
+    // Try to parse the text as JSON
+    try {
+      return JSON.parse(firstItem.text)
+    } catch {
+      // Not JSON, return as-is
+      return firstItem.text
+    }
+  }
+
+  // Not MCP format, return original
+  return output
 }

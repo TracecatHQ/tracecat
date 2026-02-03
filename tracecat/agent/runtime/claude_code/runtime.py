@@ -100,6 +100,8 @@ class ClaudeAgentRuntime:
         self._last_seen_line_index: int = 0
         # Flag to mark continuation prompt as internal (consumed after first use)
         self._is_continuation: bool = False
+        # Adapter for converting Claude SDK events - must be reused to track state
+        self._stream_adapter = ClaudeSDKAdapter()
 
     def _get_session_file_path(self, sdk_session_id: str) -> Path:
         """Derive the session file path from SDK session ID.
@@ -501,7 +503,7 @@ class ClaudeAgentRuntime:
                                 )
 
                             # Partial streaming delta - forward to UI
-                            unified = ClaudeSDKAdapter().to_unified_event(message)
+                            unified = self._stream_adapter.to_unified_event(message)
                             await self._socket_writer.send_stream_event(unified)
 
                         elif isinstance(message, AssistantMessage):
