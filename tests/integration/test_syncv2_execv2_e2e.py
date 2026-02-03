@@ -255,7 +255,9 @@ async def test_bucket(minio_client: Minio, mock_org_id: uuid.UUID):
     # This avoids race conditions when multiple xdist workers share the bucket
     org_prefix = str(mock_org_id)
     try:
-        objects = minio_client.list_objects(bucket_name, prefix=org_prefix, recursive=True)
+        objects = minio_client.list_objects(
+            bucket_name, prefix=org_prefix, recursive=True
+        )
         for obj in objects:
             if obj.object_name:
                 minio_client.remove_object(bucket_name, obj.object_name)
