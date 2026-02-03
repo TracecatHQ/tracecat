@@ -345,33 +345,56 @@ function parseValidationSummary(message: string):
 
 /**
  * Extract and parse text content from MCP content array format.
- * MCP returns: [{"type": "text", "text": "{...json...}"}]
- * This extracts the text and parses it if it's JSON.
+ * MCP returns: [{"type": "text", "text": "{...json...}"}, ...]
+ * This extracts text from all blocks and parses JSON if possible.
  */
 function extractMcpTextContent(output: unknown): unknown {
-  if (!Array.isArray(output)) {
+  if (!Array.isArray(output) || output.length === 0) {
     return output
   }
 
-  // Check for MCP content array format
-  const firstItem = output[0]
-  if (
-    firstItem &&
-    typeof firstItem === "object" &&
-    "type" in firstItem &&
-    firstItem.type === "text" &&
-    "text" in firstItem &&
-    typeof firstItem.text === "string"
-  ) {
-    // Try to parse the text as JSON
+  // Check if this looks like MCP content array format
+  const isMcpFormat = output.every(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "type" in item &&
+      typeof item.type === "string"
+  )
+
+  if (!isMcpFormat) {
+    return output
+  }
+
+  // Extract text from all text blocks
+  const textBlocks = output.filter(
+    (item): item is { type: "text"; text: string } =>
+      item.type === "text" && "text" in item && typeof item.text === "string"
+  )
+
+  if (textBlocks.length === 0) {
+    // No text blocks, return original
+    return output
+  }
+
+  if (textBlocks.length === 1) {
+    // Single text block - try to parse as JSON
     try {
-      return JSON.parse(firstItem.text)
+      return JSON.parse(textBlocks[0].text)
     } catch {
-      // Not JSON, return as-is
-      return firstItem.text
+      return textBlocks[0].text
     }
   }
 
-  // Not MCP format, return original
-  return output
+  // Multiple text blocks - try to parse each as JSON, concatenate results
+  const parsed = textBlocks.map((block) => {
+    try {
+      return JSON.parse(block.text)
+    } catch {
+      return block.text
+    }
+  })
+
+  // If all parsed to the same type, return as array
+  return parsed
 }
