@@ -1,6 +1,7 @@
 from typing import Final
 
 from tracecat.integrations.providers.base import BaseOAuthProvider
+from tracecat.integrations.providers.crowdstrike import CrowdStrikeCCProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
@@ -38,6 +39,7 @@ from tracecat.integrations.providers.slack.oauth import SlackOAuthProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
+    CrowdStrikeCCProvider,
     GitHubOAuthProvider,
     GitHubMCPProvider,
     GoogleDocsOAuthProvider,
