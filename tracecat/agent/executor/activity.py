@@ -678,10 +678,15 @@ async def execute_approved_tools_activity(
 
     results: list[ToolExecutionResult] = []
 
+    # Ensure organization_id is set (agent sessions are always org-scoped)
+    if input.role.organization_id is None:
+        raise ValueError("organization_id is required for agent tool execution")
+
     # Build claims for execute_action calls
     claims = MCPTokenClaims(
         workspace_id=input.workspace_id,
         user_id=input.role.user_id,
+        organization_id=input.role.organization_id,
         allowed_actions=input.allowed_actions,
         session_id=input.session_id,
     )
@@ -692,10 +697,6 @@ async def execute_approved_tools_activity(
         approved_count=len(input.approved_tools),
         denied_count=len(input.denied_tools),
     )
-
-    # Ensure organization_id is set (agent sessions are always org-scoped)
-    if input.role.organization_id is None:
-        raise ValueError("organization_id is required for agent tool execution")
 
     # Prefetch registry manifests into agent worker's cache for O(1) action resolution
     await registry_resolver.prefetch_lock(

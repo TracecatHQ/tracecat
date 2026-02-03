@@ -292,6 +292,7 @@ class DurableAgentWorkflow:
         # These tokens are opaque to the jailed runtime - it cannot decode them
         mcp_auth_token = mint_mcp_token(
             workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(allowed_actions.keys()),
             session_id=self.session_id,

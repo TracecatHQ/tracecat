@@ -49,6 +49,7 @@ def _set_role_context(claims: MCPTokenClaims) -> Role:
         type="service",
         service_id="tracecat-mcp",
         workspace_id=claims.workspace_id,
+        organization_id=claims.organization_id,
         user_id=claims.user_id,
     )
     ctx_role.set(role)

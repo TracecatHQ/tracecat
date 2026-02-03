@@ -175,14 +175,27 @@ export const ToolOutput = ({
     ) {
       Output = null
     } else if (typeof output === "object") {
+      // Handle MCP content array format: [{"type": "text", "text": "..."}]
+      // Extract and parse the text content for pretty display
+      const displayOutput = extractMcpTextContent(output)
       Output = (
-        <CodeBlock code={JSON.stringify(output, null, 2)} language="json">
+        <CodeBlock
+          code={JSON.stringify(displayOutput, null, 2)}
+          language="json"
+        >
           <CodeBlockCopyButton />
         </CodeBlock>
       )
     } else if (typeof output === "string") {
+      // Try to parse JSON strings for pretty display
+      let displayOutput: string
+      try {
+        displayOutput = JSON.stringify(JSON.parse(output), null, 2)
+      } catch {
+        displayOutput = output
+      }
       Output = (
-        <CodeBlock code={output} language="json">
+        <CodeBlock code={displayOutput} language="json">
           <CodeBlockCopyButton />
         </CodeBlock>
       )
@@ -328,4 +341,60 @@ function parseValidationSummary(message: string):
   }
 
   return undefined
+}
+
+/**
+ * Extract and parse text content from MCP content array format.
+ * MCP returns: [{"type": "text", "text": "{...json...}"}, ...]
+ * This extracts text from all blocks and parses JSON if possible.
+ */
+function extractMcpTextContent(output: unknown): unknown {
+  if (!Array.isArray(output) || output.length === 0) {
+    return output
+  }
+
+  // Check if this looks like MCP content array format
+  const isMcpFormat = output.every(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "type" in item &&
+      typeof item.type === "string"
+  )
+
+  if (!isMcpFormat) {
+    return output
+  }
+
+  // Extract text from all text blocks
+  const textBlocks = output.filter(
+    (item): item is { type: "text"; text: string } =>
+      item.type === "text" && "text" in item && typeof item.text === "string"
+  )
+
+  if (textBlocks.length === 0) {
+    // No text blocks, return original
+    return output
+  }
+
+  if (textBlocks.length === 1) {
+    // Single text block - try to parse as JSON
+    try {
+      return JSON.parse(textBlocks[0].text)
+    } catch {
+      return textBlocks[0].text
+    }
+  }
+
+  // Multiple text blocks - try to parse each as JSON, concatenate results
+  const parsed = textBlocks.map((block) => {
+    try {
+      return JSON.parse(block.text)
+    } catch {
+      return block.text
+    }
+  })
+
+  // If all parsed to the same type, return as array
+  return parsed
 }
