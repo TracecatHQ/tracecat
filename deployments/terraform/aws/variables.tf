@@ -74,7 +74,7 @@ variable "node_ami_type" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 3
+  default     = 2
 }
 
 variable "node_min_size" {
@@ -98,7 +98,7 @@ variable "node_disk_size" {
 variable "spot_node_group_enabled" {
   description = "Enable the spot managed node group."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "spot_node_instance_types" {
@@ -110,13 +110,13 @@ variable "spot_node_instance_types" {
 variable "spot_node_desired_size" {
   description = "Desired number of nodes in the spot managed node group."
   type        = number
-  default     = 0
+  default     = 2
 }
 
 variable "spot_node_min_size" {
   description = "Minimum number of nodes in the spot managed node group."
   type        = number
-  default     = 0
+  default     = 2
 }
 
 variable "spot_node_max_size" {

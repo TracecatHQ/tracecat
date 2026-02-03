@@ -30,6 +30,54 @@ Network hardening:
 - RDS and ElastiCache are restricted to pods labeled for access via Security Groups for Pods (VPC CNI Pod ENI mode).
 - S3 access is limited to the Tracecat IRSA role via bucket policies; pods must use the chart’s service account.
 
+## Capacity strategy (on-demand vs spot)
+
+The EKS module uses managed node groups with capacity labels to steer scheduling:
+
+- **On-demand node group (always on):** `capacity_type = ON_DEMAND`, labeled `tracecat.com/capacity=on-demand`.
+- **Spot node group (default):** enabled with `spot_node_group_enabled=true`, `capacity_type = SPOT`, labeled `tracecat.com/capacity=spot`.
+
+When the spot node group is enabled, Terraform injects scheduling defaults into the Tracecat Helm chart:
+
+- **Preferred node affinity** for `tracecat.com/capacity=spot` (soft preference).
+- **Topology spread** across `tracecat.com/capacity` with `whenUnsatisfiable=ScheduleAnyway` to balance across on-demand and spot when both are available.
+
+This is a preference, not a hard guarantee. If spot capacity is unavailable, pods will still schedule onto on-demand nodes (as long as there is capacity).
+
+The on-demand/spot mix is controlled by the node group sizes. There is no cluster autoscaler installed by default, so the ratio is static unless you change the node group sizes via Terraform.
+
+Default 50/50 node split (4 nodes total):
+
+```bash
+export TF_VAR_node_min_size=2
+export TF_VAR_node_desired_size=2
+export TF_VAR_spot_node_min_size=2
+export TF_VAR_spot_node_desired_size=2
+```
+
+You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
+
+## Resource sizing notes (with/without Temporal)
+
+These estimates are based on Kubernetes **resource requests** from the chart defaults and Terraform overrides. Actual usage varies; leave headroom for system add-ons (CoreDNS, VPC CNI, External Secrets, AWS Load Balancer Controller, Reloader) and for Temporal when self-hosting.
+
+**Terraform defaults (Helm chart via Terraform)** use the same replica counts as `helm/tracecat/values.yaml`, but Terraform overrides worker/executor resource requests in `terraform/aws/modules/eks/helm.tf`:
+- **Replicas:** ui=1, api=2, worker=4, executor=2, agentExecutor=1.
+- **Chart-default requests per replica:** ui/api/worker/executor/agentExecutor=1 vCPU/1Gi (chart-only total ~10 vCPU / 10Gi).
+- **Terraform request overrides:** ui/api=1 vCPU/1Gi; worker=2 vCPU/4Gi; executor=4 vCPU/8Gi; agentExecutor=4 vCPU/8Gi.
+- **Tracecat total requests (Terraform):** ~23 vCPU / 43Gi (Temporal not included).
+
+**`helm/examples/values-aws.yaml`** increases replicas but uses chart-default requests:
+- **Replicas:** ui=2, api=2, worker=8, executor=4, agentExecutor=2.
+- **Requests per replica:** 1 vCPU / 1Gi (chart defaults).
+- **Tracecat total requests:** ~18 vCPU / 18Gi (Temporal not included).
+
+**Temporal capacity:** the Temporal subchart does not set explicit resource requests by default. If `temporal_mode=self-hosted`, budget extra capacity (for the Temporal server + schema/admintools job), or set `temporal.server.resources` explicitly.
+
+**Recommended node capacity:**
+- **With self-hosted Temporal:** plan for **4× `m7g.2xlarge`** total nodes (e.g., 2 on-demand + 2 spot). This safely fits both profiles above with headroom.
+- **Without Temporal (external):** you can usually run with **3× `m7g.2xlarge`** total nodes, but 4 nodes provides safer headroom for upgrades and spikes.
+
 
 ## How to deploy
 
