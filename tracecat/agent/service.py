@@ -294,6 +294,26 @@ class AgentManagementService(BaseOrgService):
                 )
             model_config = model_config.model_copy(update={"name": model_id})
 
+        # For Azure OpenAI, the deployment name comes from credentials
+        elif provider == "azure_openai":
+            deployment = credentials.get("AZURE_DEPLOYMENT_NAME")
+            if not deployment:
+                raise TracecatNotFoundError(
+                    "No Azure OpenAI deployment configured. Please set "
+                    "AZURE_DEPLOYMENT_NAME in your Azure OpenAI credentials."
+                )
+            model_config = model_config.model_copy(update={"name": deployment})
+
+        # For Azure AI, the model name comes from credentials
+        elif provider == "azure_ai":
+            model_name = credentials.get("AZURE_AI_MODEL_NAME")
+            if not model_name:
+                raise TracecatNotFoundError(
+                    "No Azure AI model configured. Please set "
+                    "AZURE_AI_MODEL_NAME in your Azure AI credentials."
+                )
+            model_config = model_config.model_copy(update={"name": model_name})
+
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):
             yield model_config

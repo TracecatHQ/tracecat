@@ -7,18 +7,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 
-class HarnessType(str, Enum):
+class HarnessType(StrEnum):
     """Supported agent harnesses."""
 
     PYDANTIC_AI = "pydantic-ai"
     CLAUDE_CODE = "claude_code"
 
 
-class StreamEventType(str, Enum):
+class StreamEventType(StrEnum):
     """Types of streaming events."""
 
     # Text streaming

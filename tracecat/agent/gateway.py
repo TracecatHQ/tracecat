@@ -198,43 +198,12 @@ def _inject_provider_credentials(
     creds: dict[str, str],
 ) -> None:
     """Inject provider-specific credentials into request."""
-    if provider == "openai":
-        api_key = creds.get("OPENAI_API_KEY")
-        if not api_key:
-            logger.warning(
-                "Required credential key missing for provider", provider=provider
-            )
-            raise ProxyException(
-                message="Provider credentials incomplete",
-                type="auth_error",
-                param=None,
-                code=401,
-            )
-        data["api_key"] = api_key
-
-    elif provider == "anthropic":
-        api_key = creds.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            logger.warning(
-                "Required credential key missing for provider", provider=provider
-            )
-            raise ProxyException(
-                message="Provider credentials incomplete",
-                type="auth_error",
-                param=None,
-                code=401,
-            )
-        data["api_key"] = api_key
-
-    elif provider == "bedrock":
-        if bearer_token := creds.get("AWS_BEARER_TOKEN_BEDROCK"):
-            data["api_key"] = bearer_token
-        else:
-            access_key = creds.get("AWS_ACCESS_KEY_ID")
-            secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
-            if not access_key or not secret_key:
+    match provider:
+        case "openai":
+            api_key = creds.get("OPENAI_API_KEY")
+            if not api_key:
                 logger.warning(
-                    "Required credential keys missing for provider", provider=provider
+                    "Required credential key missing for provider", provider=provider
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -242,61 +211,164 @@ def _inject_provider_credentials(
                     param=None,
                     code=401,
                 )
-            data["aws_access_key_id"] = access_key
-            data["aws_secret_access_key"] = secret_key
-        if region := creds.get("AWS_REGION"):
-            data["aws_region_name"] = region
+            data["api_key"] = api_key
 
-        # Inference Profile ID takes precedence (required for newer models like Claude 4)
-        # Can be a system profile ID (us.anthropic.claude-sonnet-4-...) or custom ARN
-        if inference_profile_id := creds.get("AWS_INFERENCE_PROFILE_ID"):
-            data["model"] = f"bedrock/{inference_profile_id}"
-        # Legacy: Direct model ID for older models that support on-demand throughput
-        elif model_id := creds.get("AWS_MODEL_ID"):
-            data["model"] = f"bedrock/{model_id}"
-        else:
+        case "anthropic":
+            api_key = creds.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                logger.warning(
+                    "Required credential key missing for provider", provider=provider
+                )
+                raise ProxyException(
+                    message="Provider credentials incomplete",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+            data["api_key"] = api_key
+
+        case "bedrock":
+            if bearer_token := creds.get("AWS_BEARER_TOKEN_BEDROCK"):
+                data["api_key"] = bearer_token
+            else:
+                access_key = creds.get("AWS_ACCESS_KEY_ID")
+                secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
+                if not access_key or not secret_key:
+                    logger.warning(
+                        "Required credential keys missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
+                data["aws_access_key_id"] = access_key
+                data["aws_secret_access_key"] = secret_key
+            if region := creds.get("AWS_REGION"):
+                data["aws_region_name"] = region
+
+            # Inference Profile ID takes precedence (required for newer models like Claude 4)
+            # Can be a system profile ID (us.anthropic.claude-sonnet-4-...) or custom ARN
+            if inference_profile_id := creds.get("AWS_INFERENCE_PROFILE_ID"):
+                data["model"] = f"bedrock/{inference_profile_id}"
+            # Legacy: Direct model ID for older models that support on-demand throughput
+            elif model_id := creds.get("AWS_MODEL_ID"):
+                data["model"] = f"bedrock/{model_id}"
+            else:
+                raise ProxyException(
+                    message="No Bedrock model configured. Set AWS_INFERENCE_PROFILE_ID (for newer models) or AWS_MODEL_ID (for legacy models) in your credentials.",
+                    type="config_error",
+                    param=None,
+                    code=400,
+                )
+
+        case "custom-model-provider":
+            # Custom provider for OpenAI-compatible endpoints (Ollama, vLLM, etc.)
+            # OpenAI client requires an api_key - use dummy if not provided
+            api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or "not-needed"
+            base_url = creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")
+            model_name = creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
+
+            logger.info(
+                "Custom model provider credentials",
+                api_key_set=bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
+                base_url=base_url,
+                model_name=model_name,
+            )
+
+            data["api_key"] = api_key
+            if base_url:
+                data["api_base"] = base_url
+            if model_name:
+                # Prefix with openai/ for LiteLLM routing
+                data["model"] = f"openai/{model_name}"
+
+            logger.info(
+                "Injected custom model provider config",
+                data_api_base=data.get("api_base"),
+                data_model=data.get("model"),
+            )
+
+        case "azure_openai":
+            # Azure OpenAI requires base URL, API version, and deployment name
+            base = creds.get("AZURE_API_BASE")
+            version = creds.get("AZURE_API_VERSION")
+            deployment = creds.get("AZURE_DEPLOYMENT_NAME")
+
+            if not base or not version or not deployment:
+                logger.warning(
+                    "Required Azure OpenAI config keys missing",
+                    provider=provider,
+                    has_base=bool(base),
+                    has_version=bool(version),
+                    has_deployment=bool(deployment),
+                )
+                raise ProxyException(
+                    message="Azure OpenAI requires AZURE_API_BASE, AZURE_API_VERSION, and AZURE_DEPLOYMENT_NAME",
+                    type="config_error",
+                    param=None,
+                    code=400,
+                )
+
+            # Auth: API key or Entra token (one required)
+            api_key = creds.get("AZURE_API_KEY")
+            ad_token = creds.get("AZURE_AD_TOKEN")
+
+            if api_key:
+                data["api_key"] = api_key
+            elif ad_token:
+                data["azure_ad_token"] = ad_token
+            else:
+                logger.warning(
+                    "Azure OpenAI requires either AZURE_API_KEY or AZURE_AD_TOKEN",
+                    provider=provider,
+                )
+                raise ProxyException(
+                    message="Azure OpenAI requires either AZURE_API_KEY or AZURE_AD_TOKEN",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+
+            data["api_base"] = base.rstrip("/")
+            data["api_version"] = version
+            data["model"] = f"azure/{deployment}"
+
+        case "azure_ai":
+            # Azure AI requires base URL, API key, and model name
+            base = creds.get("AZURE_API_BASE")
+            api_key = creds.get("AZURE_API_KEY")
+            model_name = creds.get("AZURE_AI_MODEL_NAME")
+
+            if not base or not api_key or not model_name:
+                logger.warning(
+                    "Required Azure AI config keys missing",
+                    provider=provider,
+                    has_base=bool(base),
+                    has_api_key=bool(api_key),
+                    has_model_name=bool(model_name),
+                )
+                raise ProxyException(
+                    message="Azure AI requires AZURE_API_BASE, AZURE_API_KEY, and AZURE_AI_MODEL_NAME",
+                    type="config_error",
+                    param=None,
+                    code=400,
+                )
+
+            data["api_base"] = base.rstrip("/")
+            data["api_key"] = api_key
+            data["model"] = f"azure_ai/{model_name}"
+
+        case _:
+            logger.warning("Unsupported provider requested", provider=provider)
             raise ProxyException(
-                message="No Bedrock model configured. Set AWS_INFERENCE_PROFILE_ID (for newer models) or AWS_MODEL_ID (for legacy models) in your credentials.",
-                type="config_error",
+                message="Invalid provider configuration",
+                type="invalid_request_error",
                 param=None,
                 code=400,
             )
-
-    elif provider == "custom-model-provider":
-        # Custom provider for OpenAI-compatible endpoints (Ollama, vLLM, etc.)
-        # OpenAI client requires an api_key - use dummy if not provided
-        api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or "not-needed"
-        base_url = creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")
-        model_name = creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
-
-        logger.info(
-            "Custom model provider credentials",
-            api_key_set=bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
-            base_url=base_url,
-            model_name=model_name,
-        )
-
-        data["api_key"] = api_key
-        if base_url:
-            data["api_base"] = base_url
-        if model_name:
-            # Prefix with openai/ for LiteLLM routing
-            data["model"] = f"openai/{model_name}"
-
-        logger.info(
-            "Injected custom model provider config",
-            data_api_base=data.get("api_base"),
-            data_model=data.get("model"),
-        )
-
-    else:
-        logger.warning("Unsupported provider requested", provider=provider)
-        raise ProxyException(
-            message="Invalid provider configuration",
-            type="invalid_request_error",
-            param=None,
-            code=400,
-        )
 
 
 def _build_response_format(output_type: str | dict) -> dict | None:
