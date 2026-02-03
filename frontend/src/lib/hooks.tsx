@@ -22,7 +22,6 @@ import {
   type AgentSettingsRead,
   ApiError,
   type AppSettingsRead,
-  type AuditApiKeyGenerateResponse,
   type AuditSettingsRead,
   type AuthSettingsRead,
   actionsDeleteAction,
@@ -204,7 +203,6 @@ import {
   secretsListSecretDefinitions,
   secretsListSecrets,
   secretsUpdateSecretById,
-  settingsGenerateAuditApiKey,
   settingsGetAgentSettings,
   settingsGetAppSettings,
   settingsGetAuditSettings,
@@ -212,7 +210,6 @@ import {
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
-  settingsRevokeAuditApiKey,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -2910,69 +2907,6 @@ export function useOrgAuditSettings() {
     },
   })
 
-  // Generate API Key
-  const {
-    mutateAsync: generateAuditApiKey,
-    isPending: generateAuditApiKeyIsPending,
-  } = useMutation<AuditApiKeyGenerateResponse, TracecatApiError>({
-    mutationFn: async () => await settingsGenerateAuditApiKey(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-audit-settings"] })
-      toast({
-        title: "Generated API key",
-        description:
-          "New API key generated successfully. Make sure to copy it now.",
-      })
-    },
-    onError: (error) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Failed to generate audit API key", error)
-          toast({
-            title: "Failed to generate API key",
-            description: `An error occurred while generating the API key: ${error.body.detail}`,
-          })
-      }
-    },
-  })
-
-  // Revoke API Key
-  const {
-    mutateAsync: revokeAuditApiKey,
-    isPending: revokeAuditApiKeyIsPending,
-  } = useMutation<void, TracecatApiError>({
-    mutationFn: async () => await settingsRevokeAuditApiKey(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-audit-settings"] })
-      toast({
-        title: "Revoked API key",
-        description: "The audit webhook API key has been revoked.",
-      })
-    },
-    onError: (error) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Failed to revoke audit API key", error)
-          toast({
-            title: "Failed to revoke API key",
-            description: `An error occurred while revoking the API key: ${error.body.detail}`,
-          })
-      }
-    },
-  })
-
   return {
     // Get
     auditSettings,
@@ -2982,11 +2916,6 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
-    // API Key
-    generateAuditApiKey,
-    generateAuditApiKeyIsPending,
-    revokeAuditApiKey,
-    revokeAuditApiKeyIsPending,
   }
 }
 

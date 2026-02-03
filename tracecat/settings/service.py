@@ -1,6 +1,5 @@
 import os
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Any
 
 import orjson
@@ -12,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.audit.logger import audit_log
-from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_org_role
 from tracecat.authz.enums import OrgRole
@@ -27,7 +25,6 @@ from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
-    AuditApiKeyGenerateResponse,
     AuditSettingsUpdate,
     AuthSettingsUpdate,
     BaseSettingsGroup,
@@ -36,7 +33,6 @@ from tracecat.settings.schemas import (
     SAMLSettingsUpdate,
     SettingCreate,
     SettingUpdate,
-    ValueType,
 )
 
 
@@ -309,98 +305,6 @@ class SettingsService(BaseOrgService):
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
-
-    # Audit API Key Management
-
-    @audit_log(resource_type="organization_setting", action="create")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
-    async def generate_audit_api_key(self) -> AuditApiKeyGenerateResponse:
-        """Generate a new API key for the audit webhook.
-
-        Replaces any existing key. The raw key is returned only once.
-        """
-        # Generate the API key with prefix tc_ak_ (audit key)
-        generated = generate_api_key(prefix="tc_ak_")
-        created_at = datetime.now(UTC)
-
-        # Store the raw key (encrypted) - we need to send it outgoing
-        # Note: Unlike user API keys which are hashed, we store the raw key
-        # because we need to send it in outgoing requests
-        raw_key = generated.raw
-        preview = generated.preview()
-
-        # Create or update the API key setting
-        key_setting = await self.get_org_setting("audit_webhook_api_key")
-        if key_setting:
-            await self._update_setting(
-                key_setting, SettingUpdate(value=raw_key, value_type=ValueType.JSON)
-            )
-        else:
-            await self._create_org_setting(
-                SettingCreate(
-                    key="audit_webhook_api_key",
-                    value=raw_key,
-                    is_sensitive=True,
-                )
-            )
-
-        # Store the preview
-        preview_setting = await self.get_org_setting("audit_webhook_api_key_preview")
-        if preview_setting:
-            await self._update_setting(
-                preview_setting, SettingUpdate(value=preview, value_type=ValueType.JSON)
-            )
-        else:
-            await self._create_org_setting(
-                SettingCreate(
-                    key="audit_webhook_api_key_preview",
-                    value=preview,
-                    is_sensitive=False,
-                )
-            )
-
-        # Store the created_at timestamp
-        created_at_setting = await self.get_org_setting(
-            "audit_webhook_api_key_created_at"
-        )
-        created_at_iso = created_at.isoformat()
-        if created_at_setting:
-            await self._update_setting(
-                created_at_setting,
-                SettingUpdate(value=created_at_iso, value_type=ValueType.JSON),
-            )
-        else:
-            await self._create_org_setting(
-                SettingCreate(
-                    key="audit_webhook_api_key_created_at",
-                    value=created_at_iso,
-                    is_sensitive=False,
-                )
-            )
-
-        await self.session.commit()
-
-        return AuditApiKeyGenerateResponse(
-            api_key=raw_key,
-            preview=preview,
-            created_at=created_at,
-        )
-
-    @audit_log(resource_type="organization_setting", action="delete")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
-    async def revoke_audit_api_key(self) -> None:
-        """Revoke the current audit webhook API key."""
-        # Clear all API key related settings
-        for key in [
-            "audit_webhook_api_key",
-            "audit_webhook_api_key_preview",
-            "audit_webhook_api_key_created_at",
-        ]:
-            setting = await self.get_org_setting(key)
-            if setting:
-                await self._update_setting(setting, SettingUpdate(value=None))
-
-        await self.session.commit()
 
 
 async def get_setting(
