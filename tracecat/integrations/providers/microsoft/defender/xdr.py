@@ -39,7 +39,7 @@ class MicrosoftDefenderXDRCCProvider(MicrosoftClientCredentialsOAuthProvider):
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="microsoft_defender_xdr",
-        name="Microsoft Defender for XDR (Service Principal)",
+        name="Microsoft Defender for XDR (Service principal)",
         description=get_cc_description("Microsoft Defender for XDR"),
         requires_config=True,
         enabled=True,

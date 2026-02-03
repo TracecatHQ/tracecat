@@ -615,7 +615,7 @@ export default function IntegrationsPage() {
 
       {/* Integrations List */}
       <ScrollArea className="mt-6 flex-1 min-h-0 [&>[data-radix-scroll-area-viewport]]:[scrollbar-width:none] [&>[data-radix-scroll-area-viewport]::-webkit-scrollbar]:hidden [&>[data-orientation=vertical]]:!hidden [&>[data-orientation=horizontal]]:!hidden">
-        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-2 px-8 pb-10 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-2 pb-10 pl-3 pr-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredIntegrations.map((item) => {
             const isOAuth = item.type === "oauth"
             const isCredential = item.type === "credential"
@@ -681,6 +681,7 @@ export default function IntegrationsPage() {
                 }
                 variant="outline"
                 className={cn(
+                  "flex-nowrap",
                   isClickable && "cursor-pointer hover:bg-muted/50",
                   !isClickable && "cursor-default"
                 )}
@@ -730,15 +731,24 @@ export default function IntegrationsPage() {
                   )}
                 </ItemMedia>
                 <ItemContent className="min-w-0">
-                  <ItemTitle className="text-sm">
-                    <span className="truncate">{item.name}</span>
+                  <ItemTitle className="flex w-full min-w-0 items-center gap-2 text-[13px]">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="min-w-0 truncate">{item.name}</span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{item.name}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span
                             role="img"
                             aria-label={`${typeLabel} integration`}
-                            className="flex size-5 items-center justify-center rounded-sm border border-border bg-muted/70 text-muted-foreground"
+                            className="flex shrink-0 size-4 items-center justify-center rounded-sm border border-border bg-muted/70 text-muted-foreground"
                           >
                             <TypeIcon className="size-3" />
                           </span>
@@ -750,47 +760,44 @@ export default function IntegrationsPage() {
                     </TooltipProvider>
                   </ItemTitle>
                 </ItemContent>
-                <ItemActions className="ml-auto">
+                <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
+                  {isOAuth && isConnected && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            aria-label={`Reconnect ${item.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleReconnect(item.id, item.grant_type)
+                            }}
+                            disabled={isDisabled || isConnecting}
+                          >
+                            <RotateCcw className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Reconnect</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                   {showConnect && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-3 text-xs bg-success text-success-foreground hover:bg-success/90 hover:text-success-foreground border-success"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          if (isCredential) {
-                            setActiveCredentialTemplate(item.definition)
-                            return
-                          }
-                          if (isOAuth) {
-                            if (item.requires_config) {
-                              handleOpenOAuthModal(item.id, item.grant_type)
-                              return
-                            }
-                            handleDirectConnect(item.id, item.grant_type)
-                            return
-                          }
-                          setActiveMcpIntegrationId(item.id)
-                        }}
-                        disabled={isDisabled || isConnecting}
-                      >
-                        {isConnecting ? (
-                          <Loader2 className="mr-2 size-3 animate-spin" />
-                        ) : null}
-                        {isCredential ? "Configure" : "Connect"}
-                      </Button>
+                    <>
                       {isCredential && configuredEnvironments.length > 0 && (
                         <HoverCard openDelay={100} closeDelay={100}>
                           <HoverCardTrigger asChild>
                             <button
                               type="button"
-                              className="flex h-7 w-7 items-center justify-center"
+                              className="flex h-6 w-6 items-center justify-center"
                               aria-label={`View configured environments for ${item.name}`}
                               onClick={(event) => event.stopPropagation()}
                               onMouseDown={(event) => event.stopPropagation()}
                             >
-                              <SquareAsterisk className="icon-success size-4" />
+                              <SquareAsterisk className="icon-success size-3.5" />
                             </button>
                           </HoverCardTrigger>
                           <HoverCardContent
@@ -818,7 +825,34 @@ export default function IntegrationsPage() {
                           </HoverCardContent>
                         </HoverCard>
                       )}
-                    </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2.5 text-[11px] bg-white text-foreground hover:bg-muted border-input"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (isCredential) {
+                            setActiveCredentialTemplate(item.definition)
+                            return
+                          }
+                          if (isOAuth) {
+                            if (item.requires_config) {
+                              handleOpenOAuthModal(item.id, item.grant_type)
+                              return
+                            }
+                            handleDirectConnect(item.id, item.grant_type)
+                            return
+                          }
+                          setActiveMcpIntegrationId(item.id)
+                        }}
+                        disabled={isDisabled || isConnecting}
+                      >
+                        {isConnecting ? (
+                          <Loader2 className="mr-1.5 size-3 animate-spin" />
+                        ) : null}
+                        {isCredential ? "Configure" : "Connect"}
+                      </Button>
+                    </>
                   )}
                   {showDisconnect && (
                     <AlertDialog
@@ -832,7 +866,7 @@ export default function IntegrationsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 px-3 text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:text-destructive-foreground border-destructive"
+                          className="h-6 px-2.5 text-[11px] bg-white text-foreground hover:bg-muted border-input"
                           onClick={(event) => event.stopPropagation()}
                           disabled={
                             isDisabled || isDisconnecting || isDeletingMcp
@@ -903,30 +937,6 @@ export default function IntegrationsPage() {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                  )}
-                  {isOAuth && isConnected && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            aria-label={`Reconnect ${item.name}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleReconnect(item.id, item.grant_type)
-                            }}
-                            disabled={isDisabled || isConnecting}
-                          >
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Reconnect</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
                   )}
                 </ItemActions>
               </Item>

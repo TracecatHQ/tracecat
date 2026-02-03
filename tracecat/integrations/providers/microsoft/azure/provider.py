@@ -43,7 +43,7 @@ def get_azure_cc_metadata(
 ) -> ProviderMetadata:
     return ProviderMetadata(
         id=id,
-        name=f"{name} (Service Principal)",
+        name=f"{name} (Service principal)",
         description=get_cc_description(name),
         requires_config=True,
         enabled=True,

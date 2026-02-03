@@ -39,7 +39,7 @@ class MicrosoftDefenderEndpointCCProvider(MicrosoftClientCredentialsOAuthProvide
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="microsoft_defender_endpoint",
-        name="Microsoft Defender for Endpoint (Service Principal)",
+        name="Microsoft Defender for Endpoint (Service principal)",
         description=get_cc_description("Microsoft Defender for Endpoint"),
         requires_config=True,
         enabled=True,
