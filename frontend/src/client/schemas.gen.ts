@@ -4,7 +4,11 @@ export const $AccessLevel = {
   type: "integer",
   enum: [0, 999],
   title: "AccessLevel",
-  description: "Access control levels for roles.",
+  description: `Access control levels for roles.
+
+.. deprecated::
+    Use \`require_org_roles\` in RoleACL or \`@require_org_role\` decorator instead.
+    This enum will be removed in a future version.`,
 } as const
 
 export const $ActionControlFlow = {
@@ -20226,6 +20230,134 @@ export const $Yaml = {
   title: "Yaml",
 } as const
 
+export const $tracecat__admin__registry__schemas__RegistrySyncResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    synced_at: {
+      type: "string",
+      format: "date-time",
+      title: "Synced At",
+    },
+    repositories: {
+      items: {
+        $ref: "#/components/schemas/RepositorySyncResult",
+      },
+      type: "array",
+      title: "Repositories",
+    },
+  },
+  type: "object",
+  required: ["success", "synced_at", "repositories"],
+  title: "RegistrySyncResponse",
+  description: "Response from sync operation.",
+} as const
+
+export const $tracecat__admin__registry__schemas__RegistryVersionPromoteResponse =
+  {
+    properties: {
+      repository_id: {
+        type: "string",
+        format: "uuid",
+        title: "Repository Id",
+      },
+      origin: {
+        type: "string",
+        title: "Origin",
+      },
+      previous_version_id: {
+        anyOf: [
+          {
+            type: "string",
+            format: "uuid",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Previous Version Id",
+      },
+      current_version_id: {
+        type: "string",
+        format: "uuid",
+        title: "Current Version Id",
+      },
+      version: {
+        type: "string",
+        title: "Version",
+      },
+    },
+    type: "object",
+    required: [
+      "repository_id",
+      "origin",
+      "previous_version_id",
+      "current_version_id",
+      "version",
+    ],
+    title: "RegistryVersionPromoteResponse",
+    description: "Response from promoting a registry version.",
+  } as const
+
+export const $tracecat__admin__registry__schemas__RegistryVersionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    repository_id: {
+      type: "string",
+      format: "uuid",
+      title: "Repository Id",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    tarball_uri: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tarball Uri",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "repository_id",
+    "version",
+    "commit_sha",
+    "tarball_uri",
+    "created_at",
+  ],
+  title: "RegistryVersionRead",
+  description: "Registry version details.",
+} as const
+
 export const $tracecat__organization__schemas__OrgRead = {
   properties: {
     id: {
@@ -20448,132 +20580,4 @@ export const $tracecat_ee__admin__organizations__schemas__OrgRead = {
   required: ["id", "name", "slug", "is_active", "created_at"],
   title: "OrgRead",
   description: "Organization response.",
-} as const
-
-export const $tracecat_ee__admin__registry__schemas__RegistrySyncResponse = {
-  properties: {
-    success: {
-      type: "boolean",
-      title: "Success",
-    },
-    synced_at: {
-      type: "string",
-      format: "date-time",
-      title: "Synced At",
-    },
-    repositories: {
-      items: {
-        $ref: "#/components/schemas/RepositorySyncResult",
-      },
-      type: "array",
-      title: "Repositories",
-    },
-  },
-  type: "object",
-  required: ["success", "synced_at", "repositories"],
-  title: "RegistrySyncResponse",
-  description: "Response from sync operation.",
-} as const
-
-export const $tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse =
-  {
-    properties: {
-      repository_id: {
-        type: "string",
-        format: "uuid",
-        title: "Repository Id",
-      },
-      origin: {
-        type: "string",
-        title: "Origin",
-      },
-      previous_version_id: {
-        anyOf: [
-          {
-            type: "string",
-            format: "uuid",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Previous Version Id",
-      },
-      current_version_id: {
-        type: "string",
-        format: "uuid",
-        title: "Current Version Id",
-      },
-      version: {
-        type: "string",
-        title: "Version",
-      },
-    },
-    type: "object",
-    required: [
-      "repository_id",
-      "origin",
-      "previous_version_id",
-      "current_version_id",
-      "version",
-    ],
-    title: "RegistryVersionPromoteResponse",
-    description: "Response from promoting a registry version.",
-  } as const
-
-export const $tracecat_ee__admin__registry__schemas__RegistryVersionRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    repository_id: {
-      type: "string",
-      format: "uuid",
-      title: "Repository Id",
-    },
-    version: {
-      type: "string",
-      title: "Version",
-    },
-    commit_sha: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Commit Sha",
-    },
-    tarball_uri: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tarball Uri",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "repository_id",
-    "version",
-    "commit_sha",
-    "tarball_uri",
-    "created_at",
-  ],
-  title: "RegistryVersionRead",
-  description: "Registry version details.",
 } as const

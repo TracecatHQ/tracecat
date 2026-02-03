@@ -2,7 +2,7 @@
 
 import { CheckIcon } from "lucide-react"
 import { useState } from "react"
-import type { tracecat_ee__admin__registry__schemas__RegistryVersionRead } from "@/client"
+import type { tracecat__admin__registry__schemas__RegistryVersionRead } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -19,7 +19,7 @@ import {
 import { getRelativeTime } from "@/lib/event-history"
 
 type RegistryVersionRead =
-  tracecat_ee__admin__registry__schemas__RegistryVersionRead
+  tracecat__admin__registry__schemas__RegistryVersionRead
 
 export function PlatformRegistryVersionsTable() {
   const [promotingId, setPromotingId] = useState<string | null>(null)

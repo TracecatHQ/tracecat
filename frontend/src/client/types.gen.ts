@@ -2,6 +2,10 @@
 
 /**
  * Access control levels for roles.
+ *
+ * .. deprecated::
+ * Use `require_org_roles` in RoleACL or `@require_org_role` decorator instead.
+ * This enum will be removed in a future version.
  */
 export type AccessLevel = 0 | 999
 
@@ -6213,6 +6217,39 @@ export type Yaml = {
   component_id?: "yaml"
 }
 
+/**
+ * Response from sync operation.
+ */
+export type tracecat__admin__registry__schemas__RegistrySyncResponse = {
+  success: boolean
+  synced_at: string
+  repositories: Array<RepositorySyncResult>
+}
+
+/**
+ * Response from promoting a registry version.
+ */
+export type tracecat__admin__registry__schemas__RegistryVersionPromoteResponse =
+  {
+    repository_id: string
+    origin: string
+    previous_version_id: string | null
+    current_version_id: string
+    version: string
+  }
+
+/**
+ * Registry version details.
+ */
+export type tracecat__admin__registry__schemas__RegistryVersionRead = {
+  id: string
+  repository_id: string
+  version: string
+  commit_sha: string | null
+  tarball_uri: string | null
+  created_at: string
+}
+
 export type tracecat__organization__schemas__OrgRead = {
   id: string
   name: string
@@ -6265,39 +6302,6 @@ export type tracecat_ee__admin__organizations__schemas__OrgRead = {
   is_active: boolean
   created_at: string
   updated_at?: string | null
-}
-
-/**
- * Response from sync operation.
- */
-export type tracecat_ee__admin__registry__schemas__RegistrySyncResponse = {
-  success: boolean
-  synced_at: string
-  repositories: Array<RepositorySyncResult>
-}
-
-/**
- * Response from promoting a registry version.
- */
-export type tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse =
-  {
-    repository_id: string
-    origin: string
-    previous_version_id: string | null
-    current_version_id: string
-    version: string
-  }
-
-/**
- * Registry version details.
- */
-export type tracecat_ee__admin__registry__schemas__RegistryVersionRead = {
-  id: string
-  repository_id: string
-  version: string
-  commit_sha: string | null
-  tarball_uri: string | null
-  created_at: string
 }
 
 export type PublicIncomingWebhookPostData = {
@@ -7349,45 +7353,6 @@ export type AdminPromoteOrgRepositoryVersionData = {
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
 
-export type AdminSyncAllRepositoriesData = {
-  /**
-   * Force sync by deleting existing version
-   */
-  force?: boolean
-}
-
-export type AdminSyncAllRepositoriesResponse =
-  tracecat_ee__admin__registry__schemas__RegistrySyncResponse
-
-export type AdminSyncRepositoryData = {
-  /**
-   * Force sync by deleting existing version
-   */
-  force?: boolean
-  repositoryId: string
-}
-
-export type AdminSyncRepositoryResponse =
-  tracecat_ee__admin__registry__schemas__RegistrySyncResponse
-
-export type AdminGetRegistryStatusResponse = RegistryStatusResponse
-
-export type AdminListRegistryVersionsData = {
-  limit?: number
-  repositoryId?: string | null
-}
-
-export type AdminListRegistryVersionsResponse =
-  Array<tracecat_ee__admin__registry__schemas__RegistryVersionRead>
-
-export type AdminPromoteRegistryVersionData = {
-  repositoryId: string
-  versionId: string
-}
-
-export type AdminPromoteRegistryVersionResponse =
-  tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse
-
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
 export type AdminUpdateRegistrySettingsData = {
@@ -7462,6 +7427,54 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type AdminRegistryListPlatformRepositoriesResponse =
+  Array<RegistryRepositoryReadMinimal>
+
+export type AdminRegistryGetPlatformRepositoryData = {
+  repositoryId: string
+}
+
+export type AdminRegistryGetPlatformRepositoryResponse = RegistryRepositoryRead
+
+export type AdminRegistrySyncAllRepositoriesData = {
+  /**
+   * Force sync by deleting existing version
+   */
+  force?: boolean
+}
+
+export type AdminRegistrySyncAllRepositoriesResponse =
+  tracecat__admin__registry__schemas__RegistrySyncResponse
+
+export type AdminRegistrySyncRepositoryData = {
+  /**
+   * Force sync by deleting existing version
+   */
+  force?: boolean
+  repositoryId: string
+}
+
+export type AdminRegistrySyncRepositoryResponse =
+  tracecat__admin__registry__schemas__RegistrySyncResponse
+
+export type AdminRegistryGetRegistryStatusResponse = RegistryStatusResponse
+
+export type AdminRegistryListRegistryVersionsData = {
+  limit?: number
+  repositoryId?: string | null
+}
+
+export type AdminRegistryListRegistryVersionsResponse =
+  Array<tracecat__admin__registry__schemas__RegistryVersionRead>
+
+export type AdminRegistryPromoteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type AdminRegistryPromoteRegistryVersionResponse =
+  tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
 export type InboxListItemsData = {
   limit?: number
@@ -10568,76 +10581,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/admin/registry/sync": {
-    post: {
-      req: AdminSyncAllRepositoriesData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: tracecat_ee__admin__registry__schemas__RegistrySyncResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/registry/sync/{repository_id}": {
-    post: {
-      req: AdminSyncRepositoryData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: tracecat_ee__admin__registry__schemas__RegistrySyncResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/registry/status": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RegistryStatusResponse
-      }
-    }
-  }
-  "/admin/registry/versions": {
-    get: {
-      req: AdminListRegistryVersionsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<tracecat_ee__admin__registry__schemas__RegistryVersionRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/registry/{repository_id}/versions/{version_id}/promote": {
-    post: {
-      req: AdminPromoteRegistryVersionData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/admin/settings/registry": {
     get: {
       res: {
@@ -10806,6 +10749,101 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/repos": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<RegistryRepositoryReadMinimal>
+      }
+    }
+  }
+  "/admin/registry/repos/{repository_id}": {
+    get: {
+      req: AdminRegistryGetPlatformRepositoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryRepositoryRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/sync": {
+    post: {
+      req: AdminRegistrySyncAllRepositoriesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat__admin__registry__schemas__RegistrySyncResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/sync/{repository_id}": {
+    post: {
+      req: AdminRegistrySyncRepositoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat__admin__registry__schemas__RegistrySyncResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryStatusResponse
+      }
+    }
+  }
+  "/admin/registry/versions": {
+    get: {
+      req: AdminRegistryListRegistryVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__admin__registry__schemas__RegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/{repository_id}/versions/{version_id}/promote": {
+    post: {
+      req: AdminRegistryPromoteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
         /**
          * Validation Error
          */

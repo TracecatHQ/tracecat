@@ -16,20 +16,20 @@ import {
   adminGetOrganization,
   adminGetOrgTier,
   adminGetRegistrySettings,
-  adminGetRegistryStatus,
   adminGetTier,
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
-  adminListRegistryVersions,
   adminListTiers,
   adminListUsers,
   adminPromoteOrgRepositoryVersion,
-  adminPromoteRegistryVersion,
   adminPromoteToSuperuser,
-  adminSyncAllRepositories,
+  adminRegistryGetRegistryStatus,
+  adminRegistryListRegistryVersions,
+  adminRegistryPromoteRegistryVersion,
+  adminRegistrySyncAllRepositories,
+  adminRegistrySyncRepository,
   adminSyncOrgRepository,
-  adminSyncRepository,
   adminUpdateOrganization,
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
@@ -391,7 +391,7 @@ export function useAdminRegistryStatus() {
     refetch,
   } = useQuery({
     queryKey: ["admin", "registry", "status"],
-    queryFn: adminGetRegistryStatus,
+    queryFn: adminRegistryGetRegistryStatus,
   })
 
   return {
@@ -412,7 +412,7 @@ export function useAdminRegistryVersions(
     error,
   } = useQuery({
     queryKey: ["admin", "registry", "versions", { repositoryId, limit }],
-    queryFn: () => adminListRegistryVersions({ repositoryId, limit }),
+    queryFn: () => adminRegistryListRegistryVersions({ repositoryId, limit }),
   })
 
   return {
@@ -427,7 +427,8 @@ export function useAdminRegistrySync() {
 
   const { mutateAsync: syncAllRepositories, isPending: syncAllPending } =
     useMutation({
-      mutationFn: (force?: boolean) => adminSyncAllRepositories({ force }),
+      mutationFn: (force?: boolean) =>
+        adminRegistrySyncAllRepositories({ force }),
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
       },
@@ -440,7 +441,7 @@ export function useAdminRegistrySync() {
     }: {
       repositoryId: string
       force?: boolean
-    }) => adminSyncRepository({ repositoryId, force }),
+    }) => adminRegistrySyncRepository({ repositoryId, force }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
     },
@@ -454,7 +455,7 @@ export function useAdminRegistrySync() {
       }: {
         repositoryId: string
         versionId: string
-      }) => adminPromoteRegistryVersion({ repositoryId, versionId }),
+      }) => adminRegistryPromoteRegistryVersion({ repositoryId, versionId }),
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
       },

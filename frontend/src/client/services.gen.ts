@@ -31,7 +31,6 @@ import type {
   AdminGetOrgTierData,
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
-  AdminGetRegistryStatusResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -41,23 +40,27 @@ import type {
   AdminListOrgRepositoriesResponse,
   AdminListOrgRepositoryVersionsData,
   AdminListOrgRepositoryVersionsResponse,
-  AdminListRegistryVersionsData,
-  AdminListRegistryVersionsResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
   AdminPromoteOrgRepositoryVersionData,
   AdminPromoteOrgRepositoryVersionResponse,
-  AdminPromoteRegistryVersionData,
-  AdminPromoteRegistryVersionResponse,
   AdminPromoteToSuperuserData,
   AdminPromoteToSuperuserResponse,
-  AdminSyncAllRepositoriesData,
-  AdminSyncAllRepositoriesResponse,
+  AdminRegistryGetPlatformRepositoryData,
+  AdminRegistryGetPlatformRepositoryResponse,
+  AdminRegistryGetRegistryStatusResponse,
+  AdminRegistryListPlatformRepositoriesResponse,
+  AdminRegistryListRegistryVersionsData,
+  AdminRegistryListRegistryVersionsResponse,
+  AdminRegistryPromoteRegistryVersionData,
+  AdminRegistryPromoteRegistryVersionResponse,
+  AdminRegistrySyncAllRepositoriesData,
+  AdminRegistrySyncAllRepositoriesResponse,
+  AdminRegistrySyncRepositoryData,
+  AdminRegistrySyncRepositoryResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
-  AdminSyncRepositoryData,
-  AdminSyncRepositoryResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationResponse,
   AdminUpdateOrgTierData,
@@ -4226,120 +4229,6 @@ export const adminPromoteOrgRepositoryVersion = (
 }
 
 /**
- * Sync All Repositories
- * Trigger sync for all platform registry repositories.
- * @param data The data for the request.
- * @param data.force Force sync by deleting existing version
- * @returns tracecat_ee__admin__registry__schemas__RegistrySyncResponse Successful Response
- * @throws ApiError
- */
-export const adminSyncAllRepositories = (
-  data: AdminSyncAllRepositoriesData = {}
-): CancelablePromise<AdminSyncAllRepositoriesResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/admin/registry/sync",
-    query: {
-      force: data.force,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Sync Repository
- * Trigger sync for a specific platform registry repository.
- * @param data The data for the request.
- * @param data.repositoryId
- * @param data.force Force sync by deleting existing version
- * @returns tracecat_ee__admin__registry__schemas__RegistrySyncResponse Successful Response
- * @throws ApiError
- */
-export const adminSyncRepository = (
-  data: AdminSyncRepositoryData
-): CancelablePromise<AdminSyncRepositoryResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/admin/registry/sync/{repository_id}",
-    path: {
-      repository_id: data.repositoryId,
-    },
-    query: {
-      force: data.force,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Registry Status
- * Get registry sync status and health.
- * @returns RegistryStatusResponse Successful Response
- * @throws ApiError
- */
-export const adminGetRegistryStatus =
-  (): CancelablePromise<AdminGetRegistryStatusResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/admin/registry/status",
-    })
-  }
-
-/**
- * List Registry Versions
- * List registry versions with optional filtering.
- * @param data The data for the request.
- * @param data.repositoryId
- * @param data.limit
- * @returns tracecat_ee__admin__registry__schemas__RegistryVersionRead Successful Response
- * @throws ApiError
- */
-export const adminListRegistryVersions = (
-  data: AdminListRegistryVersionsData = {}
-): CancelablePromise<AdminListRegistryVersionsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/admin/registry/versions",
-    query: {
-      repository_id: data.repositoryId,
-      limit: data.limit,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Promote Registry Version
- * Promote a registry version to be the current version for a repository.
- * @param data The data for the request.
- * @param data.repositoryId
- * @param data.versionId
- * @returns tracecat_ee__admin__registry__schemas__RegistryVersionPromoteResponse Successful Response
- * @throws ApiError
- */
-export const adminPromoteRegistryVersion = (
-  data: AdminPromoteRegistryVersionData
-): CancelablePromise<AdminPromoteRegistryVersionResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/admin/registry/{repository_id}/versions/{version_id}/promote",
-    path: {
-      repository_id: data.repositoryId,
-      version_id: data.versionId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Get Registry Settings
  * Get platform registry settings.
  * @returns PlatformRegistrySettingsRead Successful Response
@@ -4624,6 +4513,157 @@ export const adminDemoteFromSuperuser = (
 }
 
 /**
+ * List Platform Repositories
+ * List all platform registry repositories.
+ * @returns RegistryRepositoryReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryListPlatformRepositories =
+  (): CancelablePromise<AdminRegistryListPlatformRepositoriesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/registry/repos",
+    })
+  }
+
+/**
+ * Get Platform Repository
+ * Get a specific platform registry repository.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @returns RegistryRepositoryRead Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryGetPlatformRepository = (
+  data: AdminRegistryGetPlatformRepositoryData
+): CancelablePromise<AdminRegistryGetPlatformRepositoryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/registry/repos/{repository_id}",
+    path: {
+      repository_id: data.repositoryId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Sync All Repositories
+ * Trigger sync for all platform registry repositories.
+ * @param data The data for the request.
+ * @param data.force Force sync by deleting existing version
+ * @returns tracecat__admin__registry__schemas__RegistrySyncResponse Successful Response
+ * @throws ApiError
+ */
+export const adminRegistrySyncAllRepositories = (
+  data: AdminRegistrySyncAllRepositoriesData = {}
+): CancelablePromise<AdminRegistrySyncAllRepositoriesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/registry/sync",
+    query: {
+      force: data.force,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Sync Repository
+ * Trigger sync for a specific platform registry repository.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.force Force sync by deleting existing version
+ * @returns tracecat__admin__registry__schemas__RegistrySyncResponse Successful Response
+ * @throws ApiError
+ */
+export const adminRegistrySyncRepository = (
+  data: AdminRegistrySyncRepositoryData
+): CancelablePromise<AdminRegistrySyncRepositoryResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/registry/sync/{repository_id}",
+    path: {
+      repository_id: data.repositoryId,
+    },
+    query: {
+      force: data.force,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Registry Status
+ * Get registry sync status and health.
+ * @returns RegistryStatusResponse Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryGetRegistryStatus =
+  (): CancelablePromise<AdminRegistryGetRegistryStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/registry/status",
+    })
+  }
+
+/**
+ * List Registry Versions
+ * List registry versions with optional filtering.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.limit
+ * @returns tracecat__admin__registry__schemas__RegistryVersionRead Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryListRegistryVersions = (
+  data: AdminRegistryListRegistryVersionsData = {}
+): CancelablePromise<AdminRegistryListRegistryVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/registry/versions",
+    query: {
+      repository_id: data.repositoryId,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Promote Registry Version
+ * Promote a registry version to be the current version for a repository.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns tracecat__admin__registry__schemas__RegistryVersionPromoteResponse Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryPromoteRegistryVersion = (
+  data: AdminRegistryPromoteRegistryVersionData
+): CancelablePromise<AdminRegistryPromoteRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/registry/{repository_id}/versions/{version_id}/promote",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Items
  * List all inbox items for the workspace.
  *
@@ -4793,7 +4833,9 @@ export const registryRepositoriesReloadRegistryRepositories =
 
 /**
  * Sync Registry Repository
- * Load actions from a specific registry repository.
+ * Sync an org-scoped registry repository.
+ *
+ * For platform registries (base registry), use the admin API at /admin/registry/sync.
  *
  * Args:
  * repository_id: The ID of the repository to sync
@@ -4830,7 +4872,9 @@ export const registryRepositoriesSyncRegistryRepository = (
 
 /**
  * List Repository Versions
- * List all versions for a specific registry repository.
+ * List all versions for an org-scoped registry repository.
+ *
+ * For platform registry versions, use the admin API at /admin/registry/versions.
  * @param data The data for the request.
  * @param data.repositoryId
  * @returns tracecat__registry__repositories__schemas__RegistryVersionRead Successful Response
@@ -4853,14 +4897,9 @@ export const registryRepositoriesListRepositoryVersions = (
 
 /**
  * List Registry Repositories
- * List all registry repositories.
+ * List org-scoped registry repositories.
  *
- * Returns both platform (base) and org-scoped repositories merged into a single list
- * using UNION ALL. Platform repositories (like tracecat-registry) are shared across
- * all organizations.
- *
- * Both table hierarchies share the same column structure via BaseRegistryRepository,
- * so we select only the common columns and union the results.
+ * For platform registries (base registry), use the admin API at /admin/registry/repos.
  * @returns RegistryRepositoryReadMinimal Successful Response
  * @throws ApiError
  */
@@ -4896,9 +4935,9 @@ export const registryRepositoriesCreateRegistryRepository = (
 
 /**
  * Get Registry Repository
- * Get a specific registry repository by ID.
+ * Get a specific org-scoped registry repository by ID.
  *
- * Handles both platform (base) and org-scoped repositories.
+ * For platform registries, use the admin API at /admin/registry/repos/{repository_id}.
  * @param data The data for the request.
  * @param data.repositoryId
  * @returns RegistryRepositoryRead Successful Response
@@ -4999,12 +5038,13 @@ export const registryRepositoriesListRepositoryCommits = (
 
 /**
  * Promote Registry Version
- * Promote a specific version to be the current version of the repository.
+ * Promote a specific version to be the current version of an org-scoped repository.
  *
  * This endpoint allows administrators to manually promote or rollback to a
  * specific registry version, overriding the auto-promotion that happens during sync.
  *
- * Handles both platform (base) and org-scoped repositories.
+ * For platform registries, use the admin API at
+ * /admin/registry/{repository_id}/versions/{version_id}/promote.
  *
  * Args:
  * repository_id: The ID of the repository
