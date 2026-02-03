@@ -189,7 +189,7 @@ The chart runs a Helm hook job after install/upgrade to create the `default` nam
 
 For external Temporal (`temporal.enabled=false`), you must create the namespace and search attributes yourself.
 
-When using the internal Temporal subchart with an external Postgres (for example, RDS), override `temporal.server.config.persistence` as shown in `examples/values-aws-alb.yaml`, and ensure the `temporal` and `temporal_visibility` databases already exist. For internal Postgres, the chart bootstraps these databases on first cluster creation via `postgres.cluster.initdb`.
+When using the internal Temporal subchart with an external Postgres (for example, RDS), override `temporal.server.config.persistence` (and TLS settings) as shown in `terraform/aws/modules/eks/helm.tf`, and ensure the `temporal` and `temporal_visibility` databases already exist. For internal Postgres, the chart bootstraps these databases on first cluster creation via `postgres.cluster.initdb`.
 
 ### External services
 
@@ -280,7 +280,7 @@ externalSecrets:
     targetSecretName: "tracecat-postgres-credentials"
 ```
 
-See `examples/values-aws.yaml` for a complete example.
+For AWS production, the Terraform stack injects these values inline (see `terraform/aws/modules/eks/helm.tf`). For local examples, see `examples/values-minikube.yaml` and `examples/values-orbstack.yaml`.
 
 | Parameter | Description |
 |-----------|-------------|

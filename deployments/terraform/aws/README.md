@@ -61,16 +61,16 @@ You can disable spot by setting `spot_node_group_enabled=false` or change the mi
 
 These estimates are based on Kubernetes **resource requests** from the chart defaults and Terraform overrides. Actual usage varies; leave headroom for system add-ons (CoreDNS, VPC CNI, External Secrets, AWS Load Balancer Controller, Reloader) and for Temporal when self-hosting.
 
-**Terraform defaults (Helm chart via Terraform)** use the same replica counts as `helm/tracecat/values.yaml`, but Terraform overrides worker/executor resource requests in `terraform/aws/modules/eks/helm.tf`:
-- **Replicas:** ui=1, api=2, worker=4, executor=2, agentExecutor=1.
-- **Chart-default requests per replica:** ui/api/worker/executor/agentExecutor=1 vCPU/1Gi (chart-only total ~10 vCPU / 10Gi).
-- **Terraform request overrides:** ui/api=1 vCPU/1Gi; worker=2 vCPU/4Gi; executor=4 vCPU/8Gi; agentExecutor=4 vCPU/8Gi.
-- **Tracecat total requests (Terraform):** ~23 vCPU / 43Gi (Temporal not included).
+**Chart defaults (`helm/tracecat/values.yaml`)** are tuned for local development:
+- **Replicas:** ui=1, api=1, worker=1, executor=1, agentExecutor=1.
+- **Requests per replica:** ui=100m/256Mi; api/worker/executor/agentExecutor=250m/512Mi.
+- **Tracecat total requests (chart defaults):** ~1.1 vCPU / 2.25Gi (Temporal not included).
+These defaults apply to manual Helm installs; Terraform overrides them for AWS production.
 
-**`helm/examples/values-aws.yaml`** increases replicas but uses chart-default requests:
-- **Replicas:** ui=2, api=2, worker=8, executor=4, agentExecutor=2.
-- **Requests per replica:** 1 vCPU / 1Gi (chart defaults).
-- **Tracecat total requests:** ~18 vCPU / 18Gi (Temporal not included).
+**Terraform (AWS) production overrides** are defined inline in `terraform/aws/modules/eks/helm.tf` and via Terraform variables:
+- **Replicas:** ui=1, api=2, worker=4, executor=2, agentExecutor=1.
+- **Requests per replica (Terraform):** ui/api=1 vCPU/1Gi; worker=2 vCPU/4Gi; executor=4 vCPU/8Gi; agentExecutor=4 vCPU/8Gi.
+- **Tracecat total requests (Terraform):** ~23 vCPU / 43Gi (Temporal not included).
 
 **Temporal capacity:** the Temporal subchart does not set explicit resource requests by default. If `temporal_mode=self-hosted`, budget extra capacity (for the Temporal server + schema/admintools job), or set `temporal.server.resources` explicitly.
 

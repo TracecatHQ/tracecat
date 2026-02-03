@@ -229,6 +229,27 @@ resource "helm_release" "tracecat" {
   }
 
   # Resource configurations
+  # API: 1 vCPU, 1GB RAM
+  set {
+    name  = "api.resources.requests.cpu"
+    value = "1000m"
+  }
+
+  set {
+    name  = "api.resources.requests.memory"
+    value = "1Gi"
+  }
+
+  set {
+    name  = "api.resources.limits.cpu"
+    value = "2000m"
+  }
+
+  set {
+    name  = "api.resources.limits.memory"
+    value = "2Gi"
+  }
+
   # Worker: 2 vCPU, 4GB RAM (per Temporal best practices)
   set {
     name  = "worker.resources.requests.cpu"

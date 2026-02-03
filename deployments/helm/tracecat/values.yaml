@@ -160,46 +160,46 @@ ui:
   replicas: 1
   resources:
     requests:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: "100m"
+      memory: "256Mi"
     limits:
-      cpu: "2000m"
-      memory: "2Gi"
+      cpu: "500m"
+      memory: "512Mi"
 
 api:
-  replicas: 2
+  replicas: 1
   resources:
     requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
       cpu: "1000m"
       memory: "1Gi"
-    limits:
-      cpu: "2000m"
-      memory: "2Gi"
 
 worker:
-  replicas: 4
+  replicas: 1
   resources:
     requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
       cpu: "1000m"
       memory: "1Gi"
-    limits:
-      cpu: "2000m"
-      memory: "2Gi"
   contextCompression:
     enabled: false
     thresholdKb: 16
 
 executor:
-  replicas: 2
+  replicas: 1
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "auto"
   resources:
     requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
       cpu: "1000m"
       memory: "1Gi"
-    limits:
-      cpu: "2000m"
-      memory: "2Gi"
   queue: "shared-action-queue"
   workerPoolSize: ""
   contextCompression:
@@ -212,11 +212,11 @@ agentExecutor:
   backend: "auto"
   resources:
     requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
       cpu: "1000m"
       memory: "1Gi"
-    limits:
-      cpu: "2000m"
-      memory: "2Gi"
   queue: "shared-agent-queue"
   workerPoolSize: ""
   contextCompression:
