@@ -11,6 +11,4 @@ class FeatureFlag(StrEnum):
     CASE_DURATIONS = "case-durations"
     CASE_TASKS = "case-tasks"
     CASE_TRIGGERS = "case-triggers"
-    REGISTRY_CLIENT = "registry-client"
-    REGISTRY_SYNC_V2 = "registry-sync-v2"
     RLS_ENABLED = "rls-enabled"

@@ -7964,8 +7964,6 @@ export const $FeatureFlag = {
     "case-durations",
     "case-tasks",
     "case-triggers",
-    "registry-client",
-    "registry-sync-v2",
     "rls-enabled",
   ],
   title: "FeatureFlag",
