@@ -141,7 +141,8 @@ export function ProviderConfigForm({
     token_endpoint_help: providerTokenHelp,
   } = provider
 
-  const isServiceAccountProvider = id === "google"
+  const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
+  const isServiceAccountProvider = serviceAccountProviders.includes(id)
   const clientSecretMaxLength = isServiceAccountProvider ? 16384 : 512
   const validationSchema = useMemo(
     () => createOAuthSchema(clientSecretMaxLength),
