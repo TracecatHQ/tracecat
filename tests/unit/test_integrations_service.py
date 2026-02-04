@@ -1195,9 +1195,12 @@ class TestIntegrationService:
 
         monkeypatch.setattr(
             "tracecat.integrations.service.get_provider_class",
-            lambda key: MockOAuthProvider
-            if key.id == provider_key.id and key.grant_type == provider_key.grant_type
-            else None,
+            lambda key: (
+                MockOAuthProvider
+                if key.id == provider_key.id
+                and key.grant_type == provider_key.grant_type
+                else None
+            ),
         )
 
         integration = await integration_service.store_provider_config(

@@ -53,9 +53,15 @@ def format_input_schema_validation_error(details: list[ValidationDetail]) -> str
 
 
 PYDANTIC_ERR_TYPE_HANDLER: dict[str, Callable[[Sequence[int | str]], str]] = {
-    "pydantic.extra_forbidden": lambda loc: f"The attribute '{'.'.join(str(s) for s in loc)}' is not allowed in the input schema.",
-    "pydantic.missing": lambda loc: f"Missing required field(s): '{'.'.join(str(s) for s in loc)}'.",
-    "pydantic.invalid_type": lambda loc: f"Invalid type at '{'.'.join(str(s) for s in loc)}'.",
+    "pydantic.extra_forbidden": lambda loc: (
+        f"The attribute '{'.'.join(str(s) for s in loc)}' is not allowed in the input schema."
+    ),
+    "pydantic.missing": lambda loc: (
+        f"Missing required field(s): '{'.'.join(str(s) for s in loc)}'."
+    ),
+    "pydantic.invalid_type": lambda loc: (
+        f"Invalid type at '{'.'.join(str(s) for s in loc)}'."
+    ),
 }
 
 

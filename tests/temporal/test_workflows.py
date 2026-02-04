@@ -5610,15 +5610,17 @@ def assert_result_is_run_context(result: dict[str, Any]) -> bool:
         # Context strategy returns the full context
         pytest.param(
             "context",
-            lambda result: ExecutionContextTA.validate_python(result)
-            == ExecutionContext(
-                ACTIONS={
-                    "a": TaskResult(
-                        result=InlineObject(data=42),
-                        result_typename="int",
-                    )
-                },
-                TRIGGER=None,
+            lambda result: (
+                ExecutionContextTA.validate_python(result)
+                == ExecutionContext(
+                    ACTIONS={
+                        "a": TaskResult(
+                            result=InlineObject(data=42),
+                            result_typename="int",
+                        )
+                    },
+                    TRIGGER=None,
+                )
             ),
             id="context-strategy",
         ),
