@@ -14,11 +14,10 @@ class WorkspaceRole(StrEnum):
 
 
 class ScopeSource(StrEnum):
-    """Source of a scope definition."""
+    """Source/ownership of a scope definition."""
 
-    SYSTEM = "system"  # Built-in platform scopes (org/workspace/resources/RBAC admin)
-    REGISTRY = "registry"  # Derived from registry actions
-    CUSTOM = "custom"  # User-created scopes
+    PLATFORM = "platform"  # Platform-owned: core permissions + registry-derived
+    CUSTOM = "custom"  # Organization-defined scopes
 
 
 class OrgRole(StrEnum):

@@ -3144,9 +3144,9 @@ class Scope(Base, TimestampMixin):
     Examples: workflow:read, org:member:invite, action:tools.okta.list_users:execute
 
     Scopes can be:
-    - System scopes (organization_id=NULL): Built-in platform scopes shared across all orgs
-    - Registry scopes (organization_id=NULL): Auto-generated from registry actions
-    - Custom scopes (organization_id=org_id): User-defined scopes for an organization
+    - Platform scopes (organization_id=NULL): Platform-owned scopes shared across all orgs.
+      Use `source_ref` for provenance (e.g., "core", "tracecat_registry", git URL).
+    - Custom scopes (organization_id=org_id): Organization-defined scopes.
     """
 
     __tablename__ = "scope"
