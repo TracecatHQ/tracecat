@@ -48,6 +48,20 @@ class EffectiveEntitlements(Schema):
     )
     sso: bool = Field(False, description="Whether SSO is enabled")
     git_sync: bool = Field(False, description="Whether git sync is enabled")
+    agent_approvals: bool = Field(
+        False, description="Whether agent tool approvals are enabled"
+    )
+    agent_presets: bool = Field(False, description="Whether agent presets are enabled")
+    case_dropdowns: bool = Field(
+        False, description="Whether case dropdowns are enabled"
+    )
+    case_durations: bool = Field(
+        False, description="Whether case durations are enabled"
+    )
+    case_tasks: bool = Field(False, description="Whether case tasks are enabled")
+    case_triggers: bool = Field(
+        False, description="Whether case workflow triggers are enabled"
+    )
 
 
 class TierRead(Schema):

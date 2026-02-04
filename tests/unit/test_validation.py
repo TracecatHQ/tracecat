@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
-from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -29,7 +28,6 @@ from tracecat.expressions.expectations import ExpectedField
 
 # Add imports for expression validation
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -965,13 +963,21 @@ async def test_validate_dsl_with_optional_oauth_credentials(
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_agent_tool_approvals_requires_feature_flag(
+async def test_agent_tool_approvals_requires_entitlement(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
 
-    # Ensure feature flag disabled
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
+    # Ensure entitlement disabled
+    from tracecat.tiers import defaults as tier_defaults
+
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"agent_approvals": False}
+        ),
+    )
 
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
@@ -1022,20 +1028,22 @@ async def test_agent_tool_approvals_requires_feature_flag(
         detail_msgs: set[str] = set()
     else:
         detail_msgs = {d.msg for d in detail}
-    assert any("agent-approvals" in msg for msg in detail_msgs)
+    assert any("agent_approvals" in msg for msg in detail_msgs)
 
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_agent_tool_approvals_passes_with_feature_flag(
+async def test_agent_tool_approvals_passes_with_entitlement(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
 
+    from tracecat.tiers import defaults as tier_defaults
+
     monkeypatch.setattr(
-        config,
-        "TRACECAT__FEATURE_FLAGS",
-        {FeatureFlag.AGENT_APPROVALS},
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_approvals": True}),
     )
 
     repo = Repository()

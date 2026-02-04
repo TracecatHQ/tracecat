@@ -30,7 +30,6 @@ from tracecat.expressions.validator.validator import (
     ExprValidationContext,
     ExprValidator,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -39,6 +38,8 @@ from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.service import SecretsService
+from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.tiers.service import TierService
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
     ActionValidationResult,
@@ -375,6 +376,7 @@ async def validate_dsl_actions(
     """
     val_res: list[ActionValidationResult] = []
     # Validate the actions
+    agent_approvals_entitled: bool | None = None
     for act_stmt in dsl.actions:
         details: list[ValidationDetail] = []
         # We validate the action args, but keep them as is
@@ -390,23 +392,31 @@ async def validate_dsl_actions(
         if result.status == "error" and result.detail:
             details.extend(result.detail)
 
-        # Feature flag gate: tool approvals are an enterprise feature
-        # NOTE: This should be paywalled, instead of being a feature flag
+        # Entitlement gate: tool approvals are an enterprise feature
         if (
             act_stmt.action == "ai.agent"
             and act_stmt.args.get("tool_approvals") is not None
-            and not is_feature_enabled(FeatureFlag.AGENT_APPROVALS)
         ):
-            details.append(
-                ValidationDetail(
-                    type="action",
-                    msg=(
-                        "`tool_approvals` requires the 'agent-approvals' feature flag. "
-                        "Remove the field or enable the flag."
-                    ),
-                    loc=(act_stmt.ref, "tool_approvals"),
+            if agent_approvals_entitled is None:
+                if role.organization_id is None:
+                    raise ValueError(
+                        "Role must have organization_id to validate entitlements"
+                    )
+                entitlement_svc = EntitlementService(TierService(session))
+                agent_approvals_entitled = await entitlement_svc.is_entitled(
+                    role.organization_id, Entitlement.AGENT_APPROVALS
                 )
-            )
+            if not agent_approvals_entitled:
+                details.append(
+                    ValidationDetail(
+                        type="action",
+                        msg=(
+                            "`tool_approvals` requires the 'agent_approvals' entitlement. "
+                            "Remove the field or upgrade your subscription tier."
+                        ),
+                        loc=(act_stmt.ref, "tool_approvals"),
+                    )
+                )
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             details.append(

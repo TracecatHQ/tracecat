@@ -2,13 +2,7 @@ from enum import StrEnum
 
 
 class FeatureFlag(StrEnum):
-    """Feature flag enum."""
+    """Feature flag enum reserved for engineering rollouts."""
 
-    GIT_SYNC = "git-sync"
-    AGENT_APPROVALS = "agent-approvals"
-    AGENT_PRESETS = "agent-presets"
-    CASE_DROPDOWNS = "case-dropdowns"
-    CASE_DURATIONS = "case-durations"
-    CASE_TASKS = "case-tasks"
-    CASE_TRIGGERS = "case-triggers"
+    AI_RANKING = "ai-ranking"
     RBAC = "rbac"

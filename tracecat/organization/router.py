@@ -44,6 +44,8 @@ from tracecat.organization.schemas import (
     OrgRead,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
+from tracecat.tiers.schemas import EffectiveEntitlements
+from tracecat.tiers.service import TierService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 
@@ -188,6 +190,23 @@ async def delete_organization(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+
+
+@router.get("/entitlements", response_model=EffectiveEntitlements)
+async def get_organization_entitlements(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> EffectiveEntitlements:
+    """Get the effective entitlements for the current organization."""
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    tier_service = TierService(session)
+    return await tier_service.get_effective_entitlements(role.organization_id)
 
 
 @router.get("/members/me", response_model=OrgMemberDetail)

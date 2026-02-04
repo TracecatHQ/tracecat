@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
+from fastapi import Depends
+
+from tracecat.auth.credentials import RoleACL
+from tracecat.auth.types import Role
+from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import EntitlementRequired
 from tracecat.tiers.service import TierService
 
@@ -21,6 +27,12 @@ class Entitlement(StrEnum):
     CUSTOM_REGISTRY = "custom_registry"
     SSO = "sso"
     GIT_SYNC = "git_sync"
+    AGENT_APPROVALS = "agent_approvals"
+    AGENT_PRESETS = "agent_presets"
+    CASE_DROPDOWNS = "case_dropdowns"
+    CASE_DURATIONS = "case_durations"
+    CASE_TASKS = "case_tasks"
+    CASE_TRIGGERS = "case_triggers"
 
 
 class EntitlementService:
@@ -87,3 +99,31 @@ async def check_entitlement(
     tier_svc = TierService(session)
     entitlement_svc = EntitlementService(tier_svc)
     await entitlement_svc.check_entitlement(role.organization_id, entitlement)
+
+
+def require_entitlement(
+    entitlement: Entitlement,
+    *,
+    allow_user: bool = True,
+    allow_service: bool = False,
+    allow_executor: bool = False,
+    require_workspace: Literal["yes", "no", "optional"] = "yes",
+    require_org_roles: list[OrgRole] | None = None,
+    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
+) -> Any:
+    """FastAPI dependency to require a specific entitlement."""
+
+    async def _check_entitlement(
+        session: AsyncDBSession,
+        role: Role = RoleACL(
+            allow_user=allow_user,
+            allow_service=allow_service,
+            allow_executor=allow_executor,
+            require_workspace=require_workspace,
+            require_org_roles=require_org_roles,
+            require_workspace_roles=require_workspace_roles,
+        ),
+    ) -> None:
+        await check_entitlement(session, role, entitlement)
+
+    return Depends(_check_entitlement)
