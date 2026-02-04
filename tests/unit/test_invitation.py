@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.db.models import (
     Invitation,
     Organization,
@@ -47,25 +48,13 @@ class TestOrganizationInvitation:
         session.add(inviter)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        member_role = Role(
-            id=uuid.uuid4(),
-            name="Member",
-            slug="member",
-            organization_id=org.id,
-        )
-        session.add(member_role)
-        await session.flush()
-
         # Create invitation
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         expires_at = datetime.now(UTC) + timedelta(days=7)
         invitation = OrganizationInvitation(
             organization_id=org.id,
             email="invitee@example.com",
-            role_id=member_role.id,
+            role=OrgRole.MEMBER,
             status=InvitationStatus.PENDING,
             invited_by=inviter.id,
             token=token,
@@ -78,7 +67,7 @@ class TestOrganizationInvitation:
         assert invitation.id is not None
         assert invitation.organization_id == org.id
         assert invitation.email == "invitee@example.com"
-        assert invitation.role.slug == "member"
+        assert invitation.role == OrgRole.MEMBER
         assert invitation.status == InvitationStatus.PENDING
         assert invitation.invited_by == inviter.id
         assert invitation.token == token
@@ -97,23 +86,11 @@ class TestOrganizationInvitation:
         session.add(org)
         await session.flush()
 
-        # Create admin role for invitation
-        from tracecat.db.models import Role
-
-        admin_role = Role(
-            id=uuid.uuid4(),
-            name="Admin",
-            slug="admin",
-            organization_id=org.id,
-        )
-        session.add(admin_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation = OrganizationInvitation(
             organization_id=org.id,
             email="admin@example.com",
-            role_id=admin_role.id,
+            role=OrgRole.ADMIN,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -123,7 +100,7 @@ class TestOrganizationInvitation:
         await session.commit()
         await session.refresh(invitation)
 
-        assert invitation.role.slug == "admin"
+        assert invitation.role == OrgRole.ADMIN
 
     @pytest.mark.anyio
     async def test_organization_invitation_status_transition(
@@ -139,23 +116,11 @@ class TestOrganizationInvitation:
         session.add(org)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        member_role = Role(
-            id=uuid.uuid4(),
-            name="Member",
-            slug="member",
-            organization_id=org.id,
-        )
-        session.add(member_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation = OrganizationInvitation(
             organization_id=org.id,
             email="invitee@example.com",
-            role_id=member_role.id,
+            role=OrgRole.MEMBER,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -185,23 +150,11 @@ class TestOrganizationInvitation:
         session.add(org)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        member_role = Role(
-            id=uuid.uuid4(),
-            name="Member",
-            slug="member",
-            organization_id=org.id,
-        )
-        session.add(member_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation = OrganizationInvitation(
             organization_id=org.id,
             email="invitee@example.com",
-            role_id=member_role.id,
+            role=OrgRole.MEMBER,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -235,23 +188,11 @@ class TestOrganizationInvitation:
         session.add(org)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        member_role = Role(
-            id=uuid.uuid4(),
-            name="Member",
-            slug="member",
-            organization_id=org.id,
-        )
-        session.add(member_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation1 = OrganizationInvitation(
             organization_id=org.id,
             email="invitee1@example.com",
-            role_id=member_role.id,
+            role=OrgRole.MEMBER,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -264,7 +205,7 @@ class TestOrganizationInvitation:
         invitation2 = OrganizationInvitation(
             organization_id=org.id,
             email="invitee2@example.com",
-            role_id=member_role.id,
+            role=OrgRole.MEMBER,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,  # Same token
@@ -313,25 +254,13 @@ class TestInvitation:
         session.add(inviter)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        editor_role = Role(
-            id=uuid.uuid4(),
-            name="Editor",
-            slug="editor",
-            organization_id=org.id,
-        )
-        session.add(editor_role)
-        await session.flush()
-
         # Create invitation
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         expires_at = datetime.now(UTC) + timedelta(days=7)
         invitation = Invitation(
             workspace_id=workspace.id,
             email="invitee@example.com",
-            role_id=editor_role.id,
+            role=WorkspaceRole.EDITOR,
             status=InvitationStatus.PENDING,
             invited_by=inviter.id,
             token=token,
@@ -344,7 +273,7 @@ class TestInvitation:
         assert invitation.id is not None
         assert invitation.workspace_id == workspace.id
         assert invitation.email == "invitee@example.com"
-        assert invitation.role.slug == "editor"
+        assert invitation.role == WorkspaceRole.EDITOR
         assert invitation.status == InvitationStatus.PENDING
         assert invitation.invited_by == inviter.id
         assert invitation.token == token
@@ -371,23 +300,11 @@ class TestInvitation:
         session.add(workspace)
         await session.flush()
 
-        # Create admin role for invitation
-        from tracecat.db.models import Role
-
-        admin_role = Role(
-            id=uuid.uuid4(),
-            name="Admin",
-            slug="admin",
-            organization_id=org.id,
-        )
-        session.add(admin_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation = Invitation(
             workspace_id=workspace.id,
             email="admin@example.com",
-            role_id=admin_role.id,
+            role=WorkspaceRole.ADMIN,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -397,7 +314,7 @@ class TestInvitation:
         await session.commit()
         await session.refresh(invitation)
 
-        assert invitation.role.slug == "admin"
+        assert invitation.role == WorkspaceRole.ADMIN
 
     @pytest.mark.anyio
     async def test_workspace_invitation_status_transition(self, session: AsyncSession):
@@ -419,23 +336,11 @@ class TestInvitation:
         session.add(workspace)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        editor_role = Role(
-            id=uuid.uuid4(),
-            name="Editor",
-            slug="editor",
-            organization_id=org.id,
-        )
-        session.add(editor_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation = Invitation(
             workspace_id=workspace.id,
             email="invitee@example.com",
-            role_id=editor_role.id,
+            role=WorkspaceRole.EDITOR,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -471,23 +376,11 @@ class TestInvitation:
         session.add(workspace)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        editor_role = Role(
-            id=uuid.uuid4(),
-            name="Editor",
-            slug="editor",
-            organization_id=org.id,
-        )
-        session.add(editor_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation = Invitation(
             workspace_id=workspace.id,
             email="invitee@example.com",
-            role_id=editor_role.id,
+            role=WorkspaceRole.EDITOR,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -527,23 +420,11 @@ class TestInvitation:
         session.add(workspace)
         await session.flush()
 
-        # Create role for invitation
-        from tracecat.db.models import Role
-
-        editor_role = Role(
-            id=uuid.uuid4(),
-            name="Editor",
-            slug="editor",
-            organization_id=org.id,
-        )
-        session.add(editor_role)
-        await session.flush()
-
         token = uuid.uuid4().hex + uuid.uuid4().hex[:32]
         invitation1 = Invitation(
             workspace_id=workspace.id,
             email="invitee1@example.com",
-            role_id=editor_role.id,
+            role=WorkspaceRole.EDITOR,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,
@@ -556,7 +437,7 @@ class TestInvitation:
         invitation2 = Invitation(
             workspace_id=workspace.id,
             email="invitee2@example.com",
-            role_id=editor_role.id,
+            role=WorkspaceRole.EDITOR,
             status=InvitationStatus.PENDING,
             invited_by=None,
             token=token,  # Same token

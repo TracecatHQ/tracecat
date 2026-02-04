@@ -67,6 +67,7 @@ class TestOrganizationMembershipModel:
         membership = OrganizationMembership(
             user_id=user.id,
             organization_id=org.id,
+            role=OrgRole.MEMBER,
         )
         session.add(membership)
         await session.commit()
@@ -81,8 +82,126 @@ class TestOrganizationMembershipModel:
         fetched = result.scalar_one()
         assert fetched.user_id == user.id
         assert fetched.organization_id == org.id
+        assert fetched.role == OrgRole.MEMBER
         assert fetched.created_at is not None
         assert fetched.updated_at is not None
+
+    @pytest.mark.anyio
+    async def test_organization_membership_with_admin_role(self, session: AsyncSession):
+        """Test creating membership with admin role."""
+        org = Organization(
+            id=uuid.uuid4(),
+            name="Admin Test Org",
+            slug=f"admin-org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+
+        user = User(
+            id=uuid.uuid4(),
+            email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+            role=OrgRole.ADMIN,
+        )
+        session.add(membership)
+        await session.commit()
+
+        result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+            )
+        )
+        fetched = result.scalar_one()
+        assert fetched.role == OrgRole.ADMIN
+
+    @pytest.mark.anyio
+    async def test_organization_membership_with_owner_role(self, session: AsyncSession):
+        """Test creating membership with owner role."""
+        org = Organization(
+            id=uuid.uuid4(),
+            name="Owner Test Org",
+            slug=f"owner-org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+
+        user = User(
+            id=uuid.uuid4(),
+            email=f"owner-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+            role=OrgRole.OWNER,
+        )
+        session.add(membership)
+        await session.commit()
+
+        result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+            )
+        )
+        fetched = result.scalar_one()
+        assert fetched.role == OrgRole.OWNER
+
+    @pytest.mark.anyio
+    async def test_organization_membership_default_role(self, session: AsyncSession):
+        """Test that default role is MEMBER when not specified."""
+        org = Organization(
+            id=uuid.uuid4(),
+            name="Default Role Org",
+            slug=f"default-org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        session.add(org)
+
+        user = User(
+            id=uuid.uuid4(),
+            email=f"default-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.flush()
+
+        # Create membership without specifying role
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=org.id,
+        )
+        session.add(membership)
+        await session.commit()
+
+        result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+            )
+        )
+        fetched = result.scalar_one()
+        assert fetched.role == OrgRole.MEMBER
 
     @pytest.mark.anyio
     async def test_organization_membership_cascade_delete_user(
@@ -113,6 +232,7 @@ class TestOrganizationMembershipModel:
         membership = OrganizationMembership(
             user_id=user.id,
             organization_id=org.id,
+            role=OrgRole.MEMBER,
         )
         session.add(membership)
         await session.commit()
@@ -158,6 +278,7 @@ class TestOrganizationMembershipModel:
         membership = OrganizationMembership(
             user_id=user.id,
             organization_id=org.id,
+            role=OrgRole.MEMBER,
         )
         session.add(membership)
         await session.commit()
@@ -206,10 +327,12 @@ class TestOrganizationMembershipModel:
         membership1 = OrganizationMembership(
             user_id=user.id,
             organization_id=org1.id,
+            role=OrgRole.MEMBER,
         )
         membership2 = OrganizationMembership(
             user_id=user.id,
             organization_id=org2.id,
+            role=OrgRole.ADMIN,
         )
         session.add_all([membership1, membership2])
         await session.commit()
@@ -222,8 +345,8 @@ class TestOrganizationMembershipModel:
         )
         memberships = result.scalars().all()
         assert len(memberships) == 2
-        org_ids = {m.organization_id for m in memberships}
-        assert org_ids == {org1.id, org2.id}
+        roles = {m.role for m in memberships}
+        assert roles == {OrgRole.MEMBER, OrgRole.ADMIN}
 
 
 class TestRoleWithOrgRole:
@@ -392,10 +515,12 @@ class TestOrganizationMembershipRelationships:
         membership1 = OrganizationMembership(
             user_id=user.id,
             organization_id=org1.id,
+            role=OrgRole.MEMBER,
         )
         membership2 = OrganizationMembership(
             user_id=user.id,
             organization_id=org2.id,
+            role=OrgRole.ADMIN,
         )
         session.add_all([membership1, membership2])
         await session.commit()
@@ -443,10 +568,12 @@ class TestOrganizationMembershipRelationships:
         membership1 = OrganizationMembership(
             user_id=user1.id,
             organization_id=org.id,
+            role=OrgRole.MEMBER,
         )
         membership2 = OrganizationMembership(
             user_id=user2.id,
             organization_id=org.id,
+            role=OrgRole.ADMIN,
         )
         session.add_all([membership1, membership2])
         await session.commit()

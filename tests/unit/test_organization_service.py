@@ -74,6 +74,7 @@ async def user_in_org1(session: AsyncSession, org1: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=org1.id,
+        role=OrgRole.MEMBER,
     )
     session.add(membership)
     await session.commit()
@@ -98,6 +99,7 @@ async def admin_in_org1(session: AsyncSession, org1: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=org1.id,
+        role=OrgRole.ADMIN,
     )
     session.add(membership)
     await session.commit()
@@ -122,6 +124,7 @@ async def user_in_org2(session: AsyncSession, org2: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=org2.id,
+        role=OrgRole.MEMBER,
     )
     session.add(membership)
     await session.commit()
@@ -312,6 +315,7 @@ class TestOrganizationServiceDeleteMember:
         membership = OrganizationMembership(
             user_id=superuser.id,
             organization_id=org1.id,
+            role=OrgRole.OWNER,
         )
         session.add(membership)
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -543,6 +547,7 @@ class TestOrganizationServiceAddMember:
 
         assert membership.user_id == new_user.id
         assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.MEMBER
 
     @pytest.mark.anyio
     async def test_add_member_with_admin_role(
@@ -573,8 +578,7 @@ class TestOrganizationServiceAddMember:
             role=OrgRole.ADMIN,
         )
 
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.ADMIN
 
     @pytest.mark.anyio
     async def test_add_member_with_owner_role(
@@ -605,8 +609,7 @@ class TestOrganizationServiceAddMember:
             role=OrgRole.OWNER,
         )
 
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.OWNER
 
     @pytest.mark.anyio
     async def test_add_member_default_role_is_member(
@@ -636,8 +639,7 @@ class TestOrganizationServiceAddMember:
             organization_id=org1.id,
         )
 
-        assert membership.user_id == new_user.id
-        assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.MEMBER
 
     @pytest.mark.anyio
     async def test_add_member_user_appears_in_list_members(
@@ -690,11 +692,11 @@ class TestOrganizationServiceInvitations:
 
         invitation = await service.create_invitation(
             email="newuser@example.com",
-            role_slug="member",
+            role=OrgRole.MEMBER,
         )
 
         assert invitation.email == "newuser@example.com"
-        assert invitation.role.slug == "member"
+        assert invitation.role == OrgRole.MEMBER
         assert invitation.organization_id == org1.id
         assert invitation.invited_by == admin_in_org1.id
         assert invitation.status == InvitationStatus.PENDING
@@ -714,10 +716,10 @@ class TestOrganizationServiceInvitations:
 
         invitation = await service.create_invitation(
             email="newadmin@example.com",
-            role_slug="admin",
+            role=OrgRole.ADMIN,
         )
 
-        assert invitation.role.slug == "admin"
+        assert invitation.role == OrgRole.ADMIN
 
     @pytest.mark.anyio
     async def test_create_owner_invitation_requires_owner_or_superuser(
@@ -737,7 +739,7 @@ class TestOrganizationServiceInvitations:
         ):
             await service.create_invitation(
                 email="newowner@example.com",
-                role_slug="owner",
+                role=OrgRole.OWNER,
             )
 
     @pytest.mark.anyio
@@ -753,10 +755,10 @@ class TestOrganizationServiceInvitations:
 
         invitation = await service.create_invitation(
             email="newowner@example.com",
-            role_slug="owner",
+            role=OrgRole.OWNER,
         )
 
-        assert invitation.role.slug == "owner"
+        assert invitation.role == OrgRole.OWNER
         assert invitation.email == "newowner@example.com"
 
     @pytest.mark.anyio
@@ -839,22 +841,10 @@ class TestOrganizationServiceInvitations:
         inv2 = await service.create_invitation(email="user2@example.com")
 
         # Create invitation for org2 directly
-        # First, create a role for org2
-        from tracecat.db.models import Role as RoleModel
-
-        org2_role = RoleModel(
-            id=uuid.uuid4(),
-            name="Member",
-            slug="member",
-            organization_id=org2.id,
-        )
-        session.add(org2_role)
-        await session.flush()
-
         org2_invitation = OrganizationInvitation(
             organization_id=org2.id,
             email="org2user@example.com",
-            role_id=org2_role.id,
+            role=OrgRole.MEMBER,
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
             status=InvitationStatus.PENDING,
@@ -1023,22 +1013,10 @@ class TestOrganizationServiceInvitations:
     ):
         """Test revoke_invitation raises error for invitation in different org."""
         # Create invitation in org2 directly
-        # First, create a role for org2
-        from tracecat.db.models import Role as RoleModel
-
-        org2_role = RoleModel(
-            id=uuid.uuid4(),
-            name="Member",
-            slug="member",
-            organization_id=org2.id,
-        )
-        session.add(org2_role)
-        await session.flush()
-
         org2_invitation = OrganizationInvitation(
             organization_id=org2.id,
             email="org2user@example.com",
-            role_id=org2_role.id,
+            role=OrgRole.MEMBER,
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
             status=InvitationStatus.PENDING,
@@ -1068,7 +1046,7 @@ class TestOrganizationServiceInvitations:
         admin_service = OrgService(session, role=admin_role)
         invitation = await admin_service.create_invitation(
             email=user_in_org2.email,
-            role_slug="member",
+            role=OrgRole.MEMBER,
         )
 
         # Accept as user_in_org2
@@ -1084,6 +1062,7 @@ class TestOrganizationServiceInvitations:
 
         assert membership.user_id == user_in_org2.id
         assert membership.organization_id == org1.id
+        assert membership.role == OrgRole.MEMBER
 
         # Verify invitation is marked as accepted
         await session.refresh(invitation)
@@ -1105,7 +1084,7 @@ class TestOrganizationServiceInvitations:
         admin_service = OrgService(session, role=admin_role)
         invitation = await admin_service.create_invitation(
             email=user_in_org2.email,
-            role_slug="member",
+            role=OrgRole.MEMBER,
         )
 
         user_role = Role(
@@ -1137,7 +1116,7 @@ class TestOrganizationServiceInvitations:
         admin_service = OrgService(session, role=admin_role)
         invitation = await admin_service.create_invitation(
             email=user_in_org2.email,
-            role_slug="member",
+            role=OrgRole.MEMBER,
         )
 
         # Create a different user with different email
@@ -1184,7 +1163,7 @@ class TestOrganizationServiceInvitations:
         admin_service = OrgService(session, role=admin_role)
         invitation = await admin_service.create_invitation(
             email=user_in_org2.email,
-            role_slug="member",
+            role=OrgRole.MEMBER,
         )
         await admin_service.revoke_invitation(invitation.id)
 

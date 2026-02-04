@@ -40,14 +40,17 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
     UserRoleAssignment,
     Workspace,
+)
+from tracecat.db.models import (
     Role as RoleModel,
 )
-from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
+from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
 
@@ -92,62 +95,6 @@ USER_ROLE_TO_ACCESS_LEVEL = {
 }
 
 ORG_OVERRIDE_COOKIE = "tracecat-org-id"
-
-# Mapping from system role slugs to WorkspaceRole/OrgRole enums
-SLUG_TO_WORKSPACE_ROLE: dict[str, WorkspaceRole] = {
-    "admin": WorkspaceRole.ADMIN,
-    "editor": WorkspaceRole.EDITOR,
-    "viewer": WorkspaceRole.VIEWER,
-}
-
-SLUG_TO_ORG_ROLE: dict[str, OrgRole] = {
-    "owner": OrgRole.OWNER,
-    "admin": OrgRole.ADMIN,
-    "member": OrgRole.MEMBER,
-}
-
-
-async def get_user_workspace_role(
-    session: AsyncSession,
-    user_id: UserID,
-    workspace_id: WorkspaceID,
-) -> WorkspaceRole | None:
-    """Look up a user's workspace role from UserRoleAssignment."""
-    stmt = (
-        select(RoleModel.slug)
-        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
-        .where(
-            UserRoleAssignment.user_id == user_id,
-            UserRoleAssignment.workspace_id == workspace_id,
-        )
-    )
-    result = await session.execute(stmt)
-    slug = result.scalar_one_or_none()
-    if slug is None:
-        return None
-    return SLUG_TO_WORKSPACE_ROLE.get(slug)
-
-
-async def get_user_org_role(
-    session: AsyncSession,
-    user_id: UserID,
-    organization_id: OrganizationID,
-) -> OrgRole | None:
-    """Look up a user's org-level role from UserRoleAssignment (workspace_id=NULL)."""
-    stmt = (
-        select(RoleModel.slug)
-        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
-        .where(
-            UserRoleAssignment.user_id == user_id,
-            UserRoleAssignment.organization_id == organization_id,
-            UserRoleAssignment.workspace_id.is_(None),
-        )
-    )
-    result = await session.execute(stmt)
-    slug = result.scalar_one_or_none()
-    if slug is None:
-        return None
-    return SLUG_TO_ORG_ROLE.get(slug)
 
 
 async def compute_effective_scopes(role: Role) -> frozenset[str]:
@@ -518,9 +465,11 @@ async def _resolve_org_for_regular_user(
     Raises:
         HTTPException(400): If user has no org memberships or multiple orgs.
     """
-    svc = MembershipService(session)
-    memberships_with_org = await svc.list_user_memberships_with_org(user_id=user.id)
-    org_ids = {m.org_id for m in memberships_with_org}
+    org_mem_stmt = select(OrganizationMembership.organization_id).where(
+        OrganizationMembership.user_id == user.id
+    )
+    org_membership_result = await session.execute(org_mem_stmt)
+    org_ids = {row[0] for row in org_membership_result.all()}
 
     if len(org_ids) == 0:
         raise HTTPException(
@@ -533,6 +482,22 @@ async def _resolve_org_for_regular_user(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Multiple organizations found. Provide workspace_id to select an organization.",
     )
+
+
+async def _get_org_role(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+) -> OrgRole | None:
+    """Fetch the user's organization-level role."""
+    org_mem_stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user_id,
+        OrganizationMembership.organization_id == organization_id,
+    )
+    org_membership_result = await session.execute(org_mem_stmt)
+    if org_mem := org_membership_result.scalar_one_or_none():
+        return org_mem.role
+    return None
 
 
 async def _authenticate_user(
@@ -562,9 +527,12 @@ async def _authenticate_user(
             )
         organization_id = resolved_org_id
 
-        # Resolve org role (still populated for backward compat)
-        org_role = await get_user_org_role(session, user.id, organization_id)
-        is_org_admin = org_role in (OrgRole.OWNER, OrgRole.ADMIN)
+        # Check if user is an org owner/admin - they can access all workspaces
+        org_role = await _get_org_role(session, user.id, organization_id)
+        is_org_admin = org_role in (
+            OrgRole.OWNER,
+            OrgRole.ADMIN,
+        )  # Can't use Role.is_org_admin yet - Role not built
 
         if is_org_admin:
             logger.debug(
@@ -574,16 +542,13 @@ async def _authenticate_user(
             )
         else:
             # Regular user - validate workspace membership
-            await _get_membership_with_cache(
+            membership_with_org = await _get_membership_with_cache(
                 request=request,
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
             )
-            # Populate workspace role for backward compat
-            workspace_role = await get_user_workspace_role(
-                session, user.id, workspace_id
-            )
+            workspace_role = membership_with_org.membership.role
     else:
         if user.is_superuser:
             organization_id = await _resolve_org_for_superuser(request, session)
@@ -592,7 +557,7 @@ async def _authenticate_user(
 
     # Fetch org-level role if not already fetched (backward compat)
     if org_role is None:
-        org_role = await get_user_org_role(session, user.id, organization_id)
+        org_role = await _get_org_role(session, user.id, organization_id)
 
     return get_role_from_user(
         user,
@@ -917,6 +882,8 @@ def RoleACL(
             )
 
         return Depends(role_dependency_not_req_ws)
+    else:
+        raise ValueError(f"Invalid require_workspace value: {require_workspace}")
 
 
 # --- Platform-level (Superuser) Authentication ---

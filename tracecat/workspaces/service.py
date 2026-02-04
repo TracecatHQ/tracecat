@@ -20,11 +20,7 @@ from tracecat.db.models import (
     OrganizationMembership,
     Ownership,
     User,
-    UserRoleAssignment,
     Workspace,
-)
-from tracecat.db.models import (
-    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatException,
@@ -265,21 +261,10 @@ class WorkspaceService(BaseOrgService):
         # Default expiry: 7 days
         expires_at = datetime.now(UTC) + timedelta(days=7)
 
-        # Look up the role by slug
-        role_slug = params.role.value.lower()  # e.g., "EDITOR" -> "editor"
-        role_stmt = select(RoleModel).where(
-            RoleModel.organization_id == self.organization_id,
-            RoleModel.slug == role_slug,
-        )
-        role_result = await self.session.execute(role_stmt)
-        role_record = role_result.scalar_one_or_none()
-        if role_record is None:
-            raise TracecatValidationError(f"Role with slug '{role_slug}' not found")
-
         invitation = Invitation(
             workspace_id=workspace_id,
             email=params.email,
-            role_id=role_record.id,
+            role=params.role,
             status=InvitationStatus.PENDING,
             invited_by=self.role.user_id if self.role else None,
             token=self._generate_invitation_token(),
@@ -454,17 +439,9 @@ class WorkspaceService(BaseOrgService):
         membership = Membership(
             user_id=user_id,
             workspace_id=invitation.workspace_id,
+            role=invitation.role,
         )
         self.session.add(membership)
-
-        # Create role assignment from the invitation's role
-        role_assignment = UserRoleAssignment(
-            organization_id=self.organization_id,
-            user_id=user_id,
-            workspace_id=invitation.workspace_id,
-            role_id=invitation.role_id,
-        )
-        self.session.add(role_assignment)
 
         await self.session.commit()
         await self.session.refresh(membership)

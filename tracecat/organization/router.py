@@ -18,10 +18,6 @@ from tracecat.db.models import (
     OrganizationInvitation,
     OrganizationMembership,
     User,
-    UserRoleAssignment,
-)
-from tracecat.db.models import (
-    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -224,25 +220,12 @@ async def get_current_org_member(
             detail="No organization context",
         )
 
-    # Query user, membership, and org-level role assignment
-    # We need to left join on UserRoleAssignment and Role to get the org-level role
+    # Query user and membership directly (no admin access required)
     statement = (
-        select(User, RoleModel.id, RoleModel.slug)
+        select(User, OrganizationMembership.role)
         .join(
             OrganizationMembership,
             OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
-        )
-        .outerjoin(
-            UserRoleAssignment,
-            and_(
-                UserRoleAssignment.user_id == User.id,  # pyright: ignore[reportArgumentType]
-                UserRoleAssignment.organization_id == role.organization_id,  # pyright: ignore[reportArgumentType]
-                UserRoleAssignment.workspace_id.is_(None),  # Org-level assignment
-            ),
-        )
-        .outerjoin(
-            RoleModel,
-            RoleModel.id == UserRoleAssignment.role_id,
         )
         .where(
             and_(
@@ -255,14 +238,13 @@ async def get_current_org_member(
     row = result.tuples().one_or_none()
 
     if row is not None:
-        user, role_id, role_slug = row
+        user, org_role = row
         return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role_id=role_id,
-            role_slug=role_slug,
+            role=org_role,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
@@ -281,8 +263,7 @@ async def get_current_org_member(
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                role_id=None,
-                role_slug=OrgRole.OWNER,  # Superusers have implicit owner role
+                role=OrgRole.OWNER,  # Superusers have implicit owner role
                 is_active=user.is_active,
                 is_verified=user.is_verified,
                 last_login_at=user.last_login_at,
@@ -378,8 +359,7 @@ async def update_org_member(
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role_id=role_info.role_id,
-            role_slug=role_info.role_slug,
+            role=role_info,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
@@ -439,8 +419,7 @@ async def create_invitation(
     try:
         invitation = await service.create_invitation(
             email=params.email,
-            role_id=params.role_id,
-            role_slug=params.role_slug,
+            role=params.role,
         )
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -458,15 +437,39 @@ async def create_invitation(
         id=invitation.id,
         organization_id=invitation.organization_id,
         email=invitation.email,
-        role_id=invitation.role_id,
-        role_slug=invitation.role.slug,
-        role_name=invitation.role.name,
+        role=invitation.role,
         status=invitation.status,
         invited_by=invitation.invited_by,
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
     )
+
+
+@router.get("/invitations", response_model=list[OrgInvitationRead])
+async def list_invitations(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+    invitation_status: InvitationStatus | None = Query(None, alias="status"),
+) -> list[OrgInvitationRead]:
+    """List invitations for the organization."""
+    service = OrgService(session, role=role)
+    invitations = await service.list_invitations(status=invitation_status)
+    return [
+        OrgInvitationRead(
+            id=inv.id,
+            organization_id=inv.organization_id,
+            email=inv.email,
+            role=inv.role,
+            status=inv.status,
+            invited_by=inv.invited_by,
+            expires_at=inv.expires_at,
+            created_at=inv.created_at,
+            accepted_at=inv.accepted_at,
+        )
+        for inv in invitations
+    ]
 
 
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -640,8 +643,7 @@ async def get_invitation_by_token(
             organization_name=org.name,
             inviter_name=inviter_name,
             inviter_email=inviter_email,
-            role_slug=invitation.role.slug,
-            role_name=invitation.role.name,
+            role=invitation.role,
             status=invitation.status,
             expires_at=invitation.expires_at,
             email_matches=email_matches,
