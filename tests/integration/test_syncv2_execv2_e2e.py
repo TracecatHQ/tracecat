@@ -33,7 +33,11 @@ from temporalio.worker import Worker
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.db.models import Organization
+from tracecat.db.models import (
+    Organization,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+)
 from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
@@ -1328,3 +1332,93 @@ class TestMultitenantWorkloads:
         assert result_a.result["locked_version"] == sync_result.version.version
         assert result_b.result["workspace"] == "B"
         assert result_b.result["locked_version"] == sync_result.version.version
+
+
+# =============================================================================
+# Test Class: Version Isolation Artifact Resolution
+# =============================================================================
+
+
+@pytest.mark.integration
+class TestVersionIsolationArtifactResolution:
+    """Tests for registry artifact resolution with version isolation.
+
+    These tests verify that when multiple registry versions exist in the database,
+    the artifact resolution correctly returns the locked version's tarball,
+    not the current version's tarball.
+    """
+
+    @pytest.mark.anyio
+    async def test_registry_artifacts_resolve_locked_version_not_current(
+        self,
+        subprocess_db_env,
+        committing_session: AsyncSession,
+        test_role: Role,
+    ) -> None:
+        """Test that artifact resolution uses locked version, not current version.
+
+        This tests the critical execution path: when a workflow is locked to v1
+        but v2 is current, the executor should resolve v1's tarball_uri.
+
+        Uses DEFAULT_REGISTRY_ORIGIN (tracecat_registry) since get_registry_artifacts_for_lock
+        only queries platform tables for this origin.
+        """
+        # Ensure organization_id is set
+        assert test_role.organization_id is not None
+        organization_id = test_role.organization_id
+
+        # Use unique versions to avoid conflicts with other tests
+        V1 = f"isolation-test-v1.0.0-{uuid.uuid4().hex[:8]}"
+        V2 = f"isolation-test-v2.0.0-{uuid.uuid4().hex[:8]}"
+
+        # Setup: Get or create platform registry repo
+        result = await committing_session.execute(
+            select(PlatformRegistryRepository).where(
+                PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+            )
+        )
+        repo = result.scalar_one_or_none()
+        if repo is None:
+            repo = PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN)
+            committing_session.add(repo)
+            await committing_session.flush()
+
+        # Create v1
+        v1 = PlatformRegistryVersion(
+            repository_id=repo.id,
+            version=V1,
+            manifest={"version": V1, "actions": {}},
+            tarball_uri=f"s3://{DEFAULT_REGISTRY_ORIGIN}/{V1}.tar.gz",
+        )
+        committing_session.add(v1)
+        await committing_session.flush()
+
+        repo.current_version_id = v1.id
+        await committing_session.commit()
+
+        # Create v2 and set as current
+        v2 = PlatformRegistryVersion(
+            repository_id=repo.id,
+            version=V2,
+            manifest={"version": V2, "actions": {}},
+            tarball_uri=f"s3://{DEFAULT_REGISTRY_ORIGIN}/{V2}.tar.gz",
+        )
+        committing_session.add(v2)
+        await committing_session.flush()
+
+        repo.current_version_id = v2.id  # v2 is now current
+        await committing_session.commit()
+
+        # Action: Resolve artifacts for v1's lock (not current)
+        artifacts = await get_registry_artifacts_for_lock(
+            origins={DEFAULT_REGISTRY_ORIGIN: V1},  # Locked to v1
+            organization_id=organization_id,
+        )
+
+        # Assertions: Should get v1's tarball, not v2's
+        assert len(artifacts) == 1
+        artifact = artifacts[0]
+        assert artifact.origin == DEFAULT_REGISTRY_ORIGIN
+        assert artifact.version == V1
+        assert V1 in artifact.tarball_uri  # v1's tarball
+        assert V2 not in artifact.tarball_uri  # NOT v2's tarball
