@@ -79,6 +79,22 @@ MODEL_CONFIGS = {
             "required": ["bedrock"],
         },
     ),
+    "azure_openai": ModelConfig(
+        name="azure_openai",  # Placeholder; deployment name from AZURE_DEPLOYMENT_NAME will be used at runtime
+        provider="azure_openai",
+        org_secret_name="agent-azure_openai-credentials",
+        secrets={
+            "required": ["azure_openai"],
+        },
+    ),
+    "azure_ai": ModelConfig(
+        name="azure_ai",  # Placeholder; model name from AZURE_AI_MODEL_NAME will be used at runtime
+        provider="azure_ai",
+        org_secret_name="agent-azure_ai-credentials",
+        secrets={
+            "required": ["azure_ai"],
+        },
+    ),
     "custom": ModelConfig(
         name="custom",
         provider="custom-model-provider",
@@ -183,6 +199,68 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="Model Name",
                 type="text",
                 description="The name of the model to use from your custom model provider.",
+            ),
+        ],
+    ),
+    "azure_openai": ProviderCredentialConfig(
+        provider="azure_openai",
+        label="Azure OpenAI",
+        fields=[
+            ProviderCredentialField(
+                key="AZURE_API_BASE",
+                label="API Base URL",
+                type="text",
+                description="Your Azure OpenAI resource endpoint (e.g., https://<resource>.openai.azure.com).",
+            ),
+            ProviderCredentialField(
+                key="AZURE_API_VERSION",
+                label="API Version",
+                type="text",
+                description="The Azure OpenAI API version (e.g., 2024-02-15-preview).",
+            ),
+            ProviderCredentialField(
+                key="AZURE_DEPLOYMENT_NAME",
+                label="Deployment Name",
+                type="text",
+                description="The name of your Azure OpenAI model deployment.",
+            ),
+            ProviderCredentialField(
+                key="AZURE_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Azure OpenAI API key. Required if not using Entra token.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="AZURE_AD_TOKEN",
+                label="Entra Token",
+                type="password",
+                description="Your Azure Entra (AD) token. Required if not using API key.",
+                required=False,
+            ),
+        ],
+    ),
+    "azure_ai": ProviderCredentialConfig(
+        provider="azure_ai",
+        label="Azure AI",
+        fields=[
+            ProviderCredentialField(
+                key="AZURE_API_BASE",
+                label="API Base URL",
+                type="text",
+                description="Your Azure AI endpoint (e.g., https://<resource>.services.ai.azure.com/anthropic).",
+            ),
+            ProviderCredentialField(
+                key="AZURE_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Azure AI API key.",
+            ),
+            ProviderCredentialField(
+                key="AZURE_AI_MODEL_NAME",
+                label="Model Name",
+                type="text",
+                description="The model name to use (e.g., claude-sonnet-4-5).",
             ),
         ],
     ),

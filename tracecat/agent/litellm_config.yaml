@@ -37,6 +37,15 @@ model_list:
     litellm_params:
       model: bedrock/*
 
+  # Azure OpenAI wildcard - catches azure/<deployment-name> models
+  - model_name: azure/*
+    litellm_params:
+      model: azure/*
+
+  # Azure AI wildcard - catches azure_ai/<model-name> models
+  - model_name: azure_ai/*
+    litellm_params:
+      model: azure_ai/*
 
   # Catch-all wildcard for any model not explicitly defined, for custom models
   - model_name: "*"

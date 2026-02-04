@@ -342,14 +342,28 @@ class LLMSocketProxy:
                 await writer.drain()
 
                 # Stream response body
-                async for chunk in response.aiter_bytes():
-                    try:
-                        writer.write(chunk)
-                        await writer.drain()
-                    except (ConnectionResetError, BrokenPipeError):
-                        # Client disconnected - this is normal when sandbox exits
-                        logger.debug("Client disconnected during response streaming")
-                        return
+                try:
+                    async for chunk in response.aiter_bytes():
+                        try:
+                            writer.write(chunk)
+                            await writer.drain()
+                        except (ConnectionResetError, BrokenPipeError):
+                            # Client disconnected - this is normal when sandbox exits
+                            logger.debug(
+                                "Client disconnected during response streaming"
+                            )
+                            return
+                except httpx.ReadError:
+                    # Upstream closed - only expected if client also disconnected
+                    if writer.is_closing():
+                        logger.debug(
+                            "Upstream connection closed after client disconnect"
+                        )
+                    else:
+                        logger.warning(
+                            "Upstream connection closed unexpectedly during streaming"
+                        )
+                    return
 
         except httpx.ConnectError as e:
             logger.error("Failed to connect to LiteLLM", error=str(e))
@@ -357,6 +371,12 @@ class LLMSocketProxy:
         except httpx.TimeoutException as e:
             logger.error("LiteLLM request timeout", error=str(e))
             self._emit_error("Gateway timeout")
+        except httpx.ReadError:
+            # Connection closed during request setup - check if client triggered it
+            if writer.is_closing():
+                logger.debug("Connection closed after client disconnect")
+            else:
+                logger.warning("Upstream connection closed unexpectedly")
         except (ConnectionResetError, BrokenPipeError):
             # Client disconnected - this is normal when sandbox exits
             logger.debug("Client disconnected during request forwarding")

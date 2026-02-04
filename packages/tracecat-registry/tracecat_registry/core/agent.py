@@ -121,12 +121,54 @@ custom_model_provider_secret = RegistrySecret(
     - `CUSTOM_MODEL_PROVIDER_BASE_URL`: Optional custom model provider base URL.
 """
 
+azure_openai_secret = RegistrySecret(
+    name="azure_openai",
+    optional_keys=[
+        "AZURE_API_BASE",
+        "AZURE_API_VERSION",
+        "AZURE_DEPLOYMENT_NAME",
+        "AZURE_API_KEY",
+        "AZURE_AD_TOKEN",
+    ],
+    optional=True,
+)
+"""Azure OpenAI credentials.
+
+- name: `azure_openai`
+- optional_keys:
+    - `AZURE_API_BASE`: Azure OpenAI endpoint (e.g., https://<resource>.openai.azure.com).
+    - `AZURE_API_VERSION`: Azure OpenAI API version.
+    - `AZURE_DEPLOYMENT_NAME`: Azure OpenAI deployment name.
+    - `AZURE_API_KEY`: Azure OpenAI API key. Required if not using Entra token.
+    - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key.
+"""
+
+azure_ai_secret = RegistrySecret(
+    name="azure_ai",
+    optional_keys=[
+        "AZURE_API_BASE",
+        "AZURE_API_KEY",
+        "AZURE_AI_MODEL_NAME",
+    ],
+    optional=True,
+)
+"""Azure AI credentials.
+
+- name: `azure_ai`
+- optional_keys:
+    - `AZURE_API_BASE`: Azure AI endpoint (e.g., https://<resource>.services.ai.azure.com/anthropic).
+    - `AZURE_API_KEY`: Azure AI API key.
+    - `AZURE_AI_MODEL_NAME`: Model name to use (e.g., claude-sonnet-4-5).
+"""
+
 PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     anthropic_secret,
     openai_secret,
     gemini_secret,
     bedrock_secret,
     custom_model_provider_secret,
+    azure_openai_secret,
+    azure_ai_secret,
 ]
 
 
