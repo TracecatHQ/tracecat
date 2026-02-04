@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -179,3 +179,37 @@ class RegistryIndexRead(BaseModel):
     def action(self) -> str:
         """Full action identifier."""
         return f"{self.namespace}.{self.name}"
+
+
+# Version Diff Schemas
+
+
+class ActionInterfaceChange(BaseModel):
+    """Describes a change to an action's interface (expects or returns)."""
+
+    field: Literal["expects", "returns"]
+    change_type: Literal["added", "removed", "modified"]
+    old_value: dict[str, Any] | None = None
+    new_value: dict[str, Any] | None = None
+
+
+class ActionChange(BaseModel):
+    """Describes a change to an action between two versions."""
+
+    action_name: str
+    change_type: Literal["added", "removed", "modified"]
+    interface_changes: list[ActionInterfaceChange] = Field(default_factory=list)
+    description_changed: bool = False
+
+
+class VersionDiff(BaseModel):
+    """Result of comparing two registry versions."""
+
+    base_version_id: UUID
+    base_version: str
+    compare_version_id: UUID
+    compare_version: str
+    actions_added: list[str] = Field(default_factory=list)
+    actions_removed: list[str] = Field(default_factory=list)
+    actions_modified: list[ActionChange] = Field(default_factory=list)
+    total_changes: int = 0

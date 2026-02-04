@@ -37,6 +37,7 @@ from tracecat.registry.repositories.schemas import (
     RegistryVersionRead,
 )
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.versions.schemas import VersionDiff
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
@@ -605,3 +606,191 @@ async def promote_registry_version(
         current_version_id=version_id,
         version=version_string,
     )
+
+
+@router.delete(
+    "/{repository_id}/versions/{version_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_registry_version(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
+    ),
+    session: AsyncDBSession,
+    repository_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> None:
+    """Delete a specific registry version.
+
+    Safety checks:
+    - Cannot delete the currently promoted version
+    - Cannot delete versions referenced by published workflow definitions
+
+    For platform registries, use the admin API.
+    """
+    repos_service = RegistryReposService(session, role)
+    versions_service = RegistryVersionsService(session, role)
+
+    try:
+        repository = await repos_service.get_repository_by_id(repository_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
+        ) from e
+
+    # Check entitlement for custom registry (non-default repositories)
+    if repository.origin != DEFAULT_REGISTRY_ORIGIN:
+        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+
+    version = await versions_service.get_version(version_id)
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry version not found",
+        )
+
+    if version.repository_id != repository_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Version does not belong to this repository",
+        )
+
+    # Validate that the version can be deleted
+    try:
+        await repos_service.validate_version_deletion(repository, version)
+    except RegistryError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    await versions_service.delete_version(version)
+    logger.info(
+        "Deleted registry version",
+        repository_id=str(repository_id),
+        version_id=str(version_id),
+        version=version.version,
+    )
+
+
+@router.get(
+    "/{repository_id}/versions/{version_id}/diff",
+    response_model=VersionDiff,
+)
+async def compare_registry_versions(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+    session: AsyncDBSession,
+    repository_id: uuid.UUID,
+    version_id: uuid.UUID,
+    compare_to: uuid.UUID,
+) -> VersionDiff:
+    """Compare two registry versions and return the diff.
+
+    Args:
+        repository_id: The repository ID
+        version_id: The base version ID (typically older)
+        compare_to: The version ID to compare against (typically newer)
+
+    Returns:
+        VersionDiff with added, removed, and modified actions
+    """
+    repos_service = RegistryReposService(session, role)
+    versions_service = RegistryVersionsService(session, role)
+
+    try:
+        await repos_service.get_repository_by_id(repository_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
+        ) from e
+
+    base_version = await versions_service.get_version(version_id)
+    if base_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base version not found",
+        )
+
+    compare_version = await versions_service.get_version(compare_to)
+    if compare_version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Compare version not found",
+        )
+
+    # Ensure both versions belong to the same repository
+    if base_version.repository_id != repository_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base version does not belong to this repository",
+        )
+    if compare_version.repository_id != repository_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Compare version does not belong to this repository",
+        )
+
+    return await versions_service.compare_versions(base_version, compare_version)
+
+
+@router.get(
+    "/{repository_id}/versions/{version_id}/previous",
+    response_model=RegistryVersionRead | None,
+)
+async def get_previous_registry_version(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+    session: AsyncDBSession,
+    repository_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> RegistryVersionRead | None:
+    """Get the previous version before the specified version.
+
+    Useful for quick rollback UX - returns the version to rollback to.
+    Returns null if there is no previous version.
+    """
+    repos_service = RegistryReposService(session, role)
+    versions_service = RegistryVersionsService(session, role)
+
+    try:
+        await repos_service.get_repository_by_id(repository_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
+        ) from e
+
+    # Verify the version exists
+    version = await versions_service.get_version(version_id)
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry version not found",
+        )
+
+    if version.repository_id != repository_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Version does not belong to this repository",
+        )
+
+    previous = await versions_service.get_previous_version(repository_id, version_id)
+    if previous is None:
+        return None
+
+    return RegistryVersionRead.model_validate(previous)

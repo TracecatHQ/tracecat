@@ -1,6 +1,12 @@
 "use client"
 
-import { CopyIcon, GitBranchIcon, RefreshCcw, TrashIcon } from "lucide-react"
+import {
+  CopyIcon,
+  GitBranchIcon,
+  HistoryIcon,
+  RefreshCcw,
+  TrashIcon,
+} from "lucide-react"
 import type { RegistryRepositoryReadMinimal } from "@/client"
 import {
   DropdownMenuGroup,
@@ -14,6 +20,7 @@ interface RepositoryActionsProps {
   onSync: (repo: RegistryRepositoryReadMinimal) => void
   onDelete: (repo: RegistryRepositoryReadMinimal) => void
   onChangeCommit: (repo: RegistryRepositoryReadMinimal) => void
+  onVersions: (repo: RegistryRepositoryReadMinimal) => void
 }
 
 export function RepositoryActions({
@@ -21,6 +28,7 @@ export function RepositoryActions({
   onSync,
   onDelete,
   onChangeCommit,
+  onVersions,
 }: RepositoryActionsProps) {
   const handleCopyOrigin = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -83,6 +91,11 @@ export function RepositoryActions({
     onChangeCommit(repository)
   }
 
+  const handleVersionsClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onVersions(repository)
+  }
+
   return (
     <DropdownMenuGroup>
       <DropdownMenuItem
@@ -119,6 +132,16 @@ export function RepositoryActions({
         >
           <GitBranchIcon className="mr-2 size-4" />
           <span>Change commit</span>
+        </DropdownMenuItem>
+      )}
+
+      {repository.current_version_id && (
+        <DropdownMenuItem
+          className="flex items-center text-xs"
+          onClick={handleVersionsClick}
+        >
+          <HistoryIcon className="mr-2 size-4" />
+          <span>Manage versions</span>
         </DropdownMenuItem>
       )}
 

@@ -11,6 +11,36 @@ export const $AccessLevel = {
     This enum will be removed in a future version.`,
 } as const
 
+export const $ActionChange = {
+  properties: {
+    action_name: {
+      type: "string",
+      title: "Action Name",
+    },
+    change_type: {
+      type: "string",
+      enum: ["added", "removed", "modified"],
+      title: "Change Type",
+    },
+    interface_changes: {
+      items: {
+        $ref: "#/components/schemas/ActionInterfaceChange",
+      },
+      type: "array",
+      title: "Interface Changes",
+    },
+    description_changed: {
+      type: "boolean",
+      title: "Description Changed",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["action_name", "change_type"],
+  title: "ActionChange",
+  description: "Describes a change to an action between two versions.",
+} as const
+
 export const $ActionControlFlow = {
   properties: {
     run_if: {
@@ -216,6 +246,50 @@ export const $ActionEdge = {
   description: `Represents an incoming edge to an action.
 
 Stored in Action.upstream_edges to represent incoming connections.`,
+} as const
+
+export const $ActionInterfaceChange = {
+  properties: {
+    field: {
+      type: "string",
+      enum: ["expects", "returns"],
+      title: "Field",
+    },
+    change_type: {
+      type: "string",
+      enum: ["added", "removed", "modified"],
+      title: "Change Type",
+    },
+    old_value: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Value",
+    },
+    new_value: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["field", "change_type"],
+  title: "ActionInterfaceChange",
+  description:
+    "Describes a change to an action's interface (expects or returns).",
 } as const
 
 export const $ActionPositionUpdate = {
@@ -17774,6 +17848,64 @@ export const $VercelChatRequest = {
   required: ["message"],
   title: "VercelChatRequest",
   description: "Vercel AI SDK format request with structured UI messages.",
+} as const
+
+export const $VersionDiff = {
+  properties: {
+    base_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Base Version Id",
+    },
+    base_version: {
+      type: "string",
+      title: "Base Version",
+    },
+    compare_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Compare Version Id",
+    },
+    compare_version: {
+      type: "string",
+      title: "Compare Version",
+    },
+    actions_added: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions Added",
+    },
+    actions_removed: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions Removed",
+    },
+    actions_modified: {
+      items: {
+        $ref: "#/components/schemas/ActionChange",
+      },
+      type: "array",
+      title: "Actions Modified",
+    },
+    total_changes: {
+      type: "integer",
+      title: "Total Changes",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "base_version_id",
+    "base_version",
+    "compare_version_id",
+    "compare_version",
+  ],
+  title: "VersionDiff",
+  description: "Result of comparing two registry versions.",
 } as const
 
 export const $VideoUrl = {
