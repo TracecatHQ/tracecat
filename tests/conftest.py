@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import urlparse, urlunparse
 
 # Set workflow return strategy BEFORE importing tracecat modules
 # test_workflows.py was written when we returned the full context by default
@@ -85,8 +86,40 @@ AGENT_TASK_QUEUE = f"shared-agent-queue-{WORKER_ID}"
 IN_DOCKER = os.path.exists("/.dockerenv")
 
 
-def _is_temporal_test_run(args: list[str]) -> bool:
-    return any("tests/temporal" in arg for arg in args)
+def _is_temporal_test_run(request: pytest.FixtureRequest) -> bool:
+    forced = os.environ.get("TRACECAT__TEST_SUITE")
+    if forced is not None:
+        return forced.lower() == "temporal"
+
+    session_items = getattr(request.session, "items", None)
+    if session_items:
+        for item in session_items:
+            nodeid = getattr(item, "nodeid", "")
+            if "tests/temporal" in nodeid:
+                return True
+
+    args = getattr(request.config, "args", None)
+    if args:
+        return any("tests/temporal" in str(arg) for arg in args)
+
+    return False
+
+
+def _rewrite_db_host(db_uri: str, *, host: str) -> str:
+    parsed = urlparse(db_uri)
+    if not parsed.hostname or parsed.hostname != "postgres_db":
+        return db_uri
+
+    userinfo = ""
+    if parsed.username:
+        userinfo = parsed.username
+        if parsed.password:
+            userinfo += f":{parsed.password}"
+        userinfo += "@"
+
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{userinfo}{host}{port}"
+    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def _minio_credentials() -> tuple[str, str]:
@@ -825,8 +858,10 @@ def env_sandbox(
     api_host = "api" if IN_DOCKER else "localhost"
     blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
-    if _is_temporal_test_run(list(request.config.args)):
+    if _is_temporal_test_run(request):
         db_uri = config.TRACECAT__DB_URI
+        if not IN_DOCKER:
+            db_uri = _rewrite_db_host(db_uri, host="localhost")
     else:
         db_uri = TEST_DB_CONFIG.test_url_sync
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
