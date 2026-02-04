@@ -53,7 +53,9 @@ export function OAuthIntegrationDetailsDialog({
   })
 
   const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
-  const isServiceAccountProvider = serviceAccountProviders.includes(provider?.metadata.id ?? "")
+  const isServiceAccountProvider = serviceAccountProviders.includes(
+    provider?.metadata.id ?? ""
+  )
   const clientIdLabel = isServiceAccountProvider
     ? "Service account email"
     : "Client ID"
