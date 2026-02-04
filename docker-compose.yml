@@ -140,14 +140,14 @@ services:
       - core
       - core-db
       - temporal
-    # Required for nsjail sandbox
-    cap_add:
-      - SYS_ADMIN
-    security_opt:
-      - seccomp:unconfined
-     # Required for pasta userspace networking (creates TAP device in sandbox netns)
-    devices:
-      - /dev/net/tun:/dev/net/tun
+    # Required for nsjail sandbox (uncomment if using nsjail)
+    # cap_add:
+    #   - SYS_ADMIN
+    # security_opt:
+    #   - seccomp:unconfined
+    # # Required for pasta userspace networking (creates TAP device in sandbox netns)
+    # devices:
+    #   - /dev/net/tun:/dev/net/tun
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -208,14 +208,14 @@ services:
         - core
         - core-db
         - temporal
-      # Required for nsjail sandbox (agent runtime isolation)
-      cap_add:
-        - SYS_ADMIN
-      security_opt:
-        - seccomp:unconfined
-      # Required for pasta userspace networking (creates TAP device in sandbox netns)
-      devices:
-        - /dev/net/tun:/dev/net/tun
+      # Required for nsjail sandbox (uncomment if using nsjail)
+      # cap_add:
+      #   - SYS_ADMIN
+      # security_opt:
+      #   - seccomp:unconfined
+      # # Required for pasta userspace networking (creates TAP device in sandbox netns)
+      # devices:
+      #   - /dev/net/tun:/dev/net/tun
       environment:
         # Common
         LOG_LEVEL: ${LOG_LEVEL}

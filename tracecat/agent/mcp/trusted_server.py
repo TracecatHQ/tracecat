@@ -151,6 +151,7 @@ async def execute_user_mcp_tool(
         logger.warning("MCP token verification failed", error=str(e))
         raise ToolError("Authentication failed") from None
 
+    _set_role_context(claims)
     # Find the server config in claims
     server_config = None
     for cfg in claims.user_mcp_servers:
@@ -224,6 +225,7 @@ async def execute_internal_tool(
         logger.warning("MCP token verification failed", error=str(e))
         raise ToolError("Authentication failed") from None
 
+    _set_role_context(claims)
     # Validate tool is in allowed_internal_tools
     if tool_name not in claims.allowed_internal_tools:
         logger.warning(

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 from typing import TYPE_CHECKING
 
 import orjson
@@ -29,7 +30,7 @@ from tracecat.agent.common.socket_io import (
     SocketStreamWriter,
     read_message,
 )
-from tracecat.agent.sandbox.llm_bridge import LLMBridge
+from tracecat.agent.sandbox.llm_bridge import LLM_BRIDGE_DEFAULT_PORT, LLMBridge
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -97,16 +98,32 @@ async def run_sandboxed_runtime() -> None:
         # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
         payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
 
-        # Start LLM bridge only when:
-        # - network is isolated (no internet access) AND
-        # - we are running in nsjail mode (port 4000 is namespaced, so no conflicts)
-        #
-        # In direct subprocess mode there's no network namespace, so binding 127.0.0.1:4000
-        # can collide with the host LiteLLM process (which also uses port 4000).
-        if not (payload.config.enable_internet_access or TRACECAT__DISABLE_NSJAIL):
-            llm_bridge = LLMBridge(socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH)
-            await llm_bridge.start()
-            logger.info("LLM bridge started (nsjail network-isolated mode)")
+        # Start LLM bridge when network is isolated (no internet access)
+        # Port allocation strategy:
+        # - NSJail mode: Fixed port 4000 (isolated by network namespace)
+        # - Direct mode: Dynamic port (port=0) to avoid clashes between concurrent runs
+        if not payload.config.enable_internet_access:
+            if TRACECAT__DISABLE_NSJAIL:
+                # Direct mode: use dynamic port to avoid clashes with concurrent agents
+                llm_bridge = LLMBridge(
+                    socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
+                    port=0,  # OS assigns available port
+                )
+                bridge_port = await llm_bridge.start()
+                # Pass port to runtime via env var (runtime reads it on startup)
+                os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
+                logger.info(
+                    "LLM bridge started (direct mode with dynamic port)",
+                    port=bridge_port,
+                )
+            else:
+                # NSJail mode: fixed port 4000 (network namespace isolated)
+                llm_bridge = LLMBridge(
+                    socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
+                    port=LLM_BRIDGE_DEFAULT_PORT,
+                )
+                await llm_bridge.start()
+                logger.info("LLM bridge started (nsjail network-isolated mode)")
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),

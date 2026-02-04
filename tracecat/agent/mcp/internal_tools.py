@@ -86,6 +86,7 @@ def _build_role(claims: MCPTokenClaims) -> Role:
         type="service",
         service_id="tracecat-mcp",
         workspace_id=claims.workspace_id,
+        organization_id=claims.organization_id,
         user_id=claims.user_id,
     )
 

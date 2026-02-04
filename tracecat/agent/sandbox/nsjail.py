@@ -213,9 +213,12 @@ async def _spawn_direct_runtime(
     This bypasses nsjail and runs ClaudeAgentRuntime directly in the current
     Python environment. Used when TRACECAT__DISABLE_NSJAIL=true.
 
-    WARNING: This mode has no isolation and should only be used for development/testing.
+    Security: Uses minimal base environment to prevent host secrets from
+    leaking into the subprocess. Only passes socket paths and essential
+    Python configuration.
     """
     from tracecat.agent.sandbox.config import (
+        AGENT_SANDBOX_BASE_ENV,
         JAILED_CONTROL_SOCKET_PATH,
         TRUSTED_MCP_SOCKET_PATH,
     )
@@ -234,10 +237,16 @@ async def _spawn_direct_runtime(
         mcp_socket_path=str(TRUSTED_MCP_SOCKET_PATH),
     )
 
+    # Use minimal base environment instead of inheriting full host env
+    # This prevents secrets and sensitive env vars from leaking
     env = {
-        **dict(os.environ),
-        # Point the runtime at the orchestrator's per-job control socket.
+        **AGENT_SANDBOX_BASE_ENV,
+        # Override for direct mode
+        "TRACECAT__DISABLE_NSJAIL": "true",
+        # Point the runtime at the orchestrator's per-job control socket
         "TRACECAT__AGENT_CONTROL_SOCKET_PATH": str(control_socket_path),
+        # Use host's HOME for Claude SDK session storage
+        "HOME": os.environ.get("HOME", "/tmp"),
     }
     if llm_socket_path is not None:
         # If the runtime uses LLMBridge (internet access disabled), it must connect
