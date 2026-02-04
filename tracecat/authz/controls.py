@@ -1,12 +1,11 @@
 import asyncio
 import functools
 import re
-import warnings
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
@@ -121,54 +120,6 @@ class HasRole(Protocol):
     """Protocol for services that have a role attribute."""
 
     role: Role
-
-
-def require_access_level(level: AccessLevel) -> Callable[[T], T]:
-    """Decorator that protects a `Service` method with a minimum access level requirement.
-
-    If the caller does not have at least the required access level, a TracecatAuthorizationError is raised.
-
-    .. deprecated::
-        Use `@require_scope` instead. This decorator will be removed in a future version.
-    """
-    warnings.warn(
-        "require_access_level is deprecated, use require_scope instead",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    def check(self: HasRole):
-        if not hasattr(self, "role"):
-            raise AttributeError("Service must have a 'role' attribute")
-
-        if not isinstance(self.role, Role):
-            raise ValueError("Invalid role type")
-
-        user_role = self.role
-        if user_role.access_level < level:
-            raise TracecatAuthorizationError(
-                f"User does not have required access level: {level.name}"
-            )
-
-    def decorator(fn: T) -> T:
-        if asyncio.iscoroutinefunction(fn):
-
-            @functools.wraps(fn)
-            async def async_wrapper(self: HasRole, *args, **kwargs):
-                check(self)
-                return await fn(self, *args, **kwargs)
-
-            return cast(T, async_wrapper)
-        else:
-
-            @functools.wraps(fn)
-            def sync_wrapper(self: HasRole, *args, **kwargs):
-                check(self)
-                return fn(self, *args, **kwargs)
-
-            return cast(T, sync_wrapper)
-
-    return decorator
 
 
 def require_org_role(*roles: OrgRole) -> Callable[[T], T]:

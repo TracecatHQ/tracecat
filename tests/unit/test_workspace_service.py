@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.db.models import (
     Membership,
     Organization,
@@ -177,6 +177,7 @@ async def admin_user(session: AsyncSession, inv_org: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=inv_org.id,
+        role=OrgRole.ADMIN,
     )
     session.add(membership)
     await session.commit()
@@ -201,6 +202,7 @@ async def basic_user(session: AsyncSession, inv_org: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=inv_org.id,
+        role=OrgRole.MEMBER,
     )
     session.add(membership)
     await session.commit()
@@ -265,7 +267,7 @@ class TestCreateInvitation:
         assert invitation.id is not None
         assert invitation.workspace_id == inv_workspace.id
         assert invitation.email == "invitee@example.com"
-        assert invitation.role.slug == "editor"
+        assert invitation.role == WorkspaceRole.EDITOR
         assert invitation.status == InvitationStatus.PENDING
         assert invitation.invited_by == admin_user.id
         assert len(invitation.token) == 64
@@ -505,6 +507,7 @@ class TestAcceptInvitation:
 
         assert membership.user_id == basic_user.id
         assert membership.workspace_id == inv_workspace.id
+        assert membership.role == WorkspaceRole.EDITOR
 
         # Verify invitation was updated
         await session.refresh(invitation)
@@ -543,7 +546,7 @@ class TestAcceptInvitation:
             )
         )
         org_membership = result.scalar_one()
-        assert org_membership is not None
+        assert org_membership.role == OrgRole.MEMBER
 
     async def test_accept_invitation_not_found(
         self,
@@ -633,6 +636,7 @@ class TestAcceptInvitation:
         ws_membership = Membership(
             user_id=basic_user.id,
             workspace_id=inv_workspace.id,
+            role=WorkspaceRole.EDITOR,
         )
         session.add(ws_membership)
         await session.commit()
