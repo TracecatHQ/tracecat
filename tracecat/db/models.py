@@ -3212,8 +3212,8 @@ class Role(Base, TimestampMixin):
         back_populates="roles",
         lazy="select",
     )
-    group_assignments: Mapped[list[GroupAssignment]] = relationship(
-        "GroupAssignment",
+    group_role_assignments: Mapped[list[GroupRoleAssignment]] = relationship(
+        "GroupRoleAssignment",
         back_populates="role",
         lazy="select",
     )
@@ -3241,7 +3241,7 @@ class Group(Base, TimestampMixin):
     """Groups for organizing users within an organization.
 
     Groups are assigned roles at either:
-    - Organization level (workspace_id=NULL in GroupAssignment): Scopes apply org-wide
+    - Organization level (workspace_id=NULL in GroupRoleAssignment): Scopes apply org-wide
     - Workspace level: Scopes apply only within that workspace
 
     Users inherit all scopes from groups they belong to.
@@ -3266,8 +3266,8 @@ class Group(Base, TimestampMixin):
         secondary="group_member",
         lazy="select",
     )
-    assignments: Mapped[list[GroupAssignment]] = relationship(
-        "GroupAssignment",
+    role_assignments: Mapped[list[GroupRoleAssignment]] = relationship(
+        "GroupRoleAssignment",
         back_populates="group",
         cascade="all, delete",
         lazy="select",
@@ -3290,7 +3290,7 @@ class GroupMember(Base):
     )
 
 
-class GroupAssignment(Base):
+class GroupRoleAssignment(Base):
     """Assigns a role to a group at either org or workspace level.
 
     - workspace_id=NULL: Org-wide assignment - scopes apply to all workspaces
@@ -3299,12 +3299,12 @@ class GroupAssignment(Base):
     Each group can have at most one assignment per workspace (or one org-wide assignment).
     """
 
-    __tablename__ = "group_assignment"
+    __tablename__ = "group_role_assignment"
     __table_args__ = (
         UniqueConstraint("group_id", "workspace_id"),
         # Partial unique index for org-wide assignments (workspace_id IS NULL)
         Index(
-            "ix_group_assignment_group_org_unique",
+            "ix_group_role_assignment_group_org_unique",
             "group_id",
             unique=True,
             postgresql_where=text("workspace_id IS NULL"),
@@ -3333,9 +3333,9 @@ class GroupAssignment(Base):
 
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
-    group: Mapped[Group] = relationship("Group", back_populates="assignments")
+    group: Mapped[Group] = relationship("Group", back_populates="role_assignments")
     workspace: Mapped[Workspace | None] = relationship("Workspace")
-    role: Mapped[Role] = relationship("Role", back_populates="group_assignments")
+    role: Mapped[Role] = relationship("Role", back_populates="group_role_assignments")
 
 
 class UserRoleAssignment(Base):

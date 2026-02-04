@@ -158,7 +158,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_scope_source"), "scope", ["source"], unique=False)
     op.create_table(
-        "group_assignment",
+        "group_role_assignment",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("group_id", sa.UUID(), nullable=False),
@@ -174,50 +174,50 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["assigned_by"],
             ["user.id"],
-            name=op.f("fk_group_assignment_assigned_by_user"),
+            name=op.f("fk_group_role_assignment_assigned_by_user"),
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
             ["group_id"],
             ["group.id"],
-            name=op.f("fk_group_assignment_group_id_group"),
+            name=op.f("fk_group_role_assignment_group_id_group"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["organization_id"],
             ["organization.id"],
-            name=op.f("fk_group_assignment_organization_id_organization"),
+            name=op.f("fk_group_role_assignment_organization_id_organization"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["role_id"],
             ["role.id"],
-            name=op.f("fk_group_assignment_role_id_role"),
+            name=op.f("fk_group_role_assignment_role_id_role"),
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["workspace_id"],
             ["workspace.id"],
-            name=op.f("fk_group_assignment_workspace_id_workspace"),
+            name=op.f("fk_group_role_assignment_workspace_id_workspace"),
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_group_assignment")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_group_role_assignment")),
         sa.UniqueConstraint(
             "group_id",
             "workspace_id",
-            name=op.f("uq_group_assignment_group_id_workspace_id"),
+            name=op.f("uq_group_role_assignment_group_id_workspace_id"),
         ),
     )
     op.create_index(
-        "ix_group_assignment_group_org_unique",
-        "group_assignment",
+        "ix_group_role_assignment_group_org_unique",
+        "group_role_assignment",
         ["group_id"],
         unique=True,
         postgresql_where=sa.text("workspace_id IS NULL"),
     )
     op.create_index(
-        op.f("ix_group_assignment_role_id"),
-        "group_assignment",
+        op.f("ix_group_role_assignment_role_id"),
+        "group_role_assignment",
         ["role_id"],
         unique=False,
     )
@@ -377,13 +377,15 @@ def downgrade() -> None:
     op.drop_table("user_role_assignment")
     op.drop_table("role_scope")
     op.drop_table("group_member")
-    op.drop_index(op.f("ix_group_assignment_role_id"), table_name="group_assignment")
     op.drop_index(
-        "ix_group_assignment_group_org_unique",
-        table_name="group_assignment",
+        op.f("ix_group_role_assignment_role_id"), table_name="group_role_assignment"
+    )
+    op.drop_index(
+        "ix_group_role_assignment_group_org_unique",
+        table_name="group_role_assignment",
         postgresql_where=sa.text("workspace_id IS NULL"),
     )
-    op.drop_table("group_assignment")
+    op.drop_table("group_role_assignment")
     op.drop_index(op.f("ix_scope_source"), table_name="scope")
     op.drop_index(op.f("ix_scope_organization_id"), table_name="scope")
     op.drop_index(
