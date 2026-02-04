@@ -1,7 +1,6 @@
 import asyncio
 import importlib
 import os
-import sys
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
@@ -86,11 +85,8 @@ AGENT_TASK_QUEUE = f"shared-agent-queue-{WORKER_ID}"
 IN_DOCKER = os.path.exists("/.dockerenv")
 
 
-def _is_temporal_test_run() -> bool:
-    return any("tests/temporal" in arg for arg in sys.argv)
-
-
-IS_TEMPORAL_TEST_RUN = _is_temporal_test_run()
+def _is_temporal_test_run(args: list[str]) -> bool:
+    return any("tests/temporal" in arg for arg in args)
 
 
 def _minio_credentials() -> tuple[str, str]:
@@ -814,7 +810,11 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def env_sandbox(monkeysession: pytest.MonkeyPatch, db: None):
+def env_sandbox(
+    monkeysession: pytest.MonkeyPatch,
+    db: None,
+    request: pytest.FixtureRequest,
+):
     load_dotenv()
     logger.info("Setting up environment variables")
     importlib.reload(config)
@@ -825,7 +825,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch, db: None):
     api_host = "api" if IN_DOCKER else "localhost"
     blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
-    if IS_TEMPORAL_TEST_RUN:
+    if _is_temporal_test_run(list(request.config.args)):
         db_uri = config.TRACECAT__DB_URI
     else:
         db_uri = TEST_DB_CONFIG.test_url_sync
