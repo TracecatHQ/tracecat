@@ -7,7 +7,7 @@ import {
   ChevronDownIcon,
   CornerDownRightIcon,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type {
   RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
@@ -20,6 +20,7 @@ import {
 import { CommitSelectorDialog } from "@/components/registry/dialogs/repository-commit-dialog"
 import { DeleteRepositoryDialog } from "@/components/registry/dialogs/repository-delete-dialog"
 import { SyncRepositoryDialog } from "@/components/registry/dialogs/repository-sync-dialog"
+import { RepositoryVersionsDialog } from "@/components/registry/dialogs/repository-versions-dialog"
 import { RegistryTableActiveDialog } from "@/components/registry/registry-common"
 import { RepositoryActions } from "@/components/registry/table-actions"
 import { Badge } from "@/components/ui/badge"
@@ -54,6 +55,16 @@ export function RegistryRepositoriesTable() {
     useState<RegistryTableActiveDialog | null>(null)
   const [selectedRepo, setSelectedRepo] =
     useState<RegistryRepositoryReadMinimal | null>(null)
+
+  // Keep selectedRepo in sync with latest query data
+  useEffect(() => {
+    if (selectedRepo && registryRepos) {
+      const updatedRepo = registryRepos.find((r) => r.id === selectedRepo.id)
+      if (updatedRepo && updatedRepo !== selectedRepo) {
+        setSelectedRepo(updatedRepo)
+      }
+    }
+  }, [registryRepos, selectedRepo])
 
   const onOpenChange = (open: boolean) => {
     if (!open) {
@@ -176,6 +187,12 @@ export function RegistryRepositoriesTable() {
                     setSelectedRepo(row.original)
                     setActiveDialog(RegistryTableActiveDialog.RepositoryCommit)
                   }}
+                  onVersions={() => {
+                    setSelectedRepo(row.original)
+                    setActiveDialog(
+                      RegistryTableActiveDialog.RepositoryVersions
+                    )
+                  }}
                 />
               )}
             </DropdownMenuContent>
@@ -278,6 +295,12 @@ export function RegistryRepositoriesTable() {
         onOpenChange={onOpenChange}
         selectedRepo={selectedRepo}
         initialCommitSha={selectedRepo?.commit_sha}
+      />
+
+      <RepositoryVersionsDialog
+        open={activeDialog === RegistryTableActiveDialog.RepositoryVersions}
+        onOpenChange={onOpenChange}
+        selectedRepo={selectedRepo}
       />
     </>
   )

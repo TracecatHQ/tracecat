@@ -9,6 +9,18 @@
  */
 export type AccessLevel = 0 | 999
 
+/**
+ * Describes a change to an action between two versions.
+ */
+export type ActionChange = {
+  action_name: string
+  change_type: "added" | "removed" | "modified"
+  interface_changes?: Array<ActionInterfaceChange>
+  description_changed?: boolean
+}
+
+export type change_type = "added" | "removed" | "modified"
+
 export type ActionControlFlow = {
   run_if?: string | null
   for_each?: string | Array<string> | null
@@ -56,6 +68,22 @@ export type ActionEdge = {
 export type source_type = "trigger" | "udf"
 
 export type source_handle = "success" | "error"
+
+/**
+ * Describes a change to an action's interface (expects or returns).
+ */
+export type ActionInterfaceChange = {
+  field: "expects" | "returns"
+  change_type: "added" | "removed" | "modified"
+  old_value?: {
+    [key: string]: unknown
+  } | null
+  new_value?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type field = "expects" | "returns"
 
 /**
  * Position update for a single action.
@@ -5567,6 +5595,20 @@ export type VercelChatRequest = {
   base_url?: string | null
 }
 
+/**
+ * Result of comparing two registry versions.
+ */
+export type VersionDiff = {
+  base_version_id: string
+  base_version: string
+  compare_version_id: string
+  compare_version: string
+  actions_added?: Array<string>
+  actions_removed?: Array<string>
+  actions_modified?: Array<ActionChange>
+  total_changes?: number
+}
+
 export type VideoUrl = {
   url: string
   force_download?: boolean
@@ -7595,6 +7637,29 @@ export type RegistryRepositoriesPromoteRegistryVersionData = {
 
 export type RegistryRepositoriesPromoteRegistryVersionResponse =
   tracecat__registry__repositories__schemas__RegistryVersionPromoteResponse
+
+export type RegistryRepositoriesDeleteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type RegistryRepositoriesDeleteRegistryVersionResponse = void
+
+export type RegistryRepositoriesCompareRegistryVersionsData = {
+  compareTo: string
+  repositoryId: string
+  versionId: string
+}
+
+export type RegistryRepositoriesCompareRegistryVersionsResponse = VersionDiff
+
+export type RegistryRepositoriesGetPreviousRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type RegistryRepositoriesGetPreviousRegistryVersionResponse =
+  tracecat__registry__repositories__schemas__RegistryVersionRead | null
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -11068,6 +11133,51 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__registry__repositories__schemas__RegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/versions/{version_id}": {
+    delete: {
+      req: RegistryRepositoriesDeleteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/versions/{version_id}/diff": {
+    get: {
+      req: RegistryRepositoriesCompareRegistryVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: VersionDiff
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/versions/{version_id}/previous": {
+    get: {
+      req: RegistryRepositoriesGetPreviousRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat__registry__repositories__schemas__RegistryVersionRead | null
         /**
          * Validation Error
          */

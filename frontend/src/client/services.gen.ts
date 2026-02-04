@@ -357,10 +357,16 @@ import type {
   RegistryActionsListRegistryActionsResponse,
   RegistryActionsUpdateRegistryActionData,
   RegistryActionsUpdateRegistryActionResponse,
+  RegistryRepositoriesCompareRegistryVersionsData,
+  RegistryRepositoriesCompareRegistryVersionsResponse,
   RegistryRepositoriesCreateRegistryRepositoryData,
   RegistryRepositoriesCreateRegistryRepositoryResponse,
   RegistryRepositoriesDeleteRegistryRepositoryData,
   RegistryRepositoriesDeleteRegistryRepositoryResponse,
+  RegistryRepositoriesDeleteRegistryVersionData,
+  RegistryRepositoriesDeleteRegistryVersionResponse,
+  RegistryRepositoriesGetPreviousRegistryVersionData,
+  RegistryRepositoriesGetPreviousRegistryVersionResponse,
   RegistryRepositoriesGetRegistryRepositoryData,
   RegistryRepositoriesGetRegistryRepositoryResponse,
   RegistryRepositoriesListRegistryRepositoriesResponse,
@@ -5056,6 +5062,102 @@ export const registryRepositoriesPromoteRegistryVersion = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/registry/repos/{repository_id}/versions/{version_id}/promote",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Registry Version
+ * Delete a specific registry version.
+ *
+ * Safety checks:
+ * - Cannot delete the currently promoted version
+ * - Cannot delete versions referenced by published workflow definitions
+ *
+ * For platform registries, use the admin API.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesDeleteRegistryVersion = (
+  data: RegistryRepositoriesDeleteRegistryVersionData
+): CancelablePromise<RegistryRepositoriesDeleteRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/registry/repos/{repository_id}/versions/{version_id}",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Compare Registry Versions
+ * Compare two registry versions and return the diff.
+ *
+ * Args:
+ * repository_id: The repository ID
+ * version_id: The base version ID (typically older)
+ * compare_to: The version ID to compare against (typically newer)
+ *
+ * Returns:
+ * VersionDiff with added, removed, and modified actions
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @param data.compareTo
+ * @returns VersionDiff Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesCompareRegistryVersions = (
+  data: RegistryRepositoriesCompareRegistryVersionsData
+): CancelablePromise<RegistryRepositoriesCompareRegistryVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/repos/{repository_id}/versions/{version_id}/diff",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
+    },
+    query: {
+      compare_to: data.compareTo,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Previous Registry Version
+ * Get the previous version before the specified version.
+ *
+ * Useful for quick rollback UX - returns the version to rollback to.
+ * Returns null if there is no previous version.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesGetPreviousRegistryVersion = (
+  data: RegistryRepositoriesGetPreviousRegistryVersionData
+): CancelablePromise<RegistryRepositoriesGetPreviousRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/repos/{repository_id}/versions/{version_id}/previous",
     path: {
       repository_id: data.repositoryId,
       version_id: data.versionId,

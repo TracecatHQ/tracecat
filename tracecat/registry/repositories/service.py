@@ -12,6 +12,7 @@ from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
     RegistryRepositoryUpdate,
 )
+from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.service import BaseOrgService
 
 
@@ -140,3 +141,34 @@ class RegistryReposService(BaseOrgService):
         )
 
         return repository
+
+    async def validate_version_deletion(
+        self,
+        repository: RegistryRepository,
+        version: RegistryVersion,
+    ) -> None:
+        """Validate that a version can be deleted.
+
+        Raises:
+            RegistryError: If the version cannot be deleted
+        """
+        # Check 1: Cannot delete the currently promoted version
+        if repository.current_version_id == version.id:
+            raise RegistryError(
+                "Cannot delete the currently promoted version. Promote another version first."
+            )
+
+        # Check 2: Cannot delete if published workflow definitions reference this version
+        # Query WorkflowDefinition.registry_lock JSONB using containment operator
+        # registry_lock structure: {"origins": {"origin": "version_string"}, "actions": {...}}
+        versions_service = RegistryVersionsService(self.session, self.role)
+        definitions = await versions_service.get_workflow_definitions_using_version(
+            origin=repository.origin,
+            version_string=version.version,
+        )
+        if definitions:
+            workflow_ids = [str(d.workflow_id) for d in definitions[:5]]  # Show first 5
+            more = f" and {len(definitions) - 5} more" if len(definitions) > 5 else ""
+            raise RegistryError(
+                f"Cannot delete version in use by published workflows: {', '.join(workflow_ids)}{more}"
+            )
