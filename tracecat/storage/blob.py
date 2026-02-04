@@ -45,11 +45,11 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
             # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
             aws_access_key_id=os.environ.get(
                 "AWS_ACCESS_KEY_ID",
-                os.environ.get("MINIO_ROOT_USER", "minioadmin"),
+                os.environ.get("MINIO_ROOT_USER"),
             ),
             aws_secret_access_key=os.environ.get(
                 "AWS_SECRET_ACCESS_KEY",
-                os.environ.get("MINIO_ROOT_PASSWORD", "minioadmin"),
+                os.environ.get("MINIO_ROOT_PASSWORD"),
             ),
         ) as client:
             yield client
