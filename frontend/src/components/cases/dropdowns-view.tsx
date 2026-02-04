@@ -13,7 +13,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useCaseDropdownDefinitions } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -21,7 +21,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export function DropdownsView() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
-  const { isFeatureEnabled, isLoading: featureFlagLoading } = useFeatureFlag()
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const caseDropdownsEnabled = hasEntitlement("case_dropdowns")
 
   const {
     dropdownDefinitions,
@@ -35,15 +36,15 @@ export function DropdownsView() {
     updateDropdownOption,
     deleteDropdownOption,
     reorderDropdownOptions,
-  } = useCaseDropdownDefinitions(workspaceId)
+  } = useCaseDropdownDefinitions(workspaceId, caseDropdownsEnabled)
 
   // Check feature flag loading first
-  if (featureFlagLoading) {
+  if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 
   // Show enterprise-only message if feature is not enabled
-  if (!isFeatureEnabled("case-dropdowns")) {
+  if (!caseDropdownsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">

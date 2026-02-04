@@ -62,7 +62,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { parseChatError, useDeleteChat, useListChats } from "@/hooks/use-chat"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { cn, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -106,8 +106,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
-  const { isFeatureEnabled } = useFeatureFlag()
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { hasEntitlement } = useEntitlements()
+  const agentPresetsEnabled = hasEntitlement("agent_presets")
   const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
   const [confirmDeleteChatId, setConfirmDeleteChatId] = useState<string | null>(
     null

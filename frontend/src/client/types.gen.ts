@@ -2272,6 +2272,50 @@ export type EditorParamRead = {
 }
 
 /**
+ * Effective feature entitlements for an organization.
+ *
+ * Values are resolved from org overrides falling back to tier defaults.
+ */
+export type EffectiveEntitlements = {
+  /**
+   * Whether custom registry repositories are enabled
+   */
+  custom_registry?: boolean
+  /**
+   * Whether SSO is enabled
+   */
+  sso?: boolean
+  /**
+   * Whether git sync is enabled
+   */
+  git_sync?: boolean
+  /**
+   * Whether agent tool approvals are enabled
+   */
+  agent_approvals?: boolean
+  /**
+   * Whether agent presets are enabled
+   */
+  agent_presets?: boolean
+  /**
+   * Whether case dropdowns are enabled
+   */
+  case_dropdowns?: boolean
+  /**
+   * Whether case durations are enabled
+   */
+  case_durations?: boolean
+  /**
+   * Whether case tasks are enabled
+   */
+  case_tasks?: boolean
+  /**
+   * Whether case workflow triggers are enabled
+   */
+  case_triggers?: boolean
+}
+
+/**
  * TypedDict for tier entitlements stored in JSONB.
  *
  * All keys are optional (total=False) to support partial overrides.
@@ -2289,6 +2333,12 @@ export type EntitlementsDict = {
    * Whether git sync is enabled
    */
   git_sync?: boolean
+  agent_approvals?: boolean
+  agent_presets?: boolean
+  case_dropdowns?: boolean
+  case_durations?: boolean
+  case_tasks?: boolean
+  case_triggers?: boolean
 }
 
 export type ErrorDetails = {
@@ -2434,16 +2484,9 @@ export type ExternalObject = {
 }
 
 /**
- * Feature flag enum.
+ * Feature flag enum reserved for engineering rollouts.
  */
-export type FeatureFlag =
-  | "git-sync"
-  | "agent-approvals"
-  | "agent-presets"
-  | "case-dropdowns"
-  | "case-durations"
-  | "case-tasks"
-  | "case-triggers"
+export type FeatureFlag = "ai-ranking"
 
 /**
  * Response model for feature flags.
@@ -3800,6 +3843,7 @@ export type RegistryActionInterface = {
 export type RegistryActionOptions = {
   include_in_schema?: boolean
   requires_approval?: boolean
+  required_entitlements?: Array<string> | null
 }
 
 /**
@@ -7150,6 +7194,9 @@ export type OrganizationGetOrganizationResponse =
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
+export type OrganizationGetOrganizationEntitlementsResponse =
+  EffectiveEntitlements
+
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
@@ -10102,6 +10149,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<tracecat__organization__schemas__OrgDomainRead>
+      }
+    }
+  }
+  "/organization/entitlements": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EffectiveEntitlements
       }
     }
   }

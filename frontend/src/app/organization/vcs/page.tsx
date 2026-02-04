@@ -5,18 +5,18 @@ import { useEffect } from "react"
 
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgVCSSettings } from "@/components/organization/org-vcs-settings"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 export default function VCSSettingsPage() {
   const router = useRouter()
-  const { isFeatureEnabled, isLoading } = useFeatureFlag()
+  const { hasEntitlement, isLoading } = useEntitlements()
 
   useEffect(() => {
-    if (!isLoading && !isFeatureEnabled("git-sync")) {
+    if (!isLoading && !hasEntitlement("git_sync")) {
       // Use replace to avoid adding a history entry and prevent back navigation to this page
       router.replace("/not-found")
     }
-  }, [isLoading, isFeatureEnabled, router])
+  }, [isLoading, hasEntitlement, router])
 
   // Show loading while feature flags are being fetched
   if (isLoading) {
@@ -24,7 +24,7 @@ export default function VCSSettingsPage() {
   }
 
   // Don't render content if feature is disabled (redirect is happening in useEffect)
-  if (!isFeatureEnabled("git-sync")) {
+  if (!hasEntitlement("git_sync")) {
     return <CenteredSpinner />
   }
 
