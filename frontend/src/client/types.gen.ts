@@ -7533,8 +7533,6 @@ export type EditorValidateExpressionResponse = ExpressionValidationResponse
 
 export type EditorFieldSchemaResponse = EditorComponent
 
-export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
-
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
   repositoryId: string
   requestBody?: RegistryRepositorySync | null
@@ -10942,16 +10940,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: EditorComponent
-      }
-    }
-  }
-  "/registry/repos/reload": {
-    post: {
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
       }
     }
   }

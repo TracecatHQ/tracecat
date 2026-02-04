@@ -177,7 +177,6 @@ import {
   registryRepositoriesDeleteRegistryRepository,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesListRepositoryCommits,
-  registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   type SAMLSettingsRead,
   type ScheduleRead,
@@ -2988,46 +2987,6 @@ export function useOrgAuditSettings() {
     generateAuditApiKeyIsPending,
     revokeAuditApiKey,
     revokeAuditApiKeyIsPending,
-  }
-}
-
-export function useRegistryRepositoriesReload() {
-  const queryClient = useQueryClient()
-  const {
-    mutateAsync: reloadRegistryRepositories,
-    isPending: reloadRegistryRepositoriesIsPending,
-    error: reloadRegistryRepositoriesError,
-  } = useMutation({
-    mutationFn: async () =>
-      await registryRepositoriesReloadRegistryRepositories(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
-      toast({
-        title: "Reloaded repositories",
-        description: "Repositories reloaded successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          return toast({
-            title: "Forbidden",
-            description: "You are not authorized to perform this action",
-          })
-        default:
-          console.error("Failed to reload repositories", error)
-          return toast({
-            title: "Failed to reload repositories",
-            description: `An error occurred while reloading the repositories: ${error.body.detail}`,
-          })
-      }
-    },
-  })
-
-  return {
-    reloadRegistryRepositories,
-    reloadRegistryRepositoriesIsPending,
-    reloadRegistryRepositoriesError,
   }
 }
 

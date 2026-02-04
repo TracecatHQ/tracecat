@@ -133,7 +133,7 @@ dev = [
     "pytest==8.3.2",
     "python-dotenv==1.1.1",
     "respx==0.22.0",
-    "ruff==0.13.0",
+    "ruff==0.15.0",
     {include-group = "lint"},
 ]
 
