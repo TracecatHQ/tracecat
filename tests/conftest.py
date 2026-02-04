@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import os
+import sys
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
@@ -83,6 +84,13 @@ AGENT_TASK_QUEUE = f"shared-agent-queue-{WORKER_ID}"
 # This is more reliable than checking env vars like REDIS_URL, which may be
 # loaded from .env by load_dotenv() even when running on the host
 IN_DOCKER = os.path.exists("/.dockerenv")
+
+
+def _is_temporal_test_run() -> bool:
+    return any("tests/temporal" in arg for arg in sys.argv)
+
+
+IS_TEMPORAL_TEST_RUN = _is_temporal_test_run()
 
 
 def _minio_credentials() -> tuple[str, str]:
@@ -752,7 +760,10 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
         sync_engine.dispose()
 
     # Seed the per-test database used by all services in the test suite.
-    _seed_registry_version(TEST_DB_CONFIG.test_url_sync)
+    if _using_test_db():
+        _seed_registry_version(TEST_DB_CONFIG.test_url_sync)
+    else:
+        _seed_registry_version(config.TRACECAT__DB_URI)
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
@@ -814,7 +825,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch, db: None):
     api_host = "api" if IN_DOCKER else "localhost"
     blob_storage_host = "minio" if IN_DOCKER else "localhost"
 
-    db_uri = TEST_DB_CONFIG.test_url_sync
+    if IS_TEMPORAL_TEST_RUN:
+        db_uri = config.TRACECAT__DB_URI
+    else:
+        db_uri = TEST_DB_CONFIG.test_url_sync
     monkeysession.setattr(config, "TRACECAT__DB_URI", db_uri)
     monkeysession.setattr(
         config, "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
