@@ -200,6 +200,7 @@ class RegisterKwargs(BaseModel):
     # Options
     include_in_schema: bool = True
     requires_approval: bool = False
+    required_entitlements: list[str] | None = None
 
 
 class Repository:
@@ -297,6 +298,7 @@ class Repository:
         deprecated: str | None,
         include_in_schema: bool,
         requires_approval: bool = False,
+        required_entitlements: list[str] | None = None,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ):
@@ -320,6 +322,7 @@ class Repository:
             template_action=template_action,
             include_in_schema=include_in_schema,
             requires_approval=requires_approval,
+            required_entitlements=required_entitlements,
         )
 
         logger.debug(f"Registering action {reg_action.action=}")
@@ -640,6 +643,7 @@ class Repository:
             display_group=validated_kwargs.display_group,
             include_in_schema=validated_kwargs.include_in_schema,
             requires_approval=validated_kwargs.requires_approval,
+            required_entitlements=validated_kwargs.required_entitlements,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype=rtype,

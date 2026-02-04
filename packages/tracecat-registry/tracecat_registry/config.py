@@ -57,24 +57,3 @@ TRACECAT__AGENT_MAX_TOOL_CALLS = int(
 
 TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 120))
 """The maximum number of requests that can be made per agent run."""
-
-
-class _FeatureFlags:
-    """Feature flags checked directly from env to avoid heavy tracecat imports.
-
-    Attributes are set in __init__ to allow patching in tests.
-    """
-
-    def __init__(self) -> None:
-        _flags = os.environ.get("TRACECAT__FEATURE_FLAGS", "")
-        self.case_tasks: bool = "case-tasks" in _flags
-        """Enable case tasks (enterprise feature)."""
-        self.case_durations: bool = "case-durations" in _flags
-        """Enable case durations (enterprise feature)."""
-        self.agent_presets: bool = "agent-presets" in _flags
-        """Enable agent presets UDFs."""
-        self.ai_ranking: bool = "ai-ranking" in _flags
-        """Enable AI ranking UDFs."""
-
-
-flags = _FeatureFlags()
