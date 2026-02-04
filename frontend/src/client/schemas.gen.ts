@@ -7540,6 +7540,70 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
+export const $EffectiveEntitlements = {
+  properties: {
+    custom_registry: {
+      type: "boolean",
+      title: "Custom Registry",
+      description: "Whether custom registry repositories are enabled",
+      default: false,
+    },
+    sso: {
+      type: "boolean",
+      title: "Sso",
+      description: "Whether SSO is enabled",
+      default: false,
+    },
+    git_sync: {
+      type: "boolean",
+      title: "Git Sync",
+      description: "Whether git sync is enabled",
+      default: false,
+    },
+    agent_approvals: {
+      type: "boolean",
+      title: "Agent Approvals",
+      description: "Whether agent tool approvals are enabled",
+      default: false,
+    },
+    agent_presets: {
+      type: "boolean",
+      title: "Agent Presets",
+      description: "Whether agent presets are enabled",
+      default: false,
+    },
+    case_dropdowns: {
+      type: "boolean",
+      title: "Case Dropdowns",
+      description: "Whether case dropdowns are enabled",
+      default: false,
+    },
+    case_durations: {
+      type: "boolean",
+      title: "Case Durations",
+      description: "Whether case durations are enabled",
+      default: false,
+    },
+    case_tasks: {
+      type: "boolean",
+      title: "Case Tasks",
+      description: "Whether case tasks are enabled",
+      default: false,
+    },
+    case_triggers: {
+      type: "boolean",
+      title: "Case Triggers",
+      description: "Whether case workflow triggers are enabled",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "EffectiveEntitlements",
+  description: `Effective feature entitlements for an organization.
+
+Values are resolved from org overrides falling back to tier defaults.`,
+} as const
+
 export const $EntitlementsDict = {
   properties: {
     custom_registry: {
@@ -7556,6 +7620,30 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Git Sync",
       description: "Whether git sync is enabled",
+    },
+    agent_approvals: {
+      type: "boolean",
+      title: "Agent Approvals",
+    },
+    agent_presets: {
+      type: "boolean",
+      title: "Agent Presets",
+    },
+    case_dropdowns: {
+      type: "boolean",
+      title: "Case Dropdowns",
+    },
+    case_durations: {
+      type: "boolean",
+      title: "Case Durations",
+    },
+    case_tasks: {
+      type: "boolean",
+      title: "Case Tasks",
+    },
+    case_triggers: {
+      type: "boolean",
+      title: "Case Triggers",
     },
   },
   type: "object",
@@ -8089,18 +8177,9 @@ export const $ExternalObject = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: [
-    "git-sync",
-    "agent-approvals",
-    "agent-presets",
-    "case-dropdowns",
-    "case-durations",
-    "case-tasks",
-    "case-triggers",
-    "rbac",
-  ],
+  enum: ["ai-ranking", "rbac"],
   title: "FeatureFlag",
-  description: "Feature flag enum.",
+  description: "Feature flag enum reserved for engineering rollouts.",
 } as const
 
 export const $FeatureFlagsRead = {
@@ -12577,6 +12656,20 @@ export const $RegistryActionOptions = {
       type: "boolean",
       title: "Requires Approval",
       default: false,
+    },
+    required_entitlements: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Required Entitlements",
     },
   },
   type: "object",

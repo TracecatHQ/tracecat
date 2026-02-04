@@ -4,12 +4,12 @@ import { useEffect } from "react"
 import { AgentsTable } from "@/components/agents/agents-table"
 import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 export default function AgentsPage() {
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentApprovalsEnabled = isFeatureEnabled("agent-approvals")
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const agentApprovalsEnabled = hasEntitlement("agent_approvals")
+  const agentPresetsEnabled = hasEntitlement("agent_presets")
   const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
 
   useEffect(() => {
@@ -18,7 +18,7 @@ export default function AgentsPage() {
     }
   }, [])
 
-  if (featureFlagsLoading) {
+  if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 

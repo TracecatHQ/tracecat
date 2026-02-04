@@ -17,7 +17,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { toast } from "@/components/ui/use-toast"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   deleteCaseDurationDefinition,
@@ -30,16 +30,14 @@ export function CaseDurationsView() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const queryClient = useQueryClient()
-  const { isFeatureEnabled, isLoading: featureFlagLoading } = useFeatureFlag()
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const caseDurationsEnabled = hasEntitlement("case_durations")
 
   const {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
     caseDurationDefinitionsError,
-  } = useCaseDurationDefinitions(
-    workspaceId,
-    isFeatureEnabled("case-durations")
-  )
+  } = useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
 
   const { mutateAsync: handleDelete, isPending: deleteIsPending } = useMutation(
     {
@@ -131,13 +129,13 @@ export function CaseDurationsView() {
   )
 
   // Check feature flag loading first - fastest check
-  if (featureFlagLoading) {
+  if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 
   // Show enterprise-only message if feature is not enabled
   // This shows immediately after feature flags load (~200ms)
-  if (!isFeatureEnabled("case-durations")) {
+  if (!caseDurationsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">

@@ -28,14 +28,14 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceManager } from "@/lib/hooks"
 
 export function OrganizationSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { isFeatureEnabled } = useFeatureFlag()
+  const { hasEntitlement } = useEntitlements()
 
   // Fetch workspaces for the sidebar
   const { workspaces } = useWorkspaceManager()
@@ -77,7 +77,7 @@ export function OrganizationSidebar({
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
     },
-    ...(isFeatureEnabled("git-sync")
+    ...(hasEntitlement("git_sync")
       ? [
           {
             title: "Workflow sync",

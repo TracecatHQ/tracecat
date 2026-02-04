@@ -5,23 +5,23 @@ import { useEffect } from "react"
 import { AgentPresetsBuilder } from "@/components/agents/agent-presets-builder"
 import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 export default function AgentPresetsPage() {
   const params = useParams<{
     presetId: string
   }>()
   const presetId = params?.presetId
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentApprovalsEnabled = isFeatureEnabled("agent-approvals")
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const agentApprovalsEnabled = hasEntitlement("agent_approvals")
+  const agentPresetsEnabled = hasEntitlement("agent_presets")
   const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
 
   useEffect(() => {
     document.title = "Agent Presets"
   }, [])
 
-  if (featureFlagsLoading) {
+  if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 

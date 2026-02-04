@@ -4,13 +4,13 @@ import { useEffect } from "react"
 import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useInbox } from "@/hooks/use-inbox"
 
 export default function InboxPage() {
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentApprovalsEnabled = isFeatureEnabled("agent-approvals")
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const agentApprovalsEnabled = hasEntitlement("agent_approvals")
+  const agentPresetsEnabled = hasEntitlement("agent_presets")
   const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
 
   const {
@@ -31,7 +31,7 @@ export default function InboxPage() {
     document.title = "Inbox"
   }, [])
 
-  if (featureFlagsLoading) {
+  if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 

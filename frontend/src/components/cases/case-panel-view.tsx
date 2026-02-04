@@ -55,7 +55,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
@@ -91,14 +91,26 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isFeatureEnabled } = useFeatureFlag()
-  const caseTasksEnabled = isFeatureEnabled("case-tasks")
-  const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")
+  const { hasEntitlement } = useEntitlements()
+  const caseTasksEnabled = hasEntitlement("case_tasks")
+  const caseDropdownsEnabled = hasEntitlement("case_dropdowns")
+  const caseDurationsEnabled = hasEntitlement("case_durations")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
     workspaceId,
   })
+  const { caseDurations, caseDurationsIsLoading, caseDurationsError } =
+    useCaseDurations({
+      caseId,
+      workspaceId,
+      enabled: caseDurationsEnabled,
+    })
+  const {
+    caseDurationDefinitions,
+    caseDurationDefinitionsIsLoading,
+    caseDurationDefinitionsError,
+  } = useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
   const { updateCase } = useUpdateCase({
     workspaceId,
     caseId,
@@ -106,7 +118,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
   const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { dropdownDefinitions } = useCaseDropdownDefinitions(workspaceId)
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(
+    workspaceId,
+    caseDropdownsEnabled
+  )
   const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { toast } = useToast()
   const customFields = useMemo(
