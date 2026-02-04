@@ -201,13 +201,13 @@ function AcceptInvitationContent() {
               <>
                 <strong>{invitation.inviter_name}</strong> has invited you to
                 join <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                <strong>{invitation.role}</strong>.
               </>
             ) : (
               <>
                 You&apos;ve been invited to join{" "}
                 <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                <strong>{invitation.role}</strong>.
               </>
             )}
           </CardDescription>
@@ -224,7 +224,7 @@ function AcceptInvitationContent() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Role</span>
                 <span className="font-medium capitalize">
-                  {invitation.role_name}
+                  {invitation.role}
                 </span>
               </div>
               {invitation.inviter_email && (
@@ -320,12 +320,12 @@ function AcceptInvitationContent() {
           {invitation.inviter_name ? (
             <>
               <strong>{invitation.inviter_name}</strong> has invited you to join
-              this organization as a <strong>{invitation.role_name}</strong>.
+              this organization as a <strong>{invitation.role}</strong>.
             </>
           ) : (
             <>
               You&apos;ve been invited to join this organization as a{" "}
-              <strong>{invitation.role_name}</strong>.
+              <strong>{invitation.role}</strong>.
             </>
           )}
         </CardDescription>
@@ -341,9 +341,7 @@ function AcceptInvitationContent() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Role</span>
-              <span className="font-medium capitalize">
-                {invitation.role_name}
-              </span>
+              <span className="font-medium capitalize">{invitation.role}</span>
             </div>
             {invitation.inviter_email && (
               <div className="flex justify-between">

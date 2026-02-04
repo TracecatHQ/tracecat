@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   type OrgInvitationRead,
+  type OrgRole,
   organizationGetInvitationToken,
 } from "@/client"
 import {
@@ -67,7 +68,7 @@ import { useOrgInvitations } from "@/lib/hooks"
 
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
-  role_slug: z.enum(["member", "admin", "owner"]),
+  role: z.enum(["member", "admin", "owner"]),
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
@@ -84,7 +85,7 @@ export function OrgInvitationsTable() {
     resolver: zodResolver(invitationFormSchema),
     defaultValues: {
       email: "",
-      role_slug: "member",
+      role: "member",
     },
   })
 
@@ -92,7 +93,7 @@ export function OrgInvitationsTable() {
     try {
       await createInvitation({
         email: values.email,
-        role_slug: values.role_slug,
+        role: values.role as OrgRole,
       })
       form.reset()
       setIsCreateDialogOpen(false)
@@ -175,7 +176,7 @@ export function OrgInvitationsTable() {
                   />
                   <FormField
                     control={form.control}
-                    name="role_slug"
+                    name="role"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Role</FormLabel>
@@ -248,7 +249,7 @@ export function OrgInvitationsTable() {
               enableHiding: false,
             },
             {
-              accessorKey: "role_name",
+              accessorKey: "role",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
@@ -258,7 +259,7 @@ export function OrgInvitationsTable() {
               ),
               cell: ({ row }) => (
                 <div className="text-xs capitalize">
-                  {row.getValue<OrgInvitationRead["role_name"]>("role_name")}
+                  {row.getValue<OrgInvitationRead["role"]>("role")}
                 </div>
               ),
               enableSorting: true,
