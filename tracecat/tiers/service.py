@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.service import BaseService
-from tracecat.tiers.defaults import DEFAULT_ENTITLEMENTS, DEFAULT_LIMITS
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.exceptions import (
     DefaultTierNotConfiguredError,
     OrganizationNotFoundError,
@@ -95,7 +95,7 @@ class TierService(BaseService):
 
         if org_tier is None:
             # No org tier - return copy of default limits to avoid mutating shared instance
-            return DEFAULT_LIMITS.model_copy()
+            return tier_defaults.DEFAULT_LIMITS.model_copy()
 
         tier = org_tier.tier
 
@@ -135,7 +135,7 @@ class TierService(BaseService):
 
         if org_tier is None:
             # No org tier - return copy of default entitlements to avoid mutating shared instance
-            return DEFAULT_ENTITLEMENTS.model_copy()
+            return tier_defaults.DEFAULT_ENTITLEMENTS.model_copy()
 
         tier = org_tier.tier
         tier_entitlements = tier.entitlements if tier else {}
