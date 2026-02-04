@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from tracecat.auth.types import Role
 from tracecat.authz.controls import (
     get_missing_scopes,
     has_all_scopes,
@@ -24,8 +25,14 @@ from tracecat.authz.scopes import (
     PRESET_ROLE_SCOPES,
     VIEWER_SCOPES,
 )
-from tracecat.contexts import ctx_scopes
+from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+
+
+def _set_role_with_scopes(scopes: frozenset[str]) -> None:
+    """Helper to set ctx_role with the given scopes."""
+    role = Role(type="user", service_id="tracecat-api", scopes=scopes)
+    ctx_role.set(role)
 
 
 class TestValidateScopeString:
@@ -228,7 +235,7 @@ class TestRequireScopeDecorator:
     """Tests for the @require_scope decorator."""
 
     def test_require_scope_passes_with_exact_scope(self):
-        ctx_scopes.set(frozenset({"workflow:read"}))
+        _set_role_with_scopes(frozenset({"workflow:read"}))
 
         @require_scope("workflow:read")
         def protected_func():
@@ -237,7 +244,7 @@ class TestRequireScopeDecorator:
         assert protected_func() == "success"
 
     def test_require_scope_passes_with_wildcard(self):
-        ctx_scopes.set(frozenset({"workflow:*"}))
+        _set_role_with_scopes(frozenset({"workflow:*"}))
 
         @require_scope("workflow:read")
         def protected_func():
@@ -246,7 +253,7 @@ class TestRequireScopeDecorator:
         assert protected_func() == "success"
 
     def test_require_scope_passes_with_superuser(self):
-        ctx_scopes.set(frozenset({"*"}))
+        _set_role_with_scopes(frozenset({"*"}))
 
         @require_scope("org:delete")
         def protected_func():
@@ -255,7 +262,7 @@ class TestRequireScopeDecorator:
         assert protected_func() == "success"
 
     def test_require_scope_fails_without_scope(self):
-        ctx_scopes.set(frozenset({"case:read"}))
+        _set_role_with_scopes(frozenset({"case:read"}))
 
         @require_scope("workflow:read")
         def protected_func():
@@ -268,7 +275,7 @@ class TestRequireScopeDecorator:
         assert "workflow:read" in exc_info.value.missing_scopes
 
     def test_require_scope_multiple_all_required(self):
-        ctx_scopes.set(frozenset({"workflow:read", "workflow:execute"}))
+        _set_role_with_scopes(frozenset({"workflow:read", "workflow:execute"}))
 
         @require_scope("workflow:read", "workflow:execute", require_all=True)
         def protected_func():
@@ -277,7 +284,7 @@ class TestRequireScopeDecorator:
         assert protected_func() == "success"
 
     def test_require_scope_multiple_missing_one(self):
-        ctx_scopes.set(frozenset({"workflow:read"}))
+        _set_role_with_scopes(frozenset({"workflow:read"}))
 
         @require_scope("workflow:read", "workflow:execute", require_all=True)
         def protected_func():
@@ -289,7 +296,7 @@ class TestRequireScopeDecorator:
         assert "workflow:execute" in exc_info.value.missing_scopes
 
     def test_require_scope_any_one_sufficient(self):
-        ctx_scopes.set(frozenset({"workflow:read"}))
+        _set_role_with_scopes(frozenset({"workflow:read"}))
 
         @require_scope("workflow:read", "workflow:execute", require_all=False)
         def protected_func():
@@ -298,7 +305,7 @@ class TestRequireScopeDecorator:
         assert protected_func() == "success"
 
     def test_require_scope_any_none_present(self):
-        ctx_scopes.set(frozenset({"case:read"}))
+        _set_role_with_scopes(frozenset({"case:read"}))
 
         @require_scope("workflow:read", "workflow:execute", require_all=False)
         def protected_func():
@@ -307,9 +314,22 @@ class TestRequireScopeDecorator:
         with pytest.raises(ScopeDeniedError):
             protected_func()
 
+    def test_require_scope_fails_without_role(self):
+        """Test that require_scope fails when ctx_role is None."""
+        ctx_role.set(None)
+
+        @require_scope("workflow:read")
+        def protected_func():
+            return "success"
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            protected_func()
+
+        assert "workflow:read" in exc_info.value.required_scopes
+
     @pytest.mark.anyio
     async def test_require_scope_async_function(self):
-        ctx_scopes.set(frozenset({"workflow:read"}))
+        _set_role_with_scopes(frozenset({"workflow:read"}))
 
         @require_scope("workflow:read")
         async def async_protected_func():
@@ -320,7 +340,7 @@ class TestRequireScopeDecorator:
 
     @pytest.mark.anyio
     async def test_require_scope_async_function_denied(self):
-        ctx_scopes.set(frozenset({"case:read"}))
+        _set_role_with_scopes(frozenset({"case:read"}))
 
         @require_scope("workflow:read")
         async def async_protected_func():

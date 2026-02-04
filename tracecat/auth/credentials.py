@@ -34,7 +34,7 @@ from tracecat.auth.users import (
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.scopes import ORG_ROLE_SCOPES, PRESET_ROLE_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
-from tracecat.contexts import ctx_role, ctx_scopes
+from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization, OrganizationMembership, User, Workspace
@@ -212,6 +212,10 @@ async def _authenticate_service(
         if (org_role_str := request.headers.get("x-tracecat-role-org-role")) is not None
         else None
     )
+    # Parse scopes from header if present (for inter-service calls)
+    scopes: frozenset[str] = frozenset()
+    if scopes_header := request.headers.get("x-tracecat-role-scopes"):
+        scopes = frozenset(s.strip() for s in scopes_header.split(",") if s.strip())
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
     return Role(
         type="service",
@@ -222,6 +226,7 @@ async def _authenticate_service(
         organization_id=organization_id,
         workspace_role=workspace_role,
         org_role=org_role,
+        scopes=scopes,
     )
 
 
@@ -636,15 +641,14 @@ def _validate_role(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
 
-    # Compute and set effective scopes
+    # Compute effective scopes and create new role with scopes included
     scopes = compute_effective_scopes(role)
-    ctx_scopes.set(scopes)
     logger.debug(
         "Computed effective scopes",
         scope_count=len(scopes),
     )
 
-    return role
+    return role.model_copy(update={"scopes": scopes})
 
 
 # --- Main Auth Orchestrator ---
@@ -939,7 +943,7 @@ async def _authenticated_user_only(
         # organization_id intentionally None - user may not belong to any org
     )
     scopes = compute_effective_scopes(role)
-    ctx_scopes.set(scopes)
+    role = role.model_copy(update={"scopes": scopes})
     ctx_role.set(role)
     return role
 

@@ -13197,6 +13197,15 @@ export const $Role = {
       title: "Is Platform Superuser",
       default: false,
     },
+    scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      uniqueItems: true,
+      title: "Scopes",
+      default: [],
+    },
   },
   type: "object",
   required: ["type", "service_id"],

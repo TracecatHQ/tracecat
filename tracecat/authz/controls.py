@@ -2,11 +2,12 @@ import asyncio
 import functools
 import re
 from collections.abc import Callable, Coroutine
+from fnmatch import fnmatch
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
-from tracecat.contexts import ctx_scopes
+from tracecat.auth.types import Role
+from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 from tracecat.logger import logger
 
@@ -56,10 +57,8 @@ def scope_matches(granted_scope: str, required_scope: str) -> bool:
         # No wildcard - exact match required
         return granted_scope == required_scope
 
-    # Convert fnmatch-style pattern to regex
-    # Escape all regex special chars except *, then convert * to .*
-    pattern = re.escape(granted_scope).replace(r"\*", ".*")
-    return bool(re.fullmatch(pattern, required_scope))
+    # Use fnmatch for wildcard matching (avoids regex backtracking issues)
+    return fnmatch(required_scope, granted_scope)
 
 
 def has_scope(user_scopes: frozenset[str], required_scope: str) -> bool:
@@ -242,8 +241,8 @@ def require_workspace_role(*roles: WorkspaceRole) -> Callable[[T], T]:
 def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
     """Decorator that requires specific scopes to access an endpoint or method.
 
-    This decorator checks the current request's scopes (from ctx_scopes) against
-    the required scopes. Platform superusers with the "*" scope bypass all checks.
+    This decorator checks the current request's scopes (from ctx_role.get().scopes)
+    against the required scopes. Platform superusers with the "*" scope bypass all checks.
 
     Args:
         *scopes: The scope(s) required for access (e.g., "workflow:read", "org:member:invite")
@@ -276,7 +275,13 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
         if not required:
             return
 
-        user_scopes = ctx_scopes.get()
+        role = ctx_role.get()
+        if role is None:
+            raise ScopeDeniedError(
+                required_scopes=list(required), missing_scopes=list(required)
+            )
+
+        user_scopes = role.scopes
 
         # Platform superuser has "*" scope - bypass all checks
         if "*" in user_scopes:
