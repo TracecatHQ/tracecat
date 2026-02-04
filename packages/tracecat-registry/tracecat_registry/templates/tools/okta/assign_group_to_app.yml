@@ -9,6 +9,11 @@ definition:
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
+      optional: true
+    - type: oauth
+      provider_id: okta
+      grant_type: jwt_bearer
+      optional: true
   expects:
     base_url:
       type: str | None
@@ -47,7 +52,7 @@ definition:
         method: PUT
         url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/apps/${{ inputs.app_id }}/groups/${{ inputs.group_id }}
         headers:
-          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Authorization: "${{ \"Bearer \" + SECRETS.okta_oauth.OKTA_SERVICE_TOKEN || \"SSWS \" + SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
           Content-Type: "application/json"
         payload: ${{ steps.add_priority.result }}

@@ -9,6 +9,11 @@ definition:
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
+      optional: true
+    - type: oauth
+      provider_id: okta
+      grant_type: jwt_bearer
+      optional: true
   expects:
     email:
       type: str
@@ -28,7 +33,7 @@ definition:
         url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users
         method: GET
         headers:
-          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Authorization: "${{ \"Bearer \" + SECRETS.okta_oauth.OKTA_SERVICE_TOKEN || \"SSWS \" + SECRETS.okta.OKTA_API_TOKEN }}"
         params:
           search: ${{ steps.search_query.result }}
   # core.http_request returns data, headers, and status_code

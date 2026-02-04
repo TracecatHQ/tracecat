@@ -6510,10 +6510,17 @@ export const $CustomOAuthProviderCreate = {
       $ref: "#/components/schemas/OAuthGrantType",
     },
     authorization_endpoint: {
-      type: "string",
-      minLength: 8,
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Authorization Endpoint",
-      description: "OAuth authorization endpoint URL",
+      description:
+        "OAuth authorization endpoint URL. Required for authorization_code grant type.",
     },
     token_endpoint: {
       type: "string",
@@ -6574,13 +6581,7 @@ export const $CustomOAuthProviderCreate = {
     },
   },
   type: "object",
-  required: [
-    "name",
-    "grant_type",
-    "authorization_endpoint",
-    "token_endpoint",
-    "client_id",
-  ],
+  required: ["name", "grant_type", "token_endpoint", "client_id"],
   title: "CustomOAuthProviderCreate",
   description: "Request payload for creating a custom OAuth provider.",
 } as const
@@ -9873,7 +9874,7 @@ export const $OAuth2AuthorizeResponse = {
 
 export const $OAuthGrantType = {
   type: "string",
-  enum: ["authorization_code", "client_credentials"],
+  enum: ["authorization_code", "client_credentials", "jwt_bearer"],
   title: "OAuthGrantType",
   description: "Grant type for OAuth 2.0.",
 } as const

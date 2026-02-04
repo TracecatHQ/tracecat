@@ -19,6 +19,8 @@ class OAuthGrantType(StrEnum):
     """Authorization code grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.1"""
     CLIENT_CREDENTIALS = "client_credentials"
     """Client credentials grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.4"""
+    JWT_BEARER = "jwt_bearer"
+    """JWT bearer grant type. See https://datatracker.ietf.org/doc/html/rfc7523"""
 
 
 class MCPAuthType(StrEnum):

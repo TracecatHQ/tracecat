@@ -22,6 +22,7 @@ from tracecat.integrations.providers.base import (
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
     CustomOAuthProviderMixin,
+    JWTBearerOAuthProvider,
     MCPAuthProvider,
 )
 from tracecat.integrations.schemas import (
@@ -492,6 +493,8 @@ class IntegrationService(BaseWorkspaceService):
                 integration = await self._refresh_ac_integration(integration)
             elif integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
                 integration = await self._refresh_cc_integration(integration)
+            elif integration.grant_type == OAuthGrantType.JWT_BEARER:
+                integration = await self._refresh_jwt_bearer_integration(integration)
             else:
                 self.logger.warning(
                     "Unsupported grant type for refresh",
@@ -598,6 +601,38 @@ class IntegrationService(BaseWorkspaceService):
             integration.encrypted_refresh_token = self._encrypt_token(
                 token_response.refresh_token.get_secret_value()
             )
+
+        # Update expiry time
+        integration.expires_at = datetime.now() + timedelta(
+            seconds=token_response.expires_in
+        )
+
+        # Update scope if changed
+        integration.scope = token_response.scope
+
+        await self.session.commit()
+        await self.session.refresh(integration)
+        return integration
+
+    async def _refresh_jwt_bearer_integration(
+        self, integration: OAuthIntegration
+    ) -> OAuthIntegration:
+        """Refresh an integration using JWT Bearer assertion flow."""
+        provider = await self._provider_from_integration(integration)
+        if not provider:
+            self.logger.warning("Provider not found", provider=integration.provider_id)
+            return integration
+        if not isinstance(provider, JWTBearerOAuthProvider):
+            self.logger.warning(
+                "Provider does not support JWT Bearer",
+                provider=integration.provider_id,
+            )
+            return integration
+        token_response = await provider.get_jwt_bearer_token()
+        # Update integration with new tokens
+        integration.encrypted_access_token = self._encrypt_token(
+            token_response.access_token.get_secret_value()
+        )
 
         # Update expiry time
         integration.expires_at = datetime.now() + timedelta(

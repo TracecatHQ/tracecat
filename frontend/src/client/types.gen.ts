@@ -1941,9 +1941,9 @@ export type CustomOAuthProviderCreate = {
   description?: string | null
   grant_type: OAuthGrantType
   /**
-   * OAuth authorization endpoint URL
+   * OAuth authorization endpoint URL. Required for authorization_code grant type.
    */
-  authorization_endpoint: string
+  authorization_endpoint?: string | null
   /**
    * OAuth token endpoint URL
    */
@@ -3177,7 +3177,10 @@ export type OAuth2AuthorizeResponse = {
 /**
  * Grant type for OAuth 2.0.
  */
-export type OAuthGrantType = "authorization_code" | "client_credentials"
+export type OAuthGrantType =
+  | "authorization_code"
+  | "client_credentials"
+  | "jwt_bearer"
 
 /**
  * Settings for OAuth authentication.

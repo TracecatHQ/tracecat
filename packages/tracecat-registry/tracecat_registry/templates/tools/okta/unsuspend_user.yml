@@ -9,6 +9,11 @@ definition:
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
+      optional: true
+    - type: oauth
+      provider_id: okta
+      grant_type: jwt_bearer
+      optional: true
   expects:
     user_id:
       type: str
@@ -24,5 +29,5 @@ definition:
         method: POST
         url: ${{ inputs.base_url || VARS.okta.base_url }}/api/v1/users/${{ FN.url_encode(inputs.user_id) }}/lifecycle/unsuspend
         headers:
-          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Authorization: "${{ \"Bearer \" + SECRETS.okta_oauth.OKTA_SERVICE_TOKEN || \"SSWS \" + SECRETS.okta.OKTA_API_TOKEN }}"
   returns: ${{ steps.unsuspend_user.result.data }}

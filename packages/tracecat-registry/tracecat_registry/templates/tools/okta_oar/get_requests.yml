@@ -9,6 +9,11 @@ definition:
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
+      optional: true
+    - type: oauth
+      provider_id: okta
+      grant_type: jwt_bearer
+      optional: true
   expects:
     base_url:
       type: str | None
@@ -57,8 +62,7 @@ definition:
         url: ${{ inputs.base_url || VARS.okta_oar.base_url }}/governance/api/v1/requests
         method: GET
         headers:
-          Authorization: ${{ FN.concat("SSWS ", SECRETS.okta.OKTA_API_TOKEN) }}
-          Accept: application/json
-          Content-Type: application/json
+          Authorization: "${{ \"Bearer \" + SECRETS.okta_oauth.OKTA_SERVICE_TOKEN || \"SSWS \" + SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.call_api.result.data }}

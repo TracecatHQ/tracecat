@@ -3,12 +3,15 @@
 import asyncio
 import json
 import secrets
+import time
+import uuid
 from abc import ABC
 from json import JSONDecodeError
 from typing import Any, ClassVar, Self, cast
 from urllib.parse import urlparse
 
 import httpx
+import jwt
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, Field, SecretStr
@@ -541,6 +544,120 @@ class ClientCredentialsOAuthProvider(BaseOAuthProvider):
         except Exception as e:
             self.logger.error(
                 "Error acquiring client credentials token",
+                provider=self.id,
+                error=str(e),
+            )
+            raise
+
+
+class JWTBearerOAuthProvider(BaseOAuthProvider):
+    """Base OAuth provider for JWT Bearer assertion flow (RFC 7523).
+
+    This flow uses a private key to sign a JWT assertion that is sent to the
+    token endpoint. The authorization server verifies the JWT using the
+    corresponding public key. This is commonly used by:
+
+    - Okta service apps with API keys
+    - Azure AD with certificate credentials
+    - Other providers requiring private key JWT authentication
+
+    The client_secret field should contain the PEM-encoded private key.
+
+    Note: This flow does not require an authorization endpoint since there is
+    no user interaction - the JWT assertion is sent directly to the token endpoint.
+    """
+
+    grant_type: ClassVar[OAuthGrantType] = OAuthGrantType.JWT_BEARER
+
+    # JWT configuration - subclasses can override
+    jwt_algorithm: ClassVar[str] = "RS256"
+    jwt_lifetime_seconds: ClassVar[int] = 300  # 5 minutes
+
+    # Provide a placeholder authorization endpoint since JWT Bearer doesn't use it
+    # but the base class requires one
+    default_authorization_endpoint: ClassVar[str | None] = (
+        "https://not-used.example.com/oauth2/authorize"
+    )
+
+    def _create_jwt_assertion(self) -> str:
+        """Create a signed JWT assertion for the token request.
+
+        The JWT includes standard claims per RFC 7523:
+        - iss: client_id (issuer)
+        - sub: client_id (subject)
+        - aud: token_endpoint (audience)
+        - iat: current timestamp (issued at)
+        - exp: current timestamp + lifetime (expiration)
+        - jti: unique identifier (JWT ID)
+        """
+        now = int(time.time())
+        payload = {
+            "iss": self.client_id,
+            "sub": self.client_id,
+            "aud": self.token_endpoint,
+            "iat": now,
+            "exp": now + self.jwt_lifetime_seconds,
+            "jti": str(uuid.uuid4()),
+        }
+
+        # Add scopes if requested
+        if self.requested_scopes:
+            payload["scope"] = " ".join(self.requested_scopes)
+
+        private_key = self.client_secret
+        if not private_key:
+            raise ValueError(
+                "Private key (client_secret) is required for JWT Bearer flow"
+            )
+
+        return jwt.encode(payload, private_key, algorithm=self.jwt_algorithm)
+
+    async def get_jwt_bearer_token(self) -> TokenResponse:
+        """Get token using JWT Bearer assertion flow."""
+        try:
+            assertion = self._create_jwt_assertion()
+
+            # Build the token request
+            # Note: The grant_type must be the full URN per RFC 7523
+            data = {
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": assertion,
+            }
+
+            # Add scopes if requested
+            if self.requested_scopes:
+                data["scope"] = " ".join(self.requested_scopes)
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.token_endpoint,
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                response.raise_for_status()
+                token = response.json()
+
+            self.logger.info("Successfully acquired JWT bearer token", provider=self.id)
+
+            return TokenResponse(
+                access_token=SecretStr(token["access_token"]),
+                refresh_token=None,  # JWT bearer flow doesn't use refresh tokens
+                expires_in=token.get("expires_in", 3600),
+                scope=token.get("scope", " ".join(self.requested_scopes)),
+                token_type=token.get("token_type", "Bearer"),
+            )
+
+        except httpx.HTTPStatusError as e:
+            self.logger.error(
+                "HTTP error acquiring JWT bearer token",
+                provider=self.id,
+                status_code=e.response.status_code,
+                response_text=e.response.text,
+            )
+            raise
+        except Exception as e:
+            self.logger.error(
+                "Error acquiring JWT bearer token",
                 provider=self.id,
                 error=str(e),
             )

@@ -50,7 +50,11 @@ const formSchema = z.object({
     .max(512, { message: "Description must be 512 characters or fewer" })
     .optional()
     .or(z.literal("")),
-  grant_type: z.enum(["authorization_code", "client_credentials"]),
+  grant_type: z.enum([
+    "authorization_code",
+    "client_credentials",
+    "jwt_bearer",
+  ]),
   client_id: z
     .string()
     .trim()
@@ -68,7 +72,9 @@ const formSchema = z.object({
     .url({ message: "Enter a valid HTTPS URL" })
     .refine((value) => value.toLowerCase().startsWith("https://"), {
       message: "Authorization endpoint must use HTTPS",
-    }),
+    })
+    .optional()
+    .or(z.literal("")),
   token_endpoint: z
     .string()
     .trim()
@@ -102,6 +108,11 @@ const GRANT_OPTIONS = [
     value: "client_credentials" as const,
     title: "Client credentials",
     description: "Server-to-server access with tokens.",
+  },
+  {
+    value: "jwt_bearer" as const,
+    title: "Private key JWT",
+    description: "Service app with private key authentication.",
   },
 ]
 
@@ -152,7 +163,8 @@ export function CreateCustomProviderDialog({
       grant_type: values.grant_type,
       client_id: values.client_id,
       client_secret: values.client_secret?.trim() || undefined,
-      authorization_endpoint: values.authorization_endpoint,
+      authorization_endpoint:
+        values.authorization_endpoint?.trim() || undefined,
       token_endpoint: values.token_endpoint,
       scopes: values.scopes ?? [],
     })
@@ -284,7 +296,9 @@ export function CreateCustomProviderDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Client secret{" "}
+                      {grantType === "jwt_bearer"
+                        ? "Private key (PEM)"
+                        : "Client secret"}{" "}
                       {grantType === "authorization_code" && (
                         <span className="text-xs text-muted-foreground">
                           (optional)
@@ -293,7 +307,11 @@ export function CreateCustomProviderDialog({
                     </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Client secret"
+                        placeholder={
+                          grantType === "jwt_bearer"
+                            ? "-----BEGIN RSA PRIVATE KEY-----"
+                            : "Client secret"
+                        }
                         type="password"
                         autoComplete="new-password"
                         {...field}
@@ -304,22 +322,24 @@ export function CreateCustomProviderDialog({
                 )}
               />
             </div>
-            <FormField
-              control={form.control}
-              name="authorization_endpoint"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Authorization endpoint</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://example.com/oauth2/authorize"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {grantType !== "jwt_bearer" && (
+              <FormField
+                control={form.control}
+                name="authorization_endpoint"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Authorization endpoint</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="https://example.com/oauth2/authorize"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="token_endpoint"

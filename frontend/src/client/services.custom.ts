@@ -11,7 +11,7 @@ export type CustomOAuthProviderCreateRequest = {
   name: string
   description?: string | null
   grant_type: OAuthGrantType
-  authorization_endpoint: string
+  authorization_endpoint?: string | null
   token_endpoint: string
   scopes?: string[] | null
   provider_id?: string | null

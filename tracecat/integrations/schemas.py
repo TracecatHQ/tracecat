@@ -135,8 +135,9 @@ class CustomOAuthProviderBase(BaseModel):
     name: str = Field(..., min_length=3, max_length=120)
     description: str | None = Field(default=None, max_length=512)
     grant_type: OAuthGrantType
-    authorization_endpoint: str = Field(
-        ..., description="OAuth authorization endpoint URL", min_length=8
+    authorization_endpoint: str | None = Field(
+        default=None,
+        description="OAuth authorization endpoint URL. Required for authorization_code grant type.",
     )
     token_endpoint: str = Field(
         ..., description="OAuth token endpoint URL", min_length=8
@@ -145,20 +146,33 @@ class CustomOAuthProviderBase(BaseModel):
         default=None, description="Default OAuth scopes to request"
     )
 
-    @field_validator("authorization_endpoint", "token_endpoint", mode="before")
+    @field_validator("token_endpoint", mode="before")
     @classmethod
-    def _validate_https_endpoint(cls, value: str | None) -> str:
+    def _validate_token_endpoint(cls, value: str | None) -> str:
         if value is None:
-            raise ValueError("Endpoint is required")
+            raise ValueError("Token endpoint is required")
         if isinstance(value, str):
             value = value.strip()
         if not value:
-            raise ValueError("Endpoint must not be empty")
+            raise ValueError("Token endpoint must not be empty")
         parsed = urlparse(value)
         if parsed.scheme.lower() != "https":
-            raise ValueError("OAuth endpoints must use HTTPS")
+            raise ValueError("Token endpoint must use HTTPS")
         if not parsed.netloc:
-            raise ValueError("OAuth endpoints must include a hostname")
+            raise ValueError("Token endpoint must include a hostname")
+        return value
+
+    @field_validator("authorization_endpoint", mode="before")
+    @classmethod
+    def _validate_authorization_endpoint(cls, value: str | None) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        value = value.strip()
+        parsed = urlparse(value)
+        if parsed.scheme.lower() != "https":
+            raise ValueError("Authorization endpoint must use HTTPS")
+        if not parsed.netloc:
+            raise ValueError("Authorization endpoint must include a hostname")
         return value
 
 

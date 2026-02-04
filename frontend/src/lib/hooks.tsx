@@ -4601,7 +4601,8 @@ export function useCreateCustomProvider(workspaceId: string) {
         ...params,
         name: params.name.trim(),
         description: params.description?.trim() || undefined,
-        authorization_endpoint: params.authorization_endpoint.trim(),
+        authorization_endpoint:
+          params.authorization_endpoint?.trim() || undefined,
         token_endpoint: params.token_endpoint.trim(),
         client_id: params.client_id.trim(),
         client_secret: params.client_secret?.trim() || undefined,
