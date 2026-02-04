@@ -41,6 +41,7 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
                 )
             except Exception as e:
                 logger.error("Error creating local registry repository", error=e)
+                await session.rollback()
             else:
                 logger.info("Created local repository", origin=local_origin)
 
@@ -61,5 +62,6 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
                 )
             except Exception as e:
                 logger.error("Error creating remote registry repository", error=e)
+                await session.rollback()
             else:
                 logger.info("Created remote registry repository", url=cleaned_url)
