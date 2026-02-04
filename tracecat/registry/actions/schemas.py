@@ -329,6 +329,7 @@ class RegistryActionCreate(RegistryActionBase):
             options=RegistryActionOptions(
                 include_in_schema=action.include_in_schema,
                 requires_approval=action.requires_approval,
+                required_entitlements=action.required_entitlements,
             ),
         )
 
@@ -455,6 +456,7 @@ class RegistryActionValidateResponse(BaseModel):
 class RegistryActionOptions(BaseModel):
     include_in_schema: bool = True
     requires_approval: bool = False
+    required_entitlements: list[str] | None = None
 
 
 class RegistryActionInterface(TypedDict):

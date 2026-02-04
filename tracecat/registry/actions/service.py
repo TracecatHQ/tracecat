@@ -19,12 +19,14 @@ from sqlalchemy import (
     tuple_,
     union_all,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecretType,
     RegistrySecretTypeValidator,
 )
 
+from tracecat.auth.types import Role
 from tracecat.db.models import (
     PlatformRegistryAction,
     PlatformRegistryIndex,
@@ -73,6 +75,7 @@ from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseOrgService
+from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
@@ -164,6 +167,47 @@ class RegistryActionsService(BaseOrgService):
     """Registry actions service."""
 
     service_name = "registry_actions"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role=role)
+        self._enabled_entitlements_cache: set[str] | None = None
+
+    @staticmethod
+    def _normalize_required_entitlements(options: dict) -> set[str]:
+        required = options.get("required_entitlements")
+        if not required:
+            return set()
+        if isinstance(required, str):
+            return {required}
+        if isinstance(required, list):
+            return {str(item) for item in required if item}
+        return set()
+
+    async def _get_enabled_entitlements(self) -> set[str]:
+        if self._enabled_entitlements_cache is None:
+            tier_service = TierService(self.session)
+            effective = await tier_service.get_effective_entitlements(
+                self.organization_id
+            )
+            self._enabled_entitlements_cache = {
+                key for key, value in effective.model_dump().items() if value
+            }
+        return self._enabled_entitlements_cache
+
+    async def _filter_index_entries_by_entitlements(
+        self, entries: list[tuple[IndexEntry, str]]
+    ) -> list[tuple[IndexEntry, str]]:
+        required_any: set[str] = set()
+        for entry, _origin in entries:
+            required_any |= self._normalize_required_entitlements(entry.options)
+        if not required_any:
+            return entries
+        enabled = await self._get_enabled_entitlements()
+        return [
+            (entry, origin)
+            for entry, origin in entries
+            if self._normalize_required_entitlements(entry.options).issubset(enabled)
+        ]
 
     async def list_actions_from_index(
         self,
@@ -297,7 +341,7 @@ class RegistryActionsService(BaseOrgService):
                 options=row.options or {},
             )
             entries.append((entry, row.origin))
-        return entries
+        return await self._filter_index_entries_by_entitlements(entries)
 
     async def list_actions_from_index_by_repository(
         self,
@@ -381,8 +425,19 @@ class RegistryActionsService(BaseOrgService):
         result = await self.session.execute(combined)
         rows = typing_cast(list[_RepoIndexRow], result.all())
 
+        required_any: set[str] = set()
+        for row in rows:
+            required_any |= self._normalize_required_entitlements(row.options or {})
+        enabled_entitlements: set[str] | None = None
+        if required_any:
+            enabled_entitlements = await self._get_enabled_entitlements()
+
         actions: list[RegistryActionRead] = []
         for row in rows:
+            required = self._normalize_required_entitlements(row.options or {})
+            if required and enabled_entitlements is not None:
+                if not required.issubset(enabled_entitlements):
+                    continue
             manifest = RegistryVersionManifest.model_validate(row.manifest)
             action_name = f"{row.namespace}.{row.name}"
             manifest_action = manifest.actions.get(action_name)
@@ -511,6 +566,11 @@ class RegistryActionsService(BaseOrgService):
             return None
 
         row = typing_cast(_ActionIndexRow, first_row)
+        required = self._normalize_required_entitlements(row.options or {})
+        if required:
+            enabled = await self._get_enabled_entitlements()
+            if not required.issubset(enabled):
+                return None
         manifest = RegistryVersionManifest.model_validate(row.manifest)
         return IndexedActionResult(
             index_entry=IndexEntry(
@@ -675,6 +735,21 @@ class RegistryActionsService(BaseOrgService):
                 repository_id=row.repo_id,
             )
 
+        required_any: set[str] = set()
+        for result in actions.values():
+            required_any |= self._normalize_required_entitlements(
+                result.index_entry.options
+            )
+        if required_any:
+            enabled = await self._get_enabled_entitlements()
+            actions = {
+                name: result
+                for name, result in actions.items()
+                if self._normalize_required_entitlements(
+                    result.index_entry.options
+                ).issubset(enabled)
+            }
+
         return actions
 
     async def search_actions_from_index(
@@ -809,7 +884,7 @@ class RegistryActionsService(BaseOrgService):
                 )
             )
 
-        return entries
+        return await self._filter_index_entries_by_entitlements(entries)
 
     async def get_aggregated_secrets(self) -> list[SecretDefinition]:
         """Aggregate secrets from all actions in both org and platform registries.
@@ -856,6 +931,7 @@ class RegistryActionsService(BaseOrgService):
 
         aggregated: dict[str, SecretAggregate] = {}
         seen_actions: set[str] = set()
+        enabled_entitlements: set[str] | None = None
 
         for manifest_data in manifest_rows:
             manifest = RegistryVersionManifest.model_validate(manifest_data)
@@ -864,6 +940,15 @@ class RegistryActionsService(BaseOrgService):
                 if action_name in seen_actions:
                     continue
                 seen_actions.add(action_name)
+
+                required_entitlements = (
+                    manifest_action.options.required_entitlements or []
+                )
+                if required_entitlements:
+                    if enabled_entitlements is None:
+                        enabled_entitlements = await self._get_enabled_entitlements()
+                    if not set(required_entitlements).issubset(enabled_entitlements):
+                        continue
 
                 if not manifest_action.secrets:
                     continue

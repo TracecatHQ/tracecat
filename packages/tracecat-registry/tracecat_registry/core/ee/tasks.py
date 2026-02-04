@@ -1,7 +1,7 @@
 """SDK-only case task UDFs.
 
 These UDFs are always registered but route to internal endpoints that are
-gated by feature flags on the server side. If the feature is not enabled,
+gated by entitlements on the server side. If the entitlement is not enabled,
 the server will return 404.
 """
 
@@ -18,6 +18,7 @@ from tracecat_registry.context import get_context
     display_group="Cases",
     description="Create a new task for a case.",
     namespace="core.cases",
+    required_entitlements=["case_tasks"],
 )
 async def create_task(
     case_id: Annotated[
@@ -76,6 +77,7 @@ async def create_task(
     display_group="Cases",
     description="Get details of a specific case task by ID.",
     namespace="core.cases",
+    required_entitlements=["case_tasks"],
 )
 async def get_task(
     task_id: Annotated[
@@ -92,6 +94,7 @@ async def get_task(
     display_group="Cases",
     description="List all tasks for a specific case.",
     namespace="core.cases",
+    required_entitlements=["case_tasks"],
 )
 async def list_tasks(
     case_id: Annotated[
@@ -108,6 +111,7 @@ async def list_tasks(
     display_group="Cases",
     description="Update an existing case task.",
     namespace="core.cases",
+    required_entitlements=["case_tasks"],
 )
 async def update_task(
     task_id: Annotated[
@@ -177,6 +181,7 @@ async def update_task(
     display_group="Cases",
     description="Delete a case task.",
     namespace="core.cases",
+    required_entitlements=["case_tasks"],
 )
 async def delete_task(
     task_id: Annotated[

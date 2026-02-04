@@ -61,6 +61,7 @@ class BoundRegistryAction(BaseModel):
     # Options
     include_in_schema: bool = True
     requires_approval: bool = False
+    required_entitlements: list[str] | None = None
 
     @property
     def is_async(self) -> bool:
