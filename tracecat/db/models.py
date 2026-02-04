@@ -46,7 +46,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.schemas import UserRole
-from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.enums import OrgRole, ScopeSource, WorkspaceRole
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
     CaseEventType,
@@ -468,6 +468,12 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     chats: Mapped[list[Chat]] = relationship(
         "Chat",
         back_populates="user",
+        lazy="select",
+    )
+    role_assignments: Mapped[list[UserRoleAssignment]] = relationship(
+        "UserRoleAssignment",
+        back_populates="user",
+        foreign_keys="UserRoleAssignment.user_id",
         lazy="select",
     )
     organizations: Mapped[list[Organization]] = relationship(
@@ -3121,3 +3127,262 @@ class OrganizationTier(Base, TimestampMixin):
         "Organization", back_populates="organization_tier"
     )
     tier: Mapped[Tier] = relationship("Tier")
+
+
+# =============================================================================
+# RBAC Tables
+# =============================================================================
+
+
+SCOPE_SOURCE_ENUM = Enum(ScopeSource, name="scopesource")
+
+
+class Scope(Base, TimestampMixin):
+    """Scope definitions for fine-grained access control.
+
+    Scopes follow the format `{resource}:{action}` (OAuth 2.0 compliant).
+    Examples: workflow:read, org:member:invite, action:tools.okta.list_users:execute
+
+    Scopes can be:
+    - Platform scopes (organization_id=NULL): Platform-owned scopes shared across all orgs.
+      Use `source_ref` for provenance (e.g., "core", "tracecat_registry", git URL).
+    - Custom scopes (organization_id=org_id): Organization-defined scopes.
+    """
+
+    __tablename__ = "scope"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name"),
+        # Partial unique index for system/registry scopes (organization_id IS NULL)
+        Index(
+            "ix_scope_name_system_unique",
+            "name",
+            unique=True,
+            postgresql_where=text("organization_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    resource: Mapped[str] = mapped_column(String(128))
+    action: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(String(512))
+    source: Mapped[ScopeSource] = mapped_column(SCOPE_SOURCE_ENUM, index=True)
+    source_ref: Mapped[str | None] = mapped_column(String(255))
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+
+    # Relationships
+    roles: Mapped[list[Role]] = relationship(
+        "Role",
+        secondary="role_scope",
+        back_populates="scopes",
+        lazy="select",
+    )
+
+
+class Role(Base, TimestampMixin):
+    """Roles that bundle scopes together.
+
+    Roles are organization-scoped and identified by an optional slug:
+    - System roles have well-known slugs: "admin", "editor", "viewer"
+    - Custom roles have NULL slugs
+
+    System roles are seeded on startup and should not be deleted.
+    """
+
+    __tablename__ = "role"
+    __table_args__ = (UniqueConstraint("organization_id", "slug"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    slug: Mapped[str | None] = mapped_column(String(64), index=True)
+    description: Mapped[str | None] = mapped_column(String(512))
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL")
+    )
+
+    # Relationships
+    scopes: Mapped[list[Scope]] = relationship(
+        "Scope",
+        secondary="role_scope",
+        back_populates="roles",
+        lazy="select",
+    )
+    group_role_assignments: Mapped[list[GroupRoleAssignment]] = relationship(
+        "GroupRoleAssignment",
+        back_populates="role",
+        lazy="select",
+    )
+    user_assignments: Mapped[list[UserRoleAssignment]] = relationship(
+        "UserRoleAssignment",
+        back_populates="role",
+        lazy="select",
+    )
+
+
+class RoleScope(Base):
+    """Junction table linking roles to their scopes."""
+
+    __tablename__ = "role_scope"
+
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="CASCADE"), primary_key=True
+    )
+    scope_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("scope.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class Group(Base, TimestampMixin):
+    """Groups for organizing users within an organization.
+
+    Groups are assigned roles at either:
+    - Organization level (workspace_id=NULL in GroupRoleAssignment): Scopes apply org-wide
+    - Workspace level: Scopes apply only within that workspace
+
+    Users inherit all scopes from groups they belong to.
+    """
+
+    __tablename__ = "group"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    description: Mapped[str | None] = mapped_column(String(512))
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL")
+    )
+
+    # Relationships
+    members: Mapped[list[User]] = relationship(
+        "User",
+        secondary="group_member",
+        lazy="select",
+    )
+    role_assignments: Mapped[list[GroupRoleAssignment]] = relationship(
+        "GroupRoleAssignment",
+        back_populates="group",
+        cascade="all, delete",
+        lazy="select",
+    )
+
+
+class GroupMember(Base):
+    """Junction table linking users to groups."""
+
+    __tablename__ = "group_member"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+
+
+class GroupRoleAssignment(Base):
+    """Assigns a role to a group at either org or workspace level.
+
+    - workspace_id=NULL: Org-wide assignment - scopes apply to all workspaces
+    - workspace_id=<id>: Workspace-specific assignment - scopes apply only to that workspace
+
+    Each group can have at most one assignment per workspace (or one org-wide assignment).
+    """
+
+    __tablename__ = "group_role_assignment"
+    __table_args__ = (
+        UniqueConstraint("group_id", "workspace_id"),
+        # Partial unique index for org-wide assignments (workspace_id IS NULL)
+        Index(
+            "ix_group_role_assignment_group_org_unique",
+            "group_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE")
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("group.id", ondelete="CASCADE")
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL")
+    )
+
+    # Relationships
+    organization: Mapped[Organization] = relationship("Organization")
+    group: Mapped[Group] = relationship("Group", back_populates="role_assignments")
+    workspace: Mapped[Workspace | None] = relationship("Workspace")
+    role: Mapped[Role] = relationship("Role", back_populates="group_role_assignments")
+
+
+class UserRoleAssignment(Base):
+    """Direct assignment of a role to a user at org or workspace level.
+
+    - workspace_id=NULL: Org-wide assignment - scopes apply to all workspaces
+    - workspace_id=<id>: Workspace-specific assignment - scopes apply only to that workspace
+
+    Each user can have at most one direct role assignment per workspace (or one org-wide).
+    """
+
+    __tablename__ = "user_role_assignment"
+    __table_args__ = (
+        UniqueConstraint("user_id", "workspace_id"),
+        # Partial unique index for org-wide assignments (workspace_id IS NULL)
+        Index(
+            "ix_user_role_assignment_user_org_unique",
+            "user_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE")
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="RESTRICT"), index=True
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL")
+    )
+
+    # Relationships
+    organization: Mapped[Organization] = relationship("Organization")
+    user: Mapped[User] = relationship(
+        "User", foreign_keys=[user_id], back_populates="role_assignments"
+    )
+    workspace: Mapped[Workspace | None] = relationship("Workspace")
+    role: Mapped[Role] = relationship("Role", back_populates="user_assignments")

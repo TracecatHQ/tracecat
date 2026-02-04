@@ -8,9 +8,16 @@ class OwnerType(StrEnum):
 
 
 class WorkspaceRole(StrEnum):
-    # VIEWER = "viewer"
+    VIEWER = "viewer"
     EDITOR = "editor"
     ADMIN = "admin"
+
+
+class ScopeSource(StrEnum):
+    """Source/ownership of a scope definition."""
+
+    PLATFORM = "platform"  # Platform-owned: core permissions + registry-derived
+    CUSTOM = "custom"  # Organization-defined scopes
 
 
 class OrgRole(StrEnum):
