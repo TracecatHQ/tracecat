@@ -11,6 +11,8 @@ from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import ExternalWorkflowDefinition
 
+pytestmark = pytest.mark.usefixtures("registry_version_with_manifest")
+
 
 @pytest.mark.parametrize(
     "id",

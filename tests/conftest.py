@@ -37,7 +37,13 @@ from tracecat.db.engine import (
     get_async_session_context_manager,
     reset_async_engine,
 )
-from tracecat.db.models import Base, Organization, Workspace
+from tracecat.db.models import (
+    Base,
+    Organization,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    Workspace,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.plugins import TracecatPydanticAIPlugin
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -244,24 +250,17 @@ def db() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None]:
-    """Session-scoped fixture to create a RegistryVersion with manifest for core actions.
+def default_org(db: None, env_sandbox: None) -> Iterator[None]:
+    """Session-scoped fixture to create the default organization.
 
-    This enables versioned action resolution in workflow tests. The manifest includes
-    core actions like core.transform.reshape, core.http_request, etc.
+    This is required by tests that use the test_workspace fixture or any service
+    that relies on the default organization existing in the database.
 
     Uses sync SQLAlchemy to avoid event loop conflicts with async fixtures.
     """
     from sqlalchemy.orm import Session
 
-    from tracecat.db.models import (
-        PlatformRegistryRepository,
-        PlatformRegistryVersion,
-        RegistryRepository,
-        RegistryVersion,
-    )
-
-    def _seed_registry_version(sync_db_uri: str) -> None:
+    def _seed_default_org(sync_db_uri: str) -> None:
         # Use sync engine to avoid event loop conflicts.
         sync_db_uri = sync_db_uri.replace("+asyncpg", "+psycopg")
         sync_engine = create_engine(sync_db_uri)
@@ -291,6 +290,41 @@ def registry_version_with_manifest(db: None, env_sandbox: None) -> Iterator[None
                 },
             )
             session.commit()
+
+        sync_engine.dispose()
+
+    # Seed both the per-test database and the default engine DB (used by services via with_session()).
+    target_uris = {TEST_DB_CONFIG.test_url_sync, config.TRACECAT__DB_URI}
+    for uri in sorted(target_uris):
+        _seed_default_org(uri)
+
+    yield
+    # No cleanup needed - the database is dropped at the end of the session
+
+
+@pytest.fixture(scope="session")
+def registry_version_with_manifest(default_org: None) -> Iterator[None]:
+    """Session-scoped fixture to create a RegistryVersion with manifest for core actions.
+
+    This enables versioned action resolution in workflow tests. The manifest includes
+    core actions like core.transform.reshape, core.http_request, etc.
+
+    NOTE: This fixture is NOT autouse - only tests that need action resolution from
+    the database should depend on it. Tests that create their own manifests via
+    create_manifest_for_actions() or use mocked RegistryLock objects do not need this.
+
+    Uses sync SQLAlchemy to avoid event loop conflicts with async fixtures.
+    """
+    from sqlalchemy.orm import Session
+
+    from tracecat.db.models import RegistryRepository, RegistryVersion
+
+    def _seed_registry_version(sync_db_uri: str) -> None:
+        # Use sync engine to avoid event loop conflicts.
+        sync_db_uri = sync_db_uri.replace("+asyncpg", "+psycopg")
+        sync_engine = create_engine(sync_db_uri)
+
+        with Session(sync_engine) as session:
             # Create a registry repository for core actions
             origin = "tracecat_registry"
             repo = session.scalar(

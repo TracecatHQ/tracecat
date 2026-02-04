@@ -25,7 +25,10 @@ from tracecat.expressions.functions import get_interaction
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.logger import logger
 
-pytestmark = pytest.mark.usefixtures("db")
+pytestmark = [
+    pytest.mark.usefixtures("db"),
+    pytest.mark.usefixtures("registry_version_with_manifest"),
+]
 
 
 @contextmanager

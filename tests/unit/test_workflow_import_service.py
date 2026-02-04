@@ -18,7 +18,10 @@ from tracecat.workflow.store.schemas import (
     RemoteWorkflowTag,
 )
 
-pytestmark = pytest.mark.usefixtures("db")
+pytestmark = [
+    pytest.mark.usefixtures("db"),
+    pytest.mark.usefixtures("registry_version_with_manifest"),
+]
 
 
 @pytest.fixture
