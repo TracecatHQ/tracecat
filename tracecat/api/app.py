@@ -1,9 +1,8 @@
 import asyncio
-from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 import tracecat_registry
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -49,6 +48,7 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.cases.attachments.internal_router import (
     router as internal_case_attachments_router,
 )
@@ -77,11 +77,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
-from tracecat.feature_flags import (
-    FeatureFlag,
-    FlagLike,
-    is_feature_enabled,
-)
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
@@ -113,6 +108,7 @@ from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exis
 from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.tiers.entitlements import Entitlement, require_entitlement
 from tracecat.variables.internal_router import router as internal_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
@@ -332,19 +328,6 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
     )
 
 
-def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
-    """Check if a feature flag is enabled."""
-
-    def _is_feature_enabled() -> None:
-        if not is_feature_enabled(flag):
-            logger.debug("Feature flag is not enabled", flag=flag)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Feature not enabled"
-            )
-        logger.debug("Feature flag is enabled", flag=flag)
-
-    return _is_feature_enabled
-
 
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
@@ -400,7 +383,12 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(
         agent_preset_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
+        dependencies=[
+            require_entitlement(
+                Entitlement.AGENT_PRESETS,
+                require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
+            )
+        ],
     )
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
@@ -420,15 +408,15 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_attachments_router)
     app.include_router(
         case_dropdowns_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DROPDOWNS))],
+        dependencies=[require_entitlement(Entitlement.CASE_DROPDOWNS)],
     )
     app.include_router(
         case_dropdown_values_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DROPDOWNS))],
+        dependencies=[require_entitlement(Entitlement.CASE_DROPDOWNS)],
     )
     app.include_router(
         case_durations_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
+        dependencies=[require_entitlement(Entitlement.CASE_DURATIONS)],
     )
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
@@ -437,7 +425,13 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(feature_flags_router)
     app.include_router(
         vcs_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.GIT_SYNC))],
+        dependencies=[
+            require_entitlement(
+                Entitlement.GIT_SYNC,
+                require_workspace="no",
+                require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
+            )
+        ],
     )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
@@ -447,7 +441,16 @@ def create_app(**kwargs) -> FastAPI:
     )
     # Internal routers
     app.include_router(internal_agent_router)
-    app.include_router(internal_agent_preset_router)
+    app.include_router(
+        internal_agent_preset_router,
+        dependencies=[
+            require_entitlement(
+                Entitlement.AGENT_PRESETS,
+                allow_executor=True,
+                allow_user=False,
+            )
+        ],
+    )
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
     app.include_router(internal_comments_router)

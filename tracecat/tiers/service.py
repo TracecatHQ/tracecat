@@ -151,4 +151,10 @@ class TierService(BaseService):
             custom_registry=resolve_entitlement("custom_registry"),
             sso=resolve_entitlement("sso"),
             git_sync=resolve_entitlement("git_sync"),
+            agent_approvals=resolve_entitlement("agent_approvals"),
+            agent_presets=resolve_entitlement("agent_presets"),
+            case_dropdowns=resolve_entitlement("case_dropdowns"),
+            case_durations=resolve_entitlement("case_durations"),
+            case_tasks=resolve_entitlement("case_tasks"),
+            case_triggers=resolve_entitlement("case_triggers"),
         )
