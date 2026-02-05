@@ -15,7 +15,6 @@ import type * as React from "react"
 import { useEffect, useState } from "react"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import { Separator } from "@/components/ui/separator"
-import { useAppInfo } from "@/lib/hooks"
 import {
   Sidebar,
   SidebarContent,
@@ -32,6 +31,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useAppInfo } from "@/lib/hooks"
 
 export function AdminSidebar({
   ...props
