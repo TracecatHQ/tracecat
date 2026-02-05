@@ -242,7 +242,7 @@ TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY = os.environ.get(
 )
 """Bucket for registry tarball files and versioned artifacts."""
 
-TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT")
+TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
 
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
