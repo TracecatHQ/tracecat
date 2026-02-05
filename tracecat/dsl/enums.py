@@ -27,6 +27,7 @@ class PlatformAction(StrEnum):
                 cls.TRANSFORM_GATHER,
                 cls.AI_AGENT,
                 cls.AI_PRESET_AGENT,
+                cls.AI_ACTION,
                 cls.RUN_PYTHON,
             )
         )
