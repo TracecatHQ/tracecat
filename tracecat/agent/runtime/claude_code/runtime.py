@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     HookMatcher,
+    SandboxSettings,
 )
 from claude_agent_sdk.types import (
     AssistantMessage,
@@ -35,6 +37,7 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
+from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
@@ -49,19 +52,43 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# LiteLLM URL - port 4000 for both:
-# - Network isolated: bridge on 4000 proxies to gateway via Unix socket
-# - Internet enabled: no bridge, SDK hits gateway directly on 4000
-LITELLM_URL = "http://127.0.0.1:4000"
+# Default LiteLLM port for NSJail mode and internet-enabled mode
+# In direct mode with network isolation, the bridge uses a dynamic port
+# passed via TRACECAT__LLM_BRIDGE_PORT environment variable
+LITELLM_DEFAULT_PORT = 4000
 
+
+def get_litellm_url() -> str:
+    """Get the LiteLLM URL based on runtime mode.
+
+    - NSJail mode: Uses fixed port 4000 (network namespace isolated)
+    - Direct mode (network isolated): Uses dynamic port from env var
+    - Internet enabled: Uses default port 4000 (direct gateway access)
+    """
+
+    if TRACECAT__DISABLE_NSJAIL:
+        # Direct mode: check for dynamic port from LLM bridge
+        port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT", str(LITELLM_DEFAULT_PORT))
+        return f"http://127.0.0.1:{port}"
+    return f"http://127.0.0.1:{LITELLM_DEFAULT_PORT}"
+
+
+# Tools that are always disallowed regardless of sandbox mode
+# These are interactive/planning tools that don't make sense for automation
 DISALLOWED_TOOLS = [
+    # Notebook tools
+    "NotebookRead",
+    "NotebookEdit",
+    # Planning/interaction tools - agent is non-interactive
     "EnterPlanMode",
     "ExitPlanMode",
     "AskUserQuestion",
     "TodoRead",
     "TodoWrite",
     "Task",
+    "TaskOutput",
     "Skill",
+    "SlashCommand",
 ]
 
 # Tools that require internet access (these bypass sandbox network isolation
@@ -102,6 +129,9 @@ class ClaudeAgentRuntime:
         self._is_continuation: bool = False
         # Adapter for converting Claude SDK events - must be reused to track state
         self._stream_adapter = ClaudeSDKAdapter()
+        # Working directory for session file path resolution
+        # Must match the cwd passed to ClaudeAgentOptions for session resume
+        self._cwd: Path = Path.cwd()
 
     def _get_session_file_path(self, sdk_session_id: str) -> Path:
         """Derive the session file path from SDK session ID.
@@ -121,8 +151,7 @@ class ClaudeAgentRuntime:
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
-        cwd = os.getcwd()
-        encoded_cwd = cwd.replace("/", "-")
+        encoded_cwd = str(self._cwd).replace("/", "-")
         claude_dir = Path.home() / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"
 
@@ -133,6 +162,11 @@ class ClaudeAgentRuntime:
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
         session_file_path = self._get_session_file_path(sdk_session_id)
+
+        # Ensure the file ends with a newline so JSONL readers don't treat the last
+        # record as truncated (some implementations are strict about this).
+        if sdk_session_data and not sdk_session_data.endswith("\n"):
+            sdk_session_data = f"{sdk_session_data}\n"
 
         def _write() -> None:
             session_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -375,6 +409,14 @@ class ClaudeAgentRuntime:
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
 
+        # Stable per-session working directory for the Claude Code CLI.
+        # IMPORTANT: Must be deterministic per session_id. The CLI indexes
+        # sessions by project directory (cwd), so if cwd changes between
+        # turns (e.g., random mkdtemp), --resume can't find the session.
+        # Both nsjail and direct mode use the same scheme for parity.
+        self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
+        self._cwd.mkdir(parents=True, exist_ok=True)
+
         # Write session file locally if resuming or forking
         resume_session_id: str | None = None
         fork_session: bool = False
@@ -385,10 +427,18 @@ class ClaudeAgentRuntime:
             resume_session_id = payload.sdk_session_id
             # If forking, tell the SDK to create a new session from the parent's history
             fork_session = payload.is_fork
+            # For a normal resume (non-fork), seed line tracking *before* we send the
+            # new query. The CLI can append new JSONL lines for this turn before the
+            # first StreamEvent arrives; if we only set `_last_seen_line_index` after
+            # the first StreamEvent, we can permanently skip those lines and corrupt
+            # persisted history (leading to flaky resume crashes).
+            if not fork_session:
+                self._sdk_session_id = resume_session_id
+                # Count lines from the session data we just wrote to disk (avoid I/O).
+                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
         try:
-            # Build MCP servers config and tool whitelist
-            # We only allow MCP tools - Claude's default toolset (Bash, Read, etc.) is disabled
+            # Build MCP servers config for registry actions and user MCP tools
             mcp_servers: dict[str, Any] = {}
             if self.registry_tools:
                 proxy_config = await create_proxy_mcp_server(
@@ -416,27 +466,40 @@ class ClaudeAgentRuntime:
                 },
             )
 
-            # Build disallowed tools list - add internet tools if internet access is disabled
-            disallowed_tools = list(DISALLOWED_TOOLS)
+            # Build disallowed tools list based on environment and config
+            # - Always blocked: interactive/planning tools (DISALLOWED_TOOLS)
+            # - Internet tools: blocked unless enable_internet_access is True
+            # Filesystem tools (Bash, Read, Write, etc.) are always allowed:
+            # - nsjail mode: sandbox provides OS-level isolation
+            # - direct mode: SandboxSettings + stable cwd scopes file access
+
+            disallowed_tools: list[str] = list(DISALLOWED_TOOLS)
             if not payload.config.enable_internet_access:
                 disallowed_tools.extend(INTERNET_TOOLS)
 
+            sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
+            if TRACECAT__DISABLE_NSJAIL:
+                sandbox_settings["enableWeakerNestedSandbox"] = True
+                sandbox_settings["allowUnsandboxedCommands"] = False
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
-                    "ANTHROPIC_BASE_URL": LITELLM_URL,
+                    "ANTHROPIC_BASE_URL": get_litellm_url(),
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
                 mcp_servers=mcp_servers,
                 disallowed_tools=disallowed_tools,
                 stderr=handle_claude_stderr,
+                sandbox=sandbox_settings,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
                 },
+                # Stable per-session working directory (deterministic across turns)
+                cwd=self._cwd,
             )
 
             async def drain_stderr() -> None:
@@ -483,10 +546,20 @@ class ClaudeAgentRuntime:
                         )
                         if isinstance(message, StreamEvent):
                             # Capture SDK session ID from first StreamEvent
-                            if not self._sdk_session_id and message.session_id:
+                            if (
+                                message.session_id
+                                and self._sdk_session_id != message.session_id
+                            ):
+                                previous = self._sdk_session_id
                                 self._sdk_session_id = message.session_id
-                                # If resuming, set last_seen_line_index to current file length
-                                if resume_session_id:
+                                # If the CLI started a different session (e.g. fork), avoid
+                                # re-persisting old history by jumping to current file length.
+                                # For normal resumes we pre-seed `_last_seen_line_index` above.
+                                if (
+                                    previous is None
+                                    and resume_session_id
+                                    and fork_session
+                                ):
                                     session_file = self._get_session_file_path(
                                         self._sdk_session_id
                                     )
@@ -500,6 +573,7 @@ class ClaudeAgentRuntime:
                                 logger.debug(
                                     "Captured SDK session ID",
                                     sdk_session_id=self._sdk_session_id,
+                                    previous_sdk_session_id=previous,
                                 )
 
                             # Partial streaming delta - forward to UI

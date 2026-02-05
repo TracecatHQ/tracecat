@@ -62,6 +62,35 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
+_NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"\bCLONE_NEWUSER\b|clone_newuser", re.IGNORECASE),
+        "User namespaces appear to be unavailable. Ensure USERNS is enabled on the host "
+        "(e.g., sysctls like kernel.unprivileged_userns_clone and user.max_user_namespaces).",
+    ),
+    (
+        re.compile(r"\bOperation not permitted\b|\bEPERM\b", re.IGNORECASE),
+        "nsjail was denied a required operation (often mount/namespace). In containers, ensure "
+        "CAP_SYS_ADMIN is present and seccomp/AppArmor/SELinux policies allow mounts "
+        "(Docker commonly needs SYS_ADMIN + seccomp:unconfined; some hosts also need AppArmor unconfined).",
+    ),
+    (
+        re.compile(r"/dev/net/tun|TUN|tun", re.IGNORECASE),
+        "Userspace networking (pasta) may require /dev/net/tun. Ensure the container/pod "
+        "has the TUN device available and passt/pasta is installed in the image.",
+    ),
+]
+
+
+def _nsjail_failure_hint(stderr: str) -> str | None:
+    stderr = stderr.strip()
+    if not stderr:
+        return None
+    for pattern, hint in _NSJAIL_HINT_PATTERNS:
+        if pattern.search(stderr):
+            return hint
+    return None
+
 
 def _validate_env_key(key: str) -> None:
     """Validate environment variable key is safe for protobuf config.
@@ -278,14 +307,7 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                # Bind mount /proc from host (read-only) instead of creating new procfs.
-                # New procfs mount fails in Docker due to masked paths in /proc.
-                # SECURITY NOTE: This exposes host process info to the sandbox. Mitigation:
-                # - Mount is read-only
-                # - Scripts run as unprivileged UID 1000
-                # - PID namespace isolation limits visibility of sandbox processes
-                # - hidepid=2 cannot be used with bind mounts
-                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                'mount { dst: "/proc" fstype: "proc" rw: false }',
             ]
         )
 
@@ -480,6 +502,10 @@ class NsjailExecutor:
         # No result.json - this is an infrastructure error
         if process.returncode != 0:
             # Don't expose nsjail internals to users
+            hint = _nsjail_failure_hint(stderr)
+            error_msg = "Sandbox execution failed"
+            if hint:
+                error_msg = f"{error_msg}. {hint}"
             logger.error(
                 "Sandbox execution failed",
                 returncode=process.returncode,
@@ -487,7 +513,7 @@ class NsjailExecutor:
             )
             return SandboxResult(
                 success=False,
-                error="Sandbox execution failed",
+                error=error_msg,
                 stdout=stdout,
                 stderr=stderr[:500],  # Truncate for debugging
                 exit_code=process.returncode,
@@ -597,6 +623,9 @@ class NsjailExecutor:
         success = process.returncode == 0
 
         if not success:
+            hint = _nsjail_failure_hint(stderr)
+            if hint:
+                stderr = f"{stderr.rstrip()}\n\nnsjail hint: {hint}\n"
             logger.error(
                 "Package installation failed",
                 returncode=process.returncode,
@@ -728,7 +757,7 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                'mount { dst: "/proc" fstype: "proc" rw: false }',
                 "",
                 "# Action execution mounts",
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
@@ -908,6 +937,10 @@ class NsjailExecutor:
 
         # No result.json - infrastructure error
         if process.returncode != 0:
+            hint = _nsjail_failure_hint(stderr)
+            error_msg = "Action sandbox execution failed"
+            if hint:
+                error_msg = f"{error_msg}. {hint}"
             logger.error(
                 "Action sandbox execution failed",
                 returncode=process.returncode,
@@ -915,7 +948,7 @@ class NsjailExecutor:
             )
             return SandboxResult(
                 success=False,
-                error="Action sandbox execution failed",
+                error=error_msg,
                 stdout=stdout,
                 stderr=stderr[:2000],
                 exit_code=process.returncode,

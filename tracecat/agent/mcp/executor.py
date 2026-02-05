@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -19,6 +20,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
+from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.service import dispatch_action
 from tracecat.identifiers import WorkflowUUID
@@ -88,8 +90,11 @@ async def execute_action(
     # Build minimal RunActionInput
     run_input = _build_run_input(action_name, args, registry_lock)
 
+    if TRACECAT__DISABLE_NSJAIL:
+        backend = DirectBackend()
+    else:
+        backend = EphemeralBackend()
     # Execute via ActionRunner with nsjail sandbox
-    backend = EphemeralBackend()
     return await dispatch_action(backend, run_input)
 
 

@@ -311,7 +311,7 @@ def build_agent_nsjail_config(
         [
             "",
             "# /proc - read-only, PID namespace isolated (process only sees itself)",
-            'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+            'mount { dst: "/proc" fstype: "proc" rw: false }',
             "",
             "# /dev essentials",
             'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',

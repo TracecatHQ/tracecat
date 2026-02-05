@@ -175,9 +175,16 @@ class LLMSocketProxy:
 
         except asyncio.IncompleteReadError:
             logger.debug("Client disconnected during request")
+        except ConnectionError:
+            # Transport closed during shutdown - not a fatal error
+            logger.debug("Connection closed during proxy request")
         except Exception as e:
-            logger.exception("LLM proxy error", error=str(e))
-            self._emit_error(f"Proxy error: {e}")
+            # Don't emit fatal error if server is already shutting down
+            if self._server is None:
+                logger.debug("Proxy error during shutdown (ignored)", error=str(e))
+            else:
+                logger.exception("LLM proxy error", error=str(e))
+                self._emit_error(f"Proxy error: {e}")
         finally:
             try:
                 writer.close()
