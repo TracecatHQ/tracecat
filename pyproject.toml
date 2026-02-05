@@ -59,6 +59,7 @@ dependencies = [
     "phonenumbers==8.13.55",
     "pip==26.0.1",
     "polyfile==0.5.5",
+    "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
