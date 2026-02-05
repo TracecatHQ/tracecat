@@ -36,7 +36,13 @@ uv sync
 
 ### Development Stack
 
-IMPORTANT: if there's a docker compose stack called `tracecat` running, ignore the following instructions and use the `tracecat` stack via `docker compose` instead.
+IMPORTANT: Before using `just cluster`, ALWAYS check for an existing docker compose stack first:
+```bash
+docker compose ls --filter name=tracecat
+```
+If a stack called `tracecat` is already running, ask the user whether they want to:
+1. Use `docker compose` directly to interact with the existing stack
+2. Use `just cluster` instead to manage development stacks
 
 ```bash
 # Use `just cluster` to manage the development stack
