@@ -16,8 +16,6 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
-from tracecat.authz.enums import OrgRole, WorkspaceRole
-
 # =============================================================================
 # Viewer Role Scopes (read-only)
 # =============================================================================
@@ -86,10 +84,10 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
 # Preset Role -> Scope Set Mapping
 # =============================================================================
 
-PRESET_ROLE_SCOPES: dict[WorkspaceRole, frozenset[str]] = {
-    WorkspaceRole.VIEWER: VIEWER_SCOPES,
-    WorkspaceRole.EDITOR: EDITOR_SCOPES,
-    WorkspaceRole.ADMIN: ADMIN_SCOPES,
+PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
+    "workspace-viewer": VIEWER_SCOPES,
+    "workspace-editor": EDITOR_SCOPES,
+    "workspace-admin": ADMIN_SCOPES,
 }
 
 # =============================================================================
@@ -225,8 +223,8 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
 # Organization Role -> Scope Set Mapping
 # =============================================================================
 
-ORG_ROLE_SCOPES: dict[OrgRole, frozenset[str]] = {
-    OrgRole.OWNER: ORG_OWNER_SCOPES,
-    OrgRole.ADMIN: ORG_ADMIN_SCOPES,
-    OrgRole.MEMBER: ORG_MEMBER_SCOPES,
+ORG_ROLE_SCOPES: dict[str, frozenset[str]] = {
+    "organization-owner": ORG_OWNER_SCOPES,
+    "organization-admin": ORG_ADMIN_SCOPES,
+    "organization-member": ORG_MEMBER_SCOPES,
 }

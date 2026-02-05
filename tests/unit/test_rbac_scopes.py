@@ -14,7 +14,6 @@ from tracecat.authz.controls import (
     scope_matches,
     validate_scope_string,
 )
-from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.scopes import (
     ADMIN_SCOPES,
     EDITOR_SCOPES,
@@ -202,9 +201,9 @@ class TestSystemRoleScopes:
         assert EDITOR_SCOPES.issubset(ADMIN_SCOPES)
 
     def test_system_role_mapping(self):
-        assert PRESET_ROLE_SCOPES[WorkspaceRole.VIEWER] == VIEWER_SCOPES
-        assert PRESET_ROLE_SCOPES[WorkspaceRole.EDITOR] == EDITOR_SCOPES
-        assert PRESET_ROLE_SCOPES[WorkspaceRole.ADMIN] == ADMIN_SCOPES
+        assert PRESET_ROLE_SCOPES["workspace-viewer"] == VIEWER_SCOPES
+        assert PRESET_ROLE_SCOPES["workspace-editor"] == EDITOR_SCOPES
+        assert PRESET_ROLE_SCOPES["workspace-admin"] == ADMIN_SCOPES
 
 
 class TestOrgRoleScopes:
@@ -226,9 +225,9 @@ class TestOrgRoleScopes:
         assert ORG_MEMBER_SCOPES == frozenset({"org:read", "org:member:read"})
 
     def test_org_role_mapping(self):
-        assert ORG_ROLE_SCOPES[OrgRole.OWNER] == ORG_OWNER_SCOPES
-        assert ORG_ROLE_SCOPES[OrgRole.ADMIN] == ORG_ADMIN_SCOPES
-        assert ORG_ROLE_SCOPES[OrgRole.MEMBER] == ORG_MEMBER_SCOPES
+        assert ORG_ROLE_SCOPES["organization-owner"] == ORG_OWNER_SCOPES
+        assert ORG_ROLE_SCOPES["organization-admin"] == ORG_ADMIN_SCOPES
+        assert ORG_ROLE_SCOPES["organization-member"] == ORG_MEMBER_SCOPES
 
 
 class TestRequireScopeDecorator:
