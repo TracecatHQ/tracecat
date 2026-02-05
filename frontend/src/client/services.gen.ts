@@ -8692,13 +8692,8 @@ export const vcsGetGithubAppCredentialsStatus =
  * Get My Scopes
  * Get the current user's effective scopes.
  *
- * Returns a breakdown of scopes by source:
- * - org_role_scopes: From org membership role (OWNER/ADMIN/MEMBER)
- * - workspace_role_scopes: From workspace membership role (if in workspace context)
- * - group_scopes: From group memberships and their role assignments (EE only)
- * - user_role_scopes: From direct user role assignments (EE only)
- *
- * The combined `scopes` list is what's actually used for authorization.
+ * Scopes are computed from DB-driven role assignments during auth
+ * (UserRoleAssignment + GroupRoleAssignment → Role → RoleScope → Scope).
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */

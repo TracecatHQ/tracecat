@@ -12,8 +12,8 @@ from tracecat.authz.controls import validate_scope_string
 from tracecat.authz.enums import ScopeSource
 from tracecat.db.models import (
     Group,
-    GroupAssignment,
     GroupMember,
+    GroupRoleAssignment,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -256,7 +256,7 @@ class RBACService(BaseOrgService):
             raise TracecatAuthorizationError("Cannot delete system roles")
 
         # Check if role is in use by any group assignments
-        stmt = select(func.count()).where(GroupAssignment.role_id == role_id)
+        stmt = select(func.count()).where(GroupRoleAssignment.role_id == role_id)
         result = await self.session.execute(stmt)
         group_count = result.scalar() or 0
         if group_count > 0:
@@ -438,38 +438,38 @@ class RBACService(BaseOrgService):
         *,
         group_id: UserID | None = None,
         workspace_id: WorkspaceID | None = None,
-    ) -> Sequence[GroupAssignment]:
+    ) -> Sequence[GroupRoleAssignment]:
         """List group assignments for the organization."""
         stmt = (
-            select(GroupAssignment)
-            .where(GroupAssignment.organization_id == self.organization_id)
+            select(GroupRoleAssignment)
+            .where(GroupRoleAssignment.organization_id == self.organization_id)
             .options(
-                selectinload(GroupAssignment.group),
-                selectinload(GroupAssignment.role),
-                selectinload(GroupAssignment.workspace),
+                selectinload(GroupRoleAssignment.group),
+                selectinload(GroupRoleAssignment.role),
+                selectinload(GroupRoleAssignment.workspace),
             )
         )
 
         if group_id is not None:
-            stmt = stmt.where(GroupAssignment.group_id == group_id)
+            stmt = stmt.where(GroupRoleAssignment.group_id == group_id)
         if workspace_id is not None:
-            stmt = stmt.where(GroupAssignment.workspace_id == workspace_id)
+            stmt = stmt.where(GroupRoleAssignment.workspace_id == workspace_id)
 
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_assignment(self, assignment_id: UserID) -> GroupAssignment:
+    async def get_assignment(self, assignment_id: UserID) -> GroupRoleAssignment:
         """Get a group assignment by ID."""
         stmt = (
-            select(GroupAssignment)
+            select(GroupRoleAssignment)
             .where(
-                GroupAssignment.id == assignment_id,
-                GroupAssignment.organization_id == self.organization_id,
+                GroupRoleAssignment.id == assignment_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
             )
             .options(
-                selectinload(GroupAssignment.group),
-                selectinload(GroupAssignment.role),
-                selectinload(GroupAssignment.workspace),
+                selectinload(GroupRoleAssignment.group),
+                selectinload(GroupRoleAssignment.role),
+                selectinload(GroupRoleAssignment.workspace),
             )
         )
         result = await self.session.execute(stmt)
@@ -485,7 +485,7 @@ class RBACService(BaseOrgService):
         group_id: UserID,
         role_id: UserID,
         workspace_id: WorkspaceID | None = None,
-    ) -> GroupAssignment:
+    ) -> GroupRoleAssignment:
         """Create a group assignment.
 
         Args:
@@ -494,7 +494,7 @@ class RBACService(BaseOrgService):
             workspace_id: Workspace for workspace-level assignment (None for org-wide)
 
         Returns:
-            Created GroupAssignment
+            Created GroupRoleAssignment
         """
         # Verify group exists
         await self.get_group(group_id)
@@ -512,7 +512,7 @@ class RBACService(BaseOrgService):
             if result.scalar_one_or_none() is None:
                 raise TracecatNotFoundError("Workspace not found")
 
-        assignment = GroupAssignment(
+        assignment = GroupRoleAssignment(
             organization_id=self.organization_id,
             group_id=group_id,
             role_id=role_id,
@@ -534,7 +534,7 @@ class RBACService(BaseOrgService):
         assignment_id: UserID,
         *,
         role_id: UserID,
-    ) -> GroupAssignment:
+    ) -> GroupRoleAssignment:
         """Update a group assignment (change role)."""
         assignment = await self.get_assignment(assignment_id)
 
@@ -759,13 +759,13 @@ class RBACService(BaseOrgService):
             Frozenset of scope name strings
         """
         # Query to get all scope names from user's group memberships and role assignments
-        # This joins: GroupMember -> Group -> GroupAssignment -> Role -> RoleScope -> Scope
+        # This joins: GroupMember -> Group -> GroupRoleAssignment -> Role -> RoleScope -> Scope
         stmt = (
             select(Scope.name)
             .select_from(GroupMember)
             .join(Group, GroupMember.group_id == Group.id)
-            .join(GroupAssignment, GroupAssignment.group_id == Group.id)
-            .join(RoleModel, GroupAssignment.role_id == RoleModel.id)
+            .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
+            .join(RoleModel, GroupRoleAssignment.role_id == RoleModel.id)
             .join(RoleScope, RoleScope.role_id == RoleModel.id)
             .join(Scope, RoleScope.scope_id == Scope.id)
             .where(
@@ -779,12 +779,12 @@ class RBACService(BaseOrgService):
         # - Workspace-specific assignments only apply if requesting that workspace
         if workspace_id is not None:
             stmt = stmt.where(
-                (GroupAssignment.workspace_id.is_(None))
-                | (GroupAssignment.workspace_id == workspace_id)
+                (GroupRoleAssignment.workspace_id.is_(None))
+                | (GroupRoleAssignment.workspace_id == workspace_id)
             )
         else:
             # Only org-wide assignments
-            stmt = stmt.where(GroupAssignment.workspace_id.is_(None))
+            stmt = stmt.where(GroupRoleAssignment.workspace_id.is_(None))
 
         result = await self.session.execute(stmt)
         scope_names = result.scalars().all()

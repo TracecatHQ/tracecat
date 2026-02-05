@@ -10801,7 +10801,15 @@ export const $OrgMemberDetail = {
       title: "Email",
     },
     role: {
-      $ref: "#/components/schemas/OrgRole",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role",
     },
     is_active: {
       type: "boolean",
@@ -14942,9 +14950,9 @@ export const $ScopeRead = {
 
 export const $ScopeSource = {
   type: "string",
-  enum: ["system", "registry", "custom"],
+  enum: ["platform", "custom"],
   title: "ScopeSource",
-  description: "Source of a scope definition.",
+  description: "Source/ownership of a scope definition.",
 } as const
 
 export const $SecretCreate = {
@@ -18731,38 +18739,6 @@ export const $UserScopesRead = {
       type: "array",
       title: "Scopes",
       description: "List of effective scope strings for the user",
-    },
-    org_role_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Org Role Scopes",
-      description: "Scopes from organization role",
-    },
-    workspace_role_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Workspace Role Scopes",
-      description: "Scopes from workspace role",
-    },
-    group_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Group Scopes",
-      description: "Scopes from group memberships",
-    },
-    user_role_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "User Role Scopes",
-      description: "Scopes from direct user role assignments",
     },
   },
   type: "object",
