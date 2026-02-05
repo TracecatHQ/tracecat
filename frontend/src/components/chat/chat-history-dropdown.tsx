@@ -73,7 +73,7 @@ export function ChatHistoryDropdown({
                 {chats?.map((chat) => (
                   <CommandItem
                     key={chat.id}
-                    value={chat.title}
+                    value={`${chat.title} ${chat.id}`}
                     onSelect={() => handleSelect(chat.id)}
                     className="flex items-start justify-between gap-2 py-2"
                   >
