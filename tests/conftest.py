@@ -96,12 +96,12 @@ def _minio_credentials() -> tuple[str, str]:
     access_key = (
         os.environ.get("AWS_ACCESS_KEY_ID")
         or os.environ.get("MINIO_ROOT_USER")
-        or "minioadmin"
+        or "minio"
     )
     secret_key = (
         os.environ.get("AWS_SECRET_ACCESS_KEY")
         or os.environ.get("MINIO_ROOT_PASSWORD")
-        or "minioadmin"
+        or "password"
     )
     return access_key, secret_key
 
