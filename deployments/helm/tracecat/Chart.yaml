@@ -3,7 +3,7 @@ name: tracecat
 description: Tracecat is the AI automation platform for work.
 type: application
 version: 0.3.2
-appVersion: "sha-1b058e4"
+appVersion: "1.0.0-beta.0"
 home: https://tracecat.com
 maintainers:
   - email: founders@tracecat.com

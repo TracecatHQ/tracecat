@@ -6,11 +6,18 @@ usage() {
     echo "Options:"
     echo "  --major      # Increment major version (1.2.3 -> 2.0.0)"
     echo "  --minor      # Increment minor version (1.2.3 -> 1.3.0)"
+    echo "  --beta       # Create or increment beta version (1.2.3 -> 1.2.3-beta.0, 1.2.3-beta.0 -> 1.2.3-beta.1)"
+    echo "  --rc         # Create or increment release candidate (1.2.3 -> 1.2.3-rc.0, 1.2.3-rc.0 -> 1.2.3-rc.1)"
+    echo "  --release    # Strip prerelease suffix (1.2.3-beta.1 -> 1.2.3)"
     echo "Examples:"
-    echo "  $0           # Automatically increment patch version"
+    echo "  $0           # Automatically increment patch version (or prerelease if current is prerelease)"
     echo "  $0 --major   # Increment major version"
     echo "  $0 --minor   # Increment minor version"
+    echo "  $0 --beta    # Create or increment beta version"
+    echo "  $0 --rc      # Create or increment release candidate"
+    echo "  $0 --release # Strip prerelease suffix for stable release"
     echo "  $0 1.0.1     # Set specific version"
+    echo "  $0 1.0.0-beta.0  # Set specific prerelease version"
     exit 1
 }
 
@@ -21,34 +28,78 @@ if [ ! -f "$INIT_FILE" ]; then
     exit 1
 fi
 
-CURRENT_VERSION=$(grep -E "__version__ = \"[0-9]+\.[0-9]+\.[0-9]+\"" "$INIT_FILE" | grep -Eo "[0-9]+\.[0-9]+\.[0-9]+")
+# Match both regular semver (1.2.3) and prerelease versions (1.2.3-beta.0, 1.2.3-rc.1)
+CURRENT_VERSION=$(grep -E '__version__ = "[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?"' "$INIT_FILE" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?')
 if [ -z "$CURRENT_VERSION" ]; then
     echo "Error: Could not extract version from $INIT_FILE"
     exit 1
 fi
 
+# Parse version components
+if [[ $CURRENT_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-zA-Z]+)\.([0-9]+))?$ ]]; then
+    CURRENT_MAJOR="${BASH_REMATCH[1]}"
+    CURRENT_MINOR="${BASH_REMATCH[2]}"
+    CURRENT_PATCH="${BASH_REMATCH[3]}"
+    CURRENT_PRERELEASE_TAG="${BASH_REMATCH[5]}"  # e.g., "beta", "rc"
+    CURRENT_PRERELEASE_NUM="${BASH_REMATCH[6]}"  # e.g., "0", "1"
+else
+    echo "Error: Could not parse version components from $CURRENT_VERSION"
+    exit 1
+fi
+
 # Parse arguments and determine new version
 if [ "$#" -eq 0 ]; then
-    # Split version into major.minor.patch
-    IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-    # Increment patch
-    NEW_VERSION="${major}.${minor}.$((patch + 1))"
-    echo "No version specified. Incrementing patch version to $NEW_VERSION"
+    # Auto-increment: if prerelease, increment prerelease number; otherwise increment patch
+    if [ -n "$CURRENT_PRERELEASE_TAG" ]; then
+        NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}-${CURRENT_PRERELEASE_TAG}.$((CURRENT_PRERELEASE_NUM + 1))"
+        echo "No version specified. Incrementing prerelease version to $NEW_VERSION"
+    else
+        NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.$((CURRENT_PATCH + 1))"
+        echo "No version specified. Incrementing patch version to $NEW_VERSION"
+    fi
 elif [ "$#" -eq 1 ]; then
     case $1 in
         --major)
-            # Split version into major.minor.patch
-            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-            # Increment major, reset minor and patch to 0
-            NEW_VERSION="$((major + 1)).0.0"
+            # Increment major, reset minor and patch to 0, strip prerelease
+            NEW_VERSION="$((CURRENT_MAJOR + 1)).0.0"
             echo "Incrementing major version to $NEW_VERSION"
             ;;
         --minor)
-            # Split version into major.minor.patch
-            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-            # Increment minor, reset patch to 0
-            NEW_VERSION="${major}.$((minor + 1)).0"
+            # Increment minor, reset patch to 0, strip prerelease
+            NEW_VERSION="${CURRENT_MAJOR}.$((CURRENT_MINOR + 1)).0"
             echo "Incrementing minor version to $NEW_VERSION"
+            ;;
+        --beta)
+            # Create or increment beta version
+            if [ "$CURRENT_PRERELEASE_TAG" = "beta" ]; then
+                NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}-beta.$((CURRENT_PRERELEASE_NUM + 1))"
+                echo "Incrementing beta version to $NEW_VERSION"
+            else
+                # Strip any existing prerelease and start beta.0
+                NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}-beta.0"
+                echo "Creating beta version $NEW_VERSION"
+            fi
+            ;;
+        --rc)
+            # Create or increment release candidate
+            if [ "$CURRENT_PRERELEASE_TAG" = "rc" ]; then
+                NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}-rc.$((CURRENT_PRERELEASE_NUM + 1))"
+                echo "Incrementing release candidate to $NEW_VERSION"
+            else
+                # Strip any existing prerelease and start rc.0
+                NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}-rc.0"
+                echo "Creating release candidate $NEW_VERSION"
+            fi
+            ;;
+        --release)
+            # Strip prerelease suffix for stable release
+            if [ -n "$CURRENT_PRERELEASE_TAG" ]; then
+                NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${CURRENT_PATCH}"
+                echo "Stripping prerelease suffix for stable release $NEW_VERSION"
+            else
+                echo "Error: Current version $CURRENT_VERSION is already a stable release"
+                exit 1
+            fi
             ;;
         --help|-h)
             usage
@@ -62,9 +113,9 @@ else
     usage
 fi
 
-# Validate version numbers (basic semver format)
-if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Error: Version must be in semver format (e.g., 1.0.0)"
+# Validate version numbers (semver format with optional prerelease)
+if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
+    echo "Error: Version must be in semver format (e.g., 1.0.0 or 1.0.0-beta.0)"
     exit 1
 fi
 
@@ -73,7 +124,10 @@ FILES=(
     "tracecat/__init__.py"
     "packages/tracecat-registry/tracecat_registry/__init__.py"
     "docker-compose.yml"
-    "docs/tutorials/updating.mdx"
+    "docker-compose.dev.yml"
+    "docker-compose.local.yml"
+    "deployments/helm/tracecat/Chart.yaml"
+    "deployments/terraform/aws/variables.tf"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
     "docs/quickstart/install.mdx"
     "docs/self-hosting/updating.mdx"
@@ -91,25 +145,52 @@ update_version() {
     fi
 
     echo "Updating $file..."
-    # On MacOS, sed requires a different syntax for in-place editing
-    if [[ "$(uname)" == "Darwin" ]]; then
-        # Update version numbers in various formats:
-        # - Regular version strings
-        # - Git commit references in URLs
-        # - Version references in code examples and text
-        sed -i '' -E "s/$CURRENT_VERSION/$NEW_VERSION/g" "$file" && \
-        sed -i '' -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+\//\/blob\/$NEW_VERSION\//g" "$file" && \
-        sed -i '' -E "s/\`[0-9]+\.[0-9]+\.[0-9]+\`/\`$NEW_VERSION\`/g" "$file" && \
-        echo "✓ Updated $file" || echo "✗ Failed to update $file"
+    # Escape special characters in version strings for sed
+    local ESCAPED_CURRENT=$(echo "$CURRENT_VERSION" | sed 's/[.]/\\./g; s/-/\\-/g')
+    local ESCAPED_NEW=$(echo "$NEW_VERSION" | sed 's/[&/]/\\&/g')
+
+    local basename=$(basename "$file")
+
+    # File-specific update strategies
+    if [[ "$basename" == "Chart.yaml" ]]; then
+        # Targeted: update the appVersion field regardless of its current value
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' -E 's/^(appVersion: ).*/\1"'"$NEW_VERSION"'"/' "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        else
+            sed -i -E 's/^(appVersion: ).*/\1"'"$NEW_VERSION"'"/' "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        fi
+    elif [[ "$basename" == "variables.tf" ]]; then
+        # Targeted: update the tracecat_image_tag variable's default value
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        else
+            sed -i -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        fi
     else
-        # Update version numbers in various formats:
-        # - Regular version strings
-        # - Git commit references in URLs
-        # - Version references in code examples and text
-        sed -i -E "s/$CURRENT_VERSION/$NEW_VERSION/g" "$file" && \
-        sed -i -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+\//\/blob\/$NEW_VERSION\//g" "$file" && \
-        sed -i -E "s/\`[0-9]+\.[0-9]+\.[0-9]+\`/\`$NEW_VERSION\`/g" "$file" && \
-        echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        # Default: generic version string find-and-replace
+        if [[ "$(uname)" == "Darwin" ]]; then
+            # Update version numbers in various formats:
+            # - Regular version strings (including prerelease)
+            # - Git commit references in URLs (including prerelease)
+            # - Version references in code examples and text (including prerelease)
+            sed -i '' -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
+            sed -i '' -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
+            sed -i '' -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        else
+            # Update version numbers in various formats:
+            # - Regular version strings (including prerelease)
+            # - Git commit references in URLs (including prerelease)
+            # - Version references in code examples and text (including prerelease)
+            sed -i -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
+            sed -i -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
+            sed -i -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        fi
     fi
 }
 
