@@ -44,6 +44,8 @@ If a stack called `tracecat` is already running, ask the user whether they want 
 1. Use `docker compose` directly to interact with the existing stack
 2. Use `just cluster` instead to manage development stacks
 
+CRITICAL: Do not delete or remove docker volumes (`docker compose down -v`, `docker volume rm`, `just cluster rm`, etc.) unless the user explicitly requests AND confirms volume deletion. Volumes contain database state and other persistent data that cannot be recovered.
+
 ```bash
 # Use `just cluster` to manage the development stack
 # This handles database, Temporal, Redis, MinIO, API, and UI services
