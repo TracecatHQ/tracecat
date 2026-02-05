@@ -93,8 +93,7 @@ export function AdminOrgTierDialog({
         <DialogHeader>
           <DialogTitle>Tier assignment</DialogTitle>
           <DialogDescription>
-            Manage tier assignment for{" "}
-            {organization?.name ?? "organization"}.
+            Manage tier assignment for {organization?.name ?? "organization"}.
           </DialogDescription>
         </DialogHeader>
         {isLoading ? (

@@ -348,7 +348,9 @@ export function AdminTierEditDialog({
                             }
                           />
                         </FormControl>
-                        <FormDescription>Maximum burst requests</FormDescription>
+                        <FormDescription>
+                          Maximum burst requests
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

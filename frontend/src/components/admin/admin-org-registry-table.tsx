@@ -4,10 +4,7 @@ import { DotsHorizontalIcon, ReloadIcon } from "@radix-ui/react-icons"
 import { HistoryIcon } from "lucide-react"
 import { useState } from "react"
 import type { OrgRegistryRepositoryRead } from "@/client"
-import {
-  DataTable,
-  DataTableColumnHeader,
-} from "@/components/data-table"
+import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,

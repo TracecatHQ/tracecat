@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import type { OrgRegistryRepositoryRead } from "@/client"
 import { AdminOrgRegistryTable } from "@/components/admin/admin-org-registry-table"
 import { OrgRegistryVersionsPanel } from "@/components/admin/org-registry-versions-panel"
+import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,7 +13,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,

@@ -25,13 +25,11 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useAuth } from "@/hooks/use-auth"
 
 export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { user } = useAuth()
 
   const navPlatform = [
     {
@@ -125,7 +123,6 @@ export function AdminSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
       </SidebarContent>
       <SidebarRail />
     </Sidebar>

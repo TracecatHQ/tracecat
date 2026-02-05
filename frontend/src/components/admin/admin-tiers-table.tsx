@@ -203,9 +203,7 @@ export function AdminTiersTable() {
                       >
                         Copy ID
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => setEditTierId(tier.id)}
-                      >
+                      <DropdownMenuItem onSelect={() => setEditTierId(tier.id)}>
                         Edit tier
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
