@@ -256,7 +256,13 @@ def require_action_scope(action_key: str) -> None:
     Raises:
         ScopeDeniedError: If the user doesn't have permission to execute the action
     """
-    user_scopes = ctx_scopes.get()
+    role = ctx_role.get()
+    if role is None:
+        raise ScopeDeniedError(
+            required_scopes=[f"action:{action_key}:execute"],
+            missing_scopes=[f"action:{action_key}:execute"],
+        )
+    user_scopes = role.scopes
 
     # Platform superuser has "*" scope - bypass all checks
     if "*" in user_scopes:

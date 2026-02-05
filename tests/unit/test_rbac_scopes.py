@@ -352,25 +352,25 @@ class TestRequireActionScope:
 
     def test_require_action_scope_with_exact_scope(self):
         """User with exact action scope can execute."""
-        ctx_scopes.set(frozenset({"action:core.http_request:execute"}))
+        _set_role_with_scopes(frozenset({"action:core.http_request:execute"}))
         # Should not raise
         require_action_scope("core.http_request")
 
     def test_require_action_scope_with_global_wildcard(self):
         """Superuser with * scope can execute any action."""
-        ctx_scopes.set(frozenset({"*"}))
+        _set_role_with_scopes(frozenset({"*"}))
         require_action_scope("core.http_request")
         require_action_scope("tools.okta.list_users")
 
     def test_require_action_scope_with_action_wildcard(self):
         """User with action:*:execute can execute any action."""
-        ctx_scopes.set(frozenset({"action:*:execute"}))
+        _set_role_with_scopes(frozenset({"action:*:execute"}))
         require_action_scope("core.http_request")
         require_action_scope("tools.okta.list_users")
 
     def test_require_action_scope_with_prefix_wildcard(self):
         """User with action:core.*:execute can execute core actions."""
-        ctx_scopes.set(frozenset({"action:core.*:execute"}))
+        _set_role_with_scopes(frozenset({"action:core.*:execute"}))
         require_action_scope("core.http_request")
         require_action_scope("core.transform.forward")
 
@@ -381,7 +381,7 @@ class TestRequireActionScope:
 
     def test_require_action_scope_with_integration_wildcard(self):
         """User with action:tools.okta.*:execute can execute okta actions."""
-        ctx_scopes.set(frozenset({"action:tools.okta.*:execute"}))
+        _set_role_with_scopes(frozenset({"action:tools.okta.*:execute"}))
         require_action_scope("tools.okta.list_users")
         require_action_scope("tools.okta.suspend_user")
 
@@ -391,7 +391,7 @@ class TestRequireActionScope:
 
     def test_require_action_scope_denied(self):
         """User without action scope gets denied."""
-        ctx_scopes.set(frozenset({"workflow:execute"}))
+        _set_role_with_scopes(frozenset({"workflow:execute"}))
 
         with pytest.raises(ScopeDeniedError) as exc_info:
             require_action_scope("core.http_request")
@@ -401,14 +401,14 @@ class TestRequireActionScope:
 
     def test_require_action_scope_empty_scopes(self):
         """User with no scopes gets denied."""
-        ctx_scopes.set(frozenset())
+        _set_role_with_scopes(frozenset())
 
         with pytest.raises(ScopeDeniedError):
             require_action_scope("core.http_request")
 
     def test_require_action_scope_multiple_scopes(self):
         """User with multiple action scopes can execute matching actions."""
-        ctx_scopes.set(
+        _set_role_with_scopes(
             frozenset(
                 {
                     "action:core.*:execute",

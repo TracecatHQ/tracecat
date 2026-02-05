@@ -18,9 +18,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_logger, ctx_role, ctx_run, ctx_scopes
+from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
@@ -71,27 +70,6 @@ class ExecutorActivities:
         """
         ctx_run.set(input.run_context)
         ctx_role.set(role)
-
-        # Compute and set effective scopes for action scope enforcement
-        # This enables per-action authorization checks in dispatch_action
-        group_scopes: frozenset[str] | None = None
-        user_role_scopes: frozenset[str] | None = None
-        if role.user_id is not None and role.organization_id is not None:
-            from tracecat_ee.rbac.service import RBACService
-
-            async with RBACService.with_session(role) as rbac_svc:
-                group_scopes = await rbac_svc.get_group_scopes(
-                    role.user_id,
-                    workspace_id=role.workspace_id,
-                )
-                user_role_scopes = await rbac_svc.get_user_role_scopes(
-                    role.user_id,
-                    workspace_id=role.workspace_id,
-                )
-        scopes = compute_effective_scopes(
-            role, group_scopes=group_scopes, user_role_scopes=user_role_scopes
-        )
-        ctx_scopes.set(scopes)
 
         task = input.task
         environment = input.run_context.environment
