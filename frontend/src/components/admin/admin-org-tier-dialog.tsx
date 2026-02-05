@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 import {
   useAdminOrganization,
@@ -30,11 +29,26 @@ import {
 
 interface AdminOrgTierDialogProps {
   orgId: string
-  trigger: React.ReactNode
+  trigger?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) {
-  const [open, setOpen] = useState(false)
+export function AdminOrgTierDialog({
+  orgId,
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+}: AdminOrgTierDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
+  const dialogOpen = isControlled ? controlledOpen : internalOpen
+  const setDialogOpen = (nextOpen: boolean) => {
+    if (!isControlled) {
+      setInternalOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
+  }
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null)
   const { organization } = useAdminOrganization(orgId)
   const { orgTier, isLoading, updateOrgTier, updatePending } =
@@ -42,10 +56,10 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
   const { tiers } = useAdminTiers()
 
   useEffect(() => {
-    if (open) {
+    if (dialogOpen) {
       setSelectedTierId(orgTier?.tier_id ?? null)
     }
-  }, [open, orgTier?.tier_id])
+  }, [dialogOpen, orgTier?.tier_id])
 
   const handleAssign = async () => {
     try {
@@ -54,7 +68,7 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
         title: "Tier assigned",
         description: "Organization tier has been updated.",
       })
-      setOpen(false)
+      setDialogOpen(false)
     } catch (error) {
       console.error("Failed to assign tier", error)
       toast({
@@ -73,8 +87,8 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
     orgTier?.api_rate_limit != null
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Tier assignment</DialogTitle>
@@ -92,62 +106,15 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
             <div className="space-y-3">
               <div>
                 <h4 className="text-sm font-medium">Current tier</h4>
-                <p className="text-xs text-muted-foreground">
-                  The tier determines resource limits and available features.
-                </p>
               </div>
               {currentTier ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">
-                      {currentTier.display_name}
-                    </span>
-                    {currentTier.is_default && (
-                      <Badge variant="secondary">Default</Badge>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">
-                        Max concurrent workflows:
-                      </span>
-                      <span className="ml-2">
-                        {orgTier?.max_concurrent_workflows ??
-                          currentTier.max_concurrent_workflows ??
-                          "Unlimited"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">
-                        Max actions per workflow:
-                      </span>
-                      <span className="ml-2">
-                        {orgTier?.max_action_executions_per_workflow ??
-                          currentTier.max_action_executions_per_workflow ??
-                          "Unlimited"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">
-                        Max concurrent actions:
-                      </span>
-                      <span className="ml-2">
-                        {orgTier?.max_concurrent_actions ??
-                          currentTier.max_concurrent_actions ??
-                          "Unlimited"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">
-                        API rate limit:
-                      </span>
-                      <span className="ml-2">
-                        {orgTier?.api_rate_limit ??
-                          currentTier.api_rate_limit ??
-                          "Unlimited"}
-                      </span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">
+                    {currentTier.display_name}
+                  </span>
+                  {currentTier.is_default && (
+                    <Badge variant="secondary">Platform default</Badge>
+                  )}
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
@@ -155,7 +122,6 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
                 </div>
               )}
             </div>
-            <Separator />
             <div className="space-y-3">
               <div>
                 <h4 className="text-sm font-medium">Assign tier</h4>
@@ -177,7 +143,7 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
                         <span>{tier.display_name}</span>
                         {tier.is_default && (
                           <span className="text-xs text-muted-foreground">
-                            (Default)
+                            (Platform default)
                           </span>
                         )}
                       </div>
@@ -188,7 +154,6 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
             </div>
             {orgTier && (
               <>
-                <Separator />
                 <div className="space-y-3">
                   <div>
                     <h4 className="text-sm font-medium">Overrides</h4>
@@ -248,7 +213,11 @@ export function AdminOrgTierDialog({ orgId, trigger }: AdminOrgTierDialogProps) 
           </div>
         )}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setDialogOpen(false)}
+          >
             Cancel
           </Button>
           <Button

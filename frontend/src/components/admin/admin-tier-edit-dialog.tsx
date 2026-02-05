@@ -62,14 +62,26 @@ type FormValues = z.infer<typeof formSchema>
 
 interface AdminTierEditDialogProps {
   tierId: string
-  trigger: React.ReactNode
+  trigger?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 export function AdminTierEditDialog({
   tierId,
   trigger,
+  open: controlledOpen,
+  onOpenChange,
 }: AdminTierEditDialogProps) {
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
+  const dialogOpen = isControlled ? controlledOpen : internalOpen
+  const setDialogOpen = (nextOpen: boolean) => {
+    if (!isControlled) {
+      setInternalOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
+  }
   const { tier, isLoading, updateTier, updatePending } = useAdminTier(tierId)
 
   const form = useForm<FormValues>({
@@ -83,7 +95,7 @@ export function AdminTierEditDialog({
   })
 
   useEffect(() => {
-    if (tier && open) {
+    if (tier && dialogOpen) {
       form.reset({
         display_name: tier.display_name,
         max_concurrent_workflows: tier.max_concurrent_workflows,
@@ -97,7 +109,7 @@ export function AdminTierEditDialog({
         sort_order: tier.sort_order,
       })
     }
-  }, [tier, form, open])
+  }, [tier, form, dialogOpen])
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -117,7 +129,7 @@ export function AdminTierEditDialog({
         title: "Tier updated",
         description: "Changes have been saved.",
       })
-      setOpen(false)
+      setDialogOpen(false)
     } catch (error) {
       console.error("Failed to update tier", error)
       toast({
@@ -129,8 +141,8 @@ export function AdminTierEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit tier</DialogTitle>
@@ -213,7 +225,6 @@ export function AdminTierEditDialog({
               </div>
 
               <div className="border-t pt-4">
-                <h4 className="mb-3 text-sm font-medium">Resource limits</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -349,7 +360,7 @@ export function AdminTierEditDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setOpen(false)}
+                  onClick={() => setDialogOpen(false)}
                 >
                   Cancel
                 </Button>

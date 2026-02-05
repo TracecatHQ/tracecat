@@ -15,8 +15,8 @@ export default function AdminRegistryPage() {
     try {
       await syncAllRepositories(false)
       toast({
-        title: "Sync started",
-        description: "All repositories are being synced.",
+        title: "Sync complete",
+        description: "All repositories have been synced successfully.",
       })
       refetch()
     } catch (error) {

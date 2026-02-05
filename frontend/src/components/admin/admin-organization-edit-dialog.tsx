@@ -45,14 +45,26 @@ type FormValues = z.infer<typeof formSchema>
 
 interface AdminOrganizationEditDialogProps {
   orgId: string
-  trigger: React.ReactNode
+  trigger?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 export function AdminOrganizationEditDialog({
   orgId,
   trigger,
+  open: controlledOpen,
+  onOpenChange,
 }: AdminOrganizationEditDialogProps) {
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
+  const dialogOpen = isControlled ? controlledOpen : internalOpen
+  const setDialogOpen = (nextOpen: boolean) => {
+    if (!isControlled) {
+      setInternalOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
+  }
   const { organization, isLoading, updateOrganization, updatePending } =
     useAdminOrganization(orgId)
 
@@ -66,14 +78,14 @@ export function AdminOrganizationEditDialog({
   })
 
   useEffect(() => {
-    if (organization && open) {
+    if (organization && dialogOpen) {
       form.reset({
         name: organization.name,
         slug: organization.slug,
         is_active: organization.is_active,
       })
     }
-  }, [organization, form, open])
+  }, [organization, form, dialogOpen])
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -82,7 +94,7 @@ export function AdminOrganizationEditDialog({
         title: "Organization updated",
         description: "Changes have been saved.",
       })
-      setOpen(false)
+      setDialogOpen(false)
     } catch (error) {
       console.error("Failed to update organization", error)
       toast({
@@ -94,8 +106,8 @@ export function AdminOrganizationEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit organization</DialogTitle>
@@ -169,7 +181,7 @@ export function AdminOrganizationEditDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setOpen(false)}
+                  onClick={() => setDialogOpen(false)}
                 >
                   Cancel
                 </Button>

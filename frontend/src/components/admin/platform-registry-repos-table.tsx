@@ -31,8 +31,8 @@ export function PlatformRegistryReposTable() {
     try {
       await syncRepository({ repositoryId, force })
       toast({
-        title: "Sync started",
-        description: "Repository sync has been initiated.",
+        title: "Sync complete",
+        description: "Repository sync successful.",
       })
       refetch()
     } catch (error) {
