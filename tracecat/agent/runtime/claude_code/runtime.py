@@ -65,7 +65,6 @@ def get_litellm_url() -> str:
     - Direct mode (network isolated): Uses dynamic port from env var
     - Internet enabled: Uses default port 4000 (direct gateway access)
     """
-    from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 
     if TRACECAT__DISABLE_NSJAIL:
         # Direct mode: check for dynamic port from LLM bridge
@@ -132,7 +131,7 @@ class ClaudeAgentRuntime:
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
         # Must match the cwd passed to ClaudeAgentOptions for session resume
-        self._cwd: str = os.getcwd()
+        self._cwd: Path = Path.cwd()
 
     def _get_session_file_path(self, sdk_session_id: str) -> Path:
         """Derive the session file path from SDK session ID.
@@ -152,7 +151,7 @@ class ClaudeAgentRuntime:
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
-        encoded_cwd = self._cwd.replace("/", "-")
+        encoded_cwd = str(self._cwd).replace("/", "-")
         claude_dir = Path.home() / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"
 
@@ -415,11 +414,8 @@ class ClaudeAgentRuntime:
         # sessions by project directory (cwd), so if cwd changes between
         # turns (e.g., random mkdtemp), --resume can't find the session.
         # Both nsjail and direct mode use the same scheme for parity.
-        agent_cwd = str(
-            Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
-        )
-        Path(agent_cwd).mkdir(parents=True, exist_ok=True)
-        self._cwd = agent_cwd
+        self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
+        self._cwd.mkdir(parents=True, exist_ok=True)
 
         # Write session file locally if resuming or forking
         resume_session_id: str | None = None
@@ -481,6 +477,10 @@ class ClaudeAgentRuntime:
             if not payload.config.enable_internet_access:
                 disallowed_tools.extend(INTERNET_TOOLS)
 
+            sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
+            if TRACECAT__DISABLE_NSJAIL:
+                sandbox_settings["enableWeakerNestedSandbox"] = True
+                sandbox_settings["allowUnsandboxedCommands"] = False
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
@@ -494,14 +494,12 @@ class ClaudeAgentRuntime:
                 mcp_servers=mcp_servers,
                 disallowed_tools=disallowed_tools,
                 stderr=handle_claude_stderr,
-                sandbox=SandboxSettings(
-                    enabled=TRACECAT__DISABLE_NSJAIL, enableWeakerNestedSandbox=True
-                ),
+                sandbox=sandbox_settings,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
                 },
                 # Stable per-session working directory (deterministic across turns)
-                cwd=agent_cwd,
+                cwd=self._cwd,
             )
 
             async def drain_stderr() -> None:
