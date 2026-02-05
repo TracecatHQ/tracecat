@@ -307,7 +307,7 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                'mount { dst: "/proc" fstype: "proc" rw: false }',
+                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
             ]
         )
 
