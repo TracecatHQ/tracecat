@@ -57,7 +57,7 @@ dependencies = [
     "orjson==3.11.5",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
-    "pip==25.3",
+    "pip==26.0.1",
     "polyfile==0.5.5",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
