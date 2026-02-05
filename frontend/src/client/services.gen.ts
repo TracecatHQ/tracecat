@@ -40,6 +40,8 @@ import type {
   AdminListOrgRepositoriesResponse,
   AdminListOrgRepositoryVersionsData,
   AdminListOrgRepositoryVersionsResponse,
+  AdminListOrgTiersData,
+  AdminListOrgTiersResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
@@ -4364,6 +4366,29 @@ export const adminCreateTier = (
 }
 
 /**
+ * List Org Tiers
+ * List tier assignments for organizations.
+ * @param data The data for the request.
+ * @param data.orgIds Optional list of organization IDs to filter results
+ * @returns OrganizationTierRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrgTiers = (
+  data: AdminListOrgTiersData = {}
+): CancelablePromise<AdminListOrgTiersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers/organizations",
+    query: {
+      org_ids: data.orgIds,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Tier
  * Get tier by ID.
  * @param data The data for the request.
@@ -8424,13 +8449,8 @@ export const vcsGetGithubAppCredentialsStatus =
  * Get My Scopes
  * Get the current user's effective scopes.
  *
- * Returns a breakdown of scopes by source:
- * - org_role_scopes: From org membership role (OWNER/ADMIN/MEMBER)
- * - workspace_role_scopes: From workspace membership role (if in workspace context)
- * - group_scopes: From group memberships and their role assignments (EE only)
- * - user_role_scopes: From direct user role assignments (EE only)
- *
- * The combined `scopes` list is what's actually used for authorization.
+ * Scopes are computed from DB-driven role assignments during auth
+ * (UserRoleAssignment + GroupRoleAssignment → Role → RoleScope → Scope).
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */

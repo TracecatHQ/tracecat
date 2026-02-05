@@ -3389,7 +3389,7 @@ export type OrgMemberRead = {
   first_name: string | null
   last_name: string | null
   email: string
-  role: OrgRole
+  role: string | null
   is_active: boolean
   is_superuser: boolean
   is_verified: boolean
@@ -4601,9 +4601,9 @@ export type ScopeRead = {
 }
 
 /**
- * Source of a scope definition.
+ * Source/ownership of a scope definition.
  */
-export type ScopeSource = "system" | "registry" | "custom"
+export type ScopeSource = "platform" | "custom"
 
 /**
  * Create a new secret.
@@ -5761,22 +5761,6 @@ export type UserScopesRead = {
    * List of effective scope strings for the user
    */
   scopes: Array<string>
-  /**
-   * Scopes from organization role
-   */
-  org_role_scopes?: Array<string>
-  /**
-   * Scopes from workspace role
-   */
-  workspace_role_scopes?: Array<string>
-  /**
-   * Scopes from group memberships
-   */
-  group_scopes?: Array<string>
-  /**
-   * Scopes from direct user role assignments
-   */
-  user_role_scopes?: Array<string>
 }
 
 export type UserUpdate = {
@@ -7716,6 +7700,15 @@ export type AdminCreateTierData = {
 }
 
 export type AdminCreateTierResponse = TierRead
+
+export type AdminListOrgTiersData = {
+  /**
+   * Optional list of organization IDs to filter results
+   */
+  orgIds?: Array<string> | null
+}
+
+export type AdminListOrgTiersResponse = Array<OrganizationTierRead>
 
 export type AdminGetTierData = {
   tierId: string
@@ -11162,6 +11155,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TierRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/tiers/organizations": {
+    get: {
+      req: AdminListOrgTiersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrganizationTierRead>
         /**
          * Validation Error
          */

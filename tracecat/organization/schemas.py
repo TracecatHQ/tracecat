@@ -15,7 +15,7 @@ class OrgMemberRead(BaseModel):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    role: str
+    role: str | None
     is_active: bool
     is_superuser: bool
     is_verified: bool
