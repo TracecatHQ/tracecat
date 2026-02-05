@@ -407,6 +407,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_docs": createIconRenderer(GoogleDocsIcon),
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
+    "tools.google_secops_detection": createIconRenderer(
+      GoogleSecOpsDetectionIcon
+    ),
     // AI / LLM namespace
     "llm.openai": createIconRenderer(OpenAIIcon),
     "llm.ollama": createIconRenderer(OllamaIcon),
@@ -1715,6 +1718,23 @@ export function TerraformIcon({ className, ...rest }: IconProps) {
         d="M14.614 16.008l-5.928-3.453v6.903l5.926 3.452v-6.902z"
         fill="#5c4ee5"
       />
+    </svg>
+  )
+}
+
+export function GoogleSecOpsDetectionIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className={className}
+      {...rest}
+    >
+      <path
+        fill="#4285F4"
+        d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
+      />
+      <circle fill="#EA4335" cx="12" cy="12" r="3" />
     </svg>
   )
 }
