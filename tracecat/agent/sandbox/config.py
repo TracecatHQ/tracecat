@@ -303,15 +303,15 @@ def build_agent_nsjail_config(
             f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
         )
 
-    # Mount /proc read-only. Combined with clone_newpid: true, the process
-    # only sees itself in /proc (PID 1 inside the namespace).
-    # Note: subset=pid option would be ideal but fails in Docker due to
-    # overmounts on /proc (e.g., /dev/null on /proc/kcore).
+    # Bind mount /proc from host (read-only) instead of creating new procfs.
+    # New procfs mount fails in Docker due to masked paths in /proc
+    # (e.g., /dev/null on /proc/kcore). Combined with clone_newpid: true,
+    # PID namespace isolation limits visibility of sandbox processes.
     lines.extend(
         [
             "",
-            "# /proc - read-only, PID namespace isolated (process only sees itself)",
-            'mount { dst: "/proc" fstype: "proc" rw: false }',
+            "# /proc - read-only bind mount (fresh procfs fails in Docker due to overmounts)",
+            'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
             "",
             "# /dev essentials",
             'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',
