@@ -297,7 +297,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetch,
   } = useQuery<CaseReadMinimal[], TracecatApiError>({
     queryKey: [
-      "cases-inbox",
+      "cases",
       workspaceId,
       queryParams.searchTerm,
       queryParams.status,
