@@ -1752,11 +1752,7 @@ export function GoogleSecOpsIcon({ className, ...rest }: IconProps) {
         fill="#4285F4"
         d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
       />
-      <path
-        fill="#34A853"
-        d="M12 2v9.82l6.9-3.82L12 4.18V2z"
-        opacity="0.6"
-      />
+      <path fill="#34A853" d="M12 2v9.82l6.9-3.82L12 4.18V2z" opacity="0.6" />
     </svg>
   )
 }

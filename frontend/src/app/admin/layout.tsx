@@ -15,7 +15,7 @@ export default function AdminLayout({
     <AuthGuard requireAuth requireSuperuser redirectTo="/workspaces">
       <SidebarProvider>
         <AdminSidebar />
-        <SidebarInset className="border-l-2 border-amber-500/30">
+        <SidebarInset className="border-l-2 border-border">
           <div className="flex h-full flex-1 flex-col">
             <div className="flex-1 overflow-auto">
               <div className="container py-16">

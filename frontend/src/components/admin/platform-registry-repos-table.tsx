@@ -31,8 +31,8 @@ export function PlatformRegistryReposTable() {
     try {
       await syncRepository({ repositoryId, force })
       toast({
-        title: "Sync started",
-        description: "Repository sync has been initiated.",
+        title: "Sync complete",
+        description: "Repository sync successful.",
       })
       refetch()
     } catch (error) {
@@ -181,7 +181,6 @@ export function PlatformRegistryReposTable() {
                   <DropdownMenuItem
                     onClick={() => handleSync(repo.id, true)}
                     disabled={isSyncing}
-                    className="text-amber-500 focus:text-amber-600"
                   >
                     Force sync (delete existing)
                   </DropdownMenuItem>

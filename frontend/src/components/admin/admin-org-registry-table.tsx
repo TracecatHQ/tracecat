@@ -1,15 +1,10 @@
 "use client"
 
 import { DotsHorizontalIcon, ReloadIcon } from "@radix-ui/react-icons"
+import { HistoryIcon } from "lucide-react"
 import { useState } from "react"
 import type { OrgRegistryRepositoryRead } from "@/client"
-import { OrgRegistryVersionsDialog } from "@/components/admin/org-registry-versions-dialog"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
-import { Badge } from "@/components/ui/badge"
+import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -24,9 +19,13 @@ import { getRelativeTime } from "@/lib/event-history"
 
 interface AdminOrgRegistryTableProps {
   orgId: string
+  onShowVersions?: (repository: OrgRegistryRepositoryRead) => void
 }
 
-export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
+export function AdminOrgRegistryTable({
+  orgId,
+  onShowVersions,
+}: AdminOrgRegistryTableProps) {
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const { repositories, syncRepository, syncPending } =
     useAdminOrgRegistry(orgId)
@@ -36,8 +35,8 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
     try {
       await syncRepository({ repositoryId, force })
       toast({
-        title: "Sync started",
-        description: "Repository sync has been initiated.",
+        title: "Sync complete",
+        description: "Repository sync successful.",
       })
     } catch (error) {
       console.error("Failed to sync repository", error)
@@ -90,9 +89,7 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
             return (
               <div className="text-xs">
                 {commitSha ? (
-                  <Badge variant="outline" className="font-mono">
-                    {commitSha.substring(0, 7)}
-                  </Badge>
+                  <span className="font-mono">{commitSha.substring(0, 7)}</span>
                 ) : (
                   <span className="text-muted-foreground">Not synced</span>
                 )}
@@ -137,7 +134,17 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
           enableHiding: false,
           cell: ({ row }) => {
             const repo = row.original
-            return <OrgRegistryVersionsDialog orgId={orgId} repository={repo} />
+            return (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1"
+                onClick={() => onShowVersions?.(repo)}
+              >
+                <HistoryIcon className="size-3" />
+                Versions
+              </Button>
+            )
           },
         },
         {
@@ -175,7 +182,6 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
                   <DropdownMenuItem
                     onClick={() => handleSync(repo.id, true)}
                     disabled={isSyncing}
-                    className="text-amber-500 focus:text-amber-600"
                   >
                     Force sync (delete existing)
                   </DropdownMenuItem>
@@ -185,14 +191,7 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
           },
         },
       ]}
-      toolbarProps={defaultToolbarProps}
+      toolbarProps={{}}
     />
   )
-}
-
-const defaultToolbarProps: DataTableToolbarProps<OrgRegistryRepositoryRead> = {
-  filterProps: {
-    placeholder: "Filter repositories...",
-    column: "origin",
-  },
 }

@@ -56,6 +56,20 @@ async def create_tier(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+@router.get("/organizations", response_model=list[OrganizationTierRead])
+async def list_org_tiers(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_ids: list[uuid.UUID] | None = Query(
+        default=None,
+        description="Optional list of organization IDs to filter results",
+    ),
+) -> list[OrganizationTierRead]:
+    """List tier assignments for organizations."""
+    service = AdminTierService(session, role)
+    return list(await service.list_org_tiers(org_ids=org_ids))
+
+
 @router.get("/{tier_id}", response_model=TierRead)
 async def get_tier(
     role: SuperuserRole,
@@ -102,7 +116,6 @@ async def delete_tier(
 
 
 # Organization tier endpoints
-
 
 @router.get("/organizations/{org_id}", response_model=OrganizationTierRead)
 async def get_org_tier(

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMemo } from "react"
 import {
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
@@ -36,6 +37,7 @@ import {
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
+  type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
@@ -45,6 +47,7 @@ import {
   type TierRead,
   type TierUpdate,
 } from "@/client"
+import { adminListOrgTiers } from "@/client/services.custom"
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
@@ -199,8 +202,12 @@ export function useAdminTiers(includeInactive = true) {
   >({
     mutationFn: ({ tierId, data }) =>
       adminUpdateTier({ tierId, requestBody: data }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] })
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", "tiers"],
+      })
+    },
   })
 
   const { mutateAsync: deleteTier, isPending: deletePending } = useMutation<
@@ -248,6 +255,9 @@ export function useAdminTier(tierId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "tiers", tierId] })
       queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] })
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", "tiers"],
+      })
     },
   })
 
@@ -282,6 +292,9 @@ export function useAdminOrgTier(orgId: string) {
       queryClient.invalidateQueries({
         queryKey: ["admin", "organizations", orgId, "tier"],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", "tiers"],
+      })
       queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] })
     },
   })
@@ -292,6 +305,30 @@ export function useAdminOrgTier(orgId: string) {
     error,
     updateOrgTier,
     updatePending,
+  }
+}
+
+export function useAdminOrgTiers(orgIds: string[]) {
+  const {
+    data: orgTiers,
+    isLoading,
+    error,
+  } = useQuery<OrganizationTierRead[]>({
+    queryKey: ["admin", "organizations", "tiers", orgIds],
+    queryFn: () => adminListOrgTiers({ orgIds }),
+    enabled: orgIds.length > 0,
+  })
+
+  const orgTiersByOrgId = useMemo(() => {
+    const entries = orgTiers ?? []
+    return new Map(entries.map((orgTier) => [orgTier.organization_id, orgTier]))
+  }, [orgTiers])
+
+  return {
+    orgTiers: orgTiers ?? [],
+    orgTiersByOrgId,
+    isLoading,
+    error,
   }
 }
 

@@ -18,11 +18,9 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -241,9 +239,6 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarUserNav />
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

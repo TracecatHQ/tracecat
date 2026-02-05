@@ -32,14 +32,14 @@ export default function Error({
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-medium">{headline}</h1>
       {action}
-      <AlertNotification level={level} message={message} />
+      {message ? <AlertNotification level={level} message={message} /> : null}
     </main>
   )
 }
 export type CustomError = {
   headline: string
   level: AlertLevel
-  message: React.ReactNode
+  message: React.ReactNode | null
   action: React.ReactNode
 }
 function refineError(error: ErrorProps): CustomError {
@@ -98,7 +98,7 @@ function OrgSelector() {
           variant="outline"
           onClick={() => router.push("/admin/organizations")}
         >
-          Go to admin
+          Go to admin console
         </Button>
       </div>
     )
@@ -124,7 +124,7 @@ function OrgSelector() {
         className="text-muted-foreground"
         onClick={() => router.push("/admin/organizations")}
       >
-        Go to admin
+        Go to admin console
       </Button>
     </div>
   )
@@ -172,9 +172,9 @@ function apiErrorHandler(error: ApiError): CustomError {
       }
     case 428:
       return {
-        headline: "Organization selection required",
+        headline: "Select organization",
         level: "info",
-        message: "Please select an organization to continue.",
+        message: null,
         action: <OrgSelector />,
       }
     case 503:
