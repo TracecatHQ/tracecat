@@ -17,14 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.scopes import (
-    ADMIN_SCOPES,
-    EDITOR_SCOPES,
-    ORG_ADMIN_SCOPES,
-    ORG_MEMBER_SCOPES,
-    ORG_OWNER_SCOPES,
-    VIEWER_SCOPES,
-)
+from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.db.models import Organization, Role, RoleScope, Scope
 from tracecat.logger import logger
 
@@ -130,57 +123,43 @@ SYSTEM_SCOPE_DEFINITIONS: list[tuple[str, str, str, str]] = [
 # Preset Role Definitions
 # =============================================================================
 
-# All preset role slugs
-PRESET_ROLE_SLUGS: frozenset[str] = frozenset(
-    {"owner", "admin", "editor", "viewer", "member"}
-)
-
-# Preset role definitions: (slug, name, description, scopes)
-#
-# Roles can be assigned at org level (workspace_id=NULL) or workspace level (workspace_id set).
-# The same role can be used at both levels; the assignment context determines what access applies.
-#
-# Role hierarchy:
-# - owner: Organization owner with full control (org-level only)
-# - admin: Full administrative access (can be org-level or workspace-level)
-# - editor: Create/edit access without admin capabilities (workspace-level)
-# - viewer: Read-only access (workspace-level)
-# - member: Basic org membership without workspace access (org-level only)
-#
-# Note: The "admin" role combines org admin and workspace admin scopes since
-# it may be assigned at either level.
-PRESET_ROLE_DEFINITIONS: list[tuple[str, str, str, frozenset[str]]] = [
-    (
-        "owner",
-        "Owner",
-        "Full organization control",
-        ORG_OWNER_SCOPES,
-    ),
-    (
-        "admin",
-        "Admin",
-        "Full administrative access at organization or workspace level",
-        ADMIN_SCOPES | ORG_ADMIN_SCOPES,  # Combined for flexibility
-    ),
-    (
-        "editor",
-        "Editor",
-        "Create and edit resources, no delete or admin access",
-        EDITOR_SCOPES,
-    ),
-    (
-        "viewer",
+# Preset roles seeded per-organization.
+# Slugs match the keys in PRESET_ROLE_SCOPES from scopes.py.
+PRESET_ROLE_DEFINITIONS: dict[str, tuple[str, str, frozenset[str]]] = {
+    # slug → (name, description, scopes)
+    "workspace-viewer": (
         "Viewer",
         "Read-only access to workspace resources",
-        VIEWER_SCOPES,
+        PRESET_ROLE_SCOPES["workspace-viewer"],
     ),
-    (
-        "member",
+    "workspace-editor": (
+        "Editor",
+        "Create and edit resources, no delete or admin access",
+        PRESET_ROLE_SCOPES["workspace-editor"],
+    ),
+    "workspace-admin": (
+        "Admin",
+        "Full workspace capabilities",
+        PRESET_ROLE_SCOPES["workspace-admin"],
+    ),
+    "organization-owner": (
+        "Owner",
+        "Full organization control",
+        PRESET_ROLE_SCOPES["organization-owner"],
+    ),
+    "organization-admin": (
+        "Admin",
+        "Organization admin without delete or billing manage",
+        PRESET_ROLE_SCOPES["organization-admin"],
+    ),
+    "organization-member": (
         "Member",
         "Basic organization membership",
-        ORG_MEMBER_SCOPES,
+        PRESET_ROLE_SCOPES["organization-member"],
     ),
-]
+}
+
+PRESET_ROLE_SLUGS: frozenset[str] = frozenset(PRESET_ROLE_DEFINITIONS)
 
 
 # =============================================================================
@@ -376,7 +355,7 @@ async def seed_system_roles_for_org(
     # Prepare role values with pre-generated IDs
     role_values = []
     role_id_by_slug: dict[str, UUID] = {}
-    for slug, name, description, _ in PRESET_ROLE_DEFINITIONS:
+    for slug, (name, description, _) in PRESET_ROLE_DEFINITIONS.items():
         role_id = uuid4()
         role_id_by_slug[slug] = role_id
         role_values.append(
@@ -401,7 +380,7 @@ async def seed_system_roles_for_org(
     # Re-query to get actual role IDs (may differ if roles already existed)
     existing_roles_stmt = select(Role.id, Role.slug).where(
         Role.organization_id == organization_id,
-        Role.slug.in_([slug for slug, _, _, _ in PRESET_ROLE_DEFINITIONS]),
+        Role.slug.in_(PRESET_ROLE_DEFINITIONS),
     )
     existing_roles_result = await session.execute(existing_roles_stmt)
     actual_role_id_by_slug: dict[str | None, UUID] = {
@@ -409,7 +388,7 @@ async def seed_system_roles_for_org(
     }
 
     # Link scopes to roles
-    for slug, _, _, scope_names in PRESET_ROLE_DEFINITIONS:
+    for slug, (_, _, scope_names) in PRESET_ROLE_DEFINITIONS.items():
         role_id = actual_role_id_by_slug.get(slug)
         if role_id is None:
             logger.warning(

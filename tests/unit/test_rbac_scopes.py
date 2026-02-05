@@ -20,7 +20,6 @@ from tracecat.authz.scopes import (
     ORG_ADMIN_SCOPES,
     ORG_MEMBER_SCOPES,
     ORG_OWNER_SCOPES,
-    ORG_ROLE_SCOPES,
     PRESET_ROLE_SCOPES,
     VIEWER_SCOPES,
 )
@@ -200,10 +199,13 @@ class TestSystemRoleScopes:
     def test_admin_includes_editor(self):
         assert EDITOR_SCOPES.issubset(ADMIN_SCOPES)
 
-    def test_system_role_mapping(self):
+    def test_preset_role_mapping(self):
         assert PRESET_ROLE_SCOPES["workspace-viewer"] == VIEWER_SCOPES
         assert PRESET_ROLE_SCOPES["workspace-editor"] == EDITOR_SCOPES
         assert PRESET_ROLE_SCOPES["workspace-admin"] == ADMIN_SCOPES
+        assert PRESET_ROLE_SCOPES["organization-owner"] == ORG_OWNER_SCOPES
+        assert PRESET_ROLE_SCOPES["organization-admin"] == ORG_ADMIN_SCOPES
+        assert PRESET_ROLE_SCOPES["organization-member"] == ORG_MEMBER_SCOPES
 
 
 class TestOrgRoleScopes:
@@ -223,11 +225,6 @@ class TestOrgRoleScopes:
 
     def test_member_has_minimal_scopes(self):
         assert ORG_MEMBER_SCOPES == frozenset({"org:read", "org:member:read"})
-
-    def test_org_role_mapping(self):
-        assert ORG_ROLE_SCOPES["organization-owner"] == ORG_OWNER_SCOPES
-        assert ORG_ROLE_SCOPES["organization-admin"] == ORG_ADMIN_SCOPES
-        assert ORG_ROLE_SCOPES["organization-member"] == ORG_MEMBER_SCOPES
 
 
 class TestRequireScopeDecorator:
