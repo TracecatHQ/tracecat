@@ -10,7 +10,7 @@ class AgentActionArgs(BaseModel):
     user_prompt: str
     model_name: str
     model_provider: str
-    actions: list[str]
+    actions: list[str] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None
     model_settings: dict[str, Any] | None = None
