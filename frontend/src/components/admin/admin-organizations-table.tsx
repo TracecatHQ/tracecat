@@ -144,7 +144,9 @@ export function AdminOrganizationsTable() {
                   )
                 }
 
-                return <span className="text-xs text-muted-foreground">Default</span>
+                return (
+                  <span className="text-xs text-muted-foreground">Default</span>
+                )
               },
               enableSorting: false,
               enableHiding: false,

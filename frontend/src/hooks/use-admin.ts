@@ -204,7 +204,9 @@ export function useAdminTiers(includeInactive = true) {
       adminUpdateTier({ tierId, requestBody: data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] })
-      queryClient.invalidateQueries({ queryKey: ["admin", "organizations", "tiers"] })
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", "tiers"],
+      })
     },
   })
 
@@ -253,7 +255,9 @@ export function useAdminTier(tierId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "tiers", tierId] })
       queryClient.invalidateQueries({ queryKey: ["admin", "tiers"] })
-      queryClient.invalidateQueries({ queryKey: ["admin", "organizations", "tiers"] })
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", "tiers"],
+      })
     },
   })
 

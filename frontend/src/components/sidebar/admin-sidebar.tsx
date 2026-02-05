@@ -1,5 +1,6 @@
 "use client"
 
+import Cookies from "js-cookie"
 import {
   BookOpenIcon,
   BuildingIcon,
@@ -8,11 +9,10 @@ import {
   LogOutIcon,
   UsersIcon,
 } from "lucide-react"
-import Cookies from "js-cookie"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useState } from "react"
 import type * as React from "react"
+import { useEffect, useState } from "react"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import { Separator } from "@/components/ui/separator"
 import {
