@@ -78,7 +78,7 @@ async def seeded_scopes(session: AsyncSession) -> list[Scope]:
     """Seed system scopes and return them."""
     await seed_system_scopes(session)
     result = await session.execute(
-        select(Scope).where(Scope.source == ScopeSource.SYSTEM)
+        select(Scope).where(Scope.source == ScopeSource.PLATFORM)
     )
     return list(result.scalars().all())
 
@@ -124,9 +124,9 @@ class TestRBACServiceScopes:
         """List scopes can filter by source."""
         service = RBACService(session, role=role)
         scopes = await service.list_scopes(
-            include_system=True, source=ScopeSource.SYSTEM
+            include_system=True, source=ScopeSource.PLATFORM
         )
-        assert all(s.source == ScopeSource.SYSTEM for s in scopes)
+        assert all(s.source == ScopeSource.PLATFORM for s in scopes)
 
     async def test_create_custom_scope(
         self,
