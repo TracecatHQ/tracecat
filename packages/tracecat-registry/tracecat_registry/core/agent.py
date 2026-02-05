@@ -8,12 +8,10 @@ from tracecat_registry import (
     RegistrySecret,
     RegistrySecretType,
     registry,
-    types,
 )
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
-from tracecat_registry.context import get_context
 from tracecat_registry.fields import ActionType, AgentPreset, TextArea
-from tracecat_registry.sdk.agents import AgentConfig, OutputType
+from tracecat_registry.sdk.agents import OutputType
 
 anthropic_secret = RegistrySecret(
     name="anthropic",
@@ -290,22 +288,9 @@ async def action(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 20,
-    retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
+    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
-) -> types.AgentOutputRead:
+) -> dict[str, Any]:
     """Call an LLM with a given prompt and model (no tools)."""
-    ctx = get_context()
-    return await ctx.agents.run(
-        user_prompt=user_prompt,
-        config=AgentConfig(
-            model_name=model_name,
-            model_provider=model_provider,
-            instructions=instructions,
-            output_type=output_type,
-            model_settings=model_settings,
-            retries=retries,
-            base_url=base_url,
-        ),
-        max_requests=max_requests,
-    )
+    raise ActionIsInterfaceError()

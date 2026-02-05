@@ -806,6 +806,65 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                         ).model_dump(),
                     )
+                case PlatformAction.AI_ACTION:
+                    logger.info("Executing AI action", task=task)
+                    agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
+                    action_args = await workflow.execute_activity(
+                        DSLActivities.build_agent_args_activity,
+                        arg=BuildAgentArgsActivityInput(
+                            args=dict(task.args), operand=agent_operand
+                        ),
+                        start_to_close_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    wf_info = workflow.info()
+                    child_search_attributes = _build_agent_child_search_attributes(
+                        wf_info, task.ref
+                    )
+                    session_id = workflow.uuid4()
+                    arg = AgentWorkflowArgs(
+                        role=self.role,
+                        agent_args=RunAgentArgs(
+                            user_prompt=action_args.user_prompt,
+                            session_id=session_id,
+                            config=AgentConfig(
+                                model_name=action_args.model_name,
+                                model_provider=action_args.model_provider,
+                                instructions=action_args.instructions,
+                                output_type=action_args.output_type,
+                                model_settings=action_args.model_settings,
+                                retries=action_args.retries,
+                                base_url=action_args.base_url,
+                                # AI action has no tools
+                                actions=None,
+                                tool_approvals=None,
+                            ),
+                            max_requests=action_args.max_requests,
+                            # No tool calls for AI action
+                            max_tool_calls=0,
+                            use_workspace_credentials=action_args.use_workspace_credentials,
+                        ),
+                        title=self.dsl.title,
+                        entity_type=AgentSessionEntity.WORKFLOW,
+                        entity_id=self.run_context.wf_id,
+                    )
+                    action_result = await workflow.execute_child_workflow(
+                        DurableAgentWorkflow.run,
+                        arg=arg,
+                        id=AgentWorkflowID(session_id),
+                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                        # Route to agent worker queue for session activities
+                        task_queue=config.TRACECAT__AGENT_QUEUE,
+                        execution_timeout=wf_info.execution_timeout,
+                        task_timeout=wf_info.task_timeout,
+                        search_attributes=child_search_attributes,
+                        memo=AgentActionMemo(
+                            action_ref=task.ref,
+                            action_title=task.title,
+                            stream_id=stream_id or ROOT_STREAM,
+                        ).model_dump(),
+                    )
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
