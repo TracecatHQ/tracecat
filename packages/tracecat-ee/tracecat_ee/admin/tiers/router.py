@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.tiers.exceptions import (
@@ -24,6 +25,15 @@ from tracecat.tiers.schemas import (
 from tracecat_ee.admin.tiers.service import AdminTierService
 
 router = APIRouter(prefix="/tiers", tags=["admin:tiers"])
+
+
+def _require_multi_tenant() -> None:
+    if config.TRACECAT__EE_MULTI_TENANT:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail="Subscription tier management is not enabled.",
+    )
 
 
 # Tier CRUD endpoints
@@ -49,6 +59,7 @@ async def create_tier(
     params: TierCreate,
 ) -> TierRead:
     """Create a new tier."""
+    _require_multi_tenant()
     service = AdminTierService(session, role)
     try:
         return await service.create_tier(params)
@@ -92,6 +103,7 @@ async def update_tier(
     params: TierUpdate,
 ) -> TierRead:
     """Update a tier."""
+    _require_multi_tenant()
     service = AdminTierService(session, role)
     try:
         return await service.update_tier(tier_id, params)
@@ -106,6 +118,7 @@ async def delete_tier(
     tier_id: uuid.UUID,
 ) -> None:
     """Delete a tier (only if no orgs are assigned to it)."""
+    _require_multi_tenant()
     service = AdminTierService(session, role)
     try:
         await service.delete_tier(tier_id)
@@ -139,6 +152,7 @@ async def update_org_tier(
     params: OrganizationTierUpdate,
 ) -> OrganizationTierRead:
     """Update organization's tier assignment and overrides."""
+    _require_multi_tenant()
     service = AdminTierService(session, role)
     try:
         return await service.update_org_tier(org_id, params)

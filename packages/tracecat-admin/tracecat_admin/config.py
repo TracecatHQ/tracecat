@@ -12,6 +12,12 @@ import httpx
 CONFIG_PATH = Path.home() / ".tracecat_admin.json"
 
 
+def _parse_bool(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in ("true", "1", "yes", "y", "on")
+
+
 def save_cookies(cookies: httpx.Cookies) -> None:
     """Save cookies to the config file."""
     CONFIG_PATH.write_text(json.dumps({"cookies": dict(cookies)}))
@@ -39,6 +45,7 @@ class Config:
     api_url: str
     service_key: str | None
     db_uri: str | None
+    ee_multi_tenant: bool
 
     @classmethod
     def from_env(cls) -> Config:
@@ -49,6 +56,7 @@ class Config:
             ),
             service_key=os.environ.get("TRACECAT__SERVICE_KEY"),
             db_uri=os.environ.get("TRACECAT__DB_URI"),
+            ee_multi_tenant=_parse_bool(os.environ.get("TRACECAT__EE_MULTI_TENANT")),
         )
 
 

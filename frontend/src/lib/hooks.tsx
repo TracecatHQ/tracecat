@@ -338,6 +338,7 @@ interface AppInfo {
   auth_basic_enabled: boolean
   oauth_google_enabled: boolean
   saml_enabled: boolean
+  ee_multi_tenant: boolean
 }
 
 export function useAppInfo() {

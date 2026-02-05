@@ -146,7 +146,9 @@ async def get_default_organization_id(session: AsyncSession) -> OrganizationID:
     Raises:
         NoResultFound: If no organization exists.
     """
-    result = await session.execute(select(Organization).limit(1))
+    result = await session.execute(
+        select(Organization).order_by(Organization.created_at.asc()).limit(1)
+    )
     return result.scalar_one().id
 
 
@@ -176,7 +178,9 @@ async def ensure_default_organization() -> OrganizationID:
             return org.id
 
         # Get existing org and ensure it has defaults
-        result = await session.execute(select(Organization).limit(1))
+        result = await session.execute(
+            select(Organization).order_by(Organization.created_at.asc()).limit(1)
+        )
         org = result.scalar_one()
         logger.debug(
             "Using existing organization",

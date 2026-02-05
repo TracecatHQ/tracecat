@@ -46,9 +46,12 @@ async def test_list_organizations_success(
 
 @pytest.mark.anyio
 async def test_create_organization_success(
-    client: TestClient, test_admin_role: Role
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org = _org_read()
+    monkeypatch.setattr(
+        organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True
+    )
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
@@ -101,9 +104,12 @@ async def test_update_organization_conflict(
 
 @pytest.mark.anyio
 async def test_delete_organization_success(
-    client: TestClient, test_admin_role: Role
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org_id = uuid.uuid4()
+    monkeypatch.setattr(
+        organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True
+    )
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
@@ -113,3 +119,33 @@ async def test_delete_organization_success(
         response = client.delete(f"/admin/organizations/{org_id}")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
+
+
+@pytest.mark.anyio
+async def test_create_organization_blocked_without_multi_tenant(
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        organizations_router.config, "TRACECAT__EE_MULTI_TENANT", False
+    )
+
+    response = client.post(
+        "/admin/organizations",
+        json={"name": "Test Org", "slug": "test-org"},
+    )
+
+    assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+
+@pytest.mark.anyio
+async def test_delete_organization_blocked_without_multi_tenant(
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org_id = uuid.uuid4()
+    monkeypatch.setattr(
+        organizations_router.config, "TRACECAT__EE_MULTI_TENANT", False
+    )
+
+    response = client.delete(f"/admin/organizations/{org_id}")
+
+    assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
