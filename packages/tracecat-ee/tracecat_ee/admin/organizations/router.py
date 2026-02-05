@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
+from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat_ee.admin.organizations.schemas import (
@@ -21,6 +22,15 @@ from tracecat_ee.admin.organizations.schemas import (
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
 router = APIRouter(prefix="/organizations", tags=["admin:organizations"])
+
+
+def _require_multi_tenant() -> None:
+    if config.TRACECAT__EE_MULTI_TENANT:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail="Multi-tenant organization management is not enabled.",
+    )
 
 
 @router.get("", response_model=list[OrgRead])
@@ -40,6 +50,7 @@ async def create_organization(
     params: OrgCreate,
 ) -> OrgRead:
     """Create a new organization."""
+    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         return await service.create_organization(params)
@@ -87,6 +98,7 @@ async def delete_organization(
     org_id: uuid.UUID,
 ) -> None:
     """Delete organization."""
+    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         await service.delete_organization(org_id)

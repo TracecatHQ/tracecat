@@ -710,6 +710,11 @@ ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
 )
 """Whether the enterprise edition is enabled."""
 
+TRACECAT__EE_MULTI_TENANT = os.environ.get(
+    "TRACECAT__EE_MULTI_TENANT", "false"
+).lower() in ("true", "1")
+"""Whether multi-tenant features are enabled for Enterprise Edition."""
+
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
 for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):

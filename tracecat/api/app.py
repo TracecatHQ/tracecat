@@ -536,6 +536,7 @@ class AppInfo(BaseModel):
     auth_basic_enabled: bool
     oauth_google_enabled: bool
     saml_enabled: bool
+    ee_multi_tenant: bool
 
 
 @app.get("/info", include_in_schema=False)
@@ -558,6 +559,7 @@ async def info(session: AsyncDBSession) -> AppInfo:
         auth_basic_enabled=keyvalues["auth_basic_enabled"],
         oauth_google_enabled=keyvalues["oauth_google_enabled"],
         saml_enabled=keyvalues["saml_enabled"],
+        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
     )
 
 

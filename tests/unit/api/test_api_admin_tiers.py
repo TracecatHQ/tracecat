@@ -75,3 +75,32 @@ async def test_list_org_tiers_success(
     data = response.json()
     assert data[0]["organization_id"] == str(org_id)
     assert data[0]["tier"]["id"] == str(tier.id)
+
+
+@pytest.mark.anyio
+async def test_create_tier_blocked_without_multi_tenant(
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tiers_router.config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    response = client.post(
+        "/admin/tiers",
+        json={"display_name": "Blocked Tier"},
+    )
+
+    assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+
+@pytest.mark.anyio
+async def test_update_org_tier_blocked_without_multi_tenant(
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org_id = uuid.uuid4()
+    monkeypatch.setattr(tiers_router.config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    response = client.patch(
+        f"/admin/tiers/organizations/{org_id}",
+        json={},
+    )
+
+    assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED

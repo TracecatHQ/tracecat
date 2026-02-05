@@ -39,6 +39,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization, OrganizationMembership, User, Workspace
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
+from tracecat.organization.management import get_default_organization_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=False)
@@ -313,6 +314,14 @@ async def _resolve_org_for_superuser(
     Raises:
         HTTPException(428): If no valid org cookie is set.
     """
+    if not config.TRACECAT__EE_MULTI_TENANT:
+        default_org_id = await get_default_organization_id(session)
+        logger.debug(
+            "Multi-tenant disabled; using default organization",
+            organization_id=str(default_org_id),
+        )
+        return default_org_id
+
     if org_override := request.cookies.get(ORG_OVERRIDE_COOKIE):
         try:
             candidate_org_id = uuid.UUID(org_override)

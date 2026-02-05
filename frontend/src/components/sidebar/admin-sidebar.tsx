@@ -15,6 +15,7 @@ import type * as React from "react"
 import { useEffect, useState } from "react"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import { Separator } from "@/components/ui/separator"
+import { useAppInfo } from "@/lib/hooks"
 import {
   Sidebar,
   SidebarContent,
@@ -37,10 +38,16 @@ export function AdminSidebar({
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const [isInOrgOverrideMode, setIsInOrgOverrideMode] = useState(false)
+  const { appInfo } = useAppInfo()
+  const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
 
   useEffect(() => {
-    setIsInOrgOverrideMode(Boolean(Cookies.get("tracecat-org-id")))
-  }, [])
+    const hasOverride = Boolean(Cookies.get("tracecat-org-id"))
+    if (!multiTenantEnabled && hasOverride) {
+      Cookies.remove("tracecat-org-id", { path: "/" })
+    }
+    setIsInOrgOverrideMode(multiTenantEnabled && hasOverride)
+  }, [multiTenantEnabled])
 
   const handleExitOrgContext = () => {
     Cookies.remove("tracecat-org-id", { path: "/" })
@@ -49,26 +56,28 @@ export function AdminSidebar({
     window.location.reload()
   }
 
-  const navPlatform = [
-    {
-      title: "Organizations",
-      url: "/admin/organizations",
-      icon: BuildingIcon,
-      isActive: pathname?.includes("/admin/organizations"),
-    },
-    {
-      title: "Users",
-      url: "/admin/users",
-      icon: UsersIcon,
-      isActive: pathname?.includes("/admin/users"),
-    },
-    {
-      title: "Tiers",
-      url: "/admin/tiers",
-      icon: LayersIcon,
-      isActive: pathname?.includes("/admin/tiers"),
-    },
-  ]
+  const navPlatform = multiTenantEnabled
+    ? [
+        {
+          title: "Organizations",
+          url: "/admin/organizations",
+          icon: BuildingIcon,
+          isActive: pathname?.includes("/admin/organizations"),
+        },
+        {
+          title: "Users",
+          url: "/admin/users",
+          icon: UsersIcon,
+          isActive: pathname?.includes("/admin/users"),
+        },
+        {
+          title: "Tiers",
+          url: "/admin/tiers",
+          icon: LayersIcon,
+          isActive: pathname?.includes("/admin/tiers"),
+        },
+      ]
+    : []
 
   const navRegistry = [
     {
