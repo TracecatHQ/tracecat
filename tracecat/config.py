@@ -390,7 +390,7 @@ When False, uses nsjail sandbox for full OS-level isolation. Requires:
 """
 
 # === Action Executor === #
-TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "auto")
+TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direct")
 """Executor backend for running actions.
 
 Supported values:
