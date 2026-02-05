@@ -9,7 +9,6 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -90,9 +89,7 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
             return (
               <div className="text-xs">
                 {commitSha ? (
-                  <Badge variant="outline" className="font-mono">
-                    {commitSha.substring(0, 7)}
-                  </Badge>
+                  <span className="font-mono">{commitSha.substring(0, 7)}</span>
                 ) : (
                   <span className="text-muted-foreground">Not synced</span>
                 )}
@@ -175,7 +172,6 @@ export function AdminOrgRegistryTable({ orgId }: AdminOrgRegistryTableProps) {
                   <DropdownMenuItem
                     onClick={() => handleSync(repo.id, true)}
                     disabled={isSyncing}
-                    className="text-amber-500 focus:text-amber-600"
                   >
                     Force sync (delete existing)
                   </DropdownMenuItem>

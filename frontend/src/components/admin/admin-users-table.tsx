@@ -19,7 +19,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -164,22 +163,11 @@ export function AdminUsersTable() {
               />
             ),
             cell: ({ row }) => (
-              <Badge
-                variant={
-                  row.getValue<AdminUserRead["is_superuser"]>("is_superuser")
-                    ? "default"
-                    : "secondary"
-                }
-                className={
-                  row.getValue<AdminUserRead["is_superuser"]>("is_superuser")
-                    ? "bg-amber-500 hover:bg-amber-600"
-                    : ""
-                }
-              >
+              <div className="text-xs">
                 {row.getValue<AdminUserRead["is_superuser"]>("is_superuser")
                   ? "Yes"
                   : "No"}
-              </Badge>
+              </div>
             ),
             enableSorting: true,
             enableHiding: false,
@@ -194,17 +182,11 @@ export function AdminUsersTable() {
               />
             ),
             cell: ({ row }) => (
-              <Badge
-                variant={
-                  row.getValue<AdminUserRead["is_active"]>("is_active")
-                    ? "default"
-                    : "secondary"
-                }
-              >
+              <div className="text-xs">
                 {row.getValue<AdminUserRead["is_active"]>("is_active")
                   ? "Active"
                   : "Inactive"}
-              </Badge>
+              </div>
             ),
             enableSorting: true,
             enableHiding: false,

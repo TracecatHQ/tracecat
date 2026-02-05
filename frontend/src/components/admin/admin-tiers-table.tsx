@@ -1,9 +1,9 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import Link from "next/link"
 import { useState } from "react"
 import type { TierRead } from "@/client"
+import { AdminTierEditDialog } from "@/components/admin/admin-tier-edit-dialog"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -20,7 +20,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -80,14 +79,17 @@ export function AdminTiersTable() {
               />
             ),
             cell: ({ row }) => (
-              <div className="text-xs font-medium">
-                <Link
-                  href={`/admin/tiers/${row.original.id}`}
-                  className="hover:underline"
-                >
-                  {row.getValue<TierRead["display_name"]>("display_name")}
-                </Link>
-              </div>
+              <AdminTierEditDialog
+                tierId={row.original.id}
+                trigger={
+                  <button
+                    type="button"
+                    className="text-xs font-medium hover:underline"
+                  >
+                    {row.getValue<TierRead["display_name"]>("display_name")}
+                  </button>
+                }
+              />
             ),
             enableSorting: true,
             enableHiding: false,
@@ -103,8 +105,10 @@ export function AdminTiersTable() {
             ),
             cell: ({ row }) =>
               row.getValue<TierRead["is_default"]>("is_default") ? (
-                <Badge>Default</Badge>
-              ) : null,
+                <div className="text-xs font-medium">Default</div>
+              ) : (
+                <div className="text-xs text-muted-foreground">-</div>
+              ),
             enableSorting: true,
             enableHiding: false,
           },
@@ -201,9 +205,10 @@ export function AdminTiersTable() {
                     >
                       Copy ID
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href={`/admin/tiers/${tier.id}`}>Edit tier</Link>
-                    </DropdownMenuItem>
+                    <AdminTierEditDialog
+                      tierId={tier.id}
+                      trigger={<DropdownMenuItem>Edit tier</DropdownMenuItem>}
+                    />
                     <DropdownMenuSeparator />
                     <AlertDialogTrigger asChild>
                       <DropdownMenuItem

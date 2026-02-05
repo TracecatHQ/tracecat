@@ -8,7 +8,6 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -81,7 +80,15 @@ export function PlatformRegistryVersionsTable() {
             return (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono">{version.version}</span>
-                {isCurrent && <Badge variant="default">Current</Badge>}
+                {isCurrent && (
+                  <span className="flex items-center">
+                    <span className="sr-only">Current</span>
+                    <span
+                      aria-hidden="true"
+                      className="flex size-1.5 rounded-full bg-[hsl(var(--success)/0.55)]"
+                    />
+                  </span>
+                )}
               </div>
             )
           },

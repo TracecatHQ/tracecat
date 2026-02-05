@@ -181,7 +181,6 @@ export function PlatformRegistryReposTable() {
                   <DropdownMenuItem
                     onClick={() => handleSync(repo.id, true)}
                     disabled={isSyncing}
-                    className="text-amber-500 focus:text-amber-600"
                   >
                     Force sync (delete existing)
                   </DropdownMenuItem>

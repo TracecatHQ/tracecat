@@ -2,9 +2,11 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import Cookies from "js-cookie"
-import Link from "next/link"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
+import { AdminOrgRegistryDialog } from "@/components/admin/admin-org-registry-dialog"
+import { AdminOrgTierDialog } from "@/components/admin/admin-org-tier-dialog"
+import { AdminOrganizationEditDialog } from "@/components/admin/admin-organization-edit-dialog"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -21,7 +23,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -79,14 +80,17 @@ export function AdminOrganizationsTable() {
               />
             ),
             cell: ({ row }) => (
-              <div className="text-xs font-medium">
-                <Link
-                  href={`/admin/organizations/${row.original.id}`}
-                  className="hover:underline"
-                >
-                  {row.getValue<OrgRead["name"]>("name")}
-                </Link>
-              </div>
+              <AdminOrganizationEditDialog
+                orgId={row.original.id}
+                trigger={
+                  <button
+                    type="button"
+                    className="text-xs font-medium hover:underline"
+                  >
+                    {row.getValue<OrgRead["name"]>("name")}
+                  </button>
+                }
+              />
             ),
             enableSorting: true,
             enableHiding: false,
@@ -118,17 +122,11 @@ export function AdminOrganizationsTable() {
               />
             ),
             cell: ({ row }) => (
-              <Badge
-                variant={
-                  row.getValue<OrgRead["is_active"]>("is_active")
-                    ? "default"
-                    : "secondary"
-                }
-              >
+              <div className="text-xs">
                 {row.getValue<OrgRead["is_active"]>("is_active")
                   ? "Active"
                   : "Inactive"}
-              </Badge>
+              </div>
             ),
             enableSorting: true,
             enableHiding: false,
@@ -175,25 +173,22 @@ export function AdminOrganizationsTable() {
                     >
                       Copy ID
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href={`/admin/organizations/${row.original.id}`}>
-                        Edit organization
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href={`/admin/organizations/${row.original.id}/tier`}
-                      >
-                        Manage tier
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href={`/admin/organizations/${row.original.id}/registry`}
-                      >
-                        Registry
-                      </Link>
-                    </DropdownMenuItem>
+                    <AdminOrganizationEditDialog
+                      orgId={row.original.id}
+                      trigger={
+                        <DropdownMenuItem>Edit organization</DropdownMenuItem>
+                      }
+                    />
+                    <AdminOrgTierDialog
+                      orgId={row.original.id}
+                      trigger={<DropdownMenuItem>Manage tier</DropdownMenuItem>}
+                    />
+                    <AdminOrgRegistryDialog
+                      orgId={row.original.id}
+                      trigger={
+                        <DropdownMenuItem>Manage registry</DropdownMenuItem>
+                      }
+                    />
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onSelect={() => handleEnterOrganization(row.original.id)}
