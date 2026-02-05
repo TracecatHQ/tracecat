@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -166,8 +165,6 @@ class AuditSettingsRead(BaseSettingsGroup):
     """Settings for audit logging."""
 
     audit_webhook_url: str | None
-    audit_webhook_api_key_preview: str | None = None
-    audit_webhook_api_key_created_at: datetime | None = None
     audit_webhook_custom_headers: dict[str, str] | None = None
 
 
@@ -182,14 +179,6 @@ class AuditSettingsUpdate(BaseSettingsGroup):
         default=None,
         description="Custom headers to include in audit webhook requests. Header names are case-insensitive.",
     )
-
-
-class AuditApiKeyGenerateResponse(BaseModel):
-    """Response when generating a new audit webhook API key."""
-
-    api_key: str = Field(description="The raw API key. Shown only once.")
-    preview: str = Field(description="A preview of the key (e.g., tc_ak_...XXXX)")
-    created_at: datetime = Field(description="When the key was created")
 
 
 class AgentSettingsRead(BaseSettingsGroup):

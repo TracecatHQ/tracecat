@@ -82,27 +82,6 @@ class AuditService(BaseService):
         cleaned = value.strip()
         return cleaned or None
 
-    async def _get_api_key(self) -> str | None:
-        """Fetch the configured audit webhook API key.
-
-        Note: Uses get_setting (uncached) to ensure key rotation/revocation
-        takes effect immediately.
-        """
-        from tracecat.settings.service import get_setting
-
-        value = await get_setting("audit_webhook_api_key", session=self.session)
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            self.logger.warning(
-                "audit_webhook_api_key must be a string",
-                value_type=type(value),
-            )
-            return None
-
-        cleaned = value.strip()
-        return cleaned or None
-
     async def _get_custom_headers(self) -> dict[str, str] | None:
         """Fetch the configured custom headers for the audit webhook.
 
@@ -125,27 +104,13 @@ class AuditService(BaseService):
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
         response: httpx.Response | None = None
         try:
-            # Build headers: API key first, then custom headers can override
-            headers: dict[str, str] = {}
-
-            api_key = await self._get_api_key()
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-
             custom_headers = await self._get_custom_headers()
-            if custom_headers:
-                # HTTP headers are case-insensitive (RFC 7230), but Python dicts are not.
-                # If custom headers contain any casing of "authorization", remove the
-                # API key header to let the custom value fully override it.
-                if any(k.lower() == "authorization" for k in custom_headers):
-                    headers.pop("Authorization", None)
-                headers.update(custom_headers)
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
                     webhook_url,
                     json=payload.model_dump(mode="json"),
-                    headers=headers if headers else None,
+                    headers=custom_headers,
                 )
                 response.raise_for_status()
         except Exception as exc:

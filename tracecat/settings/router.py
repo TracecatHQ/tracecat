@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
@@ -15,7 +14,6 @@ from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsRead,
     AppSettingsUpdate,
-    AuditApiKeyGenerateResponse,
     AuditSettingsRead,
     AuditSettingsUpdate,
     AuthSettingsRead,
@@ -213,17 +211,6 @@ async def get_audit_settings(
     keys = AuditSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
-
-    # Parse created_at from ISO string to datetime
-    api_key_created_at_str = settings_dict.get("audit_webhook_api_key_created_at")
-    api_key_created_at: datetime | None = None
-    if api_key_created_at_str:
-        try:
-            api_key_created_at = datetime.fromisoformat(api_key_created_at_str)
-        except (ValueError, TypeError):
-            pass
-    settings_dict["audit_webhook_api_key_created_at"] = api_key_created_at
-
     return AuditSettingsRead(**settings_dict)
 
 
@@ -236,31 +223,6 @@ async def update_audit_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_audit_settings(params)
-
-
-@router.post("/audit/api-key", response_model=AuditApiKeyGenerateResponse)
-async def generate_audit_api_key(
-    *,
-    role: OrgAdminUserRole,
-    session: AsyncDBSession,
-) -> AuditApiKeyGenerateResponse:
-    """Generate a new API key for the audit webhook.
-
-    This replaces any existing key. The raw API key is shown only once.
-    """
-    service = SettingsService(session, role)
-    return await service.generate_audit_api_key()
-
-
-@router.delete("/audit/api-key", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_audit_api_key(
-    *,
-    role: OrgAdminUserRole,
-    session: AsyncDBSession,
-) -> None:
-    """Revoke the current audit webhook API key."""
-    service = SettingsService(session, role)
-    await service.revoke_audit_api_key()
 
 
 @router.get("/agent", response_model=AgentSettingsRead)
