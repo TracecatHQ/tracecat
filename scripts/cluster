@@ -281,8 +281,8 @@ build_env() {
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 
-    # Default to ephemeral executor backend for development
-    export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-ephemeral}"
+    # Default to direct executor backend for development
+    export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
 }
 
 # Show port mappings for a cluster
