@@ -132,6 +132,43 @@ class AdminTierService(BasePlatformService):
 
     # Organization tier operations
 
+    async def list_org_tiers(
+        self, org_ids: Sequence[uuid.UUID] | None = None
+    ) -> Sequence[OrganizationTierRead]:
+        """List tier assignments for organizations."""
+        if org_ids is not None and len(org_ids) == 0:
+            return []
+
+        stmt = select(OrganizationTier).options(selectinload(OrganizationTier.tier))
+        if org_ids:
+            stmt = stmt.where(OrganizationTier.organization_id.in_(org_ids))
+
+        result = await self.session.execute(stmt)
+        org_tiers = result.scalars().all()
+
+        return [
+            OrganizationTierRead(
+                id=org_tier.id,
+                organization_id=org_tier.organization_id,
+                tier_id=org_tier.tier_id,
+                max_concurrent_workflows=org_tier.max_concurrent_workflows,
+                max_action_executions_per_workflow=org_tier.max_action_executions_per_workflow,
+                max_concurrent_actions=org_tier.max_concurrent_actions,
+                api_rate_limit=org_tier.api_rate_limit,
+                api_burst_capacity=org_tier.api_burst_capacity,
+                entitlement_overrides=org_tier.entitlement_overrides,
+                stripe_customer_id=org_tier.stripe_customer_id,
+                stripe_subscription_id=org_tier.stripe_subscription_id,
+                expires_at=org_tier.expires_at,
+                created_at=org_tier.created_at,
+                updated_at=org_tier.updated_at,
+                tier=TierRead.model_validate(org_tier.tier)
+                if org_tier.tier
+                else None,
+            )
+            for org_tier in org_tiers
+        ]
+
     async def get_org_tier(self, org_id: uuid.UUID) -> OrganizationTierRead:
         """Get tier assignment for an organization."""
         # Verify org exists

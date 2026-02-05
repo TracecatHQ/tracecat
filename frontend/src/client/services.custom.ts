@@ -4,6 +4,7 @@ import { request } from "./core/request"
 import type {
   CaseEventType,
   OAuthGrantType,
+  OrganizationTierRead,
   ProviderReadMinimal,
 } from "./types.gen"
 
@@ -129,6 +130,24 @@ export const triggersUpdateCaseTrigger = (
     mediaType: "application/json",
     errors: {
       404: "Not Found",
+      422: "Validation Error",
+    },
+  })
+
+export type AdminListOrgTiersData = {
+  orgIds?: string[]
+}
+
+export const adminListOrgTiers = (
+  data: AdminListOrgTiersData
+): CancelablePromise<OrganizationTierRead[]> =>
+  request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers/organizations",
+    query: {
+      org_ids: data.orgIds,
+    },
+    errors: {
       422: "Validation Error",
     },
   })

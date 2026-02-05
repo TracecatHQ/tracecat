@@ -5,14 +5,20 @@ import {
   BuildingIcon,
   ChevronLeftIcon,
   LayersIcon,
+  LogOutIcon,
   UsersIcon,
 } from "lucide-react"
+import Cookies from "js-cookie"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 import type * as React from "react"
+import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
+import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -30,6 +36,18 @@ export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const [isInOrgOverrideMode, setIsInOrgOverrideMode] = useState(false)
+
+  useEffect(() => {
+    setIsInOrgOverrideMode(Boolean(Cookies.get("tracecat-org-id")))
+  }, [])
+
+  const handleExitOrgContext = () => {
+    Cookies.remove("tracecat-org-id", { path: "/" })
+    Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
+    setIsInOrgOverrideMode(false)
+    window.location.reload()
+  }
 
   const navPlatform = [
     {
@@ -124,6 +142,21 @@ export function AdminSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        {isInOrgOverrideMode ? (
+          <SidebarMenu>
+            <Separator className="my-1" />
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={handleExitOrgContext}>
+                <LogOutIcon />
+                <span>Exit org context</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        ) : (
+          <SidebarUserNav />
+        )}
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

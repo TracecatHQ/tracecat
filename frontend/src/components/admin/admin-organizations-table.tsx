@@ -31,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useAdminOrganizations, useAdminOrgTier } from "@/hooks/use-admin"
+import { useAdminOrganizations, useAdminOrgTiers } from "@/hooks/use-admin"
 
 export function AdminOrganizationsTable() {
   const [editOrgId, setEditOrgId] = useState<string | null>(null)
@@ -39,6 +39,9 @@ export function AdminOrganizationsTable() {
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const { organizations, deleteOrganization } = useAdminOrganizations()
+  const orgIds = organizations?.map((org) => org.id) ?? []
+  const { orgTiersByOrgId, isLoading: orgTiersLoading } =
+    useAdminOrgTiers(orgIds)
 
   const handleDeleteOrganization = async () => {
     if (selectedOrg) {
@@ -121,7 +124,28 @@ export function AdminOrganizationsTable() {
                   title="Tier"
                 />
               ),
-              cell: ({ row }) => <OrgTierCell orgId={row.original.id} />,
+              cell: ({ row }) => {
+                const orgTier = orgTiersByOrgId.get(row.original.id)
+                const tier = orgTier?.tier
+
+                if (tier) {
+                  return (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="font-medium">{tier.display_name}</span>
+                    </div>
+                  )
+                }
+
+                if (orgTiersLoading) {
+                  return (
+                    <span className="text-xs text-muted-foreground">
+                      Loading...
+                    </span>
+                  )
+                }
+
+                return <span className="text-xs text-muted-foreground">Default</span>
+              },
               enableSorting: false,
               enableHiding: false,
             },
@@ -280,25 +304,6 @@ export function AdminOrganizationsTable() {
         />
       )}
     </>
-  )
-}
-
-function OrgTierCell({ orgId }: { orgId: string }) {
-  const { orgTier, isLoading } = useAdminOrgTier(orgId)
-
-  if (isLoading) {
-    return <span className="text-xs text-muted-foreground">Loading...</span>
-  }
-
-  const tier = orgTier?.tier
-  if (!tier) {
-    return <span className="text-xs text-muted-foreground">Default</span>
-  }
-
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="font-medium">{tier.display_name}</span>
-    </div>
   )
 }
 
