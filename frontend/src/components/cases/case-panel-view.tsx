@@ -82,10 +82,6 @@ function isCustomFieldValueEmpty(value: unknown): boolean {
   return false
 }
 
-function isCustomDropdownFieldType(type?: SqlType): boolean {
-  return type === "SELECT"
-}
-
 function getFormattedDateValue(value: unknown): string | null {
   if (value instanceof Date) {
     return isValidDate(value) ? format(value, "MMM d yyyy '·' p") : null
@@ -163,11 +159,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
     [caseData?.fields]
   )
-  const customFields = useMemo(
-    () =>
-      allCustomFields.filter((field) => !isCustomDropdownFieldType(field.type)),
-    [allCustomFields]
-  )
+  const customFields = useMemo(() => allCustomFields, [allCustomFields])
   const hasAnyCustomFields = allCustomFields.length > 0
   const [userAddedCustomFieldIds, setUserAddedCustomFieldIds] = useState<
     string[]
@@ -441,7 +433,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               </div>
               <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
                 {/* Header with Chat Toggle */}
-                <div className="mb-4">
+                <div className="mb-2">
                   <div className="flex flex-col">
                     <div className="py-1.5 first:pt-0 last:pb-0">
                       {/* Case Summary */}

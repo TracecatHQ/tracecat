@@ -427,6 +427,11 @@ export interface SimpleEditorProps {
    */
   showToolbar?: boolean
   /**
+   * Keep toolbar layout space reserved while hidden.
+   * @default false
+   */
+  preserveToolbarSpace?: boolean
+  /**
    * Optional wrapper class name for layout overrides.
    */
   className?: string
@@ -470,6 +475,7 @@ export function SimpleEditor({
   onChange,
   editable = true,
   showToolbar = true,
+  preserveToolbarSpace = false,
   className,
   placeholder,
   onSave,
@@ -576,8 +582,8 @@ export function SimpleEditor({
     },
   })
 
-  const canRenderToolbar = showToolbar && editable
-  const shouldShowToolbar = canRenderToolbar
+  const shouldShowToolbar = showToolbar && editable
+  const canRenderToolbar = editable && (showToolbar || preserveToolbarSpace)
 
   const rect = useCursorVisibility({
     editor,
