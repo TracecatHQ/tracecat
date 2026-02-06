@@ -39,6 +39,7 @@ from claude_agent_sdk.types import (
 
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import (
@@ -49,7 +50,6 @@ from tracecat.agent.common.stream_types import (
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
-from tracecat.agent.parsers import build_sdk_output_format
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
