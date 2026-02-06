@@ -130,6 +130,7 @@ async def delete_tier(
 
 # Organization tier endpoints
 
+
 @router.get("/organizations/{org_id}", response_model=OrganizationTierRead)
 async def get_org_tier(
     role: SuperuserRole,

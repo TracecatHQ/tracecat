@@ -73,7 +73,9 @@ async def search_cases(
     ] = None,
     end_time: Annotated[
         str | None,
-        Doc("UTC end time (ISO 8601 format). Only used when time_range_filter=0 (CUSTOM)"),
+        Doc(
+            "UTC end time (ISO 8601 format). Only used when time_range_filter=0 (CUSTOM)"
+        ),
     ] = None,
     tags: Annotated[
         list[str] | None,
@@ -85,7 +87,9 @@ async def search_cases(
     ] = None,
     stages: Annotated[
         list[str] | None,
-        Doc("List of stages: Triage, Assessment, Investigation, Incident, Improvement, Research"),
+        Doc(
+            "List of stages: Triage, Assessment, Investigation, Incident, Improvement, Research"
+        ),
     ] = None,
     environments: Annotated[
         list[str] | None,
@@ -320,7 +324,9 @@ async def change_case_stage(
     ],
     stage: Annotated[
         str,
-        Doc("New stage: Triage, Assessment, Investigation, Incident, Improvement, or Research"),
+        Doc(
+            "New stage: Triage, Assessment, Investigation, Incident, Improvement, or Research"
+        ),
     ],
 ) -> dict[str, Any]:
     """Change the stage of a Chronicle SOAR case.
@@ -785,7 +791,9 @@ async def bulk_close_cases(
     ],
     close_reason: Annotated[
         int,
-        Doc("Close reason enum: 0=Malicious, 1=NotMalicious, 2=Maintenance, 3=Inconclusive, 4=Unknown"),
+        Doc(
+            "Close reason enum: 0=Malicious, 1=NotMalicious, 2=Maintenance, 3=Inconclusive, 4=Unknown"
+        ),
     ],
     root_cause: Annotated[
         str,

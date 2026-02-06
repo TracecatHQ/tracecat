@@ -162,9 +162,7 @@ class AdminTierService(BasePlatformService):
                 expires_at=org_tier.expires_at,
                 created_at=org_tier.created_at,
                 updated_at=org_tier.updated_at,
-                tier=TierRead.model_validate(org_tier.tier)
-                if org_tier.tier
-                else None,
+                tier=TierRead.model_validate(org_tier.tier) if org_tier.tier else None,
             )
             for org_tier in org_tiers
         ]

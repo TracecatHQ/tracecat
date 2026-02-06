@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from tracecat.tiers.schemas import OrganizationTierRead, TierRead
 from tracecat_ee.admin.tiers import router as tiers_router
 
 from tracecat.auth.types import Role
+from tracecat.tiers.schemas import OrganizationTierRead, TierRead
 
 
 def _tier_read(tier_id: uuid.UUID | None = None) -> TierRead:
