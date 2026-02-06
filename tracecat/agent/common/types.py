@@ -97,6 +97,10 @@ class SandboxAgentConfig:
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP servers to connect to."""
 
+    # Output
+    output_type: str | dict[str, Any] | None = None
+    """Expected output type for structured outputs (e.g., "int", "str", or a JSON schema dict)."""
+
     # Sandbox
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
@@ -111,6 +115,7 @@ class SandboxAgentConfig:
             instructions=data.get("instructions"),
             tool_approvals=data.get("tool_approvals"),
             mcp_servers=data.get("mcp_servers"),
+            output_type=data.get("output_type"),
             enable_internet_access=data.get("enable_internet_access", False),
         )
 
@@ -130,6 +135,7 @@ class SandboxAgentConfig:
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
+            output_type=config.output_type,
             enable_internet_access=getattr(config, "enable_internet_access", False),
         )
 
@@ -147,5 +153,7 @@ class SandboxAgentConfig:
             result["tool_approvals"] = self.tool_approvals
         if self.mcp_servers is not None:
             result["mcp_servers"] = self.mcp_servers
+        if self.output_type is not None:
+            result["output_type"] = self.output_type
         result["enable_internet_access"] = self.enable_internet_access
         return result

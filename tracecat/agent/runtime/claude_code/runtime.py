@@ -49,6 +49,7 @@ from tracecat.agent.common.stream_types import (
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.parsers import build_sdk_output_format
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
@@ -208,6 +209,19 @@ class ClaudeAgentRuntime:
         if message.get("model") == "<synthetic>":
             return True
 
+        # "(no content)" placeholder assistant message from the SDK's
+        # structured output stop hook flow.
+        if msg_type == "assistant":
+            msg_content_check = message.get("content", [])
+            if isinstance(msg_content_check, list) and len(msg_content_check) == 1:
+                only_part = msg_content_check[0]
+                if (
+                    isinstance(only_part, dict)
+                    and only_part.get("type") == "text"
+                    and only_part.get("text") == "(no content)"
+                ):
+                    return True
+
         # Check message content for internal patterns
         msg_content = message.get("content", [])
 
@@ -216,6 +230,9 @@ class ClaudeAgentRuntime:
             if msg_content.startswith("Tool '") and (
                 "Result:" in msg_content or "Error:" in msg_content
             ):
+                return True
+            # Stop hook feedback injected by Claude SDK for structured output
+            if "Stop hook feedback:" in msg_content:
                 return True
 
         # List content - check for interrupt patterns
@@ -231,10 +248,12 @@ class ClaudeAgentRuntime:
                         in str(part.get("content", ""))
                     ):
                         return True
-                    # Interrupt text marker
+                    # Interrupt text marker or stop hook feedback
                     if part_type == "text":
                         text = part.get("text", "")
                         if "[Request interrupted by user" in text:
+                            return True
+                        if "Stop hook feedback:" in text:
                             return True
 
         return False
@@ -481,6 +500,9 @@ class ClaudeAgentRuntime:
             if TRACECAT__DISABLE_NSJAIL:
                 sandbox_settings["enableWeakerNestedSandbox"] = True
                 sandbox_settings["allowUnsandboxedCommands"] = False
+            # Build output_format from output_type if provided
+            sdk_output_format = build_sdk_output_format(payload.config.output_type)
+
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
@@ -500,6 +522,7 @@ class ClaudeAgentRuntime:
                 },
                 # Stable per-session working directory (deterministic across turns)
                 cwd=self._cwd,
+                output_format=sdk_output_format,
             )
 
             async def drain_stderr() -> None:
@@ -631,11 +654,12 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 usage=message.usage,
                             )
-                            # Send result with usage data back to orchestrator
+                            # Send result with usage data and structured output back to orchestrator
                             await self._socket_writer.send_result(
                                 usage=message.usage,
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
+                                structured_output=message.structured_output,
                             )
                 finally:
                     stderr_task.cancel()
