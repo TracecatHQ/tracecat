@@ -1,15 +1,35 @@
 "use client"
 
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { AdminOrganizationsTable } from "@/components/admin/admin-organizations-table"
 import { CreateOrganizationDialog } from "@/components/admin/create-organization-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAdminOrganizations } from "@/hooks/use-admin"
+import { useAppInfo } from "@/lib/hooks"
 
 export default function AdminOrganizationsPage() {
-  const { isLoading, error } = useAdminOrganizations()
+  const router = useRouter()
+  const { appInfo, appInfoIsLoading } = useAppInfo()
+  const shouldRedirectToRegistry =
+    !appInfoIsLoading && appInfo?.ee_multi_tenant === false
+  const shouldLoadOrganizations = !appInfoIsLoading && !shouldRedirectToRegistry
+  const { isLoading, error } = useAdminOrganizations({
+    enabled: shouldLoadOrganizations,
+  })
 
-  if (isLoading) {
+  useEffect(() => {
+    if (shouldRedirectToRegistry) {
+      router.replace("/admin/registry")
+    }
+  }, [router, shouldRedirectToRegistry])
+
+  if (appInfoIsLoading || isLoading) {
     return <CenteredSpinner />
+  }
+
+  if (shouldRedirectToRegistry) {
+    return null
   }
 
   if (error) {

@@ -643,6 +643,9 @@ export function CaseItem({
                     None
                   </ContextMenuRadioItem>
                   {definition.options?.map((opt) => {
+                    const optionStyle = opt.color
+                      ? ({ color: opt.color } as React.CSSProperties)
+                      : undefined
                     return (
                       <ContextMenuRadioItem
                         key={opt.id}
@@ -656,19 +659,23 @@ export function CaseItem({
                           <DynamicLucideIcon
                             name={opt.icon_name}
                             className="mr-2 size-3.5"
+                            style={optionStyle}
                             fallback={
-                              <CircleIcon className="mr-2 size-3.5 text-muted-foreground" />
+                              <CircleIcon
+                                className="mr-2 size-3.5 text-muted-foreground"
+                                style={optionStyle}
+                              />
                             }
                           />
                         ) : opt.color ? (
-                          <div
-                            className="mr-2 size-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: opt.color }}
+                          <CircleIcon
+                            className="mr-2 size-3.5"
+                            style={optionStyle}
                           />
                         ) : (
                           <CircleIcon className="mr-2 size-3.5 text-muted-foreground" />
                         )}
-                        {opt.label}
+                        <span style={optionStyle}>{opt.label}</span>
                       </ContextMenuRadioItem>
                     )
                   })}

@@ -22,7 +22,12 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { Fragment, type ReactNode, useCallback, useState } from "react"
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useState,
+} from "react"
 import { type CaseStatus, casesAddTag } from "@/client"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -34,10 +39,8 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
-import {
-  StatusSelect,
-  UNASSIGNED,
-} from "@/components/cases/case-panel-selectors"
+import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
+import { StatusSelect, UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
   CasesViewMode,
@@ -93,10 +96,13 @@ import {
 } from "@/components/workspaces/add-workspace-variable"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import {
+  useCaseDurationDefinitions,
+  useCaseDurations,
   useCaseTagCatalog,
   useGetCase,
   useGetTable,
@@ -970,25 +976,47 @@ function CaseStatusControl({
   caseId: string
   workspaceId: string
 }) {
+  const { isFeatureEnabled } = useFeatureFlag()
   const { caseData } = useGetCase({ caseId, workspaceId })
   const { updateCase } = useUpdateCase({
     workspaceId,
     caseId,
   })
+  const caseDurationsEnabled = isFeatureEnabled("case-durations")
+  const { caseDurations, caseDurationsIsLoading } = useCaseDurations({
+    caseId,
+    workspaceId,
+    enabled: caseDurationsEnabled,
+  })
+  const { caseDurationDefinitions, caseDurationDefinitionsIsLoading } =
+    useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
+
+  const handleStatusChange = (newStatus: CaseStatus) => {
+    updateCase({ status: newStatus }).catch((error) => {
+      console.error("Failed to update case status", error)
+    })
+  }
 
   if (!caseData) {
     return null
   }
 
-  const handleStatusChange = (newStatus: CaseStatus) => {
-    const updatePromise = updateCase({ status: newStatus })
-    updatePromise.catch((error) => {
-      console.error("Failed to update case status", error)
-    })
-  }
-
   return (
-    <StatusSelect status={caseData.status} onValueChange={handleStatusChange} />
+    <div className="flex items-center gap-1.5 min-w-0">
+      {caseDurationsEnabled ? (
+        <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
+          <CaseDurationMetrics
+            durations={caseDurations}
+            definitions={caseDurationDefinitions}
+            isLoading={
+              caseDurationsIsLoading || caseDurationDefinitionsIsLoading
+            }
+            variant="inline"
+          />
+        </div>
+      ) : null}
+      <StatusSelect status={caseData.status} onValueChange={handleStatusChange} />
+    </div>
   )
 }
 

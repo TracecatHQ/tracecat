@@ -1,6 +1,6 @@
 "use client"
 
-import { CircleIcon, UserIcon } from "lucide-react"
+import { CircleIcon, ListIcon, UserIcon } from "lucide-react"
 import type {
   CaseDropdownDefinitionRead,
   CaseDropdownValueRead,
@@ -377,6 +377,10 @@ export function CaseDropdownSelect({
   const currentOption = definition.options?.find(
     (o) => o.id === currentValue?.option_id
   )
+  const currentOptionStyle = currentOption?.color
+    ? ({ color: currentOption.color } as React.CSSProperties)
+    : undefined
+
   return (
     <Select
       value={currentOptionId}
@@ -387,6 +391,15 @@ export function CaseDropdownSelect({
       >
         <SelectValue>
           <div className="flex items-center gap-2">
+            {definition.icon_name ? (
+              <DynamicLucideIcon
+                name={definition.icon_name}
+                className="size-3.5 text-muted-foreground"
+                fallback={<ListIcon className="size-3.5 text-muted-foreground" />}
+              />
+            ) : (
+              <ListIcon className="size-3.5 text-muted-foreground" />
+            )}
             <span className="text-xs text-muted-foreground">
               {definition.name}
             </span>
@@ -396,19 +409,20 @@ export function CaseDropdownSelect({
                   <DynamicLucideIcon
                     name={currentOption.icon_name}
                     className="size-3.5"
+                    style={currentOptionStyle}
                     fallback={
-                      <CircleIcon className="size-3.5 text-muted-foreground" />
+                      <CircleIcon
+                        className="size-3.5 text-muted-foreground"
+                        style={currentOptionStyle}
+                      />
                     }
                   />
                 ) : currentOption.color ? (
-                  <div
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: currentOption.color }}
-                  />
+                  <CircleIcon className="size-3.5" style={currentOptionStyle} />
                 ) : (
                   <CircleIcon className="size-3.5 text-muted-foreground" />
                 )}
-                <span>{currentOption.label}</span>
+                <span style={currentOptionStyle}>{currentOption.label}</span>
               </div>
             ) : (
               <span className="text-xs text-muted-foreground">None</span>
@@ -421,6 +435,9 @@ export function CaseDropdownSelect({
           <span className="text-muted-foreground">None</span>
         </SelectItem>
         {definition.options?.map((opt) => {
+          const optionStyle = opt.color
+            ? ({ color: opt.color } as React.CSSProperties)
+            : undefined
           return (
             <SelectItem key={opt.id} value={opt.id}>
               <div className="flex items-center gap-1.5">
@@ -428,14 +445,18 @@ export function CaseDropdownSelect({
                   <DynamicLucideIcon
                     name={opt.icon_name}
                     className="size-3.5"
+                    style={optionStyle}
+                    fallback={
+                      <CircleIcon
+                        className="size-3.5 text-muted-foreground"
+                        style={optionStyle}
+                      />
+                    }
                   />
                 ) : opt.color ? (
-                  <div
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: opt.color }}
-                  />
+                  <CircleIcon className="size-3.5" style={optionStyle} />
                 ) : null}
-                <span>{opt.label}</span>
+                <span style={optionStyle}>{opt.label}</span>
               </div>
             </SelectItem>
           )

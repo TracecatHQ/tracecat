@@ -50,7 +50,10 @@ const IconPicker = dynamic<IconPickerProps>(
   { ssr: false }
 )
 
-import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import {
+  DynamicLucideIcon,
+  resolveIconName,
+} from "@/components/dynamic-lucide-icon"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -128,8 +131,8 @@ interface DropdownsTableProps {
     option: {
       label?: string
       ref?: string
-      icon_name?: string
-      color?: string
+      icon_name?: string | null
+      color?: string | null
       position?: number
     }
   ) => Promise<void>
@@ -433,8 +436,8 @@ function EditDefinitionDialog({
     option: {
       label?: string
       ref?: string
-      icon_name?: string
-      color?: string
+      icon_name?: string | null
+      color?: string | null
       position?: number
     }
   ) => Promise<void>
@@ -539,10 +542,26 @@ function EditDefinitionDialog({
   const handleSave = async (formValues: CaseDropdownDefinitionUpdate) => {
     setIsSaving(true)
     try {
+      const nextName = formValues.name?.trim() ?? definition.name
+      const nextRef = slugify(nextName)
+      if (!nextRef) {
+        methods.setError("name", {
+          type: "manual",
+          message:
+            "Name must produce a valid reference (use alphanumeric characters)",
+        })
+        return
+      }
+
+      const rawDefinitionIcon = formValues.icon_name?.trim() ?? ""
+      const normalizedDefinitionIcon =
+        resolveIconName(rawDefinitionIcon) ?? rawDefinitionIcon
+
       // 1. Update definition fields
       await onUpdate(definition.id, {
-        name: formValues.name || undefined,
-        icon_name: formValues.icon_name?.trim() || undefined,
+        name: nextName,
+        ref: nextRef,
+        icon_name: normalizedDefinitionIcon || null,
         is_ordered: formValues.is_ordered,
       })
 
@@ -561,10 +580,13 @@ function EditDefinitionDialog({
       for (let i = 0; i < options.length; i++) {
         const opt = options[i]
         if (!opt.apiId && opt.label.trim()) {
+          const rawIconName = opt.icon_name.trim()
+          const normalizedIconName =
+            resolveIconName(rawIconName) ?? rawIconName
           await onAddOption?.(definition.id, {
             label: opt.label.trim(),
             ref: slugify(opt.label),
-            icon_name: opt.icon_name.trim() || undefined,
+            icon_name: normalizedIconName || undefined,
             color: opt.color.trim() || undefined,
             position: i,
           })
@@ -579,17 +601,41 @@ function EditDefinitionDialog({
         const orig = originalOptions.find((o) => o.id === opt.apiId)
         if (!orig) continue
 
+        const trimmedLabel = opt.label.trim()
+        const rawIconName = opt.icon_name.trim()
+        const normalizedIconName = resolveIconName(rawIconName) ?? rawIconName
+        const rawOrigIconName = orig.icon_name.trim()
+        const normalizedOrigIconName =
+          resolveIconName(rawOrigIconName) ?? rawOrigIconName
+        const trimmedColor = opt.color.trim()
+
         const changed =
-          orig.label !== opt.label.trim() ||
-          orig.icon_name !== opt.icon_name.trim() ||
-          orig.color !== opt.color.trim()
+          orig.label !== trimmedLabel ||
+          normalizedOrigIconName !== normalizedIconName ||
+          orig.color !== trimmedColor
 
         if (changed) {
+          const payload: {
+            label?: string
+            ref?: string
+            icon_name?: string | null
+            color?: string | null
+          } = {}
+
+          if (orig.label !== trimmedLabel && trimmedLabel) {
+            payload.label = trimmedLabel
+            payload.ref = slugify(trimmedLabel) || undefined
+          }
+          if (normalizedOrigIconName !== normalizedIconName) {
+            payload.icon_name = normalizedIconName || null
+          }
+          if (orig.color !== trimmedColor) {
+            payload.color = trimmedColor || null
+          }
+
+          if (Object.keys(payload).length === 0) continue
           await onUpdateOption?.(definition.id, opt.apiId, {
-            label: opt.label.trim() || undefined,
-            ref: slugify(opt.label) || undefined,
-            icon_name: opt.icon_name.trim() || undefined,
-            color: opt.color.trim() || undefined,
+            ...payload,
           })
         }
       }

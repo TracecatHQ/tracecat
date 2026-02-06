@@ -51,7 +51,7 @@ import { adminListOrgTiers } from "@/client/services.custom"
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
-export function useAdminOrganizations() {
+export function useAdminOrganizations({ enabled = true }: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient()
 
   const {
@@ -61,6 +61,7 @@ export function useAdminOrganizations() {
   } = useQuery<AdminListOrganizationsResponse>({
     queryKey: ["admin", "organizations"],
     queryFn: adminListOrganizations,
+    enabled,
   })
 
   const { mutateAsync: createOrganization, isPending: createPending } =

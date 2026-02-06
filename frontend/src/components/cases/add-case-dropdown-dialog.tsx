@@ -24,6 +24,7 @@ import { useForm } from "react-hook-form"
 import z from "zod"
 import type { CaseDropdownDefinitionRead } from "@/client"
 import { ColorPicker } from "@/components/color-picker"
+import { resolveIconName } from "@/components/dynamic-lucide-icon"
 import type { IconPickerProps } from "@/components/form/icon-picker"
 
 const IconPicker = dynamic<IconPickerProps>(
@@ -156,8 +157,9 @@ export function SortableOptionRow({
         onValueChange={(val) => onOptionChange(index, "icon_name", val)}
       />
       <ColorPicker
-        value={opt.color || "#aabbcc"}
+        value={opt.color}
         onChange={(val) => onOptionChange(index, "color", val)}
+        allowEmpty
       />
       {canRemove && (
         <Button
@@ -280,7 +282,7 @@ export function AddCaseDropdownDialog({
         .map((o, i) => ({
           label: o.label.trim(),
           ref: slugify(o.label),
-          icon_name: o.icon_name.trim() || undefined,
+          icon_name: resolveIconName(o.icon_name.trim()) ?? undefined,
           color: o.color.trim() || undefined,
           position: i,
         }))
@@ -300,7 +302,7 @@ export function AddCaseDropdownDialog({
         requestBody: {
           name: formValues.name.trim(),
           ref: dropdownRef,
-          icon_name: formValues.icon_name?.trim() || undefined,
+          icon_name: resolveIconName(formValues.icon_name?.trim() ?? "") ?? undefined,
           is_ordered: formValues.is_ordered,
           options: validOptions,
         },

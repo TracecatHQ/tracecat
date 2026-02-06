@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
+from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -120,7 +121,31 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         params: CaseDropdownDefinitionUpdate,
     ) -> CaseDropdownDefinition:
         """Update an existing dropdown definition."""
-        for key, value in params.model_dump(exclude_unset=True).items():
+        update_data = params.model_dump(exclude_unset=True)
+
+        # Keep name/ref aligned when only the name is edited.
+        if "name" in update_data:
+            if not update_data["name"]:
+                raise TracecatValidationError("Dropdown name cannot be empty")
+            if "ref" not in update_data:
+                generated_ref = slugify(update_data["name"], separator="_")
+                if not generated_ref:
+                    raise TracecatValidationError(
+                        "Dropdown name must produce a valid reference"
+                    )
+                update_data["ref"] = generated_ref
+
+        # Reject explicitly empty refs.
+        if "ref" in update_data:
+            ref = update_data["ref"]
+            if ref is None:
+                raise TracecatValidationError("Dropdown reference cannot be empty")
+            stripped_ref = ref.strip()
+            if not stripped_ref:
+                raise TracecatValidationError("Dropdown reference cannot be empty")
+            update_data["ref"] = stripped_ref
+
+        for key, value in update_data.items():
             setattr(definition, key, value)
         try:
             await self.session.commit()
