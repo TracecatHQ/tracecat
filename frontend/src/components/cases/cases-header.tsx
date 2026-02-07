@@ -839,7 +839,7 @@ export function CasesHeader({
       </header>
 
       {/* Row 2: Filter dropdowns */}
-      <div className="flex flex-wrap items-center gap-2 py-2 pl-4 pr-4">
+      <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">
         {/* Select all / Deselect all button - matches accordion chevron container (h-7 w-7) */}
         {totalCaseCount > 0 && (
           <button
