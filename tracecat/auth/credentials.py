@@ -61,6 +61,15 @@ async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
         return result.scalar_one_or_none()
 
 
+async def resolve_workspace_organization_id(
+    workspace_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    """Resolve organization_id for a workspace, if provided."""
+    if workspace_id is None:
+        return None
+    return await _get_workspace_org_id(workspace_id)
+
+
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
@@ -164,12 +173,14 @@ async def _authenticate_service(
         else None
     )
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
+    organization_id = await resolve_workspace_organization_id(workspace_id)
     return Role(
         type="service",
         service_id=service_id,
         access_level=AccessLevel[request.headers["x-tracecat-role-access-level"]],
         user_id=user_id,
         workspace_id=workspace_id,
+        organization_id=organization_id,
         workspace_role=workspace_role,
         org_role=org_role,
     )

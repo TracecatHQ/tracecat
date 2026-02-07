@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.api_keys import verify_api_key
+from tracecat.auth.credentials import resolve_workspace_organization_id
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
@@ -173,10 +174,12 @@ async def validate_incoming_webhook(
             session.add(webhook.api_key)
             await session.commit()
 
+        organization_id = await resolve_workspace_organization_id(webhook.workspace_id)
         ctx_role.set(
             Role(
                 type="service",
                 workspace_id=webhook.workspace_id,
+                organization_id=organization_id,
                 service_id="tracecat-runner",
                 workspace_role=WorkspaceRole.EDITOR,
             )
