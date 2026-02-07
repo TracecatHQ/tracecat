@@ -11,6 +11,7 @@ Objectives
 """
 
 import datetime
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -20,7 +21,7 @@ from temporalio.client import Client, WorkflowHandle
 from tracecat.auth.types import Role
 from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers.workflow import WorkflowExecutionID
+from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -911,12 +912,14 @@ class TestWorkflowStartAcknowledgement:
                 "config": {"enable_runtime_tests": False},
             }
         )
-        wf_id = "wf_4itKqkgCZrLhgYiq5L211X"
+        wf_id = WorkflowUUID.new("wf_4itKqkgCZrLhgYiq5L211X")
 
         with patch.object(
             service, "_resolve_execution_timeout", AsyncMock(return_value=None)
         ):
-            response = await service.create_workflow_execution_wait_for_start(
+            response = await cast(
+                Any, service
+            ).create_workflow_execution_wait_for_start(
                 dsl=dsl,
                 wf_id=wf_id,
                 payload=None,
@@ -924,7 +927,7 @@ class TestWorkflowStartAcknowledgement:
             )
 
         assert response["wf_id"] == wf_id
-        assert response["wf_exec_id"].startswith(f"{wf_id}/exec_")
+        assert response["wf_exec_id"].startswith(f"{wf_id.short()}/exec_")
         mock_client.start_workflow.assert_awaited_once()
         assert (
             mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]

@@ -176,7 +176,18 @@ async def validate_incoming_webhook(
         workspace_result = await session.execute(
             select(Workspace).where(Workspace.id == webhook.workspace_id)
         )
-        workspace = workspace_result.scalar_one()
+        try:
+            workspace = workspace_result.scalar_one()
+        except NoResultFound as e:
+            logger.warning(
+                "Workspace not found for webhook",
+                webhook_id=webhook.id,
+                workspace_id=webhook.workspace_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized webhook request",
+            ) from e
 
         ctx_role.set(
             Role(

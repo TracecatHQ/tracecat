@@ -391,9 +391,6 @@ async def test_internal_execute_workflow_returns_404_for_missing_definition(
 
 
 @pytest.mark.anyio
-@pytest.mark.xfail(
-    reason="Public router doesn't support {execution_id:path} yet - only internal router does"
-)
 async def test_get_workflow_execution_compact_accepts_slash_id(
     client: TestClient,
     test_admin_role: Role,

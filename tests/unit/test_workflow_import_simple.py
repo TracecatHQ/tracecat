@@ -1,5 +1,7 @@
 """Simplified tests for WorkflowImportService functionality."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLConfig, DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
     RemoteWorkflowDefinition,
@@ -90,9 +93,18 @@ class TestWorkflowImportServiceSimple:
             ],
             config=DSLConfig(timeout=300),
         )
-        workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
-            base_dsl, workflow_id=workflow_id, commit=False
-        )
+        with patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            new=AsyncMock(
+                return_value=RegistryLock(
+                    origins={"tracecat_registry": "test"},
+                    actions={"core.transform.transform": "tracecat_registry"},
+                )
+            ),
+        ):
+            workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
+                base_dsl, workflow_id=workflow_id, commit=False
+            )
         # Remove placeholder actions
         await import_service.session.refresh(workflow, ["actions"])
         for action in workflow.actions:

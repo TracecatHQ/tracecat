@@ -1118,14 +1118,6 @@ class WorkflowExecutionsService:
                 e=e,
             )
             raise e
-        except Exception as e:
-            self.logger.exception(
-                "Unexpected workflow start error",
-                role=self.role,
-                wf_exec_id=wf_exec_id,
-                e=e,
-            )
-            raise e
 
     def cancel_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID

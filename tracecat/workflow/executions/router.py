@@ -142,7 +142,7 @@ async def get_workflow_execution(
     )
 
 
-@router.get("/{execution_id}/compact")
+@router.get("/{execution_id:path}/compact")
 async def get_workflow_execution_compact(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
