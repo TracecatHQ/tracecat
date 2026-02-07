@@ -182,8 +182,8 @@ def blob_storage_config(monkeypatch: pytest.MonkeyPatch):
     """
     # Set environment variables for blob storage
     monkeypatch.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", "http://localhost:9000")
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minioadmin")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minio")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "password")
 
     # Also update the config module's values directly since they're already loaded
     monkeypatch.setattr(
