@@ -8,7 +8,11 @@ import {
   CalendarIcon,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleIcon,
   ClockIcon,
+  ListIcon,
   Minus,
   Plus,
   SearchIcon,
@@ -40,10 +44,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import {
-  DynamicLucideIcon,
-  isValidIconName,
-} from "@/components/dynamic-lucide-icon"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -60,9 +61,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type {
   CaseDateFilterValue,
   CaseDatePreset,
+  CasesRecencySort,
   DropdownFilterState,
 } from "@/hooks/use-cases"
 import { getDisplayName } from "@/lib/auth"
@@ -82,6 +91,16 @@ const DATE_PRESET_OPTIONS: Array<{
   { value: "1w", label: "1 week ago" },
   { value: "1m", label: "1 month ago" },
 ]
+
+const RECENCY_SORT_OPTIONS: Array<{
+  value: CasesRecencySort
+  label: string
+}> = [
+  { value: "desc", label: "Most recent" },
+  { value: "asc", label: "Least recent" },
+]
+
+const LIMIT_OPTIONS = [50, 100, 150, 200] as const
 
 function getDateFilterLabel(filter: CaseDateFilterValue): string | null {
   if (filter.type === "preset") {
@@ -269,6 +288,8 @@ interface FilterOption<T extends string = string> {
   icon?: ComponentType<{ className?: string; style?: React.CSSProperties }>
   iconClassName?: string
   iconStyle?: React.CSSProperties
+  labelClassName?: string
+  labelStyle?: React.CSSProperties
   /** Custom render function for icons that need dynamic content (e.g., avatars) */
   renderIcon?: () => ReactNode
 }
@@ -465,7 +486,12 @@ function FilterMultiSelect<T extends string>({
                             style={option.iconStyle}
                           />
                         )}
-                    <span className="truncate">{option.label}</span>
+                    <span
+                      className={cn("truncate", option.labelClassName)}
+                      style={option.labelStyle}
+                    >
+                      {option.label}
+                    </span>
                   </CommandItem>
                 )
               })}
@@ -523,6 +549,10 @@ interface CasesHeaderProps {
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   createdAfter: CaseDateFilterValue
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
+  updatedAtSort: CasesRecencySort
+  onUpdatedAtSortChange: (value: CasesRecencySort) => void
+  limit: number
+  onLimitChange: (limit: number) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
@@ -530,6 +560,11 @@ interface CasesHeaderProps {
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
+  onNextPage: () => void
+  onPreviousPage: () => void
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+  currentPage: number
   // Selection props
   totalCaseCount?: number
   selectedCount?: number
@@ -572,6 +607,10 @@ export function CasesHeader({
   onUpdatedAfterChange,
   createdAfter,
   onCreatedAfterChange,
+  updatedAtSort,
+  onUpdatedAtSortChange,
+  limit,
+  onLimitChange,
   members,
   tags,
   dropdownDefinitions,
@@ -579,6 +618,11 @@ export function CasesHeader({
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
+  onNextPage,
+  onPreviousPage,
+  hasNextPage,
+  hasPreviousPage,
+  currentPage,
   totalCaseCount = 0,
   selectedCount = 0,
   onSelectAll,
@@ -726,10 +770,80 @@ export function CasesHeader({
             )}
           />
         </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Select
+            value={updatedAtSort}
+            onValueChange={(value) =>
+              onUpdatedAtSortChange(value as CasesRecencySort)
+            }
+          >
+            <SelectTrigger className="h-6 w-[130px] px-2 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RECENCY_SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={`${limit}`}
+            onValueChange={(value) => onLimitChange(Number(value))}
+          >
+            <SelectTrigger className="h-6 w-[72px] px-2 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LIMIT_OPTIONS.map((option) => (
+                <SelectItem key={option} value={`${option}`}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <span className="text-xs text-muted-foreground">
+            Page {currentPage + 1}
+          </span>
+
+          <button
+            type="button"
+            onClick={onPreviousPage}
+            disabled={!hasPreviousPage}
+            className={cn(
+              "flex h-6 items-center gap-1 rounded-md border border-input px-2 text-xs transition-colors",
+              hasPreviousPage
+                ? "hover:bg-muted/50"
+                : "cursor-not-allowed opacity-50"
+            )}
+          >
+            <ChevronLeft className="size-3.5" />
+            Prev
+          </button>
+
+          <button
+            type="button"
+            onClick={onNextPage}
+            disabled={!hasNextPage}
+            className={cn(
+              "flex h-6 items-center gap-1 rounded-md border border-input px-2 text-xs transition-colors",
+              hasNextPage
+                ? "hover:bg-muted/50"
+                : "cursor-not-allowed opacity-50"
+            )}
+          >
+            Next
+            <ChevronRight className="size-3.5" />
+          </button>
+        </div>
       </header>
 
       {/* Row 2: Filter dropdowns */}
-      <div className="flex flex-wrap items-center gap-2 py-2 pl-4 pr-4">
+      <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">
         {/* Select all / Deselect all button - matches accordion chevron container (h-7 w-7) */}
         {totalCaseCount > 0 && (
           <button
@@ -836,30 +950,36 @@ export function CasesHeader({
             mode: "include" as FilterMode,
             sortDirection: null as SortDirection,
           }
+          const defIconName = def.icon_name ?? undefined
           const options: FilterOption<string>[] =
             def.options?.map((opt) => {
+              const optionColorStyle = opt.color
+                ? ({ color: opt.color } as React.CSSProperties)
+                : undefined
+              const fallbackIcon = opt.color ? (
+                <CircleIcon
+                  className="size-3.5 shrink-0"
+                  style={optionColorStyle}
+                />
+              ) : (
+                <CircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              )
+
               return {
                 value: opt.ref,
                 label: opt.label,
-                ...(opt.icon_name && isValidIconName(opt.icon_name)
-                  ? {
-                      renderIcon: () => (
-                        <DynamicLucideIcon
-                          name={opt.icon_name as string}
-                          className="size-3.5"
-                        />
-                      ),
-                    }
-                  : opt.color
-                    ? {
-                        renderIcon: () => (
-                          <div
-                            className="size-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: opt.color || undefined }}
-                          />
-                        ),
-                      }
-                    : {}),
+                renderIcon: () =>
+                  opt.icon_name ? (
+                    <DynamicLucideIcon
+                      name={opt.icon_name}
+                      className="size-3.5 shrink-0"
+                      style={optionColorStyle}
+                      fallback={fallbackIcon}
+                    />
+                  ) : (
+                    fallbackIcon
+                  ),
+                labelStyle: optionColorStyle,
               }
             }) ?? []
           return (
@@ -867,11 +987,14 @@ export function CasesHeader({
               key={def.id}
               placeholder={def.name}
               renderTriggerIcon={
-                def.icon_name
+                defIconName
                   ? () => (
                       <DynamicLucideIcon
-                        name={def.icon_name as string}
+                        name={defIconName}
                         className="size-3.5 text-muted-foreground"
+                        fallback={
+                          <ListIcon className="size-3.5 text-muted-foreground" />
+                        }
                       />
                     )
                   : undefined

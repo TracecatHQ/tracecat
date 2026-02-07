@@ -1,9 +1,12 @@
 "use client"
 
-import type { LucideIcon } from "lucide-react"
-import * as LucideIcons from "lucide-react"
 import { Box, Check, Search } from "lucide-react"
+import dynamicIconImports from "lucide-react/dynamicIconImports"
 import { useCallback, useMemo, useState } from "react"
+import {
+  DynamicLucideIcon,
+  resolveIconName,
+} from "@/components/dynamic-lucide-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -12,14 +15,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-
-/** Convert PascalCase to kebab-case: "ShieldCheck" -> "shield-check" */
-function toKebabCase(name: string): string {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
-    .toLowerCase()
-}
 
 /** Convert kebab-case to display name: "shield-check" -> "Shield Check" */
 function toDisplayName(kebab: string): string {
@@ -30,43 +25,17 @@ function toDisplayName(kebab: string): string {
 }
 
 interface IconEntry {
-  kebabName: string
+  iconName: string
   displayName: string
-  component: LucideIcon
 }
 
-// Non-icon exports from lucide-react to exclude
-const NON_ICON_EXPORTS = new Set([
-  "createLucideIcon",
-  "defaultAttributes",
-  "icons",
-  "Icon",
-])
-
-/** Build flat list of all lucide icons once */
+/** Build flat list of all dynamic lucide icon names once */
 const allIcons: IconEntry[] = (() => {
-  const entries: IconEntry[] = []
-  const seen = new Set<unknown>()
-  for (const [key, value] of Object.entries(LucideIcons)) {
-    if (NON_ICON_EXPORTS.has(key)) continue
-    // Icon components are functions/objects with a displayName
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      "displayName" in value &&
-      typeof (value as Record<string, unknown>).displayName === "string"
-    ) {
-      if (seen.has(value)) continue
-      seen.add(value)
-      const kebab = toKebabCase(key)
-      entries.push({
-        kebabName: kebab,
-        displayName: toDisplayName(kebab),
-        component: value as unknown as LucideIcon,
-      })
-    }
-  }
-  entries.sort((a, b) => a.kebabName.localeCompare(b.kebabName))
+  const entries = Object.keys(dynamicIconImports).map((iconName) => ({
+    iconName,
+    displayName: toDisplayName(iconName),
+  }))
+  entries.sort((a, b) => a.iconName.localeCompare(b.iconName))
   return entries
 })()
 
@@ -86,12 +55,10 @@ export function IconPicker({
   const [open, setOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
 
-  const selectedIcon = useMemo(() => {
+  const selectedIconName = useMemo(() => {
     if (!value) return null
-    return allIcons.find((icon) => icon.kebabName === value) ?? null
+    return resolveIconName(value)
   }, [value])
-
-  const SelectedIconComponent = selectedIcon ? selectedIcon.component : null
 
   const MAX_VISIBLE_ICONS = 200
 
@@ -101,7 +68,7 @@ export function IconPicker({
 
     return allIcons.filter(
       (icon) =>
-        icon.kebabName.includes(term) ||
+        icon.iconName.includes(term) ||
         icon.displayName.toLowerCase().includes(term)
     )
   }, [searchTerm])
@@ -133,8 +100,8 @@ export function IconPicker({
           aria-label={placeholder}
           className={cn("size-9 shrink-0", className)}
         >
-          {SelectedIconComponent ? (
-            <SelectedIconComponent className="h-4 w-4" />
+          {selectedIconName ? (
+            <DynamicLucideIcon name={selectedIconName} className="h-4 w-4" />
           ) : (
             <Box className="h-4 w-4 text-muted-foreground/50" />
           )}
@@ -160,20 +127,22 @@ export function IconPicker({
               ) : (
                 <div className="grid grid-cols-7 gap-1 p-2">
                   {visibleIcons.map((icon) => {
-                    const IconComponent = icon.component
-                    const isSelected = value === icon.kebabName
+                    const isSelected = selectedIconName === icon.iconName
                     return (
                       <button
-                        key={icon.kebabName}
+                        key={icon.iconName}
                         type="button"
-                        onClick={() => handleSelect(icon.kebabName)}
+                        onClick={() => handleSelect(icon.iconName)}
                         className={cn(
                           "relative flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
                           isSelected && "border-primary bg-accent"
                         )}
                         title={icon.displayName}
                       >
-                        <IconComponent className="h-4 w-4" />
+                        <DynamicLucideIcon
+                          name={icon.iconName}
+                          className="h-4 w-4"
+                        />
                         {isSelected && (
                           <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
                             <Check className="h-3 w-3 text-primary-foreground" />

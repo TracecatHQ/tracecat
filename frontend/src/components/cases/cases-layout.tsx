@@ -23,7 +23,11 @@ import {
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
-import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
+import type {
+  CaseDateFilterValue,
+  CasesRecencySort,
+  UseCasesFilters,
+} from "@/hooks/use-cases"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -51,10 +55,17 @@ interface CasesLayoutProps {
   onTagSortDirectionChange: (direction: SortDirection) => void
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
+  onUpdatedAtSortChange: (value: CasesRecencySort) => void
+  onLimitChange: (limit: number) => void
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
+  onNextPage: () => void
+  onPreviousPage: () => void
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+  currentPage: number
   refetch?: () => void
 }
 
@@ -82,10 +93,17 @@ export function CasesLayout({
   onTagSortDirectionChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  onUpdatedAtSortChange,
+  onLimitChange,
   dropdownDefinitions,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
+  onNextPage,
+  onPreviousPage,
+  hasNextPage,
+  hasPreviousPage,
+  currentPage,
   refetch,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
@@ -277,6 +295,10 @@ export function CasesLayout({
     onUpdatedAfterChange,
     createdAfter: filters.createdAfter,
     onCreatedAfterChange,
+    updatedAtSort: filters.updatedAtSort,
+    onUpdatedAtSortChange,
+    limit: filters.limit,
+    onLimitChange,
     members,
     tags,
     dropdownDefinitions,
@@ -288,6 +310,11 @@ export function CasesLayout({
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
     onDeselectAll: handleDeselectAll,
+    onNextPage,
+    onPreviousPage,
+    hasNextPage,
+    hasPreviousPage,
+    currentPage,
   }
 
   if (isLoading) {
@@ -346,6 +373,7 @@ export function CasesLayout({
             severitySortDirection={filters.severitySortDirection}
             assigneeSortDirection={filters.assigneeSortDirection}
             tagSortDirection={filters.tagSortDirection}
+            updatedAtSort={filters.updatedAtSort}
           />
         </div>
       </div>

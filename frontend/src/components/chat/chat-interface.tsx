@@ -64,6 +64,11 @@ export function ChatInterface({
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
 
+  // Keep local selection aligned when a parent-driven chatId changes.
+  useEffect(() => {
+    setSelectedChatId(chatId)
+  }, [chatId])
+
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
     entityType,

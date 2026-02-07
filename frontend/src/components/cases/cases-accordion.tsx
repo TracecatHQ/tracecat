@@ -20,6 +20,7 @@ import type {
 import { CaseItem } from "@/components/cases/case-item"
 import type { SortDirection } from "@/components/cases/cases-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import type { CasesRecencySort } from "@/hooks/use-cases"
 import { cn } from "@/lib/utils"
 
 // Define the status groups we want to display
@@ -89,6 +90,7 @@ interface CasesAccordionProps {
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
   tagSortDirection?: SortDirection
+  updatedAtSort?: CasesRecencySort
 }
 
 export function CasesAccordion({
@@ -105,13 +107,15 @@ export function CasesAccordion({
   severitySortDirection,
   assigneeSortDirection,
   tagSortDirection,
+  updatedAtSort = "desc",
 }: CasesAccordionProps) {
   // Check if any explicit sort is active (from the header)
   const hasExplicitSort =
     prioritySortDirection ||
     severitySortDirection ||
     assigneeSortDirection ||
-    tagSortDirection
+    tagSortDirection ||
+    updatedAtSort === "asc"
 
   // Group cases by status category
   const groupedCases = useMemo(() => {

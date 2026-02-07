@@ -1,13 +1,14 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
   type CaseReadMinimal,
   type CaseSeverity,
   type CaseStatus,
+  type CasesListCasesResponse,
   casesListCases,
 } from "@/client"
 import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
@@ -28,6 +29,8 @@ export interface DropdownFilterState {
   sortDirection: SortDirection
 }
 
+export type CasesRecencySort = "asc" | "desc"
+
 export interface UseCasesFilters {
   searchQuery: string
   statusFilter: CaseStatus[]
@@ -47,6 +50,7 @@ export interface UseCasesFilters {
   dropdownFilters: Record<string, DropdownFilterState>
   updatedAfter: CaseDateFilterValue
   createdAfter: CaseDateFilterValue
+  updatedAtSort: CasesRecencySort
   limit: number
 }
 
@@ -81,7 +85,13 @@ export interface UseCasesResult {
   setDropdownSortDirection: (ref: string, direction: SortDirection) => void
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
+  setUpdatedAtSort: (value: CasesRecencySort) => void
   setLimit: (limit: number) => void
+  goToNextPage: () => void
+  goToPreviousPage: () => void
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+  currentPage: number
 }
 
 // Helper to get Date from preset filter value
@@ -214,7 +224,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
   const [createdAfter, setCreatedAfter] =
     useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
+  const [updatedAtSort, setUpdatedAtSort] = useState<CasesRecencySort>("desc")
   const [limit, setLimit] = useState(50)
+  const [currentCursor, setCurrentCursor] = useState<string | null>(null)
+  const [cursorStack, setCursorStack] = useState<string[]>([])
+  const [currentPage, setCurrentPage] = useState(0)
 
   // Compute query parameters for API (include mode only for now)
   // Exclude filtering is done client-side
@@ -253,8 +267,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         return entries.length > 0 ? entries : undefined
       })(),
       limit,
+      cursor: currentCursor,
       orderBy: "updated_at" as const,
-      sort: "desc" as const,
+      sort: updatedAtSort,
     }
   }, [
     searchQuery,
@@ -270,7 +285,41 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     tagMode,
     dropdownFilters,
     limit,
+    currentCursor,
+    updatedAtSort,
   ])
+
+  const serverQueryKey = useMemo(
+    () =>
+      JSON.stringify({
+        searchTerm: queryParams.searchTerm ?? null,
+        status: queryParams.status ?? null,
+        priority: queryParams.priority ?? null,
+        severity: queryParams.severity ?? null,
+        assigneeId: queryParams.assigneeId ?? null,
+        tags: queryParams.tags ?? null,
+        dropdown: queryParams.dropdown ?? null,
+        limit: queryParams.limit,
+        sort: queryParams.sort,
+      }),
+    [
+      queryParams.searchTerm,
+      queryParams.status,
+      queryParams.priority,
+      queryParams.severity,
+      queryParams.assigneeId,
+      queryParams.tags,
+      queryParams.dropdown,
+      queryParams.limit,
+      queryParams.sort,
+    ]
+  )
+
+  useEffect(() => {
+    setCurrentCursor(null)
+    setCursorStack([])
+    setCurrentPage(0)
+  }, [serverQueryKey])
 
   // Compute refetch interval
   const computeRefetchInterval = useCallback(() => {
@@ -291,32 +340,49 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   // Fetch cases
   const {
-    data: cases,
+    data: casesResponse,
     isLoading,
     error,
     refetch,
-  } = useQuery<CaseReadMinimal[], TracecatApiError>({
-    queryKey: [
-      "cases",
-      workspaceId,
-      queryParams.searchTerm,
-      queryParams.status,
-      queryParams.priority,
-      queryParams.severity,
-      queryParams.assigneeId,
-      queryParams.tags,
-      queryParams.dropdown,
-      queryParams.limit,
-    ],
+  } = useQuery<CasesListCasesResponse, TracecatApiError>({
+    queryKey: ["cases", workspaceId, serverQueryKey, currentCursor],
     queryFn: () =>
       casesListCases({
         workspaceId,
         ...queryParams,
-      }).then((response) => response.items),
+      }),
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
   })
+
+  const cases = casesResponse?.items ?? []
+
+  const goToNextPage = useCallback(() => {
+    const nextCursor = casesResponse?.next_cursor
+    if (!nextCursor) return
+
+    setCursorStack((prev) =>
+      currentCursor ? [...prev, currentCursor] : [...prev]
+    )
+    setCurrentCursor(nextCursor)
+    setCurrentPage((prev) => prev + 1)
+  }, [casesResponse?.next_cursor, currentCursor])
+
+  const goToPreviousPage = useCallback(() => {
+    if (currentPage === 0) return
+
+    const nextStack = [...cursorStack]
+    const previousCursor = nextStack.pop() ?? null
+    setCursorStack(nextStack)
+    setCurrentCursor(previousCursor)
+    setCurrentPage((prev) => Math.max(prev - 1, 0))
+  }, [cursorStack, currentPage])
+
+  const hasNextPage = Boolean(
+    casesResponse?.has_more && casesResponse?.next_cursor
+  )
+  const hasPreviousPage = currentPage > 0
 
   // Apply client-side filtering (exclude mode filters + date filters)
   const filteredCases = useMemo(() => {
@@ -474,6 +540,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       dropdownFilters,
       updatedAfter,
       createdAfter,
+      updatedAtSort,
       limit,
     },
     setSearchQuery,
@@ -496,6 +563,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setDropdownSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
+    setUpdatedAtSort,
     setLimit,
+    goToNextPage,
+    goToPreviousPage,
+    hasNextPage,
+    hasPreviousPage,
+    currentPage,
   }
 }

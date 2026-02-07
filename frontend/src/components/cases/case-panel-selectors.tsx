@@ -1,6 +1,6 @@
 "use client"
 
-import { CircleIcon, UserIcon } from "lucide-react"
+import { CircleIcon, ListIcon, UserIcon } from "lucide-react"
 import type {
   CaseDropdownDefinitionRead,
   CaseDropdownValueRead,
@@ -93,23 +93,44 @@ function getStatusColor(status: CaseStatus): string {
 interface StatusSelectProps {
   status: CaseStatus
   onValueChange: (status: CaseStatus) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
 }
 
-export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
+export function StatusSelect({
+  status,
+  onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
+}: StatusSelectProps) {
   const currentStatus = STATUSES[status]
 
   return (
     <Select value={status} onValueChange={onValueChange}>
       <SelectTrigger
-        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
       >
         <SelectValue>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Status</span>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Status</span>
+            )}
             <CaseValueDisplay
               icon={currentStatus.icon}
               label={currentStatus.label}
               color={getStatusColor(currentStatus.value)}
+              labelClassName={valueClassName}
             />
           </div>
         </SelectValue>
@@ -132,26 +153,44 @@ export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
 interface PrioritySelectProps {
   priority: CasePriority
   onValueChange: (priority: CasePriority) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
 }
 
 export function PrioritySelect({
   priority,
   onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
 }: PrioritySelectProps) {
   const currentPriority = PRIORITIES[priority]
 
   return (
     <Select value={priority} onValueChange={onValueChange}>
       <SelectTrigger
-        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
       >
         <SelectValue>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Priority</span>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Priority</span>
+            )}
             <CaseValueDisplay
               icon={currentPriority.icon}
               label={currentPriority.label}
               color={getPriorityColor(currentPriority.value)}
+              labelClassName={valueClassName}
             />
           </div>
         </SelectValue>
@@ -174,26 +213,44 @@ export function PrioritySelect({
 interface SeveritySelectProps {
   severity: CaseSeverity
   onValueChange: (severity: CaseSeverity) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
 }
 
 export function SeveritySelect({
   severity,
   onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
 }: SeveritySelectProps) {
   const currentSeverity = SEVERITIES[severity]
 
   return (
     <Select value={severity} onValueChange={onValueChange}>
       <SelectTrigger
-        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
       >
         <SelectValue>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Severity</span>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Severity</span>
+            )}
             <CaseValueDisplay
               icon={currentSeverity.icon}
               label={currentSeverity.label}
               color={getSeverityColor(currentSeverity.value)}
+              labelClassName={valueClassName}
             />
           </div>
         </SelectValue>
@@ -219,12 +276,18 @@ interface AssigneeSelectProps {
   assignee?: AssigneeInfo | null
   workspaceMembers: WorkspaceMember[]
   onValueChange: (assignee?: AssigneeInfo | null) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
 }
 
 export function AssigneeSelect({
   assignee,
   workspaceMembers,
   onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
 }: AssigneeSelectProps) {
   return (
     <Select
@@ -248,11 +311,22 @@ export function AssigneeSelect({
       }}
     >
       <SelectTrigger
-        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
       >
         <SelectValue>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Assignee</span>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Assignee</span>
+            )}
             {assignee ? (
               <div className="flex items-center gap-1.5">
                 <UserAvatar
@@ -261,12 +335,15 @@ export function AssigneeSelect({
                   firstName={assignee.first_name}
                   className="size-5 text-xs text-foreground"
                 />
-                <span className="text-xs font-medium">
+                <span className={cn("font-medium", valueClassName)}>
                   {assignee.first_name || assignee.email.split("@")[0]}
                 </span>
               </div>
             ) : (
-              <NoAssignee className="text-xs" labelClassName="text-xs" />
+              <NoAssignee
+                className={valueClassName}
+                labelClassName={valueClassName}
+              />
             )}
           </div>
         </SelectValue>
@@ -366,52 +443,88 @@ interface CaseDropdownSelectProps {
   definition: CaseDropdownDefinitionRead
   currentValue: CaseDropdownValueRead | undefined
   onValueChange: (optionId: string | null) => void
+  showLabel?: boolean
+  triggerClassName?: string
+  valueClassName?: string
 }
 
 export function CaseDropdownSelect({
   definition,
   currentValue,
   onValueChange,
+  showLabel = true,
+  triggerClassName,
+  valueClassName,
 }: CaseDropdownSelectProps) {
   const currentOptionId = currentValue?.option_id ?? NONE_VALUE
   const currentOption = definition.options?.find(
     (o) => o.id === currentValue?.option_id
   )
+  const currentOptionStyle = currentOption?.color
+    ? ({ color: currentOption.color } as React.CSSProperties)
+    : undefined
+
   return (
     <Select
       value={currentOptionId}
       onValueChange={(val) => onValueChange(val === NONE_VALUE ? null : val)}
     >
       <SelectTrigger
-        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+        className={cn(
+          linearStyles.trigger.base,
+          linearStyles.trigger.hover,
+          triggerClassName
+        )}
       >
         <SelectValue>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {definition.name}
-            </span>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !showLabel && "w-full justify-end"
+            )}
+          >
+            {showLabel &&
+              (definition.icon_name ? (
+                <DynamicLucideIcon
+                  name={definition.icon_name}
+                  className="size-3.5 text-muted-foreground"
+                  fallback={
+                    <ListIcon className="size-3.5 text-muted-foreground" />
+                  }
+                />
+              ) : (
+                <ListIcon className="size-3.5 text-muted-foreground" />
+              ))}
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">
+                {definition.name}
+              </span>
+            )}
             {currentOption ? (
-              <div className="flex items-center gap-1.5 text-xs">
+              <div className={cn("flex items-center gap-1.5", valueClassName)}>
                 {currentOption.icon_name ? (
                   <DynamicLucideIcon
                     name={currentOption.icon_name}
                     className="size-3.5"
+                    style={currentOptionStyle}
                     fallback={
-                      <CircleIcon className="size-3.5 text-muted-foreground" />
+                      <CircleIcon
+                        className="size-3.5 text-muted-foreground"
+                        style={currentOptionStyle}
+                      />
                     }
                   />
                 ) : currentOption.color ? (
-                  <div
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: currentOption.color }}
-                  />
+                  <CircleIcon className="size-3.5" style={currentOptionStyle} />
                 ) : (
                   <CircleIcon className="size-3.5 text-muted-foreground" />
                 )}
-                <span>{currentOption.label}</span>
+                <span style={currentOptionStyle}>{currentOption.label}</span>
               </div>
             ) : (
-              <span className="text-xs text-muted-foreground">None</span>
+              <span className={cn("text-muted-foreground", valueClassName)}>
+                None
+              </span>
             )}
           </div>
         </SelectValue>
@@ -421,6 +534,9 @@ export function CaseDropdownSelect({
           <span className="text-muted-foreground">None</span>
         </SelectItem>
         {definition.options?.map((opt) => {
+          const optionStyle = opt.color
+            ? ({ color: opt.color } as React.CSSProperties)
+            : undefined
           return (
             <SelectItem key={opt.id} value={opt.id}>
               <div className="flex items-center gap-1.5">
@@ -428,14 +544,18 @@ export function CaseDropdownSelect({
                   <DynamicLucideIcon
                     name={opt.icon_name}
                     className="size-3.5"
+                    style={optionStyle}
+                    fallback={
+                      <CircleIcon
+                        className="size-3.5 text-muted-foreground"
+                        style={optionStyle}
+                      />
+                    }
                   />
                 ) : opt.color ? (
-                  <div
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: opt.color }}
-                  />
+                  <CircleIcon className="size-3.5" style={optionStyle} />
                 ) : null}
-                <span>{opt.label}</span>
+                <span style={optionStyle}>{opt.label}</span>
               </div>
             </SelectItem>
           )

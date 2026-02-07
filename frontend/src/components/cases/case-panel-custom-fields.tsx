@@ -1,5 +1,5 @@
 import { format, isValid as isValidDate } from "date-fns"
-import { Check, ChevronsUpDown, X } from "lucide-react"
+import { Check, Clock3, X } from "lucide-react"
 import type { CSSProperties } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
@@ -27,7 +27,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
@@ -38,6 +44,7 @@ const customFieldFormSchema = z.object({
 type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 
 const DATE_TIME_DISPLAY_FORMAT = "MMM d yyyy '·' p"
+const DATE_DISPLAY_FORMAT = "MMM d yyyy"
 
 const formatDateFieldValue = (
   date: Date,
@@ -130,6 +137,12 @@ export function CustomFieldInner({
   inputStyle,
 }: CustomFieldProps) {
   const form = useFormContext<CustomFieldFormSchema>()
+  const baseInputClassName = cn(
+    linearStyles.input.full,
+    "w-full min-w-0 text-right",
+    inputClassName
+  )
+
   switch (customField.type) {
     case "TEXT":
       return (
@@ -144,11 +157,7 @@ export function CustomFieldInner({
                   {...field}
                   placeholder="Empty"
                   value={String(field.value || "")}
-                  className={cn(
-                    linearStyles.input.full,
-                    "inline-block w-fit min-w-[8ch]",
-                    inputClassName
-                  )}
+                  className={baseInputClassName}
                   style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
@@ -168,19 +177,59 @@ export function CustomFieldInner({
             <FormItem>
               <FormControl>
                 <Input
-                  type="number"
-                  {...field}
-                  value={Number(field.value || 0)}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                  className={cn(
-                    linearStyles.input.full,
-                    "inline-block w-fit min-w-[8ch]",
-                    inputClassName
-                  )}
-                  style={inputStyle}
-                  onBlur={() =>
-                    onBlur && onBlur(customField.id, Number(field.value))
+                  type="text"
+                  inputMode={
+                    customField.type === "INTEGER" ? "numeric" : "decimal"
                   }
+                  value={
+                    field.value === null || field.value === undefined
+                      ? ""
+                      : String(field.value)
+                  }
+                  placeholder="Empty"
+                  onChange={(e) => field.onChange(e.target.value)}
+                  className={baseInputClassName}
+                  style={inputStyle}
+                  onBlur={() => {
+                    field.onBlur()
+                    const raw = String(field.value ?? "").trim()
+                    if (!raw) {
+                      form.clearErrors("value")
+                      onBlur?.(customField.id, null)
+                      return
+                    }
+
+                    if (customField.type === "INTEGER") {
+                      if (!/^-?\d+$/.test(raw)) {
+                        form.setError("value", {
+                          type: "validate",
+                          message: "Must be a valid integer",
+                        })
+                        return
+                      }
+                      form.clearErrors("value")
+                      onBlur?.(customField.id, Number.parseInt(raw, 10))
+                      return
+                    }
+
+                    if (!/^-?(?:\d+|\d*\.\d+)$/.test(raw)) {
+                      form.setError("value", {
+                        type: "validate",
+                        message: "Must be a valid number",
+                      })
+                      return
+                    }
+                    const parsed = Number(raw)
+                    if (!Number.isFinite(parsed)) {
+                      form.setError("value", {
+                        type: "validate",
+                        message: "Must be a valid number",
+                      })
+                      return
+                    }
+                    form.clearErrors("value")
+                    onBlur?.(customField.id, parsed)
+                  }}
                 />
               </FormControl>
               <FormMessage />
@@ -196,13 +245,48 @@ export function CustomFieldInner({
           render={({ field }) => (
             <FormItem>
               <FormControl>
-                <Switch
-                  checked={Boolean(field.value)}
-                  onCheckedChange={(checked) => {
-                    field.onChange(checked)
-                    onBlur && onBlur(customField.id, checked)
+                <Select
+                  value={
+                    field.value === true
+                      ? "true"
+                      : field.value === false
+                        ? "false"
+                        : undefined
+                  }
+                  onValueChange={(value) => {
+                    const next = value === "true"
+                    field.onChange(next)
+                    onBlur?.(customField.id, next)
                   }}
-                />
+                >
+                  <SelectTrigger
+                    className={cn(
+                      linearStyles.trigger.base,
+                      "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden"
+                    )}
+                    style={inputStyle}
+                  >
+                    <SelectValue>
+                      <div className="flex w-full items-center justify-end text-right text-sm">
+                        {field.value === true ? (
+                          <span>True</span>
+                        ) : field.value === false ? (
+                          <span>False</span>
+                        ) : (
+                          <span className="text-muted-foreground">Empty</span>
+                        )}
+                      </div>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="true">
+                      <span className="text-sm">True</span>
+                    </SelectItem>
+                    <SelectItem value="false">
+                      <span className="text-sm">False</span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -221,11 +305,7 @@ export function CustomFieldInner({
                   type="text"
                   {...field}
                   value={String(field.value || "")}
-                  className={cn(
-                    linearStyles.input.full,
-                    "inline-block w-fit min-w-[8ch]",
-                    inputClassName
-                  )}
+                  className={baseInputClassName}
                   style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
@@ -266,7 +346,7 @@ export function CustomFieldInner({
                       variant: "ghost",
                       className: cn(
                         linearStyles.input.full,
-                        "inline-flex min-w-[8ch] justify-start whitespace-nowrap rounded-sm text-left text-xs font-normal border-none shadow-none",
+                        "inline-flex h-7 w-full min-w-0 justify-end whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
                         !dateValue && "text-muted-foreground",
                         inputClassName
                       ),
@@ -275,6 +355,52 @@ export function CustomFieldInner({
                     popoverContentProps={{
                       className: "w-auto border-none shadow-none p-0",
                       align: "start",
+                    }}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
+        />
+      )
+    }
+    case "DATE": {
+      return (
+        <FormField
+          control={form.control}
+          name="value"
+          render={({ field }) => {
+            const dateValue = toDateValue(field.value)
+
+            return (
+              <FormItem>
+                <FormControl>
+                  <DateTimePicker
+                    value={dateValue}
+                    onChange={(next) => {
+                      const formatted = next ? format(next, "yyyy-MM-dd") : null
+                      field.onChange(formatted)
+                      onBlur?.(customField.id, formatted)
+                    }}
+                    onBlur={() => field.onBlur()}
+                    hideTime
+                    placeholder="Select date"
+                    formatDisplay={(date) => format(date, DATE_DISPLAY_FORMAT)}
+                    icon={<Clock3 className="mr-2 size-4" />}
+                    buttonProps={{
+                      variant: "ghost",
+                      className: cn(
+                        linearStyles.input.full,
+                        "inline-flex h-7 w-full min-w-0 justify-end whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                        !dateValue && "text-muted-foreground",
+                        inputClassName
+                      ),
+                      style: inputStyle,
+                    }}
+                    popoverContentProps={{
+                      className: "w-auto border-none shadow-none p-0",
+                      align: "end",
                     }}
                   />
                 </FormControl>
@@ -304,25 +430,26 @@ export function CustomFieldInner({
                         role="combobox"
                         className={cn(
                           linearStyles.input.full,
-                          "inline-flex min-w-[8ch] justify-between gap-1 whitespace-nowrap rounded-sm text-left text-xs font-normal border-none shadow-none",
+                          "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
                           !currentValue && "text-muted-foreground",
                           inputClassName
                         )}
                         style={inputStyle}
                       >
-                        {currentValue || "Select..."}
-                        <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                        <span className="truncate">
+                          {currentValue || "Select..."}
+                        </span>
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
-                  <PopoverContent className="w-48 p-0" align="start">
+                  <PopoverContent className="w-56 p-0" align="end">
                     <Command>
                       <CommandInput
                         placeholder="Search..."
-                        className="h-8 text-xs"
+                        className="h-8 text-sm"
                       />
                       <CommandList>
-                        <CommandEmpty className="py-2 text-center text-xs">
+                        <CommandEmpty className="py-2 text-center text-sm">
                           No option found
                         </CommandEmpty>
                         <CommandGroup>
@@ -330,7 +457,7 @@ export function CustomFieldInner({
                             <CommandItem
                               key={option}
                               value={option}
-                              className="text-xs"
+                              className="text-sm"
                               onSelect={() => {
                                 field.onChange(option)
                                 onBlur?.(customField.id, option)
@@ -400,81 +527,86 @@ export function CustomFieldInner({
               onBlur?.(customField.id, newValues)
             }
 
+            const displayValue =
+              currentValues.length === 0
+                ? "Select..."
+                : currentValues.join(", ")
+
             return (
               <FormItem>
-                <div className="flex flex-wrap items-center gap-1">
-                  {currentValues.map((value) => (
-                    <Badge
-                      key={value}
-                      variant="secondary"
-                      className="gap-1 text-[11px]"
-                    >
-                      {value}
-                      <button
-                        type="button"
-                        className="ml-0.5 rounded-full outline-none hover:bg-muted-foreground/20"
-                        onClick={() => removeOption(value)}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant="ghost"
+                        role="combobox"
+                        className={cn(
+                          linearStyles.input.full,
+                          "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                          currentValues.length === 0 && "text-muted-foreground",
+                          inputClassName
+                        )}
+                        style={inputStyle}
                       >
-                        <X className="h-2.5 w-2.5" />
-                        <span className="sr-only">Remove {value}</span>
-                      </button>
-                    </Badge>
-                  ))}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant="ghost"
-                          role="combobox"
-                          className={cn(
-                            linearStyles.input.full,
-                            "inline-flex h-6 min-w-[6ch] justify-between gap-1 whitespace-nowrap rounded-sm px-2 text-left text-xs font-normal border-none shadow-none",
-                            currentValues.length === 0 &&
-                              "text-muted-foreground",
-                            inputClassName
-                          )}
-                          style={inputStyle}
+                        <span className="truncate">{displayValue}</span>
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-0" align="end">
+                    <Command>
+                      <CommandInput
+                        placeholder="Search..."
+                        className="h-8 text-sm"
+                      />
+                      <CommandList>
+                        <CommandEmpty className="py-2 text-center text-sm">
+                          No option found
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {options.map((option) => (
+                            <CommandItem
+                              key={option}
+                              value={option}
+                              className="text-sm"
+                              onSelect={() => toggleOption(option)}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  currentValues.includes(option)
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                )}
+                              />
+                              {option}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                {currentValues.length > 0 && (
+                  <div className="mt-1 flex flex-wrap justify-end gap-1">
+                    {currentValues.map((value) => (
+                      <Badge
+                        key={value}
+                        variant="secondary"
+                        className="gap-1 text-[11px]"
+                      >
+                        {value}
+                        <button
+                          type="button"
+                          className="ml-0.5 rounded-full outline-none hover:bg-muted-foreground/20"
+                          onClick={() => removeOption(value)}
                         >
-                          {currentValues.length === 0 ? "Select..." : "+"}
-                          <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-48 p-0" align="start">
-                      <Command>
-                        <CommandInput
-                          placeholder="Search..."
-                          className="h-8 text-xs"
-                        />
-                        <CommandList>
-                          <CommandEmpty className="py-2 text-center text-xs">
-                            No option found
-                          </CommandEmpty>
-                          <CommandGroup>
-                            {options.map((option) => (
-                              <CommandItem
-                                key={option}
-                                value={option}
-                                className="text-xs"
-                                onSelect={() => toggleOption(option)}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-3 w-3",
-                                    currentValues.includes(option)
-                                      ? "opacity-100"
-                                      : "opacity-0"
-                                  )}
-                                />
-                                {option}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </div>
+                          <X className="h-2.5 w-2.5" />
+                          <span className="sr-only">Remove {value}</span>
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
                 <FormMessage />
               </FormItem>
             )
@@ -496,11 +628,7 @@ export function CustomFieldInner({
                   {...field}
                   placeholder="Empty"
                   value={String(field.value ?? "")}
-                  className={cn(
-                    linearStyles.input.full,
-                    "inline-block w-fit min-w-[8ch]",
-                    inputClassName
-                  )}
+                  className={baseInputClassName}
                   style={inputStyle}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />

@@ -16,7 +16,7 @@ T = TypeVar("T")
 class CursorPaginationParams(BaseModel):
     """Parameters for cursor-based pagination."""
 
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum items per page")
+    limit: int = Field(default=20, ge=1, le=200, description="Maximum items per page")
     cursor: str | None = Field(default=None, description="Cursor for pagination")
     reverse: bool = Field(default=False, description="Reverse pagination direction")
 

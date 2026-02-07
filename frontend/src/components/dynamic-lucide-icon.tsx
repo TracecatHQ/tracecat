@@ -4,8 +4,34 @@ import { lazy, memo, type ReactNode, Suspense } from "react"
 
 type IconName = keyof typeof dynamicIconImports
 
-export function isValidIconName(name: string): name is IconName {
-  return name in dynamicIconImports
+function buildLegacyIconCandidates(rawName: string): string[] {
+  const normalized = rawName.trim().toLowerCase().replace(/_/g, "-")
+  if (!normalized) return []
+
+  const strippedPrefix = normalized.replace(/^lucide-/, "")
+  const strippedSuffix = strippedPrefix.replace(/-icon$/, "")
+  const withDigitBreaks = strippedSuffix.replace(/([a-z])(\d)/g, "$1-$2")
+
+  const candidates = [
+    normalized,
+    strippedPrefix,
+    strippedSuffix,
+    withDigitBreaks,
+  ]
+  return Array.from(new Set(candidates.filter(Boolean)))
+}
+
+export function resolveIconName(name: string): IconName | null {
+  for (const candidate of buildLegacyIconCandidates(name)) {
+    if (candidate in dynamicIconImports) {
+      return candidate as IconName
+    }
+  }
+  return null
+}
+
+export function isValidIconName(name: string): boolean {
+  return resolveIconName(name) !== null
 }
 
 const cache = new Map<
@@ -34,10 +60,11 @@ export const DynamicLucideIcon = memo(function DynamicLucideIcon({
   fallback = null,
   ...props
 }: DynamicLucideIconProps) {
-  if (!isValidIconName(name)) {
+  const resolvedName = resolveIconName(name)
+  if (!resolvedName) {
     return <>{fallback}</>
   }
-  const Icon = getLazyIcon(name)
+  const Icon = getLazyIcon(resolvedName)
   return (
     <Suspense fallback={fallback}>
       <Icon {...props} />

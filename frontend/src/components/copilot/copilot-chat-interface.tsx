@@ -3,7 +3,7 @@
 import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
 import type {
   AgentPresetRead,
   AgentSessionsGetSessionVercelResponse,
@@ -53,6 +53,11 @@ interface CopilotChatInterfaceProps {
   bodyClassName?: string
 }
 
+type PendingCopilotPrompt = {
+  chatId: string
+  text: string
+}
+
 /**
  * Main workspace-level chat interface.
  *
@@ -69,7 +74,9 @@ export function CopilotChatInterface({
 
   const chatIdParam = searchParams?.get("chatId")
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
-  const [autoCreating, setAutoCreating] = useState(false)
+  const [creatingFromPrompt, setCreatingFromPrompt] = useState(false)
+  const [pendingCopilotPrompt, setPendingCopilotPrompt] =
+    useState<PendingCopilotPrompt | null>(null)
 
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId,
@@ -77,7 +84,7 @@ export function CopilotChatInterface({
     entityId: workspaceId,
   })
 
-  const selectedChatId = chatIdParam ?? chats?.[0]?.id
+  const selectedChatId = chatIdParam ?? undefined
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
@@ -107,55 +114,42 @@ export function CopilotChatInterface({
     enabled: true,
   })
 
-  // Auto-create a chat session if none exists
-  const autoCreateChat = useCallback(async () => {
-    if (autoCreating || createChatPending) return
-    setAutoCreating(true)
-    try {
-      const newChat = await createChat({
-        title: "Copilot",
-        entity_type: "copilot",
-        entity_id: workspaceId,
-      })
-      router.push(`${pathname}?chatId=${newChat.id}`)
-    } catch (error) {
-      console.error("Failed to auto-create chat:", error)
-      toast({
-        title: "Failed to create chat",
-        description: parseChatError(error),
-      })
-    } finally {
-      setAutoCreating(false)
-    }
-  }, [
-    autoCreating,
-    createChat,
-    createChatPending,
-    workspaceId,
-    router,
-    pathname,
-  ])
-
-  // Auto-select first chat or auto-create if none exists
-  useEffect(() => {
-    if (chatsLoading || selectedChatId) return
-
-    if (chats && chats.length === 0 && !autoCreating) {
-      autoCreateChat()
-    }
-  }, [chats, chatsLoading, selectedChatId, autoCreating, autoCreateChat])
-
-  const handleCreateChat = async () => {
+  const handleCreateChat = () => {
     setNewChatDialogOpen(false)
+    setPendingCopilotPrompt(null)
+    router.push(pathname)
+  }
+
+  const handleStartChatFromPrompt = async (promptText: string) => {
+    if (creatingFromPrompt || createChatPending) {
+      return false
+    }
+
+    const trimmedPrompt = promptText.trim()
+    if (!trimmedPrompt) {
+      return false
+    }
+
+    setCreatingFromPrompt(true)
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: "copilot",
         entity_id: workspaceId,
       })
+      setPendingCopilotPrompt({ chatId: newChat.id, text: trimmedPrompt })
       router.push(`${pathname}?chatId=${newChat.id}`)
+      return true
     } catch (error) {
-      console.error("Failed to create chat:", error)
+      console.error("Failed to create chat from prompt:", error)
+      toast({
+        title: "Failed to create chat",
+        description: parseChatError(error),
+        variant: "destructive",
+      })
+      return false
+    } finally {
+      setCreatingFromPrompt(false)
     }
   }
 
@@ -163,8 +157,7 @@ export function CopilotChatInterface({
     router.push(`${pathname}?chatId=${chatId}`)
   }
 
-  // Show loading while chats are being fetched or auto-created
-  if (chatsLoading || (autoCreating && !selectedChatId)) {
+  if (chatsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
@@ -214,7 +207,7 @@ export function CopilotChatInterface({
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending}
+                        disabled={createChatPending || creatingFromPrompt}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -227,8 +220,8 @@ export function CopilotChatInterface({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Start a new chat?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will create a new conversation. Your current chat will
-                    remain accessible from the conversations menu.
+                    This opens a fresh Copilot draft. A new conversation will be
+                    created after you send your first message.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -254,6 +247,18 @@ export function CopilotChatInterface({
           selectedPreset={selectedPreset}
           toolsEnabled={!selectedPreset}
           suggestions={COPILOT_SUGGESTIONS}
+          onStartChatFromPrompt={handleStartChatFromPrompt}
+          startingChatFromPrompt={creatingFromPrompt}
+          pendingPromptText={
+            selectedChatId && pendingCopilotPrompt?.chatId === selectedChatId
+              ? pendingCopilotPrompt.text
+              : null
+          }
+          onPendingPromptSent={() =>
+            setPendingCopilotPrompt((current) =>
+              current?.chatId === selectedChatId ? null : current
+            )
+          }
         />
       </div>
     </div>
@@ -269,6 +274,10 @@ interface CopilotChatBodyProps {
   selectedPreset?: AgentPresetRead
   toolsEnabled: boolean
   suggestions: string[]
+  onStartChatFromPrompt: (promptText: string) => Promise<boolean>
+  startingChatFromPrompt: boolean
+  pendingPromptText: string | null
+  onPendingPromptSent: () => void
 }
 
 function CopilotChatBody({
@@ -280,6 +289,10 @@ function CopilotChatBody({
   selectedPreset,
   toolsEnabled,
   suggestions,
+  onStartChatFromPrompt,
+  startingChatFromPrompt,
+  pendingPromptText,
+  onPendingPromptSent,
 }: CopilotChatBodyProps) {
   const {
     ready: chatReady,
@@ -306,7 +319,7 @@ function CopilotChatBody({
     )
   }
 
-  if (!chatId || chatLoading || chatReadyLoading || !chat) {
+  if (chatReadyLoading || (chatId && chatLoading)) {
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
@@ -337,6 +350,31 @@ function CopilotChatBody({
     )
   }
 
+  if (!chatId) {
+    return (
+      <CopilotChatPane
+        workspaceId={workspaceId}
+        placeholder="Ask Copilot anything..."
+        className="flex-1 min-h-0"
+        modelInfo={modelInfo}
+        toolsEnabled={false}
+        suggestions={suggestions}
+        onBeforeSend={async (message) =>
+          onStartChatFromPrompt(message.text ?? "")
+        }
+        inputDisabled={startingChatFromPrompt}
+      />
+    )
+  }
+
+  if (!chat) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+
   return (
     <CopilotChatPane
       chat={chat}
@@ -346,6 +384,8 @@ function CopilotChatBody({
       modelInfo={modelInfo}
       toolsEnabled={toolsEnabled}
       suggestions={suggestions}
+      pendingMessage={pendingPromptText}
+      onPendingMessageSent={onPendingPromptSent}
     />
   )
 }

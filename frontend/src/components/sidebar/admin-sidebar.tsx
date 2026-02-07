@@ -6,19 +6,15 @@ import {
   BuildingIcon,
   ChevronLeftIcon,
   LayersIcon,
-  LogOutIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useState } from "react"
-import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
-import { Separator } from "@/components/ui/separator"
+import { useEffect } from "react"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -37,24 +33,15 @@ export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const [isInOrgOverrideMode, setIsInOrgOverrideMode] = useState(false)
   const { appInfo } = useAppInfo()
   const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
 
   useEffect(() => {
-    const hasOverride = Boolean(Cookies.get("tracecat-org-id"))
-    if (!multiTenantEnabled && hasOverride) {
+    if (!multiTenantEnabled) {
       Cookies.remove("tracecat-org-id", { path: "/" })
+      Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
     }
-    setIsInOrgOverrideMode(multiTenantEnabled && hasOverride)
   }, [multiTenantEnabled])
-
-  const handleExitOrgContext = () => {
-    Cookies.remove("tracecat-org-id", { path: "/" })
-    Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
-    setIsInOrgOverrideMode(false)
-    window.location.reload()
-  }
 
   const navPlatform = multiTenantEnabled
     ? [
@@ -151,21 +138,6 @@ export function AdminSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        {isInOrgOverrideMode ? (
-          <SidebarMenu>
-            <Separator className="my-1" />
-            <SidebarMenuItem>
-              <SidebarMenuButton onClick={handleExitOrgContext}>
-                <LogOutIcon />
-                <span>Exit org context</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        ) : (
-          <SidebarUserNav />
-        )}
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

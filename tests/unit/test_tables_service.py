@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -1090,6 +1090,27 @@ class TestTableDataTypes:
             ]
         )
         assert sorted(extracted) == expected_values
+
+    async def test_date_coercion_on_insert_and_update(
+        self, tables_service: TablesService
+    ) -> None:
+        """Ensure DATE values are coerced before binding to the database."""
+        table = await tables_service.create_table(TableCreate(name="date_type_table"))
+        await tables_service.create_column(
+            table, TableColumnCreate(name="date_col", type=SqlType.DATE)
+        )
+
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"date_col": "2026-02-06"})
+        )
+        assert inserted["date_col"] == date(2026, 2, 6)
+
+        updated = await tables_service.update_row(
+            table,
+            inserted["id"],
+            {"date_col": datetime(2026, 2, 7, 12, 30)},
+        )
+        assert updated["date_col"] == date(2026, 2, 7)
 
     @pytest.mark.usefixtures("db")
     @pytest.mark.parametrize(

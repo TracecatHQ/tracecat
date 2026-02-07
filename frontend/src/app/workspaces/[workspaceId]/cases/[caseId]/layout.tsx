@@ -25,7 +25,7 @@ export default function CaseDetailLayout({
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <AppSidebar />
       {/* Case content inset */}
       <SidebarInset className="flex-1 min-w-0 mr-px">

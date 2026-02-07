@@ -90,7 +90,7 @@ async def list_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    limit: int = Query(20, ge=1, le=100, description="Maximum items per page"),
+    limit: int = Query(20, ge=1, le=200, description="Maximum items per page"),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(

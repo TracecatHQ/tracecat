@@ -34,10 +34,8 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
-import {
-  StatusSelect,
-  UNASSIGNED,
-} from "@/components/cases/case-panel-selectors"
+import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
+import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
   CasesViewMode,
@@ -93,14 +91,16 @@ import {
 } from "@/components/workspaces/add-workspace-variable"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import {
+  useCaseDurationDefinitions,
+  useCaseDurations,
   useCaseTagCatalog,
   useGetCase,
   useGetTable,
-  useUpdateCase,
 } from "@/lib/hooks"
 import { capitalizeFirst, cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -970,25 +970,31 @@ function CaseStatusControl({
   caseId: string
   workspaceId: string
 }) {
-  const { caseData } = useGetCase({ caseId, workspaceId })
-  const { updateCase } = useUpdateCase({
-    workspaceId,
+  const { isFeatureEnabled } = useFeatureFlag()
+  const caseDurationsEnabled = isFeatureEnabled("case-durations")
+  const { caseDurations, caseDurationsIsLoading } = useCaseDurations({
     caseId,
+    workspaceId,
+    enabled: caseDurationsEnabled,
   })
-
-  if (!caseData) {
-    return null
-  }
-
-  const handleStatusChange = (newStatus: CaseStatus) => {
-    const updatePromise = updateCase({ status: newStatus })
-    updatePromise.catch((error) => {
-      console.error("Failed to update case status", error)
-    })
-  }
+  const { caseDurationDefinitions, caseDurationDefinitionsIsLoading } =
+    useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
 
   return (
-    <StatusSelect status={caseData.status} onValueChange={handleStatusChange} />
+    <div className="min-w-0">
+      {caseDurationsEnabled ? (
+        <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
+          <CaseDurationMetrics
+            durations={caseDurations}
+            definitions={caseDurationDefinitions}
+            isLoading={
+              caseDurationsIsLoading || caseDurationDefinitionsIsLoading
+            }
+            variant="inline"
+          />
+        </div>
+      ) : null}
+    </div>
   )
 }
 

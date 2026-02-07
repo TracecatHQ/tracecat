@@ -48,7 +48,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export interface CopilotChatPaneProps {
-  chat: AgentSessionReadVercel | ChatReadVercel
+  chat?: AgentSessionReadVercel | ChatReadVercel
   workspaceId: string
   className?: string
   placeholder?: string
@@ -57,6 +57,10 @@ export interface CopilotChatPaneProps {
   toolsEnabled?: boolean
   autoFocusInput?: boolean
   suggestions?: string[]
+  onBeforeSend?: (message: PromptInputMessage) => Promise<boolean>
+  pendingMessage?: string | null
+  onPendingMessageSent?: () => void
+  inputDisabled?: boolean
 }
 
 export function CopilotChatPane({
@@ -69,6 +73,10 @@ export function CopilotChatPane({
   toolsEnabled = true,
   autoFocusInput = false,
   suggestions = [],
+  onBeforeSend,
+  pendingMessage,
+  onPendingMessageSent,
+  inputDisabled = false,
 }: CopilotChatPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -81,9 +89,10 @@ export function CopilotChatPane({
 
   const [input, setInput] = useState<string>("")
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
+  const pendingMessageSentRef = useRef<string | null>(null)
 
   // Check if this is a legacy read-only session
-  const isReadonly = "is_readonly" in chat && chat.is_readonly === true
+  const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -91,7 +100,7 @@ export function CopilotChatPane({
   )
   const { sendMessage, messages, status, regenerate, lastError, clearError } =
     useVercelChat({
-      chatId: chat.id,
+      chatId: chat?.id,
       workspaceId,
       messages: uiMessages,
       modelInfo,
@@ -144,6 +153,29 @@ export function CopilotChatPane({
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
 
+  useEffect(() => {
+    if (!pendingMessage || isReadonly || !chat) {
+      return
+    }
+
+    const messageKey = `${chat.id}:${pendingMessage}`
+    if (pendingMessageSentRef.current === messageKey) {
+      return
+    }
+
+    pendingMessageSentRef.current = messageKey
+    clearError()
+    sendMessage({ text: pendingMessage })
+    onPendingMessageSent?.()
+  }, [
+    pendingMessage,
+    isReadonly,
+    chat,
+    clearError,
+    sendMessage,
+    onPendingMessageSent,
+  ])
+
   const transformedMessages = useMemo(
     () => transformMessages(messages),
     [messages]
@@ -187,9 +219,21 @@ export function CopilotChatPane({
     }
   }, [messages, invalidateEntityQueries])
 
-  const handleSubmit = (message: PromptInputMessage) => {
+  const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text?.trim())
     if (!hasText) return
+
+    if (onBeforeSend) {
+      const shouldClearInput = await onBeforeSend(message)
+      if (shouldClearInput) {
+        setInput("")
+      }
+      return
+    }
+
+    if (!chat) {
+      return
+    }
 
     try {
       clearError()
@@ -206,7 +250,7 @@ export function CopilotChatPane({
 
   const handleSuggestionClick = (suggestion: string) => {
     setInput(suggestion)
-    handleSubmit({ text: suggestion })
+    void handleSubmit({ text: suggestion })
   }
 
   const showWelcome = messages.length === 0 && !isWaitingForResponse
@@ -221,7 +265,7 @@ export function CopilotChatPane({
           }
           value={input}
           autoFocus={autoFocusInput && !isReadonly}
-          disabled={isReadonly || !canSubmit}
+          disabled={isReadonly || !canSubmit || inputDisabled}
         />
       </PromptInputBody>
       <PromptInputToolbar>
@@ -249,7 +293,7 @@ export function CopilotChatPane({
           </PromptInputTools>
         )}
         <PromptInputSubmit
-          disabled={isReadonly || !canSubmit || !input}
+          disabled={isReadonly || !canSubmit || !input || inputDisabled}
           status={status}
           className="ml-auto text-muted-foreground/80"
         />
@@ -305,7 +349,7 @@ export function CopilotChatPane({
             </motion.div>
           )}
         </div>
-        {toolsEnabled && !isReadonly && (
+        {chat && toolsEnabled && !isReadonly && (
           <ChatToolsDialog
             chatId={chat.id}
             open={toolsDialogOpen}
@@ -387,7 +431,7 @@ export function CopilotChatPane({
       </div>
       <div className="mx-auto w-full max-w-2xl px-4 pb-4">
         {promptInputElement}
-        {toolsEnabled && !isReadonly && (
+        {chat && toolsEnabled && !isReadonly && (
           <ChatToolsDialog
             chatId={chat.id}
             open={toolsDialogOpen}
