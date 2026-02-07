@@ -11,6 +11,7 @@ from typing import Any
 from redis.exceptions import ResponseError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from tenacity import RetryError
 
 from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
@@ -59,13 +60,25 @@ class CaseTriggerConsumer:
         last_pending_check = monotonic()
         try:
             while True:
-                messages = await self.client.xreadgroup(
-                    group_name=self.group,
-                    consumer_name=self.consumer_name,
-                    streams={self.stream_key: ">"},
-                    count=self.batch,
-                    block=self.block_ms,
-                )
+                try:
+                    messages = await self.client.xreadgroup(
+                        group_name=self.group,
+                        consumer_name=self.consumer_name,
+                        streams={self.stream_key: ">"},
+                        count=self.batch,
+                        block=self.block_ms,
+                    )
+                except (ResponseError, RetryError) as e:
+                    if self._is_nogroup_error(e):
+                        logger.warning(
+                            "Redis case trigger stream/group missing; recreating",
+                            stream_key=self.stream_key,
+                            group=self.group,
+                            error=str(e),
+                        )
+                        await self._ensure_group()
+                        continue
+                    raise
                 if messages:
                     for _stream, entries in messages:
                         for message_id, fields in entries:
@@ -82,6 +95,14 @@ class CaseTriggerConsumer:
         except Exception as e:
             logger.error("Case trigger consumer stopped due to error", error=str(e))
             raise
+
+    def _is_nogroup_error(self, error: Exception) -> bool:
+        if isinstance(error, ResponseError):
+            return "NOGROUP" in str(error)
+        if isinstance(error, RetryError):
+            last_exc = error.last_attempt.exception()
+            return isinstance(last_exc, ResponseError) and "NOGROUP" in str(last_exc)
+        return False
 
     async def _ensure_group(self) -> None:
         try:

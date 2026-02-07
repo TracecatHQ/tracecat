@@ -121,7 +121,7 @@ class RedisClient:
         fields: dict[str, Any],
         maxlen: int | None = None,
         approximate: bool = True,
-        expire_seconds: int | None = None,
+        expire_seconds: int | None = REDIS_CHAT_TTL_SECONDS,
     ) -> str:
         """Add an entry to a Redis stream with retry logic.
 
@@ -130,12 +130,12 @@ class RedisClient:
             fields: Dictionary of field-value pairs to add
             maxlen: Maximum stream length (approximate if approximate=True)
             approximate: Whether to use approximate trimming for better performance
-            expire_seconds: TTL in seconds for the stream key (None for no expiration)
+            expire_seconds: TTL in seconds for the stream key. Set to None to disable
+                expiration.
 
         Returns:
             The ID of the added entry
         """
-        expire_seconds = expire_seconds or REDIS_CHAT_TTL_SECONDS
         try:
             client = await self._get_client()
             kwargs: dict[str, Any] = {"fields": fields}

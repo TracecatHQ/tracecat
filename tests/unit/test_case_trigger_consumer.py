@@ -1,9 +1,13 @@
+import asyncio
 import uuid
+from concurrent.futures import Future
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from redis.exceptions import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import RetryError
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
@@ -220,3 +224,29 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
     }
     should_ack = await consumer._process_message(fields)
     assert should_ack is False
+
+
+def _nogroup_retry_error() -> RetryError:
+    future: Future[object] = Future()
+    future.set_exception(
+        ResponseError(
+            "NOGROUP No such key 'case-events' or consumer group 'case-triggers' "
+            "in XREADGROUP with GROUP option"
+        )
+    )
+    return RetryError(future)
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_recovers_from_nogroup():
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[_nogroup_retry_error(), asyncio.CancelledError()]
+    )
+    consumer = CaseTriggerConsumer(client=client)
+    consumer._ensure_group = AsyncMock()
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    assert consumer._ensure_group.await_count == 2
