@@ -37,6 +37,7 @@ async def publish_case_event_payload(
         fields=payload,
         maxlen=config.TRACECAT__CASE_TRIGGERS_MAXLEN,
         approximate=True,
+        expire_seconds=None,
     )
 
 

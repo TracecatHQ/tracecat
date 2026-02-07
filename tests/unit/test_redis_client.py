@@ -28,6 +28,7 @@ class DummyConnectionPool:
 class DummyRedis:
     instances: list[DummyRedis] = []
     xadd_call_count = 0
+    expire_call_count = 0
     _xadd_raised_once = False
     raise_on_xadd_once = False
 
@@ -50,6 +51,7 @@ class DummyRedis:
         return "1-0"
 
     async def expire(self, *args, **kwargs) -> None:
+        DummyRedis.expire_call_count += 1
         return None
 
     async def xread(
@@ -64,6 +66,7 @@ class DummyRedis:
     def reset(cls) -> None:
         cls.instances.clear()
         cls.xadd_call_count = 0
+        cls.expire_call_count = 0
         cls._xadd_raised_once = False
         cls.raise_on_xadd_once = False
 
@@ -147,3 +150,19 @@ def test_xadd_retries_after_transport_error() -> None:
     # Pool is reinitialized after the reset
     assert len(DummyConnectionPool.instances) >= 2
     assert DummyRedis.instances[0].closed is True
+
+
+def test_xadd_applies_default_ttl() -> None:
+    client = RedisClient()
+
+    asyncio.run(client.xadd("stream", {"field": "value"}))
+
+    assert DummyRedis.expire_call_count == 1
+
+
+def test_xadd_allows_disabling_ttl() -> None:
+    client = RedisClient()
+
+    asyncio.run(client.xadd("stream", {"field": "value"}, expire_seconds=None))
+
+    assert DummyRedis.expire_call_count == 0
