@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError, type CaseFieldReadMinimal, casesUpdateField } from "@/client"
@@ -188,14 +188,6 @@ export function EditCustomFieldDialog({
   const selectedType = form.watch("type")
   const requiresOptions = isSelectableColumnType(selectedType)
 
-  const selectableTypes = useMemo<SqlTypeCreatable[]>(() => {
-    const baseTypes = SqlTypeCreatableEnum.filter((type) => type !== "JSONB")
-    if (selectedType === "JSONB") {
-      return [...baseTypes, "JSONB"]
-    }
-    return baseTypes
-  }, [selectedType])
-
   useEffect(() => {
     if (!field || !open) {
       return
@@ -332,7 +324,6 @@ export function EditCustomFieldDialog({
         fieldId: field.id,
         requestBody: {
           name: data.name,
-          type: data.type,
           nullable: data.nullable,
           default: defaultValue,
           options: isSelectableColumnType(data.type)
@@ -412,28 +403,16 @@ export function EditCustomFieldDialog({
               render={({ field: fieldInput }) => (
                 <FormItem>
                   <FormLabel>Data type</FormLabel>
-                  <Select
-                    onValueChange={fieldInput.onChange}
-                    value={fieldInput.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a data type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {selectableTypes.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          <SqlTypeDisplay
-                            type={type}
-                            labelClassName="text-xs"
-                          />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
+                      <SqlTypeDisplay
+                        type={fieldInput.value}
+                        labelClassName="text-xs"
+                      />
+                    </div>
+                  </FormControl>
                   <FormDescription>
-                    The SQL data type for this field.
+                    Data type is fixed after field creation.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

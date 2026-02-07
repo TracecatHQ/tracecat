@@ -40,7 +40,7 @@ import {
 } from "@/components/cases/case-categories"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
-import { StatusSelect, UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import {
   CasesViewMode,
@@ -106,7 +106,6 @@ import {
   useCaseTagCatalog,
   useGetCase,
   useGetTable,
-  useUpdateCase,
 } from "@/lib/hooks"
 import { capitalizeFirst, cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -977,11 +976,6 @@ function CaseStatusControl({
   workspaceId: string
 }) {
   const { isFeatureEnabled } = useFeatureFlag()
-  const { caseData } = useGetCase({ caseId, workspaceId })
-  const { updateCase } = useUpdateCase({
-    workspaceId,
-    caseId,
-  })
   const caseDurationsEnabled = isFeatureEnabled("case-durations")
   const { caseDurations, caseDurationsIsLoading } = useCaseDurations({
     caseId,
@@ -991,18 +985,8 @@ function CaseStatusControl({
   const { caseDurationDefinitions, caseDurationDefinitionsIsLoading } =
     useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
 
-  const handleStatusChange = (newStatus: CaseStatus) => {
-    updateCase({ status: newStatus }).catch((error) => {
-      console.error("Failed to update case status", error)
-    })
-  }
-
-  if (!caseData) {
-    return null
-  }
-
   return (
-    <div className="flex items-center gap-1.5 min-w-0">
+    <div className="min-w-0">
       {caseDurationsEnabled ? (
         <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
           <CaseDurationMetrics
@@ -1015,7 +999,6 @@ function CaseStatusControl({
           />
         </div>
       ) : null}
-      <StatusSelect status={caseData.status} onValueChange={handleStatusChange} />
     </div>
   )
 }

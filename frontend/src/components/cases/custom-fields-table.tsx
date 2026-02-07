@@ -2,7 +2,6 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { format } from "date-fns"
-import { PencilIcon } from "lucide-react"
 import { useState } from "react"
 import type { CaseFieldReadMinimal } from "@/client"
 import { EditCustomFieldDialog } from "@/components/cases/edit-custom-field-dialog"
@@ -201,7 +200,6 @@ export function CustomFieldsTable({
                             setEditingField(row.original)
                           }}
                         >
-                          <PencilIcon className="mr-2 size-3" />
                           Edit field
                         </DropdownMenuItem>
                         <AlertDialogTrigger asChild>

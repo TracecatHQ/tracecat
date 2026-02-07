@@ -2030,11 +2030,14 @@ class TableEditorService(BaseWorkspaceService):
                     f"Column '{col}' does not exist in table {self.table_name}"
                 )
             column_type = column_info["type"]
-            coerced_value = (
-                coerce_to_utc_datetime(value)
-                if value is not None and getattr(column_type, "timezone", False)
-                else value
-            )
+            if value is None:
+                coerced_value = None
+            elif isinstance(column_type, sa.Date):
+                coerced_value = coerce_to_date(value)
+            elif getattr(column_type, "timezone", False):
+                coerced_value = coerce_to_utc_datetime(value)
+            else:
+                coerced_value = value
             value_clauses[col] = sa.bindparam(col, coerced_value, type_=column_type)
             cols.append(sa.column(sanitize_identifier(col)))
 
@@ -2074,11 +2077,14 @@ class TableEditorService(BaseWorkspaceService):
                     f"Column '{column_name}' does not exist in table {self.table_name}"
                 )
             column_type = column_info["type"]
-            coerced_value = (
-                coerce_to_utc_datetime(value)
-                if value is not None and getattr(column_type, "timezone", False)
-                else value
-            )
+            if value is None:
+                coerced_value = None
+            elif isinstance(column_type, sa.Date):
+                coerced_value = coerce_to_date(value)
+            elif getattr(column_type, "timezone", False):
+                coerced_value = coerce_to_utc_datetime(value)
+            else:
+                coerced_value = value
             cols.append(sa.column(sanitize_identifier(column_name)))
             value_clauses[column_name] = sa.bindparam(
                 column_name, coerced_value, type_=column_type
