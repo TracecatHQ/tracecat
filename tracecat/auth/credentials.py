@@ -152,6 +152,16 @@ async def _authenticate_service(
         if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None
         else None
     )
+    organization_id = (
+        uuid.UUID(org_id)
+        if (org_id := request.headers.get("x-tracecat-role-organization-id"))
+        is not None
+        else None
+    )
+    # Backward compatibility: derive org from workspace when older callers
+    # don't propagate x-tracecat-role-organization-id yet.
+    if organization_id is None and workspace_id is not None:
+        organization_id = await _get_workspace_org_id(workspace_id)
     workspace_role = (
         WorkspaceRole(ws_role)
         if (ws_role := request.headers.get("x-tracecat-role-workspace-role"))
@@ -170,6 +180,7 @@ async def _authenticate_service(
         access_level=AccessLevel[request.headers["x-tracecat-role-access-level"]],
         user_id=user_id,
         workspace_id=workspace_id,
+        organization_id=organization_id,
         workspace_role=workspace_role,
         org_role=org_role,
     )

@@ -725,6 +725,41 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
         )
 
+    @audit_log(resource_type="workflow_execution", action="create")
+    async def create_workflow_execution_wait_for_start(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+        wf_exec_id: WorkflowExecutionID | None = None,
+        time_anchor: datetime.datetime | None = None,
+        registry_lock: RegistryLock | None = None,
+        memo: dict[str, Any] | None = None,
+    ) -> WorkflowExecutionCreateResponse:
+        """Create a workflow execution and wait until Temporal acknowledges start."""
+        if wf_exec_id is None:
+            wf_exec_id = generate_exec_id(wf_id)
+
+        await self._start_workflow(
+            dsl=dsl,
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+            trigger_inputs=payload,
+            trigger_type=trigger_type,
+            execution_type=ExecutionType.PUBLISHED,
+            time_anchor=time_anchor,
+            registry_lock=registry_lock,
+            memo=memo,
+        )
+
+        return WorkflowExecutionCreateResponse(
+            message="Workflow execution started",
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+        )
+
     def create_draft_workflow_execution_nowait(
         self,
         dsl: DSLInput,
@@ -752,6 +787,39 @@ class WorkflowExecutionsService:
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
+        return WorkflowExecutionCreateResponse(
+            message="Draft workflow execution started",
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+        )
+
+    @audit_log(resource_type="workflow_execution", action="create")
+    async def create_draft_workflow_execution_wait_for_start(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+        wf_exec_id: WorkflowExecutionID | None = None,
+        time_anchor: datetime.datetime | None = None,
+        registry_lock: RegistryLock | None = None,
+    ) -> WorkflowExecutionCreateResponse:
+        """Create a draft workflow execution and wait until Temporal acknowledges start."""
+        if wf_exec_id is None:
+            wf_exec_id = generate_exec_id(wf_id)
+
+        await self._start_workflow(
+            dsl=dsl,
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+            trigger_inputs=payload,
+            trigger_type=trigger_type,
+            execution_type=ExecutionType.DRAFT,
+            time_anchor=time_anchor,
+            registry_lock=registry_lock,
+        )
+
         return WorkflowExecutionCreateResponse(
             message="Draft workflow execution started",
             wf_id=wf_id,
@@ -954,6 +1022,102 @@ class WorkflowExecutionsService:
             raise e
         self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return WorkflowDispatchResponse(wf_id=wf_id, result=result)
+
+    async def _start_workflow(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        wf_exec_id: WorkflowExecutionID,
+        trigger_inputs: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+        execution_type: ExecutionType = ExecutionType.PUBLISHED,
+        time_anchor: datetime.datetime | None = None,
+        registry_lock: RegistryLock | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if self.role is None:
+            raise ValueError("Role is required to dispatch a workflow")
+        if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
+            kwargs["rpc_timeout"] = datetime.timedelta(seconds=float(rpc_timeout))
+        if task_timeout := config.TEMPORAL__TASK_TIMEOUT:
+            kwargs.setdefault(
+                "task_timeout", datetime.timedelta(seconds=float(task_timeout))
+            )
+        if execution_timeout := await self._resolve_execution_timeout(
+            seconds=dsl.config.timeout
+        ):
+            kwargs["execution_timeout"] = execution_timeout
+
+        if time_anchor is None and trigger_type in (
+            TriggerType.WEBHOOK,
+            TriggerType.MANUAL,
+            TriggerType.CASE,
+        ):
+            time_anchor = datetime.datetime.now(datetime.UTC)
+
+        trigger_inputs_ref: StoredObject | None = None
+        if trigger_inputs is not None:
+            storage = get_object_storage()
+            trigger_inputs_ref = await storage.store(
+                f"{wf_exec_id}/trigger.json", trigger_inputs
+            )
+
+        logger.info(
+            f"Starting DSL workflow: {dsl.title}",
+            role=self.role,
+            wf_exec_id=wf_exec_id,
+            run_config=dsl.config,
+            kwargs=kwargs,
+            trigger_type=trigger_type,
+            execution_type=execution_type,
+            registry_lock=registry_lock,
+            stored_type=trigger_inputs_ref.type if trigger_inputs_ref else "<none>",
+        )
+
+        pairs = [trigger_type.to_temporal_search_attr_pair()]
+        if self.role is not None:
+            if self.role.user_id is not None:
+                pairs.append(
+                    TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                        str(self.role.user_id)
+                    )
+                )
+            if self.role.workspace_id is not None:
+                pairs.append(
+                    TemporalSearchAttr.WORKSPACE_ID.create_pair(
+                        str(self.role.workspace_id)
+                    )
+                )
+        pairs.append(execution_type.to_temporal_search_attr_pair())
+        search_attrs = TypedSearchAttributes(search_attributes=pairs)
+
+        try:
+            await self._client.start_workflow(
+                DSLWorkflow.run,
+                DSLRunArgs(
+                    dsl=dsl,
+                    role=self.role,
+                    wf_id=wf_id,
+                    trigger_inputs=trigger_inputs_ref,
+                    execution_type=execution_type,
+                    time_anchor=time_anchor,
+                    registry_lock=registry_lock,
+                ),
+                id=wf_exec_id,
+                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                search_attributes=search_attrs,
+                **kwargs,
+            )
+        except RPCError as e:
+            self.logger.error(
+                f"Temporal service RPC error occurred while starting the workflow: {e}",
+                role=self.role,
+                wf_exec_id=wf_exec_id,
+                e=e,
+            )
+            raise e
 
     def cancel_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID

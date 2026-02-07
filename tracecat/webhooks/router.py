@@ -154,7 +154,7 @@ async def _incoming_webhook(
         one_response = None
         # Slow release to avoid overwhelming the system
         async for p in cooperative(batched(payload, 8), delay=2):
-            one_response = service.create_workflow_execution_nowait(
+            one_response = await service.create_workflow_execution_wait_for_start(
                 dsl=dsl_input,
                 wf_id=workflow_id,
                 payload=p,
@@ -173,7 +173,7 @@ async def _incoming_webhook(
         )
 
     else:
-        response = service.create_workflow_execution_nowait(
+        response = await service.create_workflow_execution_wait_for_start(
             dsl=dsl_input,
             wf_id=workflow_id,
             payload=payload,
@@ -255,7 +255,7 @@ async def incoming_webhook_draft(
     logger.trace("Draft webhook payload", payload=payload)
 
     service = await WorkflowExecutionsService.connect()
-    response = service.create_draft_workflow_execution_nowait(
+    response = await service.create_draft_workflow_execution_wait_for_start(
         dsl=draft_ctx.dsl,
         wf_id=workflow_id,
         payload=payload,

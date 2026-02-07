@@ -1,15 +1,25 @@
 import hashlib
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.datastructures import FormData
+from sqlalchemy.exc import NoResultFound
 
-from tracecat.db.models import Webhook
-from tracecat.webhooks.dependencies import _ip_allowed, parse_webhook_payload
+from tracecat.contexts import ctx_role
+from tracecat.db.models import Webhook, WorkflowDefinition
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.webhooks.dependencies import (
+    _ip_allowed,
+    parse_webhook_payload,
+    validate_incoming_webhook,
+)
+from tracecat.webhooks.router import _incoming_webhook
 from tracecat.webhooks.schemas import WebhookApiKeyRead, _normalize_cidrs
 
 
@@ -197,6 +207,192 @@ class TestWebhookApiKeyRead:
             preview="tc_sk_abcd", created_at=now, revoked_at=now
         )
         assert api_key.is_active is False
+
+
+class TestValidateIncomingWebhook:
+    @pytest.mark.anyio
+    async def test_sets_role_with_workspace_organization_id(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        webhook_secret = "secret"
+        workspace_id = uuid.uuid4()
+        organization_id = uuid.uuid4()
+
+        request = MagicMock(spec=Request)
+        request.method = "POST"
+        request.headers = {}
+        request.client = None
+
+        webhook = MagicMock(spec=Webhook)
+        webhook.workflow_id = workflow_id
+        webhook.secret = webhook_secret
+        webhook.status = "online"
+        webhook.normalized_methods = ["post"]
+        webhook.allowlisted_cidrs = None
+        webhook.api_key = None
+        webhook.workspace_id = workspace_id
+
+        workspace = MagicMock()
+        workspace.organization_id = organization_id
+
+        webhook_result = MagicMock()
+        webhook_result.scalar_one.return_value = webhook
+        workspace_result = MagicMock()
+        workspace_result.scalar_one.return_value = workspace
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(side_effect=[webhook_result, workspace_result])
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
+        mock_session_cm.__aexit__.return_value = None
+
+        token = ctx_role.set(None)
+        try:
+            with patch(
+                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                return_value=mock_session_cm,
+            ):
+                await validate_incoming_webhook(workflow_id, webhook_secret, request)
+
+            role = ctx_role.get()
+            assert role is not None
+            assert role.workspace_id == workspace_id
+            assert role.organization_id == organization_id
+            assert role.service_id == "tracecat-runner"
+        finally:
+            ctx_role.reset(token)
+
+    @pytest.mark.anyio
+    async def test_returns_unauthorized_when_workspace_missing(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        webhook_secret = "secret"
+        workspace_id = uuid.uuid4()
+
+        request = MagicMock(spec=Request)
+        request.method = "POST"
+        request.headers = {}
+        request.client = None
+
+        webhook = MagicMock(spec=Webhook)
+        webhook.workflow_id = workflow_id
+        webhook.secret = webhook_secret
+        webhook.status = "online"
+        webhook.normalized_methods = ["post"]
+        webhook.allowlisted_cidrs = None
+        webhook.api_key = None
+        webhook.workspace_id = workspace_id
+        webhook.id = uuid.uuid4()
+
+        webhook_result = MagicMock()
+        webhook_result.scalar_one.return_value = webhook
+        workspace_result = MagicMock()
+        workspace_result.scalar_one.side_effect = NoResultFound()
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(side_effect=[webhook_result, workspace_result])
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
+        mock_session_cm.__aexit__.return_value = None
+
+        token = ctx_role.set(None)
+        try:
+            with patch(
+                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                return_value=mock_session_cm,
+            ):
+                with pytest.raises(HTTPException) as exc_info:
+                    await validate_incoming_webhook(
+                        workflow_id, webhook_secret, request
+                    )
+        finally:
+            ctx_role.reset(token)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Unauthorized webhook request"
+
+
+class TestIncomingWebhook:
+    @staticmethod
+    def _definition() -> WorkflowDefinition:
+        return cast(
+            WorkflowDefinition,
+            SimpleNamespace(
+                content={
+                    "title": "Webhook test workflow",
+                    "description": "Test workflow",
+                    "entrypoint": {"ref": "start"},
+                    "actions": [{"ref": "start", "action": "core.noop"}],
+                    "config": {"enable_runtime_tests": False},
+                },
+                registry_lock=None,
+            ),
+        )
+
+    @pytest.mark.anyio
+    async def test_returns_success_only_after_start_acknowledged(self):
+        workflow_id = WorkflowUUID.new("wf_4itKqkgCZrLhgYiq5L211X")
+        payload = {"key": "value"}
+        expected_response = {
+            "message": "Workflow execution started",
+            "wf_id": workflow_id,
+            "wf_exec_id": f"{workflow_id.short()}/exec_123",
+        }
+
+        request = MagicMock(spec=Request)
+        request.headers = {}
+        request.json = AsyncMock(return_value=payload)
+
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value=expected_response
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            response = await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=self._definition(),
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+            )
+
+        assert response == expected_response
+        mock_service.create_workflow_execution_wait_for_start.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_propagates_start_failure(self):
+        workflow_id = WorkflowUUID.new("wf_4itKqkgCZrLhgYiq5L211X")
+        payload = {"key": "value"}
+        request = MagicMock(spec=Request)
+        request.headers = {}
+
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            side_effect=RuntimeError("start failed")
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            with pytest.raises(RuntimeError, match="start failed"):
+                await _incoming_webhook(
+                    workflow_id=workflow_id,
+                    defn=self._definition(),
+                    payload=payload,
+                    echo=False,
+                    empty_echo=False,
+                    vendor=None,
+                    request=request,
+                    content_type="application/json",
+                )
 
 
 class TestWebhookSecret:

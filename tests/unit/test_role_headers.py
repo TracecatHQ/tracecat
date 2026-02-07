@@ -5,7 +5,7 @@ workspace_role was not included in Role.to_headers() or read by
 _authenticate_service(), causing table operations via the executor to fail.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -63,11 +63,13 @@ class TestRoleToHeaders:
     def test_to_headers_roundtrip_preserves_workspace_role(self):
         """Verify workspace_role survives a roundtrip through headers."""
         workspace_id = uuid4()
+        organization_id = uuid4()
         user_id = uuid4()
         original_role = Role(
             type="service",
             service_id="tracecat-runner",
             workspace_id=workspace_id,
+            organization_id=organization_id,
             workspace_role=WorkspaceRole.EDITOR,
             user_id=user_id,
             access_level=AccessLevel.BASIC,
@@ -80,6 +82,7 @@ class TestRoleToHeaders:
         assert headers["x-tracecat-role-access-level"] == "BASIC"
         assert headers["x-tracecat-role-user-id"] == str(user_id)
         assert headers["x-tracecat-role-workspace-id"] == str(workspace_id)
+        assert headers["x-tracecat-role-organization-id"] == str(organization_id)
         assert headers["x-tracecat-role-workspace-role"] == "editor"
 
 
@@ -183,10 +186,12 @@ class TestAuthenticateServiceWorkspaceRole:
 
         # Create original role with workspace_role
         workspace_id = uuid4()
+        organization_id = uuid4()
         original_role = Role(
             type="service",
             service_id="tracecat-runner",
             workspace_id=workspace_id,
+            organization_id=organization_id,
             workspace_role=WorkspaceRole.EDITOR,
             access_level=AccessLevel.BASIC,
         )
@@ -206,3 +211,37 @@ class TestAuthenticateServiceWorkspaceRole:
         assert reconstructed_role.workspace_role == original_role.workspace_role
         assert reconstructed_role.workspace_role == WorkspaceRole.EDITOR
         assert str(reconstructed_role.workspace_id) == str(original_role.workspace_id)
+        assert (
+            str(reconstructed_role.organization_id) == str(original_role.organization_id)
+        )
+
+    async def test_authenticate_service_derives_org_from_workspace_when_missing_header(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Verify _authenticate_service derives organization_id from workspace_id."""
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
+        )
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
+            ["tracecat-runner"],
+        )
+        derived_org_id = uuid4()
+        monkeypatch.setattr(
+            "tracecat.auth.credentials._get_workspace_org_id",
+            AsyncMock(return_value=derived_org_id),
+        )
+
+        request = MagicMock()
+        request.headers = MockHeaders(
+            {
+                "x-tracecat-role-service-id": "tracecat-runner",
+                "x-tracecat-role-access-level": "BASIC",
+                "x-tracecat-role-workspace-id": str(uuid4()),
+            }
+        )
+
+        role = await _authenticate_service(request, api_key="test-key")
+
+        assert role is not None
+        assert role.organization_id == derived_org_id
