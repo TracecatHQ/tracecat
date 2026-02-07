@@ -711,10 +711,6 @@ Merges: common + temporal + postgres + redis + api-specific
 - name: SAML_METADATA_CERT
   value: {{ .Values.tracecat.saml.metadataCert | quote }}
 {{- end }}
-{{- /* Streaming */}}
-- name: TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED
-  value: "true"
-{{- end }}
 
 {{/*
 Worker service environment variables
