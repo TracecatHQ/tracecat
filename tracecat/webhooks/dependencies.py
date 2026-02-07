@@ -18,7 +18,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Webhook, WorkflowDefinition
+from tracecat.db.models import Webhook, WorkflowDefinition, Workspace
 from tracecat.dsl.schemas import TriggerInputs
 from tracecat.ee.interactions.connectors import parse_slack_interaction_input
 from tracecat.ee.interactions.enums import InteractionCategory
@@ -173,10 +173,16 @@ async def validate_incoming_webhook(
             session.add(webhook.api_key)
             await session.commit()
 
+        workspace_result = await session.execute(
+            select(Workspace).where(Workspace.id == webhook.workspace_id)
+        )
+        workspace = workspace_result.scalar_one()
+
         ctx_role.set(
             Role(
                 type="service",
                 workspace_id=webhook.workspace_id,
+                organization_id=workspace.organization_id,
                 service_id="tracecat-runner",
                 workspace_role=WorkspaceRole.EDITOR,
             )

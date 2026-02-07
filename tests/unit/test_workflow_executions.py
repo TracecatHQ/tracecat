@@ -19,8 +19,10 @@ from temporalio.client import Client, WorkflowHandle
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Workspace
+from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.workflow.executions.enums import (
+    TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
@@ -888,3 +890,42 @@ class TestTimeoutResolution:
             result = await service._resolve_execution_timeout(seconds=300)
 
             assert result is None
+
+
+class TestWorkflowStartAcknowledgement:
+    @pytest.mark.anyio
+    async def test_create_workflow_execution_wait_for_start_acknowledges_temporal_start(
+        self,
+        mock_client: Mock,
+        mock_role: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+        mock_client.start_workflow = AsyncMock(return_value=Mock(spec=WorkflowHandle))
+
+        dsl = DSLInput.model_validate(
+            {
+                "title": "Webhook test workflow",
+                "description": "Test workflow",
+                "entrypoint": {"ref": "start"},
+                "actions": [{"ref": "start", "action": "core.noop"}],
+                "config": {"enable_runtime_tests": False},
+            }
+        )
+        wf_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+        with patch.object(
+            service, "_resolve_execution_timeout", AsyncMock(return_value=None)
+        ):
+            response = await service.create_workflow_execution_wait_for_start(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=None,
+                trigger_type=TriggerType.WEBHOOK,
+            )
+
+        assert response["wf_id"] == wf_id
+        assert response["wf_exec_id"].startswith(f"{wf_id}/exec_")
+        mock_client.start_workflow.assert_awaited_once()
+        assert (
+            mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]
+        )
