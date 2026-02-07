@@ -65,8 +65,6 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Redis
       REDIS_URL: ${REDIS_URL}
-      # Agent
-      TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED: ${TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED}
 
     volumes:
       - ./tracecat:/app/tracecat
