@@ -1,13 +1,12 @@
 import asyncio
 import uuid
-from concurrent.futures import Future
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from redis.exceptions import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import RetryError
+from tenacity import Future, RetryError
 
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
@@ -227,7 +226,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
 
 
 def _nogroup_retry_error() -> RetryError:
-    future: Future[object] = Future()
+    future = Future(1)
     future.set_exception(
         ResponseError(
             "NOGROUP No such key 'case-events' or consumer group 'case-triggers' "
