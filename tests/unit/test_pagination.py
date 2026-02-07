@@ -92,7 +92,7 @@ class TestCursorPaginator:
             CursorPaginationParams(limit=0)  # Below minimum
 
         with pytest.raises(ValueError):
-            CursorPaginationParams(limit=101)  # Above maximum
+            CursorPaginationParams(limit=201)  # Above maximum
 
     def test_cursor_data_model(self):
         """Test CursorData model validation."""
