@@ -16,6 +16,7 @@ Run with:
 from __future__ import annotations
 
 import importlib
+import os
 import uuid
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +25,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from dotenv import load_dotenv
 from minio import Minio
+from minio.error import S3Error
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -75,11 +78,24 @@ from tracecat.storage import blob
 # =============================================================================
 
 # MinIO test configuration - uses docker-compose services (port 9000)
-# These match the default MinIO credentials used by docker-compose.*
+# Credentials are read from env to match docker-compose/.env in CI and local dev.
 MINIO_ENDPOINT = "localhost:9000"
-AWS_ACCESS_KEY_ID = "minioadmin"
-AWS_SECRET_ACCESS_KEY = "minioadmin"
 TEST_BUCKET = "test-tracecat-registry"
+
+
+def _minio_credentials() -> tuple[str, str]:
+    load_dotenv()
+    access_key = (
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("MINIO_ROOT_USER")
+        or "minio"
+    )
+    secret_key = (
+        os.environ.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "password"
+    )
+    return access_key, secret_key
 
 
 # =============================================================================
@@ -194,10 +210,11 @@ def subprocess_db_env(monkeypatch):
 @pytest.fixture
 def minio_client(minio_server) -> Minio:
     """Create MinIO client using docker-compose service endpoint."""
+    access_key, secret_key = _minio_credentials()
     return Minio(
         MINIO_ENDPOINT,
-        access_key=AWS_ACCESS_KEY_ID,
-        secret_key=AWS_SECRET_ACCESS_KEY,
+        access_key=access_key,
+        secret_key=secret_key,
         secure=False,
     )
 
@@ -205,12 +222,13 @@ def minio_client(minio_server) -> Minio:
 @pytest.fixture(autouse=True)
 def configure_minio_for_tests(monkeypatch):
     """Configure blob storage to use test MinIO instance."""
+    access_key, secret_key = _minio_credentials()
     monkeypatch.setattr(
         config, "TRACECAT__BLOB_STORAGE_ENDPOINT", f"http://{MINIO_ENDPOINT}"
     )
     monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", TEST_BUCKET)
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", AWS_ACCESS_KEY_ID)
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", access_key)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
 
     # Disable nsjail for all tests (use subprocess mode for macOS/CI)
     monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
@@ -249,9 +267,14 @@ async def test_bucket(minio_client: Minio, mock_org_id: uuid.UUID):
     """
     bucket_name = TEST_BUCKET
 
-    # Create bucket if it doesn't exist
-    if not minio_client.bucket_exists(bucket_name):
-        minio_client.make_bucket(bucket_name)
+    # Create bucket if it doesn't exist.
+    # Catch S3Error explicitly so failures surface cleanly instead of getting
+    # masked by FrozenInstanceError in async generator fixture handling.
+    try:
+        if not minio_client.bucket_exists(bucket_name):
+            minio_client.make_bucket(bucket_name)
+    except S3Error as e:
+        pytest.fail(f"Failed to ensure test MinIO bucket '{bucket_name}': {e}")
 
     yield bucket_name
 

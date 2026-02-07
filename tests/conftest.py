@@ -110,10 +110,10 @@ def _minio_credentials() -> tuple[str, str]:
 # Redis test configuration
 # ---------------------------------------------------------------------------
 
-# Worker-specific Redis database number for pytest-xdist isolation
-# Each xdist worker uses a different database (0-15) to avoid conflicts
-# when multiple workers run tests in parallel
-REDIS_DB = WORKER_OFFSET % 16
+# Worker-specific Redis database number for pytest-xdist isolation.
+# Reserve DB 0 for dockerized services started by integration tests (api/worker),
+# and run pytest against DBs 1-15 to avoid clobbering app streams/groups.
+REDIS_DB = (WORKER_OFFSET % 15) + 1
 
 # Redis URL - use Docker hostname when inside container, localhost otherwise
 # Ignore REDIS_URL from .env as it contains Docker-internal hostname
