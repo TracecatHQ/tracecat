@@ -1,6 +1,13 @@
 "use client"
 
-import { Activity, Braces, MessageSquare, MoreHorizontal, Paperclip, X } from "lucide-react"
+import {
+  Activity,
+  Braces,
+  MessageSquare,
+  MoreHorizontal,
+  Paperclip,
+  X,
+} from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
 import type {
@@ -232,7 +239,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               <div className="mb-2">
                 <div className="flex flex-col">
                   <div className="py-1.5 first:pt-0 last:pb-0">
-                    <CasePanelSummary caseData={caseData} updateCase={updateCase} />
+                    <CasePanelSummary
+                      caseData={caseData}
+                      updateCase={updateCase}
+                    />
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -249,7 +259,11 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     {caseTags && caseTags.length > 0 && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Manage tags</span>
                           </Button>
@@ -287,7 +301,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               </div>
 
               <div className="mb-4">
-                <CasePanelDescription caseData={caseData} updateCase={updateCase} />
+                <CasePanelDescription
+                  caseData={caseData}
+                  updateCase={updateCase}
+                />
               </div>
 
               {caseTasksEnabled && (
@@ -370,7 +387,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               <SidebarGroupContent className="px-2">
                 <div className="space-y-2">
                   <div className="flex h-7 w-full items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Status</span>
+                    <span className="text-sm text-muted-foreground">
+                      Status
+                    </span>
                     <div className="ml-auto min-w-0 flex-1">
                       <StatusSelect
                         status={caseData.status}
@@ -382,7 +401,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     </div>
                   </div>
                   <div className="flex h-7 w-full items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Priority</span>
+                    <span className="text-sm text-muted-foreground">
+                      Priority
+                    </span>
                     <div className="ml-auto min-w-0 flex-1">
                       <PrioritySelect
                         priority={caseData.priority || "unknown"}
@@ -394,7 +415,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     </div>
                   </div>
                   <div className="flex h-7 w-full items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Severity</span>
+                    <span className="text-sm text-muted-foreground">
+                      Severity
+                    </span>
                     <div className="ml-auto min-w-0 flex-1">
                       <SeveritySelect
                         severity={caseData.severity || "unknown"}
@@ -406,7 +429,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     </div>
                   </div>
                   <div className="flex h-7 w-full items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Assignee</span>
+                    <span className="text-sm text-muted-foreground">
+                      Assignee
+                    </span>
                     <div className="ml-auto min-w-0 flex-1">
                       <AssigneeSelect
                         assignee={caseData.assignee}
@@ -419,37 +444,42 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     </div>
                   </div>
                   {caseDropdownsEnabled &&
-                    dropdownDefinitions?.map((def: CaseDropdownDefinitionRead) => {
-                      const currentValue = caseData.dropdown_values?.find(
-                        (dv) => dv.definition_id === def.id
-                      )
-                      return (
-                        <div key={def.id} className="flex h-7 w-full items-center gap-2">
-                          <span
-                            className="truncate text-sm text-muted-foreground"
-                            title={def.name}
+                    dropdownDefinitions?.map(
+                      (def: CaseDropdownDefinitionRead) => {
+                        const currentValue = caseData.dropdown_values?.find(
+                          (dv) => dv.definition_id === def.id
+                        )
+                        return (
+                          <div
+                            key={def.id}
+                            className="flex h-7 w-full items-center gap-2"
                           >
-                            {def.name}
-                          </span>
-                          <div className="ml-auto min-w-0 flex-1">
-                            <CaseDropdownSelect
-                              definition={def}
-                              currentValue={currentValue}
-                              onValueChange={(optionId) =>
-                                setDropdownValue.mutate({
-                                  caseId: caseData.id,
-                                  definitionId: def.id,
-                                  optionId,
-                                })
-                              }
-                              showLabel={false}
-                              triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
-                              valueClassName="text-sm"
-                            />
+                            <span
+                              className="truncate text-sm text-muted-foreground"
+                              title={def.name}
+                            >
+                              {def.name}
+                            </span>
+                            <div className="ml-auto min-w-0 flex-1">
+                              <CaseDropdownSelect
+                                definition={def}
+                                currentValue={currentValue}
+                                onValueChange={(optionId) =>
+                                  setDropdownValue.mutate({
+                                    caseId: caseData.id,
+                                    definitionId: def.id,
+                                    optionId,
+                                  })
+                                }
+                                showLabel={false}
+                                triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
+                                valueClassName="text-sm"
+                              />
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      }
+                    )}
                 </div>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -461,7 +491,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     visibleCustomFields.map((field) => {
                       const label = undoSlugify(field.id)
                       return (
-                        <div key={field.id} className="flex h-7 w-full items-center gap-2">
+                        <div
+                          key={field.id}
+                          className="flex h-7 w-full items-center gap-2"
+                        >
                           {showAllCustomFields && (
                             <Button
                               variant="ghost"
@@ -471,7 +504,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                               onClick={() => handleCustomFieldClear(field)}
                             >
                               <X className="h-3.5 w-3.5" />
-                              <span className="sr-only">Clear {label} field</span>
+                              <span className="sr-only">
+                                Clear {label} field
+                              </span>
                             </Button>
                           )}
                           <span
@@ -506,7 +541,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       className="h-7 text-sm text-muted-foreground underline-offset-4 hover:underline"
                       onClick={() => setShowAllCustomFields((prev) => !prev)}
                     >
-                      {showAllCustomFields ? "Hide empty fields" : "View all fields"}
+                      {showAllCustomFields
+                        ? "Hide empty fields"
+                        : "View all fields"}
                     </button>
                   )}
                 </div>

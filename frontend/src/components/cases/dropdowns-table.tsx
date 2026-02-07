@@ -581,8 +581,7 @@ function EditDefinitionDialog({
         const opt = options[i]
         if (!opt.apiId && opt.label.trim()) {
           const rawIconName = opt.icon_name.trim()
-          const normalizedIconName =
-            resolveIconName(rawIconName) ?? rawIconName
+          const normalizedIconName = resolveIconName(rawIconName) ?? rawIconName
           await onAddOption?.(definition.id, {
             label: opt.label.trim(),
             ref: slugify(opt.label),

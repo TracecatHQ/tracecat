@@ -379,7 +379,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setCurrentPage((prev) => Math.max(prev - 1, 0))
   }, [cursorStack, currentPage])
 
-  const hasNextPage = Boolean(casesResponse?.has_more && casesResponse?.next_cursor)
+  const hasNextPage = Boolean(
+    casesResponse?.has_more && casesResponse?.next_cursor
+  )
   const hasPreviousPage = currentPage > 0
 
   // Apply client-side filtering (exclude mode filters + date filters)

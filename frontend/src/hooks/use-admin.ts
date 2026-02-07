@@ -51,7 +51,11 @@ import { adminListOrgTiers } from "@/client/services.custom"
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
-export function useAdminOrganizations({ enabled = true }: { enabled?: boolean } = {}) {
+export function useAdminOrganizations({
+  enabled = true,
+}: {
+  enabled?: boolean
+} = {}) {
   const queryClient = useQueryClient()
 
   const {

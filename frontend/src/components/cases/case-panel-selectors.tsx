@@ -123,7 +123,9 @@ export function StatusSelect({
               !showLabel && "w-full justify-end"
             )}
           >
-            {showLabel && <span className="text-xs text-muted-foreground">Status</span>}
+            {showLabel && (
+              <span className="text-xs text-muted-foreground">Status</span>
+            )}
             <CaseValueDisplay
               icon={currentStatus.icon}
               label={currentStatus.label}
@@ -338,7 +340,10 @@ export function AssigneeSelect({
                 </span>
               </div>
             ) : (
-              <NoAssignee className={valueClassName} labelClassName={valueClassName} />
+              <NoAssignee
+                className={valueClassName}
+                labelClassName={valueClassName}
+              />
             )}
           </div>
         </SelectValue>
@@ -483,7 +488,9 @@ export function CaseDropdownSelect({
                 <DynamicLucideIcon
                   name={definition.icon_name}
                   className="size-3.5 text-muted-foreground"
-                  fallback={<ListIcon className="size-3.5 text-muted-foreground" />}
+                  fallback={
+                    <ListIcon className="size-3.5 text-muted-foreground" />
+                  }
                 />
               ) : (
                 <ListIcon className="size-3.5 text-muted-foreground" />

@@ -60,7 +60,9 @@ export const ColorPicker = ({
         </PopoverContent>
       </Popover>
       {showInput && (
-        <div className="text-sm text-gray-600">{hasColor ? value : "default"}</div>
+        <div className="text-sm text-gray-600">
+          {hasColor ? value : "default"}
+        </div>
       )}
     </div>
   )

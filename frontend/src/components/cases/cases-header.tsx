@@ -6,11 +6,11 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CalendarIcon,
-  CircleIcon,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
+  CircleIcon,
   ClockIcon,
   ListIcon,
   Minus,
@@ -61,14 +61,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import type {
-  CasesRecencySort,
-  CaseDateFilterValue,
-  CaseDatePreset,
-  DropdownFilterState,
-} from "@/hooks/use-cases"
-import { getDisplayName } from "@/lib/auth"
-import { cn } from "@/lib/utils"
 import {
   Select,
   SelectContent,
@@ -76,6 +68,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type {
+  CaseDateFilterValue,
+  CaseDatePreset,
+  CasesRecencySort,
+  DropdownFilterState,
+} from "@/hooks/use-cases"
+import { getDisplayName } from "@/lib/auth"
+import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
   color?.split(" ").find((token) => token.startsWith("text-")) ||
@@ -806,7 +806,9 @@ export function CasesHeader({
             </SelectContent>
           </Select>
 
-          <span className="text-xs text-muted-foreground">Page {currentPage + 1}</span>
+          <span className="text-xs text-muted-foreground">
+            Page {currentPage + 1}
+          </span>
 
           <button
             type="button"
@@ -829,7 +831,9 @@ export function CasesHeader({
             disabled={!hasNextPage}
             className={cn(
               "flex h-6 items-center gap-1 rounded-md border border-input px-2 text-xs transition-colors",
-              hasNextPage ? "hover:bg-muted/50" : "cursor-not-allowed opacity-50"
+              hasNextPage
+                ? "hover:bg-muted/50"
+                : "cursor-not-allowed opacity-50"
             )}
           >
             Next
@@ -953,7 +957,10 @@ export function CasesHeader({
                 ? ({ color: opt.color } as React.CSSProperties)
                 : undefined
               const fallbackIcon = opt.color ? (
-                <CircleIcon className="size-3.5 shrink-0" style={optionColorStyle} />
+                <CircleIcon
+                  className="size-3.5 shrink-0"
+                  style={optionColorStyle}
+                />
               ) : (
                 <CircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
               )
@@ -1030,7 +1037,6 @@ export function CasesHeader({
             <Cross2Icon className="size-3" />
           </button>
         )}
-
       </div>
     </div>
   )

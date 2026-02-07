@@ -22,12 +22,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import {
-  Fragment,
-  type ReactNode,
-  useCallback,
-  useState,
-} from "react"
+import { Fragment, type ReactNode, useCallback, useState } from "react"
 import { type CaseStatus, casesAddTag } from "@/client"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"

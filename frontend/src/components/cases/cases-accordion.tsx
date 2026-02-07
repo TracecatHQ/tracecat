@@ -19,8 +19,8 @@ import type {
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
 import type { SortDirection } from "@/components/cases/cases-header"
-import type { CasesRecencySort } from "@/hooks/use-cases"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import type { CasesRecencySort } from "@/hooks/use-cases"
 import { cn } from "@/lib/utils"
 
 // Define the status groups we want to display

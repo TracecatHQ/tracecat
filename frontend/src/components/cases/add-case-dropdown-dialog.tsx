@@ -302,7 +302,8 @@ export function AddCaseDropdownDialog({
         requestBody: {
           name: formValues.name.trim(),
           ref: dropdownRef,
-          icon_name: resolveIconName(formValues.icon_name?.trim() ?? "") ?? undefined,
+          icon_name:
+            resolveIconName(formValues.icon_name?.trim() ?? "") ?? undefined,
           is_ordered: formValues.is_ordered,
           options: validOptions,
         },

@@ -1,7 +1,7 @@
 "use client"
 
-import dynamicIconImports from "lucide-react/dynamicIconImports"
 import { Box, Check, Search } from "lucide-react"
+import dynamicIconImports from "lucide-react/dynamicIconImports"
 import { useCallback, useMemo, useState } from "react"
 import {
   DynamicLucideIcon,

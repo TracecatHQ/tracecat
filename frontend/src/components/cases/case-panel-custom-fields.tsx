@@ -178,7 +178,9 @@ export function CustomFieldInner({
               <FormControl>
                 <Input
                   type="text"
-                  inputMode={customField.type === "INTEGER" ? "numeric" : "decimal"}
+                  inputMode={
+                    customField.type === "INTEGER" ? "numeric" : "decimal"
+                  }
                   value={
                     field.value === null || field.value === undefined
                       ? ""
@@ -434,7 +436,9 @@ export function CustomFieldInner({
                         )}
                         style={inputStyle}
                       >
-                        <span className="truncate">{currentValue || "Select..."}</span>
+                        <span className="truncate">
+                          {currentValue || "Select..."}
+                        </span>
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
