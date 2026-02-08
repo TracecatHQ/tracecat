@@ -2811,10 +2811,19 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=False,
         doc="Slug of the MCP integration",
     )
-    server_uri: Mapped[str] = mapped_column(
-        String,
+    # Server type: 'url' (HTTP/SSE) or 'command' (stdio)
+    server_type: Mapped[str] = mapped_column(
+        String(20),
+        default="url",
+        server_default="url",
         nullable=False,
-        doc="URL of the MCP server",
+        doc="Server type: 'url' (HTTP/SSE) or 'command' (stdio)",
+    )
+    # URL-type server fields
+    server_uri: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="URL of the MCP server (for url-type servers)",
     )
     auth_type: Mapped[MCPAuthType] = mapped_column(
         MCP_AUTH_TYPE_ENUM,
@@ -2831,6 +2840,28 @@ class MCPIntegration(TimestampMixin, Base):
         LargeBinary,
         nullable=True,
         doc="Encrypted custom credentials (API key, bearer token, or JSON headers) for custom auth type",
+    )
+    # Command-type server fields
+    command: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="Command to run for command-type servers (e.g., 'npx')",
+    )
+    command_args: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])",
+    )
+    encrypted_command_env: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc="Encrypted environment variables for command-type servers (JSON dict encrypted at rest)",
+    )
+    # General fields
+    timeout: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Timeout in seconds (HTTP timeout for URL type, process timeout for command type)",
     )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(

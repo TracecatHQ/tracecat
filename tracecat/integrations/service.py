@@ -8,6 +8,7 @@ from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import orjson
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select
@@ -738,6 +739,19 @@ class IntegrationService(BaseWorkspaceService):
             "utf-8"
         )
 
+    def decrypt_command_env(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Decrypt and return command_env for an MCP integration."""
+        if not mcp_integration.encrypted_command_env:
+            return None
+        if not is_set(mcp_integration.encrypted_command_env):
+            return None
+        decrypted = self._decrypt_token(mcp_integration.encrypted_command_env)
+        if not decrypted:
+            return None
+        return orjson.loads(decrypted)
+
     async def store_provider_config(
         self,
         *,
@@ -1026,9 +1040,20 @@ class IntegrationService(BaseWorkspaceService):
     async def _generate_mcp_integration_slug(
         self, *, name: str, requested_slug: str | None = None
     ) -> str:
-        """Generate a unique slug for an MCP integration."""
+        """Generate a unique slug for an MCP integration.
+
+        Slugs are limited to 64 characters to match MAX_SERVER_NAME_LENGTH
+        in mcp_validation.py, ensuring command-type servers pass validation.
+        """
+        from tracecat.integrations.mcp_validation import MAX_SERVER_NAME_LENGTH
+
         base_source = requested_slug or name
         slug = slugify(base_source, separator="-") or uuid4().hex[:8]
+
+        # Truncate to max length, leaving room for suffix if needed
+        max_base_length = MAX_SERVER_NAME_LENGTH - 4  # Reserve space for "-999"
+        if len(slug) > max_base_length:
+            slug = slug[:max_base_length].rstrip("-")
 
         candidate = slug
         suffix = 1
@@ -1077,15 +1102,27 @@ class IntegrationService(BaseWorkspaceService):
                 params.custom_credentials.get_secret_value()
             )
 
+        # Encrypt command_env if provided (for command-type servers)
+        encrypted_command_env = None
+        if params.command_env:
+            encrypted_command_env = self._encrypt_token(
+                orjson.dumps(params.command_env).decode()
+            )
+
         mcp_integration = MCPIntegration(
             workspace_id=self.workspace_id,
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
-            server_uri=params.server_uri.strip(),
+            server_uri=params.server_uri.strip() if params.server_uri else None,
             auth_type=params.auth_type,
             oauth_integration_id=params.oauth_integration_id,
             encrypted_headers=encrypted_custom_credentials,  # Reuse field for custom credentials
+            server_type=params.server_type,
+            command=params.command,
+            command_args=params.command_args,
+            encrypted_command_env=encrypted_command_env,
+            timeout=params.timeout,
         )
 
         self.session.add(mcp_integration)
@@ -1165,6 +1202,22 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.auth_type = params.auth_type
         if params.oauth_integration_id is not None:
             mcp_integration.oauth_integration_id = params.oauth_integration_id
+
+        # Update command-type server fields
+        if params.command is not None:
+            mcp_integration.command = params.command.strip() if params.command else None
+        if params.command_args is not None:
+            mcp_integration.command_args = params.command_args
+        if params.command_env is not None:
+            if params.command_env:
+                mcp_integration.encrypted_command_env = self._encrypt_token(
+                    orjson.dumps(params.command_env).decode()
+                )
+            else:
+                # Empty dict means clear the env vars
+                mcp_integration.encrypted_command_env = None
+        if params.timeout is not None:
+            mcp_integration.timeout = params.timeout
 
         # Handle custom credentials encryption/update (for CUSTOM auth type)
         if params.custom_credentials is not None:
