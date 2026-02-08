@@ -211,8 +211,8 @@ class TestAuthenticateServiceWorkspaceRole:
         assert reconstructed_role.workspace_role == original_role.workspace_role
         assert reconstructed_role.workspace_role == WorkspaceRole.EDITOR
         assert str(reconstructed_role.workspace_id) == str(original_role.workspace_id)
-        assert (
-            str(reconstructed_role.organization_id) == str(original_role.organization_id)
+        assert str(reconstructed_role.organization_id) == str(
+            original_role.organization_id
         )
 
     async def test_authenticate_service_derives_org_from_workspace_when_missing_header(
