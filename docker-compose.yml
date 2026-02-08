@@ -332,6 +332,7 @@ services:
     container_name: migrations
     restart: "no"
     networks:
+      - core
       - core-db
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
