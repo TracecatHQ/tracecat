@@ -7376,6 +7376,12 @@ export type OrganizationCreateInvitationData = {
 
 export type OrganizationCreateInvitationResponse = OrgInvitationRead
 
+export type OrganizationListInvitationsData = {
+  status?: InvitationStatus | null
+}
+
+export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+
 export type OrganizationRevokeInvitationData = {
   invitationId: string
 }
@@ -10477,6 +10483,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: OrgInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: OrganizationListInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgInvitationRead>
         /**
          * Validation Error
          */

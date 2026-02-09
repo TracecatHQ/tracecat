@@ -328,6 +328,8 @@ import type {
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationListInvitationsData,
+  OrganizationListInvitationsResponse,
   OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
@@ -3312,6 +3314,29 @@ export const organizationCreateInvitation = (
     url: "/organization/invitations",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Invitations
+ * List invitations for the organization.
+ * @param data The data for the request.
+ * @param data.status
+ * @returns OrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListInvitations = (
+  data: OrganizationListInvitationsData = {}
+): CancelablePromise<OrganizationListInvitationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/invitations",
+    query: {
+      status: data.status,
+    },
     errors: {
       422: "Validation Error",
     },

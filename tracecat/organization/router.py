@@ -297,7 +297,7 @@ async def list_org_members(
             last_name=user.last_name,
             last_login_at=user.last_login_at,
         )
-        for user, _ in members
+        for user, org_role in members
     ]
 
     # Add pending, non-expired invitations as "invited" members

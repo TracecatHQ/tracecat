@@ -8,7 +8,7 @@ This module handles seeding of:
 Seeding is idempotent - existing scopes/roles are not duplicated.
 """
 
-from typing import NamedTuple
+from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -197,7 +197,18 @@ PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
     ),
 }
 
-PRESET_ROLE_SLUGS: frozenset[str] = frozenset(PRESET_ROLE_DEFINITIONS)
+_CUSTOM_SCOPE_BATCH_ROWS = 5_000
+
+
+class ScopeInsertRow(TypedDict):
+    id: UUID
+    name: str
+    resource: str
+    action: str
+    description: str
+    source: ScopeSource
+    source_ref: str
+    organization_id: UUID | None
 
 
 # =============================================================================
@@ -256,47 +267,146 @@ async def seed_registry_scopes(
     session: AsyncSession,
     action_keys: list[str],
 ) -> int:
-    """Seed registry action scopes in bulk.
+    """Seed registry scopes.
 
-    Creates scopes for all action keys that don't already exist.
-    Uses PostgreSQL upsert for efficiency.
-
-    Args:
-        session: Database session
-        action_keys: List of action keys (e.g., ["tools.okta.list_users", "core.http_request"])
-
-    Returns:
-        Number of scopes inserted
+    Current behavior has two explicit steps:
+    1. Seed platform registry scopes.
+    2. Seed custom registry scopes
     """
+    platform_inserted = await _seed_platform_registry_scopes(
+        session,
+        action_keys,
+    )
+    custom_inserted = await _seed_custom_registry_scopes(session, action_keys)
+    return platform_inserted + custom_inserted
+
+
+async def _seed_platform_registry_scopes(
+    session: AsyncSession,
+    action_keys: list[str],
+) -> int:
+    """Seed platform registry action scopes in bulk."""
     if not action_keys:
         return 0
 
-    logger.info("Seeding registry scopes", num_actions=len(action_keys))
+    logger.info(
+        "Seeding registry scopes",
+        num_actions=len(action_keys),
+    )
 
     values = [
-        {
-            "id": uuid4(),
-            "name": f"action:{key}:execute",
-            "resource": "action",
-            "action": "execute",
-            "description": f"Execute {key} action",
-            "source": ScopeSource.PLATFORM,
-            "source_ref": key,
-            "organization_id": None,
-        }
+        _build_registry_scope_row(
+            action_key=key,
+            source=ScopeSource.PLATFORM,
+            organization_id=None,
+        )
         for key in action_keys
     ]
 
-    stmt = pg_insert(Scope).values(values)
-    stmt = stmt.on_conflict_do_nothing(
-        index_elements=["name"], index_where=Scope.organization_id.is_(None)
+    return await _upsert_registry_scope_rows(
+        session=session,
+        values=values,
+        source=ScopeSource.PLATFORM,
     )
 
-    result = await session.execute(stmt)
-    inserted_count = result.rowcount if result.rowcount else 0  # pyright: ignore[reportAttributeAccessIssue]
+
+async def _seed_custom_registry_scopes(
+    session: AsyncSession,
+    action_keys: list[str],
+) -> int:
+    """Seed custom registry scopes for all organizations using chunked upserts."""
+    if not action_keys:
+        return 0
+
+    org_stmt = select(Organization.id)
+    org_result = await session.execute(org_stmt)
+    org_ids = [org_id for (org_id,) in org_result.tuples().all()]
+    if not org_ids:
+        return 0
 
     logger.info(
-        "Registry scopes seeded", inserted=inserted_count, total=len(action_keys)
+        "Seeding registry scopes",
+        num_actions=len(action_keys),
+        source=ScopeSource.CUSTOM.value,
+        num_organizations=len(org_ids),
+    )
+
+    inserted_count = 0
+    batch_values: list[ScopeInsertRow] = []
+    for org_id in org_ids:
+        for key in action_keys:
+            batch_values.append(
+                _build_registry_scope_row(
+                    action_key=key,
+                    source=ScopeSource.CUSTOM,
+                    organization_id=org_id,
+                )
+            )
+            if len(batch_values) >= _CUSTOM_SCOPE_BATCH_ROWS:
+                inserted_count += await _upsert_registry_scope_rows(
+                    session=session,
+                    values=batch_values,
+                    source=ScopeSource.CUSTOM,
+                )
+                batch_values.clear()
+
+    if batch_values:
+        inserted_count += await _upsert_registry_scope_rows(
+            session=session,
+            values=batch_values,
+            source=ScopeSource.CUSTOM,
+        )
+
+    logger.info(
+        "Registry scopes seeded",
+        inserted=inserted_count,
+        total=len(org_ids) * len(action_keys),
+        source=ScopeSource.CUSTOM.value,
+    )
+    return inserted_count
+
+
+def _build_registry_scope_row(
+    *, action_key: str, source: ScopeSource, organization_id: UUID | None
+) -> ScopeInsertRow:
+    """Build a single scope insert row for a registry action key."""
+    return {
+        "id": uuid4(),
+        "name": f"action:{action_key}:execute",
+        "resource": "action",
+        "action": "execute",
+        "description": f"Execute {action_key} action",
+        "source": source,
+        "source_ref": action_key,
+        "organization_id": organization_id,
+    }
+
+
+async def _upsert_registry_scope_rows(
+    *,
+    session: AsyncSession,
+    values: list[ScopeInsertRow],
+    source: ScopeSource,
+) -> int:
+    """Insert scope rows with conflict handling for platform vs org-scoped scopes."""
+    if not values:
+        return 0
+    stmt = pg_insert(Scope).values(values)
+    if source == ScopeSource.PLATFORM:
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["name"], index_where=Scope.organization_id.is_(None)
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=["organization_id", "name"])
+
+    result = await session.execute(stmt)
+    inserted_count = result.rowcount or 0  # pyright: ignore[reportAttributeAccessIssue]
+
+    logger.info(
+        "Registry scopes seeded",
+        inserted=inserted_count,
+        total=len(values),
+        source=source.value,
     )
     return inserted_count
 
