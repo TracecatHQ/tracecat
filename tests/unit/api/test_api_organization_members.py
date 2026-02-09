@@ -3,14 +3,17 @@
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import get_args
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.contexts import ctx_role
 from tracecat.organization import router as organization_router
 
 
@@ -25,6 +28,37 @@ def _member_user(user_id: uuid.UUID | None = None) -> SimpleNamespace:
         is_verified=True,
         last_login_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
+
+
+def _override_role_dependency() -> Role:
+    role = ctx_role.get()
+    if role is None:
+        raise RuntimeError("No role set in ctx_role context")
+    return role
+
+
+@pytest.fixture(autouse=True)
+def _override_organization_role_dependencies(  # pyright: ignore[reportUnusedFunction]
+    client: TestClient,
+):
+    role_dependencies = [
+        organization_router.OrgUserRole,
+        organization_router.OrgAdminRole,
+    ]
+
+    for annotated_type in role_dependencies:
+        metadata = get_args(annotated_type)
+        if metadata and hasattr(metadata[1], "dependency"):
+            dependency = metadata[1].dependency
+            app.dependency_overrides[dependency] = _override_role_dependency
+
+    yield
+
+    for annotated_type in role_dependencies:
+        metadata = get_args(annotated_type)
+        if metadata and hasattr(metadata[1], "dependency"):
+            dependency = metadata[1].dependency
+            app.dependency_overrides.pop(dependency, None)
 
 
 @pytest.mark.anyio
