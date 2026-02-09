@@ -7,6 +7,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import Role
 from tracecat.auth.users import current_active_user
@@ -19,6 +20,8 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
     UserRoleAssignment,
+)
+from tracecat.db.models import (
     Role as RoleModel,
 )
 from tracecat.exceptions import (
@@ -43,16 +46,6 @@ from tracecat.organization.schemas import (
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 
 router = APIRouter(prefix="/organization", tags=["organization"])
-
-# RoleACL() returns a Depends object, so no need to wrap with Depends()
-OrgUserRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
-]
 
 OrgAdminRole = Annotated[
     Role,
@@ -252,7 +245,12 @@ async def get_current_org_member(
         )
         role_result = await session.execute(role_stmt)
         role_row = role_result.one_or_none()
-        role_slug = role_row[1] if role_row else None
+        if role_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Missing organization role assignment",
+            )
+        role_slug = role_row[1]
 
         return OrgMemberRead(
             user_id=user.id,

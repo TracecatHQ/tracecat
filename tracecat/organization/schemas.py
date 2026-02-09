@@ -39,7 +39,7 @@ class OrgMemberDetail(BaseModel):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    role: str | None
+    role: str
     is_active: bool
     is_verified: bool
     last_login_at: datetime | None
