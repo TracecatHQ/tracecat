@@ -74,19 +74,19 @@ variable "node_ami_type" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 2
+  default     = 6
 }
 
 variable "node_min_size" {
   description = "Minimum number of nodes in the node group"
   type        = number
-  default     = 2
+  default     = 6
 }
 
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 5
+  default     = 10
 }
 
 variable "node_disk_size" {
@@ -122,7 +122,7 @@ variable "spot_node_min_size" {
 variable "spot_node_max_size" {
   description = "Maximum number of nodes in the spot managed node group."
   type        = number
-  default     = 5
+  default     = 4
 }
 
 # Tracecat Configuration
@@ -180,6 +180,17 @@ variable "rds_snapshot_identifier" {
   default     = ""
 }
 
+variable "rds_database_insights_mode" {
+  description = "RDS Database Insights mode. Use 'advanced' to enable Advanced Database Insights (CloudWatch Database Insights)."
+  type        = string
+  default     = "advanced"
+
+  validation {
+    condition     = contains(["standard", "advanced"], var.rds_database_insights_mode)
+    error_message = "rds_database_insights_mode must be 'standard' or 'advanced'."
+  }
+}
+
 variable "rds_skip_final_snapshot" {
   description = "Whether to skip the final RDS snapshot on deletion"
   type        = bool
@@ -188,12 +199,6 @@ variable "rds_skip_final_snapshot" {
 
 variable "rds_deletion_protection" {
   description = "Whether to enable deletion protection for the RDS instance"
-  type        = bool
-  default     = true
-}
-
-variable "rds_allow_vpc_cidr_fallback" {
-  description = "Allow PostgreSQL access from the VPC CIDR. Required for t-series instances which don't support SecurityGroupPolicy (trunk ENI). Only disable if using m5/c5/r5/m6g/c6g/r6g instance types that support Security Groups for Pods."
   type        = bool
   default     = true
 }
@@ -274,7 +279,7 @@ variable "worker_replicas" {
 variable "executor_replicas" {
   description = "Number of executor replicas"
   type        = number
-  default     = 2
+  default     = 4
 }
 
 variable "executor_queue" {
@@ -292,7 +297,7 @@ variable "executor_backend" {
 variable "agent_executor_replicas" {
   description = "Number of agent-executor replicas"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "agent_executor_queue" {
@@ -310,7 +315,111 @@ variable "agent_executor_backend" {
 variable "ui_replicas" {
   description = "Number of UI replicas"
   type        = number
-  default     = 1
+  default     = 2
+}
+
+# Tracecat resource requests (also applied as limits)
+variable "api_cpu_request_millicores" {
+  description = "API CPU request in millicores"
+  type        = number
+  default     = 2000
+}
+
+variable "api_memory_request_mib" {
+  description = "API memory request in MiB"
+  type        = number
+  default     = 4096
+}
+
+variable "worker_cpu_request_millicores" {
+  description = "Worker CPU request in millicores"
+  type        = number
+  default     = 2000
+}
+
+variable "worker_memory_request_mib" {
+  description = "Worker memory request in MiB"
+  type        = number
+  default     = 2048
+}
+
+variable "executor_cpu_request_millicores" {
+  description = "Executor CPU request in millicores"
+  type        = number
+  default     = 4000
+}
+
+variable "executor_memory_request_mib" {
+  description = "Executor memory request in MiB"
+  type        = number
+  default     = 8192
+}
+
+variable "agent_executor_cpu_request_millicores" {
+  description = "Agent executor CPU request in millicores"
+  type        = number
+  default     = 4000
+}
+
+variable "agent_executor_memory_request_mib" {
+  description = "Agent executor memory request in MiB"
+  type        = number
+  default     = 8192
+}
+
+variable "ui_cpu_request_millicores" {
+  description = "UI CPU request in millicores"
+  type        = number
+  default     = 500
+}
+
+variable "ui_memory_request_mib" {
+  description = "UI memory request in MiB"
+  type        = number
+  default     = 512
+}
+
+# Plan-time rollout guardrails (capacity model inputs)
+variable "node_schedulable_cpu_millicores_per_node" {
+  description = "Schedulable CPU per worker node in millicores used for rollout capacity guardrails"
+  type        = number
+  default     = 8000
+}
+
+variable "node_schedulable_memory_mib_per_node" {
+  description = "Schedulable memory per worker node in MiB used for rollout capacity guardrails"
+  type        = number
+  default     = 32768
+}
+
+variable "pod_eni_capacity_per_node" {
+  description = "Estimated pod-eni budget per node used for rollout guardrails"
+  type        = number
+  default     = 16
+}
+
+variable "rollout_surge_percent" {
+  description = "Deployment rollout surge percentage used for capacity guardrails"
+  type        = number
+  default     = 25
+}
+
+variable "capacity_reserved_cpu_millicores" {
+  description = "Reserved CPU headroom in millicores for system and auxiliary workloads in guardrails"
+  type        = number
+  default     = 3000
+}
+
+variable "capacity_reserved_memory_mib" {
+  description = "Reserved memory headroom in MiB for system and auxiliary workloads in guardrails"
+  type        = number
+  default     = 8192
+}
+
+variable "capacity_reserved_pod_eni" {
+  description = "Reserved pod-eni headroom for system and auxiliary workloads in guardrails"
+  type        = number
+  default     = 8
 }
 
 # WAF Configuration
