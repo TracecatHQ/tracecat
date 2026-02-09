@@ -622,11 +622,14 @@ class RBACService(BaseOrgService):
         Returns:
             Created UserRoleAssignment
         """
-        # Verify user exists
-        stmt = select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        # Verify user belongs to this organization
+        stmt = select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == self.organization_id,
+        )
         result = await self.session.execute(stmt)
         if result.scalar_one_or_none() is None:
-            raise TracecatNotFoundError("User not found")
+            raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
         await self.get_role(role_id)
