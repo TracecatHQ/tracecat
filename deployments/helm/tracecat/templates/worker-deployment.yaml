@@ -18,9 +18,16 @@ spec:
         app.kubernetes.io/component: worker
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
-      {{- if .Values.reloader.enabled }}
+      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) }}
       annotations:
+        {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
+        {{- end }}
+        {{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.tracecat.temporal.metrics.port | quote }}
+        prometheus.io/path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
+        {{- end }}
       {{- end }}
     spec:
       securityContext:
@@ -82,6 +89,12 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "-m", "tracecat.dsl.worker"]
+          {{- if .Values.tracecat.temporal.metrics.enabled }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.tracecat.temporal.metrics.port }}
+              protocol: TCP
+          {{- end }}
           env:
             {{- include "tracecat.env.worker" . | nindent 12 }}
             {{- include "tracecat.env.secrets" . | nindent 12 }}
