@@ -40,6 +40,38 @@ resource "aws_eks_cluster" "tracecat" {
   ]
 }
 
+# In pod-eni mode, pods attached to custom SecurityGroupPolicy SGs must still reach
+# CoreDNS endpoints on worker-node ENIs (cluster security group).
+resource "aws_security_group_rule" "cluster_dns_from_tracecat_pod_sgs_udp" {
+  for_each = toset([
+    aws_security_group.tracecat_postgres_client.id,
+    aws_security_group.tracecat_redis_client.id
+  ])
+
+  type                     = "ingress"
+  from_port                = 53
+  to_port                  = 53
+  protocol                 = "udp"
+  security_group_id        = aws_eks_cluster.tracecat.vpc_config[0].cluster_security_group_id
+  source_security_group_id = each.value
+  description              = "Allow UDP DNS from Tracecat pod SGs"
+}
+
+resource "aws_security_group_rule" "cluster_dns_from_tracecat_pod_sgs_tcp" {
+  for_each = toset([
+    aws_security_group.tracecat_postgres_client.id,
+    aws_security_group.tracecat_redis_client.id
+  ])
+
+  type                     = "ingress"
+  from_port                = 53
+  to_port                  = 53
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.tracecat.vpc_config[0].cluster_security_group_id
+  source_security_group_id = each.value
+  description              = "Allow TCP DNS from Tracecat pod SGs"
+}
+
 # EKS Add-ons (Core cluster components)
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name = aws_eks_cluster.tracecat.name
@@ -50,6 +82,7 @@ resource "aws_eks_addon" "vpc_cni" {
 
   configuration_values = jsonencode({
     env = {
+      # Pod ENI is required for SecurityGroupPolicy-based isolation.
       ENABLE_POD_ENI                    = "true"
       POD_SECURITY_GROUP_ENFORCING_MODE = "standard"
     }
@@ -87,7 +120,7 @@ resource "aws_eks_node_group" "tracecat" {
   node_role_arn   = aws_iam_role.eks_node_group.arn
   subnet_ids      = var.private_subnet_ids
 
-  capacity_type = "ON_DEMAND"
+  capacity_type  = "ON_DEMAND"
   instance_types = var.node_instance_types
   disk_size      = var.node_disk_size
 
@@ -106,7 +139,7 @@ resource "aws_eks_node_group" "tracecat" {
   ami_type = var.node_ami_type
 
   labels = {
-    "tracecat.com/purpose" = "tracecat"
+    "tracecat.com/purpose"  = "tracecat"
     "tracecat.com/capacity" = "on-demand"
   }
 

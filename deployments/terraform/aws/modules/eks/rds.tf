@@ -12,18 +12,6 @@ resource "aws_security_group" "rds" {
     description     = "PostgreSQL from Tracecat pods with SecurityGroupPolicy"
   }
 
-  # Optional fallback for pods without SecurityGroupPolicy (off by default).
-  dynamic "ingress" {
-    for_each = var.rds_allow_vpc_cidr_fallback ? [1] : []
-    content {
-      from_port   = 5432
-      to_port     = 5432
-      protocol    = "tcp"
-      cidr_blocks = [data.aws_vpc.selected.cidr_block]
-      description = "PostgreSQL from VPC CIDR (fallback)"
-    }
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -94,6 +82,8 @@ resource "aws_db_instance" "tracecat" {
   publicly_accessible = false
   multi_az            = false
   storage_encrypted   = true
+
+  database_insights_mode = var.rds_database_insights_mode
 
   backup_retention_period = 7
   backup_window           = "03:00-04:00"
