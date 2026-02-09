@@ -49,6 +49,7 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.authz.seeding import seed_all_system_data
 from tracecat.cases.attachments.internal_router import (
     router as internal_case_attachments_router,
 )
@@ -75,6 +76,7 @@ from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import (
@@ -154,9 +156,6 @@ async def lifespan(app: FastAPI):
         )
 
     await ensure_default_organization()
-
-    # Seed RBAC defaults (scopes and preset roles for all orgs)
-    from tracecat.db.engine import get_async_session_context_manager
 
     async with get_async_session_context_manager() as session:
         await setup_rbac_defaults(session)
@@ -245,8 +244,6 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
 
 async def setup_rbac_defaults(session: AsyncSession):
     """Seed system scopes and roles for RBAC."""
-    from tracecat.authz.seeding import seed_all_system_data
-
     try:
         result = await seed_all_system_data(session)
         logger.info("RBAC defaults seeded", **result)

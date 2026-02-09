@@ -21,6 +21,7 @@ from tracecat.db.locks import (
 )
 from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
+from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
@@ -176,7 +177,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
 
 async def _seed_registry_scopes(
     session: AsyncSession,
-    actions: list,
+    actions: list[RegistryActionCreate],
 ) -> None:
     """Seed registry scopes for synced actions.
 

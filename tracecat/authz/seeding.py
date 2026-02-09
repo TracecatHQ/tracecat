@@ -8,110 +8,140 @@ This module handles seeding of:
 Seeding is idempotent - existing scopes/roles are not duplicated.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from typing import NamedTuple
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.db.models import Organization, Role, RoleScope, Scope
 from tracecat.logger import logger
 
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
 # =============================================================================
 # System Scope Definitions
 # =============================================================================
 
 # These are the canonical system scopes that should exist in every deployment.
-# Format: (name, resource, action, description)
 
-SYSTEM_SCOPE_DEFINITIONS: list[tuple[str, str, str, str]] = [
+
+class ScopeDefinition(NamedTuple):
+    name: str
+    resource: str
+    action: str
+    description: str
+
+
+SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     # Org-level scopes
-    ("org:read", "org", "read", "View organization settings"),
-    ("org:update", "org", "update", "Modify organization settings"),
-    ("org:delete", "org", "delete", "Delete organization"),
+    ScopeDefinition("org:read", "org", "read", "View organization settings"),
+    ScopeDefinition("org:update", "org", "update", "Modify organization settings"),
+    ScopeDefinition("org:delete", "org", "delete", "Delete organization"),
     # Org member management
-    ("org:member:read", "org:member", "read", "List organization members"),
-    ("org:member:invite", "org:member", "invite", "Invite users to organization"),
-    ("org:member:remove", "org:member", "remove", "Remove users from organization"),
-    ("org:member:update", "org:member", "update", "Change member organization roles"),
+    ScopeDefinition(
+        "org:member:read", "org:member", "read", "List organization members"
+    ),
+    ScopeDefinition(
+        "org:member:invite", "org:member", "invite", "Invite users to organization"
+    ),
+    ScopeDefinition(
+        "org:member:remove", "org:member", "remove", "Remove users from organization"
+    ),
+    ScopeDefinition(
+        "org:member:update", "org:member", "update", "Change member organization roles"
+    ),
     # Billing
-    ("org:billing:read", "org:billing", "read", "View billing information"),
-    ("org:billing:manage", "org:billing", "manage", "Manage billing"),
+    ScopeDefinition(
+        "org:billing:read", "org:billing", "read", "View billing information"
+    ),
+    ScopeDefinition("org:billing:manage", "org:billing", "manage", "Manage billing"),
     # RBAC administration
-    (
+    ScopeDefinition(
         "org:rbac:read",
         "org:rbac",
         "read",
         "View roles, scopes, groups, and assignments",
     ),
-    (
+    ScopeDefinition(
         "org:rbac:manage",
         "org:rbac",
         "manage",
         "Create/update/delete roles, scopes, groups, and manage assignments",
     ),
     # Workspace-level scopes
-    ("workspace:read", "workspace", "read", "View workspace settings"),
-    ("workspace:create", "workspace", "create", "Create workspaces"),
-    ("workspace:update", "workspace", "update", "Modify workspace settings"),
-    ("workspace:delete", "workspace", "delete", "Delete workspace"),
+    ScopeDefinition("workspace:read", "workspace", "read", "View workspace settings"),
+    ScopeDefinition("workspace:create", "workspace", "create", "Create workspaces"),
+    ScopeDefinition(
+        "workspace:update", "workspace", "update", "Modify workspace settings"
+    ),
+    ScopeDefinition("workspace:delete", "workspace", "delete", "Delete workspace"),
     # Workspace member management
-    ("workspace:member:read", "workspace:member", "read", "List workspace members"),
-    ("workspace:member:invite", "workspace:member", "invite", "Add users to workspace"),
-    (
+    ScopeDefinition(
+        "workspace:member:read", "workspace:member", "read", "List workspace members"
+    ),
+    ScopeDefinition(
+        "workspace:member:invite",
+        "workspace:member",
+        "invite",
+        "Add users to workspace",
+    ),
+    ScopeDefinition(
         "workspace:member:remove",
         "workspace:member",
         "remove",
         "Remove users from workspace",
     ),
-    (
+    ScopeDefinition(
         "workspace:member:update",
         "workspace:member",
         "update",
         "Change member workspace roles",
     ),
     # Workflow scopes
-    ("workflow:read", "workflow", "read", "View workflows and their details"),
-    ("workflow:create", "workflow", "create", "Create new workflows"),
-    ("workflow:update", "workflow", "update", "Modify existing workflows"),
-    ("workflow:delete", "workflow", "delete", "Delete workflows"),
-    ("workflow:execute", "workflow", "execute", "Run/trigger workflows"),
+    ScopeDefinition(
+        "workflow:read", "workflow", "read", "View workflows and their details"
+    ),
+    ScopeDefinition("workflow:create", "workflow", "create", "Create new workflows"),
+    ScopeDefinition(
+        "workflow:update", "workflow", "update", "Modify existing workflows"
+    ),
+    ScopeDefinition("workflow:delete", "workflow", "delete", "Delete workflows"),
+    ScopeDefinition("workflow:execute", "workflow", "execute", "Run/trigger workflows"),
     # Case scopes
-    ("case:read", "case", "read", "View cases"),
-    ("case:create", "case", "create", "Create new cases"),
-    ("case:update", "case", "update", "Modify existing cases"),
-    ("case:delete", "case", "delete", "Delete cases"),
+    ScopeDefinition("case:read", "case", "read", "View cases"),
+    ScopeDefinition("case:create", "case", "create", "Create new cases"),
+    ScopeDefinition("case:update", "case", "update", "Modify existing cases"),
+    ScopeDefinition("case:delete", "case", "delete", "Delete cases"),
     # Table scopes
-    ("table:read", "table", "read", "View tables"),
-    ("table:create", "table", "create", "Create new tables"),
-    ("table:update", "table", "update", "Modify existing tables"),
-    ("table:delete", "table", "delete", "Delete tables"),
+    ScopeDefinition("table:read", "table", "read", "View tables"),
+    ScopeDefinition("table:create", "table", "create", "Create new tables"),
+    ScopeDefinition("table:update", "table", "update", "Modify existing tables"),
+    ScopeDefinition("table:delete", "table", "delete", "Delete tables"),
     # Schedule scopes
-    ("schedule:read", "schedule", "read", "View schedules"),
-    ("schedule:create", "schedule", "create", "Create new schedules"),
-    ("schedule:update", "schedule", "update", "Modify existing schedules"),
-    ("schedule:delete", "schedule", "delete", "Delete schedules"),
+    ScopeDefinition("schedule:read", "schedule", "read", "View schedules"),
+    ScopeDefinition("schedule:create", "schedule", "create", "Create new schedules"),
+    ScopeDefinition(
+        "schedule:update", "schedule", "update", "Modify existing schedules"
+    ),
+    ScopeDefinition("schedule:delete", "schedule", "delete", "Delete schedules"),
     # Agent scopes
-    ("agent:read", "agent", "read", "View agents"),
-    ("agent:create", "agent", "create", "Create new agents"),
-    ("agent:update", "agent", "update", "Modify existing agents"),
-    ("agent:delete", "agent", "delete", "Delete agents"),
-    ("agent:execute", "agent", "execute", "Run/trigger agents"),
+    ScopeDefinition("agent:read", "agent", "read", "View agents"),
+    ScopeDefinition("agent:create", "agent", "create", "Create new agents"),
+    ScopeDefinition("agent:update", "agent", "update", "Modify existing agents"),
+    ScopeDefinition("agent:delete", "agent", "delete", "Delete agents"),
+    ScopeDefinition("agent:execute", "agent", "execute", "Run/trigger agents"),
     # Secret scopes
-    ("secret:read", "secret", "read", "View secrets"),
-    ("secret:create", "secret", "create", "Create new secrets"),
-    ("secret:update", "secret", "update", "Modify existing secrets"),
-    ("secret:delete", "secret", "delete", "Delete secrets"),
+    ScopeDefinition("secret:read", "secret", "read", "View secrets"),
+    ScopeDefinition("secret:create", "secret", "create", "Create new secrets"),
+    ScopeDefinition("secret:update", "secret", "update", "Modify existing secrets"),
+    ScopeDefinition("secret:delete", "secret", "delete", "Delete secrets"),
     # Wildcard action scopes (for role assignments)
-    ("action:*:execute", "action", "execute", "Execute any registry action"),
-    (
+    ScopeDefinition(
+        "action:*:execute", "action", "execute", "Execute any registry action"
+    ),
+    ScopeDefinition(
         "action:core.*:execute",
         "action:core",
         "execute",
@@ -125,34 +155,42 @@ SYSTEM_SCOPE_DEFINITIONS: list[tuple[str, str, str, str]] = [
 
 # Preset roles seeded per-organization.
 # Slugs match the keys in PRESET_ROLE_SCOPES from scopes.py.
-PRESET_ROLE_DEFINITIONS: dict[str, tuple[str, str, frozenset[str]]] = {
-    # slug → (name, description, scopes)
-    "workspace-viewer": (
+
+
+class RoleDefinition(NamedTuple):
+    name: str
+    description: str
+    scopes: frozenset[str]
+
+
+PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
+    # slug → RoleDefinition(name, description, scopes)
+    "workspace-viewer": RoleDefinition(
         "Viewer",
         "Read-only access to workspace resources",
         PRESET_ROLE_SCOPES["workspace-viewer"],
     ),
-    "workspace-editor": (
+    "workspace-editor": RoleDefinition(
         "Editor",
         "Create and edit resources, no delete or admin access",
         PRESET_ROLE_SCOPES["workspace-editor"],
     ),
-    "workspace-admin": (
+    "workspace-admin": RoleDefinition(
         "Admin",
         "Full workspace capabilities",
         PRESET_ROLE_SCOPES["workspace-admin"],
     ),
-    "organization-owner": (
+    "organization-owner": RoleDefinition(
         "Owner",
         "Full organization control",
         PRESET_ROLE_SCOPES["organization-owner"],
     ),
-    "organization-admin": (
+    "organization-admin": RoleDefinition(
         "Admin",
         "Organization admin without delete or billing manage",
         PRESET_ROLE_SCOPES["organization-admin"],
     ),
-    "organization-member": (
+    "organization-member": RoleDefinition(
         "Member",
         "Basic organization membership",
         PRESET_ROLE_SCOPES["organization-member"],
