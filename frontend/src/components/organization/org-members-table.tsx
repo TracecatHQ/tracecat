@@ -197,25 +197,6 @@ export function OrgMembersTable() {
               enableHiding: false,
             },
             {
-              accessorKey: "is_superuser",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Superuser"
-                />
-              ),
-              cell: ({ row }) => (
-                <div className="text-xs capitalize">
-                  {row.getValue<OrgMemberRead["is_superuser"]>("is_superuser")
-                    ? "Yes"
-                    : "No"}
-                </div>
-              ),
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
               accessorKey: "last_login_at",
               header: ({ column }) => (
                 <DataTableColumnHeader

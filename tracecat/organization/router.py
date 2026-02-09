@@ -137,7 +137,6 @@ async def get_current_org_member(
             email=user.email,
             role=org_role,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
@@ -157,7 +156,6 @@ async def get_current_org_member(
                 email=user.email,
                 role=OrgRole.OWNER,  # Superusers have implicit owner role
                 is_active=user.is_active,
-                is_superuser=user.is_superuser,
                 is_verified=user.is_verified,
                 last_login_at=user.last_login_at,
             )
@@ -184,7 +182,6 @@ async def list_org_members(
             email=user.email,
             role=org_role,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
@@ -235,7 +232,6 @@ async def update_org_member(
             email=user.email,
             role=org_role,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )

@@ -10173,10 +10173,6 @@ export const $OrgMemberRead = {
       type: "boolean",
       title: "Is Active",
     },
-    is_superuser: {
-      type: "boolean",
-      title: "Is Superuser",
-    },
     is_verified: {
       type: "boolean",
       title: "Is Verified",
@@ -10202,7 +10198,6 @@ export const $OrgMemberRead = {
     "email",
     "role",
     "is_active",
-    "is_superuser",
     "is_verified",
     "last_login_at",
   ],
