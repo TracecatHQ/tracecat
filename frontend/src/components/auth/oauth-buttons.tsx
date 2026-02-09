@@ -22,7 +22,10 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
     : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
-export function GithubOAuthButton(props: OAuthButtonProps) {
+export function GithubOAuthButton({
+  returnUrl: _,
+  ...props
+}: OAuthButtonProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const handleClick = async () => {
     setIsLoading(true)
