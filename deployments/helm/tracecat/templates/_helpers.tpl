@@ -460,6 +460,8 @@ Common environment variables shared across all backend services
   value: {{ .Values.tracecat.appEnv | quote }}
 - name: TRACECAT__FEATURE_FLAGS
   value: {{ include "tracecat.featureFlags" . | quote }}
+- name: TRACECAT__EE_MULTI_TENANT
+  value: {{ .Values.enterprise.multiTenant | quote }}
 {{- end }}
 
 {{/*

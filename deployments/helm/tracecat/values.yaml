@@ -164,6 +164,8 @@ enterprise:
   # Enterprise-only feature flags (comma-separated).
   # These are appended to tracecat.featureFlags.
   featureFlags: ""
+  # Enable enterprise multi-tenant mode.
+  multiTenant: false
 
 ui:
   replicas: 1

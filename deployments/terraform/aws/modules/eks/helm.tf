@@ -718,6 +718,11 @@ resource "helm_release" "tracecat" {
     }
   }
 
+  set {
+    name  = "enterprise.multiTenant"
+    value = var.ee_multi_tenant
+  }
+
   depends_on = [
     aws_eks_node_group.tracecat,
     aws_eks_node_group.tracecat_spot,

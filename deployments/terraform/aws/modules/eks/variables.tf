@@ -438,3 +438,9 @@ variable "feature_flags" {
   type        = string
   default     = ""
 }
+
+variable "ee_multi_tenant" {
+  description = "Enable enterprise multi-tenant mode"
+  type        = bool
+  default     = false
+}
