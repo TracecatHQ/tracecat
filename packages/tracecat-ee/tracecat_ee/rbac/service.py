@@ -496,10 +496,8 @@ class RBACService(BaseOrgService):
         Returns:
             Created GroupRoleAssignment
         """
-        # Verify group exists
+        # Verify role and group exist
         await self.get_group(group_id)
-
-        # Verify role exists
         await self.get_role(role_id)
 
         # Verify workspace exists if provided

@@ -3376,7 +3376,7 @@ export type OrgMemberRead = {
   first_name: string | null
   last_name: string | null
   email: string
-  role: string | null
+  role: string
   is_active: boolean
   is_verified: boolean
   last_login_at: string | null

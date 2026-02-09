@@ -10515,14 +10515,7 @@ export const $OrgMemberRead = {
       title: "Email",
     },
     role: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Role",
     },
     is_active: {
