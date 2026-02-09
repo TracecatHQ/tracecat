@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo } from "react"
 import {
+  type AdminCreateOrganizationDomainResponse,
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
+  type AdminListOrganizationDomainsResponse,
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
@@ -12,14 +14,17 @@ import {
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserRead,
   adminCreateOrganization,
+  adminCreateOrganizationDomain,
   adminCreateTier,
   adminDeleteOrganization,
+  adminDeleteOrganizationDomain,
   adminDeleteTier,
   adminDemoteFromSuperuser,
   adminGetOrganization,
   adminGetOrgTier,
   adminGetRegistrySettings,
   adminGetTier,
+  adminListOrganizationDomains,
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
@@ -34,12 +39,16 @@ import {
   adminRegistrySyncRepository,
   adminSyncOrgRepository,
   adminUpdateOrganization,
+  adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
+  type OrgDomainCreate,
+  type OrgDomainRead,
+  type OrgDomainUpdate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
   type PlatformRegistrySettingsUpdate,
@@ -134,6 +143,74 @@ export function useAdminOrganization(orgId: string) {
     error,
     updateOrganization,
     updatePending,
+  }
+}
+
+export function useAdminOrgDomains(orgId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: domains,
+    isLoading,
+    error,
+  } = useQuery<AdminListOrganizationDomainsResponse>({
+    queryKey: ["admin", "organizations", orgId, "domains"],
+    queryFn: () => adminListOrganizationDomains({ orgId }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: createDomain, isPending: createPending } = useMutation<
+    AdminCreateOrganizationDomainResponse,
+    Error,
+    OrgDomainCreate
+  >({
+    mutationFn: (data) =>
+      adminCreateOrganizationDomain({ orgId, requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", orgId, "domains"],
+      })
+    },
+  })
+
+  const { mutateAsync: updateDomain, isPending: updatePending } = useMutation<
+    OrgDomainRead,
+    Error,
+    { domainId: string; data: OrgDomainUpdate }
+  >({
+    mutationFn: ({ domainId, data }) =>
+      adminUpdateOrganizationDomain({ orgId, domainId, requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", orgId, "domains"],
+      })
+    },
+  })
+
+  const { mutateAsync: deleteDomain, isPending: deletePending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: (domainId) =>
+      adminDeleteOrganizationDomain({ orgId, domainId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", orgId, "domains"],
+      })
+    },
+  })
+
+  return {
+    domains,
+    isLoading,
+    error,
+    createDomain,
+    createPending,
+    updateDomain,
+    updatePending,
+    deleteDomain,
+    deletePending,
   }
 }
 
