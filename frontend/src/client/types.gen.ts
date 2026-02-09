@@ -3213,6 +3213,38 @@ export type OrgCreate = {
 }
 
 /**
+ * Create organization domain request.
+ */
+export type OrgDomainCreate = {
+  domain: string
+  is_primary?: boolean
+}
+
+/**
+ * Organization domain response.
+ */
+export type OrgDomainRead = {
+  id: string
+  organization_id: string
+  domain: string
+  normalized_domain: string
+  is_primary: boolean
+  is_active: boolean
+  verified_at?: string | null
+  verification_method: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Update organization domain request.
+ */
+export type OrgDomainUpdate = {
+  is_primary?: boolean | null
+  is_active?: boolean | null
+}
+
+/**
  * Request body for accepting an organization invitation via token.
  */
 export type OrgInvitationAccept = {
@@ -7354,6 +7386,34 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminListOrganizationDomainsData = {
+  orgId: string
+}
+
+export type AdminListOrganizationDomainsResponse = Array<OrgDomainRead>
+
+export type AdminCreateOrganizationDomainData = {
+  orgId: string
+  requestBody: OrgDomainCreate
+}
+
+export type AdminCreateOrganizationDomainResponse = OrgDomainRead
+
+export type AdminUpdateOrganizationDomainData = {
+  domainId: string
+  orgId: string
+  requestBody: OrgDomainUpdate
+}
+
+export type AdminUpdateOrganizationDomainResponse = OrgDomainRead
+
+export type AdminDeleteOrganizationDomainData = {
+  domainId: string
+  orgId: string
+}
+
+export type AdminDeleteOrganizationDomainResponse = void
+
 export type AdminListOrgRepositoriesData = {
   orgId: string
 }
@@ -7407,6 +7467,15 @@ export type AdminCreateTierData = {
 }
 
 export type AdminCreateTierResponse = TierRead
+
+export type AdminListOrgTiersData = {
+  /**
+   * Optional list of organization IDs to filter results
+   */
+  orgIds?: Array<string> | null
+}
+
+export type AdminListOrgTiersResponse = Array<OrganizationTierRead>
 
 export type AdminGetTierData = {
   tierId: string
@@ -10570,6 +10639,62 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/organizations/{org_id}/domains": {
+    get: {
+      req: AdminListOrganizationDomainsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgDomainRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AdminCreateOrganizationDomainData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: OrgDomainRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/domains/{domain_id}": {
+    patch: {
+      req: AdminUpdateOrganizationDomainData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgDomainRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AdminDeleteOrganizationDomainData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/organizations/{org_id}/registry/repositories": {
     get: {
       req: AdminListOrgRepositoriesData
@@ -10674,6 +10799,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TierRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/tiers/organizations": {
+    get: {
+      req: AdminListOrgTiersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrganizationTierRead>
         /**
          * Validation Error
          */

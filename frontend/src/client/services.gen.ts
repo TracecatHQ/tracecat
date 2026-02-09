@@ -17,10 +17,14 @@ import type {
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
   AdminCreateOrganizationData,
+  AdminCreateOrganizationDomainData,
+  AdminCreateOrganizationDomainResponse,
   AdminCreateOrganizationResponse,
   AdminCreateTierData,
   AdminCreateTierResponse,
   AdminDeleteOrganizationData,
+  AdminDeleteOrganizationDomainData,
+  AdminDeleteOrganizationDomainResponse,
   AdminDeleteOrganizationResponse,
   AdminDeleteTierData,
   AdminDeleteTierResponse,
@@ -35,11 +39,15 @@ import type {
   AdminGetTierResponse,
   AdminGetUserData,
   AdminGetUserResponse,
+  AdminListOrganizationDomainsData,
+  AdminListOrganizationDomainsResponse,
   AdminListOrganizationsResponse,
   AdminListOrgRepositoriesData,
   AdminListOrgRepositoriesResponse,
   AdminListOrgRepositoryVersionsData,
   AdminListOrgRepositoryVersionsResponse,
+  AdminListOrgTiersData,
+  AdminListOrgTiersResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
@@ -62,6 +70,8 @@ import type {
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminUpdateOrganizationData,
+  AdminUpdateOrganizationDomainData,
+  AdminUpdateOrganizationDomainResponse,
   AdminUpdateOrganizationResponse,
   AdminUpdateOrgTierData,
   AdminUpdateOrgTierResponse,
@@ -4129,6 +4139,108 @@ export const adminDeleteOrganization = (
 }
 
 /**
+ * List Organization Domains
+ * List all assigned domains for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrganizationDomains = (
+  data: AdminListOrganizationDomainsData
+): CancelablePromise<AdminListOrganizationDomainsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/domains",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Organization Domain
+ * Create a new assigned domain for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.requestBody
+ * @returns OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const adminCreateOrganizationDomain = (
+  data: AdminCreateOrganizationDomainData
+): CancelablePromise<AdminCreateOrganizationDomainResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/domains",
+    path: {
+      org_id: data.orgId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Organization Domain
+ * Update active/primary state for an assigned organization domain.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.domainId
+ * @param data.requestBody
+ * @returns OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateOrganizationDomain = (
+  data: AdminUpdateOrganizationDomainData
+): CancelablePromise<AdminUpdateOrganizationDomainResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/organizations/{org_id}/domains/{domain_id}",
+    path: {
+      org_id: data.orgId,
+      domain_id: data.domainId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Organization Domain
+ * Delete an assigned organization domain.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.domainId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminDeleteOrganizationDomain = (
+  data: AdminDeleteOrganizationDomainData
+): CancelablePromise<AdminDeleteOrganizationDomainResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/organizations/{org_id}/domains/{domain_id}",
+    path: {
+      org_id: data.orgId,
+      domain_id: data.domainId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Org Repositories
  * List registry repositories for an organization.
  * @param data The data for the request.
@@ -4306,6 +4418,29 @@ export const adminCreateTier = (
     url: "/admin/tiers",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Org Tiers
+ * List tier assignments for organizations.
+ * @param data The data for the request.
+ * @param data.orgIds Optional list of organization IDs to filter results
+ * @returns OrganizationTierRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrgTiers = (
+  data: AdminListOrgTiersData = {}
+): CancelablePromise<AdminListOrgTiersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers/organizations",
+    query: {
+      org_ids: data.orgIds,
+    },
     errors: {
       422: "Validation Error",
     },
