@@ -31,6 +31,10 @@ terraform {
 
 locals {
   aws_role_arn = var.aws_role_name != null && var.aws_account_id != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
+  eks_get_token_args = concat(
+    ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region],
+    local.aws_role_arn != null ? ["--role-arn", local.aws_role_arn] : []
+  )
 }
 
 check "aws_role_requires_account_id" {
@@ -58,13 +62,23 @@ provider "aws" {
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  token                  = module.eks.cluster_auth_token
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = local.eks_get_token_args
+  }
 }
 
 provider "helm" {
   kubernetes {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    token                  = module.eks.cluster_auth_token
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = local.eks_get_token_args
+    }
   }
 }
