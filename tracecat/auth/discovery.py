@@ -44,7 +44,6 @@ class AuthDiscoverResponse(Schema):
 
 
 _SAML_SETTING_KEY: Final[str] = "saml_enabled"
-_GOOGLE_OAUTH_SETTING_KEY: Final[str] = "oauth_google_enabled"
 _BASIC_AUTH_SETTING_KEY: Final[str] = "auth_basic_enabled"
 
 
@@ -101,17 +100,11 @@ class AuthDiscoveryService(BaseService):
         return bool(value)
 
     async def _org_oidc_enabled(self, org_id: OrganizationID) -> bool:
-        if AuthType.OIDC in config.TRACECAT__AUTH_TYPES:
-            return True
-        if AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES:
-            value = await get_setting(
-                _GOOGLE_OAUTH_SETTING_KEY,
-                role=bootstrap_role(org_id),
-                session=self.session,
-                default=True,
-            )
-            return bool(value)
-        return False
+        del org_id
+        return (
+            AuthType.OIDC in config.TRACECAT__AUTH_TYPES
+            or AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES
+        )
 
     async def _org_basic_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:

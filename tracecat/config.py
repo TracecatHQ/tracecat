@@ -106,16 +106,35 @@ TRACECAT__AUTH_MIN_PASSWORD_LENGTH = int(
 TRACECAT__AUTH_SUPERADMIN_EMAIL = os.environ.get("TRACECAT__AUTH_SUPERADMIN_EMAIL")
 """Email address that is allowed to become the first superuser. If not set, the first user logic is disabled for security."""
 
-# OAuth Login Flow
-# Used for both Google OAuth2 and OIDC flows
-OAUTH_CLIENT_ID = (
-    os.environ.get("OAUTH_CLIENT_ID") or os.environ.get("GOOGLE_OAUTH_CLIENT_ID") or ""
+# OIDC Login Flow
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip().rstrip("/")
+"""OIDC issuer URL (without trailing slash). If unset, legacy Google OAuth client is used."""
+
+OIDC_CLIENT_ID = (
+    os.environ.get("OIDC_CLIENT_ID")
+    or os.environ.get("OAUTH_CLIENT_ID")
+    or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+    or ""
 )
-OAUTH_CLIENT_SECRET = (
-    os.environ.get("OAUTH_CLIENT_SECRET")
+OIDC_CLIENT_SECRET = (
+    os.environ.get("OIDC_CLIENT_SECRET")
+    or os.environ.get("OAUTH_CLIENT_SECRET")
     or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
     or ""
 )
+OIDC_SCOPES = tuple(
+    scope
+    for scope in (
+        os.environ.get("OIDC_SCOPES", "openid profile email")
+        .replace(",", " ")
+        .split()
+    )
+    if scope
+)
+
+# Backward-compatible aliases for legacy config names.
+OAUTH_CLIENT_ID = OIDC_CLIENT_ID
+OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
