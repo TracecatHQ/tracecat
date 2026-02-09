@@ -58,6 +58,8 @@ class Role(BaseModel):
     service_id: InternalServiceID = Field(frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
+    scopes: frozenset[str] = Field(default=frozenset(), frozen=True)
+    """Effective scopes for this role. Computed during authentication."""
 
     @property
     def is_superuser(self) -> bool:
@@ -97,6 +99,8 @@ class Role(BaseModel):
             headers["x-tracecat-role-workspace-role"] = self.workspace_role.value
         if self.org_role is not None:
             headers["x-tracecat-role-org-role"] = self.org_role.value
+        if self.scopes:
+            headers["x-tracecat-role-scopes"] = ",".join(sorted(self.scopes))
         return headers
 
 
@@ -127,5 +131,5 @@ def system_role() -> Role:
         type="service",
         service_id="tracecat-api",
         access_level=AccessLevel.ADMIN,
-        is_platform_superuser=True,
+        scopes=frozenset({"*"}),
     )

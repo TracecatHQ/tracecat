@@ -557,7 +557,11 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     org_role_result = MagicMock()
     org_role_result.scalar_one_or_none.return_value = None
 
-    mock_session.execute.side_effect = [org_result, org_role_result]
+    # Third call: compute_effective_scopes query returns empty scopes
+    scopes_result = MagicMock()
+    scopes_result.scalars.return_value.all.return_value = []
+
+    mock_session.execute.side_effect = [org_result, org_role_result, scopes_result]
 
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
