@@ -23,7 +23,6 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
-  type AuthSettingsRead,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
@@ -135,7 +134,6 @@ import {
   mcpIntegrationsListMcpIntegrations,
   mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
-  type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
@@ -190,9 +188,7 @@ import {
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
-  type SettingsUpdateAuthSettingsData,
   type SettingsUpdateGitSettingsData,
-  type SettingsUpdateOauthSettingsData,
   type SettingsUpdateSamlSettingsData,
   schedulesCreateSchedule,
   schedulesDeleteSchedule,
@@ -206,16 +202,12 @@ import {
   settingsGetAgentSettings,
   settingsGetAppSettings,
   settingsGetAuditSettings,
-  settingsGetAuthSettings,
   settingsGetGitSettings,
-  settingsGetOauthSettings,
   settingsGetSamlSettings,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
-  settingsUpdateAuthSettings,
   settingsUpdateGitSettings,
-  settingsUpdateOauthSettings,
   settingsUpdateSamlSettings,
   type TableRead,
   type TableReadMinimal,
@@ -335,8 +327,6 @@ interface AppInfo {
   version: string
   public_app_url: string
   auth_allowed_types: string[]
-  auth_basic_enabled: boolean
-  oauth_google_enabled: boolean
   saml_enabled: boolean
   ee_multi_tenant: boolean
 }
@@ -2917,122 +2907,6 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
-  }
-}
-
-export function useOrgAuthSettings() {
-  const queryClient = useQueryClient()
-
-  // Get Auth settings
-  const {
-    data: authSettings,
-    isLoading: authSettingsIsLoading,
-    error: authSettingsError,
-  } = useQuery<AuthSettingsRead>({
-    queryKey: ["org-auth-settings"],
-    queryFn: async () => await settingsGetAuthSettings(),
-  })
-
-  // Update Auth settings
-  const {
-    mutateAsync: updateAuthSettings,
-    isPending: updateAuthSettingsIsPending,
-    error: updateAuthSettingsError,
-  } = useMutation({
-    mutationFn: async (params: SettingsUpdateAuthSettingsData) =>
-      await settingsUpdateAuthSettings(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-auth-settings"] })
-      toast({
-        title: "Updated authentication settings",
-        description: "Authentication settings updated successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Failed to update authentication settings", error)
-          toast({
-            title: "Failed to update authentication settings",
-            description: `An error occurred while updating the authentication settings: ${error.body.detail}`,
-          })
-      }
-    },
-  })
-
-  return {
-    // Get
-    authSettings,
-    authSettingsIsLoading,
-    authSettingsError,
-    // Update
-    updateAuthSettings,
-    updateAuthSettingsIsPending,
-    updateAuthSettingsError,
-  }
-}
-
-export function useOrgOAuthSettings() {
-  const queryClient = useQueryClient()
-
-  // Get OAuth settings
-  const {
-    data: oauthSettings,
-    isLoading: oauthSettingsIsLoading,
-    error: oauthSettingsError,
-  } = useQuery<OAuthSettingsRead>({
-    queryKey: ["org-oauth-settings"],
-    queryFn: async () => await settingsGetOauthSettings(),
-  })
-
-  // Update OAuth settings
-  const {
-    mutateAsync: updateOAuthSettings,
-    isPending: updateOAuthSettingsIsPending,
-    error: updateOAuthSettingsError,
-  } = useMutation({
-    mutationFn: async (params: SettingsUpdateOauthSettingsData) =>
-      await settingsUpdateOauthSettings(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-oauth-settings"] })
-      toast({
-        title: "Updated OAuth settings",
-        description: "OAuth settings updated successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Failed to update OAuth settings", error)
-          toast({
-            title: "Failed to update OAuth settings",
-            description: `An error occurred while updating the OAuth settings: ${error.body.detail}`,
-          })
-      }
-    },
-  })
-
-  return {
-    // Get
-    oauthSettings,
-    oauthSettingsIsLoading,
-    oauthSettingsError,
-    // Update
-    updateOAuthSettings,
-    updateOAuthSettingsIsPending,
-    updateOAuthSettingsError,
   }
 }
 

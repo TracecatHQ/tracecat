@@ -802,37 +802,6 @@ export type AuthDiscoverResponse = {
  */
 export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
 
-export type AuthSettingsRead = {
-  auth_basic_enabled: boolean
-  auth_require_email_verification: boolean
-  auth_allowed_email_domains: Array<string>
-  auth_min_password_length: number
-  auth_session_expire_time_seconds: number
-}
-
-export type AuthSettingsUpdate = {
-  /**
-   * Whether basic auth is enabled.
-   */
-  auth_basic_enabled?: boolean
-  /**
-   * Whether email verification is required for authentication.
-   */
-  auth_require_email_verification?: boolean
-  /**
-   * Allowed email domains for authentication. If empty, all domains are allowed.
-   */
-  auth_allowed_email_domains?: Array<string>
-  /**
-   * Minimum password length for authentication.
-   */
-  auth_min_password_length?: number
-  /**
-   * Session expiration time in seconds.
-   */
-  auth_session_expire_time_seconds?: number
-}
-
 /**
  * Batch update for action and trigger positions.
  */
@@ -3205,23 +3174,6 @@ export type OAuth2AuthorizeResponse = {
  * Grant type for OAuth 2.0.
  */
 export type OAuthGrantType = "authorization_code" | "client_credentials"
-
-/**
- * Settings for OAuth authentication.
- */
-export type OAuthSettingsRead = {
-  oauth_google_enabled: boolean
-}
-
-/**
- * Settings for OAuth authentication.
- */
-export type OAuthSettingsUpdate = {
-  /**
-   * Whether OAuth is enabled.
-   */
-  oauth_google_enabled?: boolean
-}
 
 /**
  * Create organization request.
@@ -7789,22 +7741,6 @@ export type SettingsUpdateSamlSettingsData = {
 
 export type SettingsUpdateSamlSettingsResponse = void
 
-export type SettingsGetAuthSettingsResponse = AuthSettingsRead
-
-export type SettingsUpdateAuthSettingsData = {
-  requestBody: AuthSettingsUpdate
-}
-
-export type SettingsUpdateAuthSettingsResponse = void
-
-export type SettingsGetOauthSettingsResponse = OAuthSettingsRead
-
-export type SettingsUpdateOauthSettingsData = {
-  requestBody: OAuthSettingsUpdate
-}
-
-export type SettingsUpdateOauthSettingsResponse = void
-
 export type SettingsGetAppSettingsResponse = AppSettingsRead
 
 export type SettingsUpdateAppSettingsData = {
@@ -11450,52 +11386,6 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateSamlSettingsData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/settings/auth": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AuthSettingsRead
-      }
-    }
-    patch: {
-      req: SettingsUpdateAuthSettingsData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/settings/oauth": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OAuthSettingsRead
-      }
-    }
-    patch: {
-      req: SettingsUpdateOauthSettingsData
       res: {
         /**
          * Successful Response

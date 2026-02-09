@@ -2980,83 +2980,6 @@ export const $AuthDiscoveryMethod = {
   description: "Authentication method hint for client-side routing.",
 } as const
 
-export const $AuthSettingsRead = {
-  properties: {
-    auth_basic_enabled: {
-      type: "boolean",
-      title: "Auth Basic Enabled",
-    },
-    auth_require_email_verification: {
-      type: "boolean",
-      title: "Auth Require Email Verification",
-    },
-    auth_allowed_email_domains: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Auth Allowed Email Domains",
-    },
-    auth_min_password_length: {
-      type: "integer",
-      title: "Auth Min Password Length",
-    },
-    auth_session_expire_time_seconds: {
-      type: "integer",
-      title: "Auth Session Expire Time Seconds",
-    },
-  },
-  type: "object",
-  required: [
-    "auth_basic_enabled",
-    "auth_require_email_verification",
-    "auth_allowed_email_domains",
-    "auth_min_password_length",
-    "auth_session_expire_time_seconds",
-  ],
-  title: "AuthSettingsRead",
-} as const
-
-export const $AuthSettingsUpdate = {
-  properties: {
-    auth_basic_enabled: {
-      type: "boolean",
-      title: "Auth Basic Enabled",
-      description: "Whether basic auth is enabled.",
-      default: true,
-    },
-    auth_require_email_verification: {
-      type: "boolean",
-      title: "Auth Require Email Verification",
-      description: "Whether email verification is required for authentication.",
-      default: false,
-    },
-    auth_allowed_email_domains: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Auth Allowed Email Domains",
-      description:
-        "Allowed email domains for authentication. If empty, all domains are allowed.",
-    },
-    auth_min_password_length: {
-      type: "integer",
-      title: "Auth Min Password Length",
-      description: "Minimum password length for authentication.",
-      default: 12,
-    },
-    auth_session_expire_time_seconds: {
-      type: "integer",
-      title: "Auth Session Expire Time Seconds",
-      description: "Session expiration time in seconds.",
-      default: 604800,
-    },
-  },
-  type: "object",
-  title: "AuthSettingsUpdate",
-} as const
-
 export const $BatchPositionUpdate = {
   properties: {
     actions: {
@@ -9935,33 +9858,6 @@ export const $OAuthGrantType = {
   enum: ["authorization_code", "client_credentials"],
   title: "OAuthGrantType",
   description: "Grant type for OAuth 2.0.",
-} as const
-
-export const $OAuthSettingsRead = {
-  properties: {
-    oauth_google_enabled: {
-      type: "boolean",
-      title: "Oauth Google Enabled",
-    },
-  },
-  type: "object",
-  required: ["oauth_google_enabled"],
-  title: "OAuthSettingsRead",
-  description: "Settings for OAuth authentication.",
-} as const
-
-export const $OAuthSettingsUpdate = {
-  properties: {
-    oauth_google_enabled: {
-      type: "boolean",
-      title: "Oauth Google Enabled",
-      description: "Whether OAuth is enabled.",
-      default: true,
-    },
-  },
-  type: "object",
-  title: "OAuthSettingsUpdate",
-  description: "Settings for OAuth authentication.",
 } as const
 
 export const $OrgCreate = {

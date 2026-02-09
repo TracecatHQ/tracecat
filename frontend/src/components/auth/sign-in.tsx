@@ -55,10 +55,10 @@ export function SignIn({ className, returnUrl }: SignInProps) {
   }
 
   const allowedAuthTypes: string[] = appInfo?.auth_allowed_types ?? []
-  const showBasicAuth =
-    allowedAuthTypes.includes("basic") && appInfo?.auth_basic_enabled
-  const showGoogleOauthAuth =
-    allowedAuthTypes.includes("google_oauth") && appInfo?.oauth_google_enabled
+  const showBasicAuth = allowedAuthTypes.includes("basic")
+  const showOidcAuth =
+    allowedAuthTypes.includes("oidc") ||
+    allowedAuthTypes.includes("google_oauth")
   const showSamlAuth =
     allowedAuthTypes.includes("saml") && appInfo?.saml_enabled
   return (
@@ -78,7 +78,7 @@ export function SignIn({ className, returnUrl }: SignInProps) {
         </CardHeader>
         <CardContent className="flex-col space-y-2">
           {showBasicAuth && <BasicLoginForm />}
-          {showBasicAuth && (showGoogleOauthAuth || showSamlAuth) && (
+          {showBasicAuth && (showOidcAuth || showSamlAuth) && (
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
@@ -90,7 +90,7 @@ export function SignIn({ className, returnUrl }: SignInProps) {
               </div>
             </div>
           )}
-          {showGoogleOauthAuth && (
+          {showOidcAuth && (
             <GoogleOAuthButton className="w-full" returnUrl={returnUrl} />
           )}
           {showSamlAuth && (
