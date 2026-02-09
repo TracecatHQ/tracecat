@@ -26,6 +26,7 @@ import { useAppInfo, useOrgSamlSettings } from "@/lib/hooks"
 
 const ssoFormSchema = z.object({
   saml_enabled: z.boolean(),
+  saml_enforced: z.boolean(),
   saml_idp_metadata_url: z.string().url().nullish(),
   saml_sp_acs_url: z.string().url().nullish(),
 })
@@ -45,6 +46,7 @@ export function OrgSettingsSsoForm() {
     resolver: zodResolver(ssoFormSchema),
     values: {
       saml_enabled: samlSettings?.saml_enabled ?? false,
+      saml_enforced: samlSettings?.saml_enforced ?? false,
       saml_idp_metadata_url: samlSettings?.saml_idp_metadata_url,
       saml_sp_acs_url: samlSettings?.saml_sp_acs_url,
     },
@@ -59,6 +61,7 @@ export function OrgSettingsSsoForm() {
     try {
       await updateSamlSettings({
         requestBody: {
+          saml_enforced: data.saml_enforced,
           saml_idp_metadata_url: data.saml_idp_metadata_url,
           ...conditional,
         },
@@ -113,6 +116,27 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={methods.control}
+          name="saml_enforced"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Enforce SAML SSO</FormLabel>
+                <FormDescription>
+                  When enabled, users in this org can only sign in with SAML.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={!methods.watch("saml_enabled")}
                 />
               </FormControl>
             </FormItem>

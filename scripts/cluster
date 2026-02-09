@@ -254,9 +254,9 @@ build_env() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
 
-    # URLs that depend on ports
-    local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
-    local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
+    # URLs that depend on ports. Allow explicit env overrides (e.g. ngrok).
+    local PUBLIC_APP_URL="${PUBLIC_APP_URL:-http://localhost:${PUBLIC_APP_PORT}}"
+    local PUBLIC_API_URL="${PUBLIC_API_URL:-${PUBLIC_APP_URL%/}/api}"
 
     # Export all variables (include worktree ID for isolation)
     export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
@@ -276,7 +276,7 @@ build_env() {
     export TRACECAT__PUBLIC_APP_URL="${PUBLIC_APP_URL}"
     export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
     export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
-    export NEXT_PUBLIC_API_URL="http://localhost:${PUBLIC_APP_PORT}/api"
+    export NEXT_PUBLIC_API_URL="${PUBLIC_API_URL}"
 
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"

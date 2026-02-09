@@ -3068,6 +3068,17 @@ export const $AuthDiscoverRequest = {
       format: "email",
       title: "Email",
     },
+    org: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Org",
+    },
   },
   type: "object",
   required: ["email"],
@@ -3079,6 +3090,28 @@ export const $AuthDiscoverResponse = {
   properties: {
     method: {
       $ref: "#/components/schemas/AuthDiscoveryMethod",
+    },
+    next_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Url",
+    },
+    organization_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Slug",
     },
   },
   type: "object",

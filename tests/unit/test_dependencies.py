@@ -1,9 +1,21 @@
 import pytest
 from fastapi import HTTPException, status
 from pytest_mock import MockerFixture
+from starlette.requests import Request
 
 from tracecat.auth.dependencies import require_auth_type_enabled, verify_auth_type
 from tracecat.auth.enums import AuthType
+
+
+def make_request(path: str = "/auth/login?org=default") -> Request:
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": path.split("?")[0],
+        "query_string": (path.split("?", 1)[1] if "?" in path else "").encode(),
+        "headers": [],
+    }
+    return Request(scope)
 
 
 @pytest.mark.anyio
@@ -36,7 +48,7 @@ async def test_verify_auth_type_not_allowed(
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", allowed_types)
 
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(target_type)
+        await verify_auth_type(target_type, make_request())
 
     assert exc.value.status_code == status.HTTP_403_FORBIDDEN
     assert exc.value.detail == "Auth type not allowed"
@@ -49,8 +61,13 @@ async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
     mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=False)
 
+    mocker.patch(
+        "tracecat.auth.dependencies.resolve_auth_organization_id",
+        return_value="00000000-0000-0000-0000-000000000000",
+    )
+
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(AuthType.SAML)
+        await verify_auth_type(AuthType.SAML, make_request())
 
     assert exc.value.status_code == status.HTTP_403_FORBIDDEN
     assert exc.value.detail == f"Auth type {AuthType.SAML.value} is not enabled"
@@ -60,11 +77,15 @@ async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
 async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
     """Test that invalid settings raise HTTPException."""
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
-    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=None)
 
+    mocker.patch(
+        "tracecat.auth.dependencies.resolve_auth_organization_id",
+        return_value="00000000-0000-0000-0000-000000000000",
+    )
+
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(AuthType.SAML)
+        await verify_auth_type(AuthType.SAML, make_request())
 
     assert exc.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert exc.value.detail == "Invalid setting configuration"
@@ -73,12 +94,39 @@ async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
 @pytest.mark.anyio
 async def test_verify_auth_type_success(mocker: MockerFixture):
     """Test successful auth type verification."""
-    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
     mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
-    mocker.patch("tracecat.auth.dependencies.get_setting", return_value=True)
+    mocker.patch(
+        "tracecat.auth.dependencies.get_setting",
+        return_value=False,  # saml_enforced disabled
+    )
+
+    mocker.patch(
+        "tracecat.auth.dependencies.resolve_auth_organization_id",
+        return_value="00000000-0000-0000-0000-000000000000",
+    )
 
     # Should not raise any exceptions
-    await verify_auth_type(AuthType.SAML)
+    await verify_auth_type(AuthType.BASIC, make_request())
+
+
+@pytest.mark.anyio
+async def test_verify_auth_type_non_saml_blocked_when_saml_enforced(
+    mocker: MockerFixture,
+) -> None:
+    """When SAML is enforced for org, basic auth is blocked."""
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
+    mocker.patch("tracecat.auth.dependencies.get_setting", return_value=True)
+    mocker.patch(
+        "tracecat.auth.dependencies.resolve_auth_organization_id",
+        return_value="00000000-0000-0000-0000-000000000000",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await verify_auth_type(AuthType.BASIC, make_request())
+
+    assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc.value.detail == "SAML authentication is enforced for this organization"
 
 
 @pytest.mark.parametrize(
@@ -89,10 +137,17 @@ async def test_verify_auth_type_success(mocker: MockerFixture):
 async def test_verify_auth_type_oidc_is_platform_controlled(
     mocker: MockerFixture, auth_type: AuthType
 ) -> None:
-    """OIDC-style auth availability should not read org-level settings."""
+    """OIDC-style auth availability should not read auth-type enable settings."""
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [auth_type])
-    get_setting_mock = mocker.patch("tracecat.auth.dependencies.get_setting")
+    get_setting_mock = mocker.patch(
+        "tracecat.auth.dependencies.get_setting",
+        return_value=False,
+    )
+    mocker.patch(
+        "tracecat.auth.dependencies.resolve_auth_organization_id",
+        return_value="00000000-0000-0000-0000-000000000000",
+    )
 
-    await verify_auth_type(auth_type)
+    await verify_auth_type(auth_type, make_request())
 
-    get_setting_mock.assert_not_called()
+    get_setting_mock.assert_called_once()

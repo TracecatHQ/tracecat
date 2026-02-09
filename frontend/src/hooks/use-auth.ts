@@ -5,29 +5,50 @@ import { useRouter } from "next/navigation"
 import { useCallback } from "react"
 import {
   type ApiError,
-  type AuthAuthDatabaseLoginData,
-  authAuthDatabaseLogin,
   authAuthDatabaseLogout,
   authRegisterRegister,
 } from "@/client"
 import { authConfig } from "@/config/auth"
+import { getBaseUrl } from "@/lib/api"
 import { getCurrentUser, User } from "@/lib/auth"
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
 
-export function useAuthActions() {
+export function useAuthActions(orgSlug?: string | null) {
   const queryClient = useQueryClient()
   const router = useRouter()
 
   const login = useCallback(
-    async (data: AuthAuthDatabaseLoginData) => {
-      const loginResponse = await authAuthDatabaseLogin(data)
+    async (data: { formData: { username: string; password: string } }) => {
+      const params = new URLSearchParams()
+      if (orgSlug) {
+        params.set("org", orgSlug)
+      }
+
+      const body = new URLSearchParams()
+      body.set("username", data.formData.username)
+      body.set("password", data.formData.password)
+
+      const response = await fetch(
+        `${getBaseUrl()}/auth/login${params.toString() ? `?${params.toString()}` : ""}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: body.toString(),
+        }
+      )
+      if (!response.ok) {
+        throw new Error("Login failed")
+      }
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })
-      return loginResponse
+      return undefined
     },
-    [queryClient]
+    [orgSlug, queryClient]
   )
 
   const logout = useCallback(

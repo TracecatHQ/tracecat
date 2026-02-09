@@ -371,6 +371,7 @@ interface AppInfo {
   public_app_url: string
   auth_allowed_types: string[]
   saml_enabled: boolean
+  saml_enforced: boolean
   ee_multi_tenant: boolean
 }
 
@@ -378,15 +379,21 @@ export type WorkspaceSecretListItem = SecretReadMinimal & {
   is_corrupted?: boolean
 }
 
-export function useAppInfo() {
+export function useAppInfo(orgSlug?: string | null) {
   const {
     data: appInfo,
     isLoading: appInfoIsLoading,
     error: appInfoError,
   } = useQuery<AppInfo, Error>({
-    queryKey: ["app-info"],
+    queryKey: ["app-info", orgSlug ?? null],
     queryFn: async () => {
-      const resp = await fetch(`${getBaseUrl()}/info`)
+      const params = new URLSearchParams()
+      if (orgSlug) {
+        params.set("org", orgSlug)
+      }
+      const resp = await fetch(
+        `${getBaseUrl()}/info${params.toString() ? `?${params.toString()}` : ""}`
+      )
       try {
         return await resp.json()
       } catch (_error) {

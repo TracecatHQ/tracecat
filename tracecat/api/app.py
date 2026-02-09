@@ -39,6 +39,7 @@ from tracecat.auth.dependencies import (
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
+from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -486,21 +487,25 @@ def create_app(**kwargs) -> FastAPI:
             fastapi_users.get_auth_router(auth_backend),
             prefix="/auth",
             tags=["auth"],
+            dependencies=[require_auth_type_enabled(AuthType.BASIC)],
         )
         app.include_router(
             fastapi_users.get_register_router(UserRead, UserCreate),
             prefix="/auth",
             tags=["auth"],
+            dependencies=[require_auth_type_enabled(AuthType.BASIC)],
         )
         app.include_router(
             fastapi_users.get_reset_password_router(),
             prefix="/auth",
             tags=["auth"],
+            dependencies=[require_auth_type_enabled(AuthType.BASIC)],
         )
         app.include_router(
             fastapi_users.get_verify_router(UserRead),
             prefix="/auth",
             tags=["auth"],
+            dependencies=[require_auth_type_enabled(AuthType.BASIC)],
         )
 
     if oidc_auth_type_enabled():
@@ -601,17 +606,22 @@ class AppInfo(BaseModel):
     public_app_url: str
     auth_allowed_types: list[AuthType]
     saml_enabled: bool
+    saml_enforced: bool
     ee_multi_tenant: bool
 
 
 @app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSession) -> AppInfo:
+async def info(request: Request, session: AsyncDBSession) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
-    keys = {"saml_enabled"}
+    keys = {"saml_enabled", "saml_enforced"}
 
-    # Get the default organization for platform-level settings
-    org_id = await get_default_organization_id(session)
+    # Resolve organization-specific auth settings. Fall back to default org if
+    # caller didn't provide org context.
+    try:
+        org_id = await resolve_auth_organization_id(request, session=session)
+    except HTTPException:
+        org_id = await get_default_organization_id(session)
     service = SettingsService(session, role=bootstrap_role(org_id))
     settings = await service.list_org_settings(keys=keys)
     keyvalues = {s.key: service.get_value(s) for s in settings}
@@ -622,6 +632,7 @@ async def info(session: AsyncDBSession) -> AppInfo:
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
         saml_enabled=keyvalues["saml_enabled"],
+        saml_enforced=keyvalues["saml_enforced"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
     )
 

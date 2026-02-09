@@ -816,6 +816,7 @@ export type AuditSettingsUpdate = {
  */
 export type AuthDiscoverRequest = {
   email: string
+  org?: string | null
 }
 
 /**
@@ -823,6 +824,8 @@ export type AuthDiscoverRequest = {
  */
 export type AuthDiscoverResponse = {
   method: AuthDiscoveryMethod
+  next_url?: string | null
+  organization_slug?: string | null
 }
 
 /**

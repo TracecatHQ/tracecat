@@ -120,7 +120,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
             )
 
-    async def validate_email(self, email: str) -> None:
+    async def validate_email(
+        self, email: str, *, organization_id: uuid.UUID | None = None
+    ) -> None:
         # Check if this is attempting to be the first user (superadmin)
         async with get_async_session_context_manager() as session:
             users = await list_users(session=session)
@@ -396,6 +398,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self,
         *,
         email: str,
+        organization_id: uuid.UUID | None = None,
         associate_by_email: bool = True,
         is_verified_by_default: bool = True,
     ) -> User:
@@ -407,7 +410,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
         :return: A user.
         """
-        await self.validate_email(email)
+        await self.validate_email(email, organization_id=organization_id)
         try:
             user = await self.get_by_email(email)
             if not associate_by_email:
