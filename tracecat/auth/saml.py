@@ -2,6 +2,7 @@ import base64
 import os
 import secrets
 import tempfile
+import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -17,9 +18,11 @@ from saml2.config import Config as Saml2Config
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.api.common import bootstrap_role
+from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.dependencies import ServiceRole
+from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
+from tracecat.authz.enums import OrgRole
 from tracecat.config import (
     SAML_ACCEPTED_TIME_DIFF,
     SAML_ALLOW_UNSOLICITED,
@@ -36,8 +39,14 @@ from tracecat.config import (
     XMLSEC_BINARY_PATH,
 )
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import SAMLRequestData
+from tracecat.db.models import (
+    OrganizationDomain,
+    OrganizationMembership,
+    SAMLRequestData,
+)
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
@@ -208,32 +217,73 @@ def metadata_cert_tempfile(metadata_cert_data: bytes):
                 pass
 
 
-async def create_saml_client() -> Saml2Client:
-    role = bootstrap_role()
+def build_relay_state(organization_id: OrganizationID) -> str:
+    """Encode organization context directly into RelayState."""
+    token = secrets.token_urlsafe(32)
+    return f"{organization_id}:{token}"
 
-    # In single-tenant mode, prefer explicit environment configuration over
-    # encrypted DB settings to support self-hosted deployments and safe fallback.
-    if not TRACECAT__EE_MULTI_TENANT and SAML_IDP_METADATA_URL:
-        saml_idp_metadata_url = SAML_IDP_METADATA_URL
-    else:
-        saml_idp_metadata_url = await get_setting(
-            "saml_idp_metadata_url",
-            role=role,
-            default=SAML_IDP_METADATA_URL,
-        )
-    if not saml_idp_metadata_url:
+
+def parse_relay_state_org_id(relay_state: str) -> OrganizationID | None:
+    """Extract org ID from RelayState if present."""
+    prefix, _, _ = relay_state.partition(":")
+    if not prefix:
+        return None
+    try:
+        return uuid.UUID(prefix)
+    except ValueError:
+        return None
+
+
+async def get_org_saml_metadata_url(
+    session: AsyncSession, organization_id: OrganizationID
+) -> str:
+    """Load per-org SAML metadata URL with backward-compatible default."""
+    value = await get_setting(
+        "saml_idp_metadata_url",
+        role=bootstrap_role(organization_id),
+        session=session,
+        default=SAML_IDP_METADATA_URL,
+    )
+    if not value:
         logger.error("SAML SSO metadata URL has not been configured")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication service not configured",
         )
-    if not isinstance(saml_idp_metadata_url, str):
+    if not isinstance(value, str):
         logger.error("SAML SSO metadata URL is not a string")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid configuration",
         )
+    return value
 
+
+async def should_allow_email_for_org(
+    session: AsyncSession, organization_id: OrganizationID, email: str
+) -> bool:
+    """Apply org-domain allowlist when active domains are configured."""
+    if "@" not in email:
+        return False
+    raw_domain = email.split("@", 1)[1].strip().lower()
+    try:
+        normalized_domain = normalize_domain(raw_domain).normalized_domain
+    except ValueError:
+        return False
+
+    domains_stmt = select(OrganizationDomain.normalized_domain).where(
+        OrganizationDomain.organization_id == organization_id,
+        OrganizationDomain.is_active.is_(True),
+    )
+    active_domains = set((await session.execute(domains_stmt)).scalars().all())
+    if not active_domains:
+        return True
+    return normalized_domain in active_domains
+
+
+async def create_saml_client(
+    saml_idp_metadata_url: str,
+) -> Saml2Client:
     # Handle SSL certificate configuration for self-signed certificates
     saml_settings = {
         "strict": True,
@@ -351,13 +401,16 @@ async def create_saml_client() -> Saml2Client:
 
 @router.get("/login", name=f"saml:{auth_backend.name}.login")
 async def login(
-    client: Annotated[Saml2Client, Depends(create_saml_client)],
+    request: Request,
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
+    organization_id = await resolve_auth_organization_id(request, session=db_session)
+    saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
+    client = await create_saml_client(saml_idp_metadata_url)
 
-    # Generate a unique relay state
-    relay_state = secrets.token_urlsafe(32)
+    # Encode org context into relay state so ACS can resolve org-scoped config.
+    relay_state = build_relay_state(organization_id)
 
     # Prepare the authentication request
     req_id, info = client.prepare_for_authenticate(relay_state=relay_state)
@@ -397,7 +450,6 @@ async def sso_acs(
     relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
-    client: Annotated[Saml2Client, Depends(create_saml_client)],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
     role: ServiceRole,
 ) -> Response:
@@ -417,7 +469,31 @@ async def sso_acs(
     logger.info(f"Configured SAML ACS URL: {SAML_PUBLIC_ACS_URL}")
     logger.info(f"Received RelayState: '{relay_state}' (type: {type(relay_state)})")
 
-    # Retrieve all stored SAML requests to populate outstanding_queries
+    organization_id = parse_relay_state_org_id(relay_state)
+    if organization_id is None:
+        logger.warning(
+            "RelayState missing org prefix; using default organization fallback"
+        )
+        organization_id = await get_default_organization_id(db_session)
+
+    relay_lookup_stmt = select(SAMLRequestData.id).where(
+        SAMLRequestData.relay_state == relay_state,
+        SAMLRequestData.expires_at > datetime.now(UTC),
+    )
+    matched_request_id = (
+        await db_session.execute(relay_lookup_stmt)
+    ).scalar_one_or_none()
+    if matched_request_id is None:
+        logger.error("Unknown or expired SAML relay state")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authentication failed",
+        )
+
+    saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
+    client = await create_saml_client(saml_idp_metadata_url)
+
+    # Retrieve stored SAML requests to populate outstanding_queries.
     stmt = select(SAMLRequestData)
     result = await db_session.execute(stmt)
     stored_requests = result.scalars().all()
@@ -558,11 +634,19 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
+    if not await should_allow_email_for_org(db_session, organization_id, email):
+        logger.warning("SAML login denied by org domain allowlist")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authentication failed",
+        )
+
     logger.info("SAML authentication successful")
 
     try:
         user = await user_manager.saml_callback(
             email=email,
+            organization_id=organization_id,
             associate_by_email=True,
             is_verified_by_default=True,
         )
@@ -579,6 +663,24 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
+
+    # Ensure user belongs to this organization (JIT membership provisioning).
+    membership_stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
+        OrganizationMembership.organization_id == organization_id,
+    )
+    existing_membership = (
+        await db_session.execute(membership_stmt)
+    ).scalar_one_or_none()
+    if existing_membership is None:
+        db_session.add(
+            OrganizationMembership(
+                user_id=user.id,  # pyright: ignore[reportArgumentType]
+                organization_id=organization_id,
+                role=OrgRole.MEMBER,
+            )
+        )
+        await db_session.commit()
 
     response = await auth_backend.login(strategy, user)
     await user_manager.on_after_login(user, request, response)
