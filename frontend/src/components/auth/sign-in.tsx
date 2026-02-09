@@ -90,8 +90,12 @@ export function SignIn({ className, returnUrl }: SignInProps) {
               </div>
             </div>
           )}
-          {showGoogleOauthAuth && <GoogleOAuthButton className="w-full" />}
-          {showSamlAuth && <SamlSSOButton className="w-full" />}
+          {showGoogleOauthAuth && (
+            <GoogleOAuthButton className="w-full" returnUrl={returnUrl} />
+          )}
+          {showSamlAuth && (
+            <SamlSSOButton className="w-full" returnUrl={returnUrl} />
+          )}
           {/* <GithubOAuthButton disabled className="hover:cur" /> */}
         </CardContent>
         {showBasicAuth && (

@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+import {
+  decodeAndSanitizeReturnUrl,
+  POST_AUTH_RETURN_URL_COOKIE_NAME,
+  serializeClearPostAuthReturnUrlCookie,
+} from "@/lib/auth-return-url"
 import { buildUrl } from "@/lib/ss-utils"
 
 /**
@@ -10,9 +15,22 @@ export const GET = async (request: NextRequest) => {
   console.log("GET /auth/oauth/callback")
   const url = new URL(buildUrl("/auth/oauth/callback"))
   url.search = request.nextUrl.search
+  const returnUrl = decodeAndSanitizeReturnUrl(
+    request.cookies.get(POST_AUTH_RETURN_URL_COOKIE_NAME)?.value
+  )
 
-  const response = await fetch(url.toString())
+  const incomingCookie = request.headers.get("cookie")
+  const response = await fetch(url.toString(), {
+    headers: incomingCookie ? { cookie: incomingCookie } : undefined,
+    cache: "no-store",
+  })
   const setCookieHeader = response.headers.get("set-cookie")
+
+  if (!response.ok) {
+    console.error(
+      `OAuth callback failed with status ${response.status}: ${await response.text()}`
+    )
+  }
 
   // Get redirect
   const resp = await fetch(buildUrl("/info"))
@@ -24,8 +42,15 @@ export const GET = async (request: NextRequest) => {
     return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
-  console.log("Redirecting to /")
-  const redirectResponse = NextResponse.redirect(new URL("/", public_app_url))
-  redirectResponse.headers.set("set-cookie", setCookieHeader)
+  const targetPath = returnUrl ?? "/"
+  console.log(`Redirecting to ${targetPath}`)
+  const redirectResponse = NextResponse.redirect(
+    new URL(targetPath, public_app_url)
+  )
+  redirectResponse.headers.append("set-cookie", setCookieHeader)
+  redirectResponse.headers.append(
+    "set-cookie",
+    serializeClearPostAuthReturnUrlCookie(request.nextUrl.protocol === "https:")
+  )
   return redirectResponse
 }
