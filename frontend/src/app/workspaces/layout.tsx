@@ -8,6 +8,8 @@ import { useParams, usePathname, useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useMemo, useState } from "react"
+import { ApiError } from "@/client"
+import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
@@ -21,6 +23,21 @@ import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
+
+const NO_ORG_MEMBERSHIPS_DETAIL = "User has no organization memberships"
+
+function isNoOrgMembershipsError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) {
+    return false
+  }
+  const body = error.body
+  if (!body || typeof body !== "object") {
+    return false
+  }
+  const detail =
+    "detail" in body ? (body as { detail?: unknown }).detail : undefined
+  return detail === NO_ORG_MEMBERSHIPS_DETAIL
+}
 
 export default function WorkspaceLayout({
   children,
@@ -60,6 +77,9 @@ export default function WorkspaceLayout({
 
   if (workspacesLoading) {
     return <CenteredSpinner />
+  }
+  if (workspacesError && isNoOrgMembershipsError(workspacesError)) {
+    return <NoOrganizationAccess />
   }
   if (workspacesError || !workspaces) {
     throw workspacesError

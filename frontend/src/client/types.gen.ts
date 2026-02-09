@@ -3322,6 +3322,19 @@ export type OrgMemberRead = {
 }
 
 /**
+ * Pending invitation visible to the invited authenticated user.
+ */
+export type OrgPendingInvitationRead = {
+  token: string
+  organization_id: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role: OrgRole
+  expires_at: string
+}
+
+/**
  * Organization registry repository response.
  */
 export type OrgRegistryRepositoryRead = {
@@ -7160,6 +7173,9 @@ export type OrganizationAcceptInvitationResponse = {
   [key: string]: string
 }
 
+export type OrganizationListMyPendingInvitationsResponse =
+  Array<OrgPendingInvitationRead>
+
 export type OrganizationGetInvitationByTokenData = {
   token: string
 }
@@ -8778,20 +8794,20 @@ export type AuthVerifyVerifyData = {
 
 export type AuthVerifyVerifyResponse = UserRead
 
-export type AuthOauthGoogleDatabaseAuthorizeData = {
+export type AuthOauthOidcDatabaseAuthorizeData = {
   scopes?: Array<string>
 }
 
-export type AuthOauthGoogleDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
+export type AuthOauthOidcDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
 
-export type AuthOauthGoogleDatabaseCallbackData = {
+export type AuthOauthOidcDatabaseCallbackData = {
   code?: string | null
   codeVerifier?: string | null
   error?: string | null
   state?: string | null
 }
 
-export type AuthOauthGoogleDatabaseCallbackResponse = unknown
+export type AuthOauthOidcDatabaseCallbackResponse = unknown
 
 export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse
 
@@ -10203,6 +10219,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/pending/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgPendingInvitationRead>
       }
     }
   }
@@ -13238,7 +13264,7 @@ export type $OpenApiTs = {
   }
   "/auth/oauth/authorize": {
     get: {
-      req: AuthOauthGoogleDatabaseAuthorizeData
+      req: AuthOauthOidcDatabaseAuthorizeData
       res: {
         /**
          * Successful Response
@@ -13253,7 +13279,7 @@ export type $OpenApiTs = {
   }
   "/auth/oauth/callback": {
     get: {
-      req: AuthOauthGoogleDatabaseCallbackData
+      req: AuthOauthOidcDatabaseCallbackData
       res: {
         /**
          * Successful Response

@@ -10358,6 +10358,66 @@ export const $OrgMemberRead = {
   title: "OrgMemberRead",
 } as const
 
+export const $OrgPendingInvitationRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: [
+    "token",
+    "organization_id",
+    "organization_name",
+    "inviter_name",
+    "inviter_email",
+    "role",
+    "expires_at",
+  ],
+  title: "OrgPendingInvitationRead",
+  description: "Pending invitation visible to the invited authenticated user.",
+} as const
+
 export const $OrgRegistryRepositoryRead = {
   properties: {
     id: {
