@@ -294,6 +294,7 @@ class DSLWorkflow:
         self.role = self.role.model_copy(update={"organization_id": organization_id})
         self.logger = self.logger.bind(role=self.role)
         ctx_role.set(self.role)
+        ctx_logger.set(self.logger)
         self.logger.info(
             "Auto-healed role organization_id",
             organization_id=organization_id,
