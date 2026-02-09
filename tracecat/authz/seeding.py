@@ -243,7 +243,7 @@ async def seed_system_scopes(session: AsyncSession) -> int:
     result = await session.execute(stmt)
     await session.commit()
 
-    inserted_count = result.rowcount if result.rowcount else 0  # pyright: ignore[reportAttributeAccessIssue]
+    inserted_count = result.rowcount or 0  # pyright: ignore[reportAttributeAccessIssue]
     logger.info(
         "System scopes seeded",
         inserted=inserted_count,
@@ -252,61 +252,7 @@ async def seed_system_scopes(session: AsyncSession) -> int:
     return inserted_count
 
 
-async def seed_registry_scope(
-    session: AsyncSession,
-    action_key: str,
-    description: str | None = None,
-) -> Scope | None:
-    """Seed a single registry action scope.
-
-    Creates a scope for `action:{action_key}:execute` if it doesn't exist.
-    Registry scopes have organization_id=NULL and source='registry'.
-    Uses upsert (ON CONFLICT DO NOTHING) for concurrency safety.
-
-    Args:
-        session: Database session
-        action_key: The action key (e.g., "tools.okta.list_users")
-        description: Optional description for the scope
-
-    Returns:
-        The created or existing Scope
-    """
-    scope_name = f"action:{action_key}:execute"
-    scope_id = uuid4()
-
-    # Use upsert for concurrency safety
-    stmt = pg_insert(Scope).values(
-        id=scope_id,
-        name=scope_name,
-        resource="action",
-        action="execute",
-        description=description or f"Execute {action_key} action",
-        source=ScopeSource.PLATFORM,
-        source_ref=action_key,
-        organization_id=None,
-    )
-    stmt = stmt.on_conflict_do_nothing(
-        index_elements=["name"], index_where=Scope.organization_id.is_(None)
-    )
-    result = await session.execute(stmt)
-    await session.flush()
-
-    # Re-query to get the scope (whether newly inserted or already existing)
-    select_stmt = select(Scope).where(
-        Scope.name == scope_name, Scope.organization_id.is_(None)
-    )
-    select_result = await session.execute(select_stmt)
-    scope = select_result.scalar_one_or_none()
-
-    if result.rowcount and result.rowcount > 0:  # pyright: ignore[reportAttributeAccessIssue]
-        logger.debug(
-            "Registry scope created", scope_name=scope_name, action_key=action_key
-        )
-
-    return scope
-
-
-async def seed_registry_scopes_bulk(
+async def seed_registry_scopes(
     session: AsyncSession,
     action_keys: list[str],
 ) -> int:
@@ -360,113 +306,6 @@ async def seed_registry_scopes_bulk(
 # =============================================================================
 
 
-async def seed_system_roles_for_org(
-    session: AsyncSession,
-    organization_id: UUID,
-) -> int:
-    """Seed system roles (Admin, Editor, Viewer) for an organization.
-
-    Creates the system roles with their associated scopes if they don't exist.
-    System roles are identified by their well-known slugs.
-    Uses upsert (ON CONFLICT DO NOTHING) for concurrency safety.
-
-    Args:
-        session: Database session
-        organization_id: The organization to seed roles for
-
-    Returns:
-        Number of roles created (0 if all already existed)
-    """
-    logger.info(
-        "Seeding system roles for organization", organization_id=organization_id
-    )
-
-    # Get all system scope names -> IDs
-    scope_stmt = select(Scope.id, Scope.name).where(Scope.organization_id.is_(None))
-    scope_result = await session.execute(scope_stmt)
-    scope_name_to_id: dict[str, UUID] = {
-        name: id_ for id_, name in scope_result.tuples().all()
-    }
-
-    roles_created = 0
-
-    # Prepare role values with pre-generated IDs
-    role_values = []
-    role_id_by_slug: dict[str, UUID] = {}
-    for slug, (name, description, _) in PRESET_ROLE_DEFINITIONS.items():
-        role_id = uuid4()
-        role_id_by_slug[slug] = role_id
-        role_values.append(
-            {
-                "id": role_id,
-                "name": name,
-                "slug": slug,
-                "description": description,
-                "organization_id": organization_id,
-                "created_by": None,  # System-created
-            }
-        )
-
-    # Bulk upsert roles - concurrency safe
-    role_stmt = pg_insert(Role).values(role_values)
-    role_stmt = role_stmt.on_conflict_do_nothing(
-        index_elements=["organization_id", "slug"]
-    )
-    result = await session.execute(role_stmt)
-    roles_created = result.rowcount if result.rowcount else 0  # pyright: ignore[reportAttributeAccessIssue]
-
-    # Re-query to get actual role IDs (may differ if roles already existed)
-    existing_roles_stmt = select(Role.id, Role.slug).where(
-        Role.organization_id == organization_id,
-        Role.slug.in_(PRESET_ROLE_DEFINITIONS),
-    )
-    existing_roles_result = await session.execute(existing_roles_stmt)
-    actual_role_id_by_slug: dict[str | None, UUID] = {
-        slug: role_id for role_id, slug in existing_roles_result.tuples().all()
-    }
-
-    # Link scopes to roles
-    for slug, (_, _, scope_names) in PRESET_ROLE_DEFINITIONS.items():
-        role_id = actual_role_id_by_slug.get(slug)
-        if role_id is None:
-            logger.warning(
-                "Role not found after upsert",
-                slug=slug,
-                organization_id=organization_id,
-            )
-            continue
-
-        role_scope_values = []
-        for scope_name in scope_names:
-            scope_id = scope_name_to_id.get(scope_name)
-            if scope_id is None:
-                logger.warning(
-                    "Scope not found for system role",
-                    scope_name=scope_name,
-                    role_slug=slug,
-                )
-                continue
-            role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
-
-        if role_scope_values:
-            role_scope_stmt = pg_insert(RoleScope).values(role_scope_values)
-            role_scope_stmt = role_scope_stmt.on_conflict_do_nothing()
-            await session.execute(role_scope_stmt)
-
-    await session.commit()
-    logger.info(
-        "System roles seeded for organization",
-        organization_id=organization_id,
-        roles_created=roles_created,
-    )
-    return roles_created
-
-
-# =============================================================================
-# Combined Seeding Functions
-# =============================================================================
-
-
 async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, int]:
     """Seed system roles for all existing organizations.
 
@@ -490,14 +329,73 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
         logger.info("No organizations found, skipping system role seeding")
         return {}
 
-    results: dict[UUID, int] = {}
-    total_created = 0
-
+    # 1) Upsert all preset roles for all orgs in one bulk query.
+    role_values = []
     for org_id in org_ids:
-        roles_created = await seed_system_roles_for_org(session, org_id)
-        results[org_id] = roles_created
-        total_created += roles_created
+        for slug, role_def in PRESET_ROLE_DEFINITIONS.items():
+            role_values.append(
+                {
+                    "id": uuid4(),
+                    "name": role_def.name,
+                    "slug": slug,
+                    "description": role_def.description,
+                    "organization_id": org_id,
+                    "created_by": None,
+                }
+            )
 
+    role_insert_stmt = pg_insert(Role).values(role_values)
+    role_insert_stmt = role_insert_stmt.on_conflict_do_nothing(
+        index_elements=["organization_id", "slug"]
+    ).returning(Role.organization_id)
+    role_insert_result = await session.execute(role_insert_stmt)
+
+    # Return shape remains {org_id: roles_created_for_org}.
+    results: dict[UUID, int] = dict.fromkeys(org_ids, 0)
+    for (organization_id,) in role_insert_result.tuples().all():
+        results[organization_id] += 1
+
+    # 2) Fetch all relevant global scopes once.
+    scope_stmt = select(Scope.id, Scope.name).where(Scope.organization_id.is_(None))
+    scope_result = await session.execute(scope_stmt)
+    scope_id_by_name: dict[str, UUID] = {
+        scope_name: scope_id for scope_id, scope_name in scope_result.tuples().all()
+    }
+
+    # 3) Fetch all preset roles for those orgs and bulk insert role-scope links.
+    role_stmt = select(Role.id, Role.slug).where(
+        Role.organization_id.in_(org_ids),
+        Role.slug.in_(PRESET_ROLE_DEFINITIONS),
+    )
+    role_result = await session.execute(role_stmt)
+
+    role_scope_values = []
+    for role_id, role_slug in role_result.tuples().all():
+        if role_slug is None:
+            continue
+        role_def = PRESET_ROLE_DEFINITIONS.get(role_slug)
+        if role_def is None:
+            continue
+        for scope_name in role_def.scopes:
+            scope_id = scope_id_by_name.get(scope_name)
+            if scope_id is None:
+                logger.warning(
+                    "Scope not found for system role",
+                    scope_name=scope_name,
+                    role_slug=role_slug,
+                )
+                continue
+            role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
+
+    if role_scope_values:
+        role_scope_stmt = pg_insert(RoleScope).values(role_scope_values)
+        role_scope_stmt = role_scope_stmt.on_conflict_do_nothing(
+            index_elements=["role_id", "scope_id"]
+        )
+        await session.execute(role_scope_stmt)
+    await session.commit()
+
+    total_created = sum(results.values())
     logger.info(
         "System roles seeded for all organizations",
         num_orgs=len(org_ids),

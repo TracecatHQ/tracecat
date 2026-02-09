@@ -12,7 +12,7 @@ from packaging.version import Version
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.authz.seeding import seed_registry_scopes_bulk
+from tracecat.authz.seeding import seed_registry_scopes
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
@@ -195,7 +195,7 @@ async def _seed_registry_scopes(
     action_keys = [f"{action.namespace}.{action.name}" for action in actions]
 
     try:
-        inserted = await seed_registry_scopes_bulk(session, action_keys)
+        inserted = await seed_registry_scopes(session, action_keys)
         await session.commit()
         logger.info("Registry scopes seeded", inserted=inserted, total=len(action_keys))
     except DBAPIError as e:
