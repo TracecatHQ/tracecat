@@ -1,0 +1,20 @@
+title: Scatter Partial Failure Workflow
+description: Two parallel branches where one fails
+config:
+  scheduler: dynamic
+entrypoint:
+  ref: good_action
+
+actions:
+  - ref: good_action
+    action: core.transform.reshape
+    args:
+      value: success
+
+  - ref: bad_action
+    action: core.transform.reshape
+    depends_on:
+      - good_action
+    args:
+      # This will fail - references nonexistent field
+      value: ${{ int(ACTIONS.good_action.result.nonexistent_field) }}
