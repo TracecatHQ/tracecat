@@ -11,6 +11,9 @@ from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgDomainCreate,
+    OrgDomainRead,
+    OrgDomainUpdate,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncRequest,
@@ -104,6 +107,98 @@ async def delete_organization(
         await service.delete_organization(org_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+# Org Domain Endpoints
+
+
+@router.get("/{org_id}/domains", response_model=list[OrgDomainRead])
+async def list_organization_domains(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+) -> list[OrgDomainRead]:
+    """List all assigned domains for an organization."""
+    service = AdminOrgService(session, role)
+    try:
+        return list(await service.list_org_domains(org_id))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post(
+    "/{org_id}/domains",
+    response_model=OrgDomainRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_organization_domain(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    params: OrgDomainCreate,
+) -> OrgDomainRead:
+    """Create a new assigned domain for an organization."""
+    service = AdminOrgService(session, role)
+    try:
+        return await service.create_org_domain(org_id, params)
+    except ValueError as e:
+        detail = str(e)
+        if "already assigned" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=detail
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+        ) from e
+
+
+@router.patch("/{org_id}/domains/{domain_id}", response_model=OrgDomainRead)
+async def update_organization_domain(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    domain_id: uuid.UUID,
+    params: OrgDomainUpdate,
+) -> OrgDomainRead:
+    """Update active/primary state for an assigned organization domain."""
+    service = AdminOrgService(session, role)
+    try:
+        return await service.update_org_domain(org_id, domain_id, params)
+    except ValueError as e:
+        detail = str(e)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=detail
+            ) from e
+        if "already assigned" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=detail
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+        ) from e
+
+
+@router.delete("/{org_id}/domains/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_organization_domain(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    org_id: uuid.UUID,
+    domain_id: uuid.UUID,
+) -> None:
+    """Delete an assigned organization domain."""
+    service = AdminOrgService(session, role)
+    try:
+        await service.delete_org_domain(org_id, domain_id)
+    except ValueError as e:
+        detail = str(e)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=detail
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+        ) from e
 
 
 # Org Registry Endpoints
