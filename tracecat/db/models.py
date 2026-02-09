@@ -246,29 +246,23 @@ class OrganizationDomain(Base, TimestampMixin):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("organization.id", ondelete="CASCADE"),
-        nullable=False,
         index=True,
     )
-    domain: Mapped[str] = mapped_column(String(255), nullable=False)
-    normalized_domain: Mapped[str] = mapped_column(
-        String(255), nullable=False, index=True
-    )
+    domain: Mapped[str] = mapped_column(String(255))
+    normalized_domain: Mapped[str] = mapped_column(String(255), index=True)
     is_primary: Mapped[bool] = mapped_column(
         Boolean,
-        nullable=False,
         default=False,
         server_default=text("false"),
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
-        nullable=False,
         default=True,
         server_default=text("true"),
     )
     verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     verification_method: Mapped[str] = mapped_column(
         String(64),
-        nullable=False,
         default="platform_admin",
         server_default=text("'platform_admin'"),
     )
