@@ -413,6 +413,55 @@ class TestRBACServiceAssignments:
 
 
 @pytest.mark.anyio
+class TestRBACServiceUserAssignments:
+    """Test direct user role assignment management."""
+
+    async def test_create_user_assignment_for_org_member(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+    ):
+        """Create direct assignment for org member."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Direct User Role")
+
+        assignment = await service.create_user_assignment(
+            user_id=user.id,
+            role_id=custom_role.id,
+        )
+
+        assert assignment.user_id == user.id
+        assert assignment.role_id == custom_role.id
+        assert assignment.organization_id == role.organization_id
+
+    async def test_create_user_assignment_rejects_non_member(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        """Cannot assign org role to user outside organization."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Direct User Role")
+
+        external_user = User(
+            id=uuid.uuid4(),
+            email="external@example.com",
+            hashed_password="test",
+        )
+        session.add(external_user)
+        await session.commit()
+
+        with pytest.raises(
+            TracecatNotFoundError, match="User not found in organization"
+        ):
+            await service.create_user_assignment(
+                user_id=external_user.id,
+                role_id=custom_role.id,
+            )
+
+
+@pytest.mark.anyio
 class TestRBACServiceScopeComputation:
     """Test scope computation from group memberships."""
 
