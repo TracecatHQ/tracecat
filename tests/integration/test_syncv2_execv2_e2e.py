@@ -842,12 +842,14 @@ class TestFailureScenarios:
     @pytest.mark.anyio
     async def test_execute_raises_when_tarball_missing(
         self,
-        session: AsyncSession,
+        subprocess_db_env,
+        committing_session: AsyncSession,
         test_role: Role,
         minio_server,
         minio_client: Minio,
         test_bucket: str,
-        builtin_repo,
+        committing_builtin_repo,
+        unique_version: str,
         run_action_input_factory,
         temp_cache_dir: Path,
     ):
@@ -859,11 +861,26 @@ class TestFailureScenarios:
         """
         import httpx
 
-        # Sync registry
+        # Sync registry to org-scoped tables
         async with RegistrySyncService.with_session(
-            session=session, role=test_role
+            session=committing_session, role=test_role
         ) as sync_service:
-            sync_result = await sync_service.sync_repository_v2(builtin_repo)
+            sync_result = await sync_service.sync_repository_v2(
+                committing_builtin_repo,
+                target_version=unique_version,
+            )
+
+        # Sync the same version to platform-scoped tables.
+        # Executor lock resolution routes tracecat_registry to platform tables.
+        platform_svc = PlatformRegistryReposService(committing_session)
+        platform_repo = await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+        platform_sync_service = PlatformRegistrySyncService(committing_session)
+        await platform_sync_service.sync_repository_v2(
+            platform_repo,
+            target_version=unique_version,
+            bypass_temporal=True,
+        )
+        await committing_session.commit()
 
         # Create input
         args = {"value": {"test": True}}
