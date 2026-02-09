@@ -29,6 +29,19 @@ class OrgRead(BaseModel):
     name: str
 
 
+class OrgDomainRead(BaseModel):
+    id: UUID
+    organization_id: OrganizationID
+    domain: str
+    normalized_domain: str
+    is_primary: bool
+    is_active: bool
+    verified_at: datetime | None
+    verification_method: str
+    created_at: datetime
+    updated_at: datetime
+
+
 # Invitations
 
 

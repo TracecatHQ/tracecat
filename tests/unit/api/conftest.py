@@ -18,6 +18,8 @@ from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
+from tracecat.organization.router import OrgAdminRole as OrganizationOrgAdminRole
+from tracecat.organization.router import OrgUserRole as OrganizationOrgUserRole
 from tracecat.secrets.router import (
     OrgAdminUser,
     WorkspaceAdminUser,
@@ -75,6 +77,8 @@ def client() -> Generator[TestClient, None, None]:
         OrgAdminUser,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
+        OrganizationOrgUserRole,
+        OrganizationOrgAdminRole,
     ]
 
     for annotated_type in role_dependencies:

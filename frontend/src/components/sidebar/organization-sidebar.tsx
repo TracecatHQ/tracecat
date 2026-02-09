@@ -5,6 +5,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   GitBranchIcon,
+  GlobeIcon,
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
@@ -52,6 +53,12 @@ export function OrganizationSidebar({
       url: "/organization/settings/sso",
       icon: LockIcon,
       isActive: pathname?.includes("/organization/settings/sso"),
+    },
+    {
+      title: "Domains",
+      url: "/organization/settings/domains",
+      icon: GlobeIcon,
+      isActive: pathname?.includes("/organization/settings/domains"),
     },
     {
       title: "Application",

@@ -14,6 +14,7 @@ from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
+    OrganizationDomain,
     OrganizationInvitation,
     OrganizationMembership,
     User,
@@ -26,6 +27,7 @@ from tracecat.exceptions import (
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.schemas import (
+    OrgDomainRead,
     OrgInvitationAccept,
     OrgInvitationCreate,
     OrgInvitationRead,
@@ -101,6 +103,48 @@ async def get_organization(
         )
 
     return OrgRead(id=org.id, name=org.name)
+
+
+@router.get("/domains", response_model=list[OrgDomainRead])
+async def list_organization_domains(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> list[OrgDomainRead]:
+    """List domains assigned to the current organization."""
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    stmt = (
+        select(OrganizationDomain)
+        .where(OrganizationDomain.organization_id == role.organization_id)
+        .order_by(
+            OrganizationDomain.is_primary.desc(),
+            OrganizationDomain.created_at.asc(),
+            OrganizationDomain.id.asc(),
+        )
+    )
+    result = await session.execute(stmt)
+    domains = result.scalars().all()
+
+    return [
+        OrgDomainRead(
+            id=domain.id,
+            organization_id=domain.organization_id,
+            domain=domain.domain,
+            normalized_domain=domain.normalized_domain,
+            is_primary=domain.is_primary,
+            is_active=domain.is_active,
+            verified_at=domain.verified_at,
+            verification_method=domain.verification_method,
+            created_at=domain.created_at,
+            updated_at=domain.updated_at,
+        )
+        for domain in domains
+    ]
 
 
 @router.get("/members/me", response_model=OrgMemberRead)
