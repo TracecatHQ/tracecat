@@ -23,7 +23,6 @@ from jwt import PyJWTError
 from pydantic import BaseModel, Field, ValidationError
 
 from tracecat import config
-from tracecat.agent.types import OutputType
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # -----------------------------------------------------------------------------
@@ -247,12 +246,6 @@ class LLMTokenClaims(BaseModel):
         description="Model-specific settings passed through to the LLM provider",
     )
 
-    # Output type for structured outputs (response_format)
-    output_type: OutputType | None = Field(
-        default=None,
-        description="Expected output type for structured outputs",
-    )
-
     # Credential scope
     use_workspace_credentials: bool = Field(
         default=False,
@@ -268,7 +261,6 @@ def mint_llm_token(
     model: str,
     provider: str,
     model_settings: dict[str, Any] | None = None,
-    output_type: OutputType | None = None,
     use_workspace_credentials: bool = False,
     ttl_seconds: int | None = None,
 ) -> str:
@@ -285,7 +277,6 @@ def mint_llm_token(
         provider: The provider for the model (e.g., openai, anthropic, bedrock)
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
-        output_type: Expected output type for structured outputs
         use_workspace_credentials: Whether to use workspace-level creds
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
@@ -316,10 +307,6 @@ def mint_llm_token(
         # Credential scope
         "use_workspace_credentials": use_workspace_credentials,
     }
-
-    # Only include output_type if provided
-    if output_type is not None:
-        payload["output_type"] = output_type
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 

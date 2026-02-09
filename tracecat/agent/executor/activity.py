@@ -97,6 +97,9 @@ class AgentExecutorResult(BaseModel):
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
     messages: list[ChatMessage] | None = None
+    structured_output: Any = None
+    result_usage: dict[str, Any] | None = None
+    result_num_turns: int | None = None
 
 
 @dataclass
@@ -373,6 +376,9 @@ class SandboxedAgentExecutor:
                         result.error = loopback_result.error
                         result.approval_requested = loopback_result.approval_requested
                         result.approval_items = loopback_result.approval_items or None
+                        result.structured_output = loopback_result.structured_output
+                        result.result_usage = loopback_result.result_usage
+                        result.result_num_turns = loopback_result.result_num_turns
                         break
                     else:
                         # Exceeded total timeout

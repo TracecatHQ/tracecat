@@ -80,7 +80,6 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             "model": claims.model,
             "provider": claims.provider,
             "model_settings": claims.model_settings,
-            "output_type": claims.output_type,
         },
     )
 
@@ -165,13 +164,6 @@ class TracecatCallbackHandler(CustomLogger):
                 k: v for k, v in model_settings.items() if k in allowed_keys
             }
             data.update(safe_settings)
-
-        # Handle structured outputs via output_type -> response_format
-        output_type = user_api_key_dict.metadata.get("output_type")
-        if output_type is not None:
-            response_format = _build_response_format(output_type)
-            if response_format:
-                data["response_format"] = response_format
 
         logger.info(
             "Injected credentials for LLM call",
@@ -369,47 +361,3 @@ def _inject_provider_credentials(
                 param=None,
                 code=400,
             )
-
-
-def _build_response_format(output_type: str | dict) -> dict | None:
-    """Build LiteLLM response_format from output_type."""
-    if isinstance(output_type, dict):
-        return {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "structured_output",
-                "strict": True,
-                "schema": output_type,
-            },
-        }
-
-    primitive_schemas = {
-        "str": {"type": "string"},
-        "int": {"type": "integer"},
-        "float": {"type": "number"},
-        "bool": {"type": "boolean"},
-        "list[str]": {"type": "array", "items": {"type": "string"}},
-        "list[int]": {"type": "array", "items": {"type": "integer"}},
-        "list[float]": {"type": "array", "items": {"type": "number"}},
-        "list[bool]": {"type": "array", "items": {"type": "boolean"}},
-    }
-
-    if output_type in primitive_schemas:
-        return {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "structured_output",
-                "strict": True,
-                "schema": {
-                    "type": "object",
-                    "properties": {"result": primitive_schemas[output_type]},
-                    "required": ["result"],
-                    "additionalProperties": False,
-                },
-            },
-        }
-
-    logger.warning(
-        "Unknown output_type, skipping response_format", output_type=output_type
-    )
-    return None
