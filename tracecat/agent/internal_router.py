@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as runtime_run_agent
@@ -15,6 +16,7 @@ from tracecat.agent.schemas import (
     InternalRankItemsRequest,
     InternalRunAgentRequest,
 )
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import MCPServerConfig
 from tracecat.ai.ranker import rank_items as ranker_rank_items
 from tracecat.ai.ranker import rank_items_pairwise as ranker_rank_items_pairwise
@@ -49,22 +51,41 @@ async def run_agent_endpoint(
         if config and config.mcp_servers:
             mcp_servers = [MCPServerConfig(**s) for s in config.mcp_servers]
 
-        result: AgentOutput = await runtime_run_agent(
-            user_prompt=params.user_prompt,
-            model_name=config.model_name if config else "",
-            model_provider=config.model_provider if config else "",
-            actions=config.actions if config else None,
-            namespaces=config.namespaces if config else None,
-            tool_approvals=config.tool_approvals if config else None,
-            mcp_servers=mcp_servers,
-            instructions=config.instructions if config else None,
-            output_type=config.output_type if config else None,
-            model_settings=config.model_settings if config else None,
-            max_tool_calls=params.max_tool_calls or 40,
-            max_requests=params.max_requests,
-            retries=config.retries if config else 20,
-            base_url=config.base_url if config else None,
-        )
+        model_provider = config.model_provider if config else ""
+
+        # Resolve workspace credentials for the model provider.
+        # The runtime's get_model() reads API keys from the registry secrets
+        # context, which is not populated in the API process. We need to load
+        # them from the DB and set the context before calling the runtime.
+        agent_svc = AgentManagementService(session, role=role)
+        credentials = await agent_svc.get_workspace_provider_credentials(model_provider)
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for provider '{model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
+
+        secrets_token = registry_secrets.set_context(credentials)
+        try:
+            result: AgentOutput = await runtime_run_agent(
+                user_prompt=params.user_prompt,
+                model_name=config.model_name if config else "",
+                model_provider=model_provider,
+                actions=config.actions if config else None,
+                namespaces=config.namespaces if config else None,
+                tool_approvals=config.tool_approvals if config else None,
+                mcp_servers=mcp_servers,
+                instructions=config.instructions if config else None,
+                output_type=config.output_type if config else None,
+                model_settings=config.model_settings if config else None,
+                max_tool_calls=params.max_tool_calls or 40,
+                max_requests=params.max_requests,
+                retries=config.retries if config else 20,
+                base_url=config.base_url if config else None,
+            )
+        finally:
+            registry_secrets.reset_context(secrets_token)
+
         return result.model_dump(mode="json")
     except AgentRunError as e:
         logger.exception("Agent run error", error=e)
@@ -90,18 +111,32 @@ async def rank_items_endpoint(
     ctx_role.set(role)
 
     try:
-        return await ranker_rank_items(
-            items=params.items,
-            criteria_prompt=params.criteria_prompt,
-            model_name=params.model_name,
-            model_provider=params.model_provider,
-            model_settings=params.model_settings,
-            max_requests=params.max_requests,
-            retries=params.retries,
-            base_url=params.base_url,
-            min_items=params.min_items,
-            max_items=params.max_items,
+        agent_svc = AgentManagementService(session, role=role)
+        credentials = await agent_svc.get_workspace_provider_credentials(
+            params.model_provider
         )
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for provider '{params.model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
+
+        secrets_token = registry_secrets.set_context(credentials)
+        try:
+            return await ranker_rank_items(
+                items=params.items,
+                criteria_prompt=params.criteria_prompt,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                model_settings=params.model_settings,
+                max_requests=params.max_requests,
+                retries=params.retries,
+                base_url=params.base_url,
+                min_items=params.min_items,
+                max_items=params.max_items,
+            )
+        finally:
+            registry_secrets.reset_context(secrets_token)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -120,22 +155,36 @@ async def rank_items_pairwise_endpoint(
     ctx_role.set(role)
 
     try:
-        return await ranker_rank_items_pairwise(
-            items=params.items,
-            criteria_prompt=params.criteria_prompt,
-            model_name=params.model_name,
-            model_provider=params.model_provider,
-            id_field=params.id_field,
-            batch_size=params.batch_size,
-            num_passes=params.num_passes,
-            refinement_ratio=params.refinement_ratio,
-            model_settings=params.model_settings,
-            max_requests=params.max_requests,
-            retries=params.retries,
-            base_url=params.base_url,
-            min_items=params.min_items,
-            max_items=params.max_items,
+        agent_svc = AgentManagementService(session, role=role)
+        credentials = await agent_svc.get_workspace_provider_credentials(
+            params.model_provider
         )
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for provider '{params.model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
+
+        secrets_token = registry_secrets.set_context(credentials)
+        try:
+            return await ranker_rank_items_pairwise(
+                items=params.items,
+                criteria_prompt=params.criteria_prompt,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                id_field=params.id_field,
+                batch_size=params.batch_size,
+                num_passes=params.num_passes,
+                refinement_ratio=params.refinement_ratio,
+                model_settings=params.model_settings,
+                max_requests=params.max_requests,
+                retries=params.retries,
+                base_url=params.base_url,
+                min_items=params.min_items,
+                max_items=params.max_items,
+            )
+        finally:
+            registry_secrets.reset_context(secrets_token)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
