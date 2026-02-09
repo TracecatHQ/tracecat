@@ -213,6 +213,70 @@ class Organization(Base, TimestampMixin):
         back_populates="organization",
         uselist=False,
     )
+    domains: Mapped[list[OrganizationDomain]] = relationship(
+        "OrganizationDomain",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class OrganizationDomain(Base, TimestampMixin):
+    """A verified or assigned domain owned by an organization."""
+
+    __tablename__ = "organization_domain"
+    __table_args__ = (
+        # Active domains must be globally unique across all organizations.
+        Index(
+            "ix_org_domain_normalized_domain_active_unique",
+            "normalized_domain",
+            unique=True,
+            postgresql_where=text("is_active IS TRUE"),
+        ),
+        # At most one active primary domain per organization.
+        Index(
+            "ix_org_domain_org_primary_active_unique",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("is_active IS TRUE AND is_primary IS TRUE"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_domain: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    verification_method: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="platform_admin",
+        server_default=text("'platform_admin'"),
+    )
+
+    organization: Mapped[Organization] = relationship(
+        "Organization",
+        back_populates="domains",
+    )
 
 
 class OrganizationModel(RecordModel):
