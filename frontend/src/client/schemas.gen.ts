@@ -9953,6 +9953,127 @@ export const $OrgCreate = {
   description: "Create organization request.",
 } as const
 
+export const $OrgDomainCreate = {
+  properties: {
+    domain: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["domain"],
+  title: "OrgDomainCreate",
+  description: "Create organization domain request.",
+} as const
+
+export const $OrgDomainRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    domain: {
+      type: "string",
+      title: "Domain",
+    },
+    normalized_domain: {
+      type: "string",
+      title: "Normalized Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    verified_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Verified At",
+    },
+    verification_method: {
+      type: "string",
+      title: "Verification Method",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "domain",
+    "normalized_domain",
+    "is_primary",
+    "is_active",
+    "verification_method",
+    "created_at",
+    "updated_at",
+  ],
+  title: "OrgDomainRead",
+  description: "Organization domain response.",
+} as const
+
+export const $OrgDomainUpdate = {
+  properties: {
+    is_primary: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Primary",
+    },
+    is_active: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Active",
+    },
+  },
+  type: "object",
+  title: "OrgDomainUpdate",
+  description: "Update organization domain request.",
+} as const
+
 export const $OrgInvitationAccept = {
   properties: {
     token: {
