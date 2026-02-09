@@ -3266,7 +3266,6 @@ export type OrgMemberRead = {
   email: string
   role: OrgRole
   is_active: boolean
-  is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
 }
