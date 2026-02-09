@@ -2947,6 +2947,39 @@ export const $AuditSettingsUpdate = {
   description: "Settings for audit logging.",
 } as const
 
+export const $AuthDiscoverRequest = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "AuthDiscoverRequest",
+  description: "Request payload for pre-auth discovery.",
+} as const
+
+export const $AuthDiscoverResponse = {
+  properties: {
+    method: {
+      $ref: "#/components/schemas/AuthDiscoveryMethod",
+    },
+  },
+  type: "object",
+  required: ["method"],
+  title: "AuthDiscoverResponse",
+  description: "Pre-auth routing hint response.",
+} as const
+
+export const $AuthDiscoveryMethod = {
+  type: "string",
+  enum: ["basic", "oidc", "saml"],
+  title: "AuthDiscoveryMethod",
+  description: "Authentication method hint for client-side routing.",
+} as const
+
 export const $AuthSettingsRead = {
   properties: {
     auth_basic_enabled: {
