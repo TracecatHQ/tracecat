@@ -783,6 +783,25 @@ export type AuditSettingsUpdate = {
   } | null
 }
 
+/**
+ * Request payload for pre-auth discovery.
+ */
+export type AuthDiscoverRequest = {
+  email: string
+}
+
+/**
+ * Pre-auth routing hint response.
+ */
+export type AuthDiscoverResponse = {
+  method: AuthDiscoveryMethod
+}
+
+/**
+ * Authentication method hint for client-side routing.
+ */
+export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
+
 export type AuthSettingsRead = {
   auth_basic_enabled: boolean
   auth_require_email_verification: boolean
@@ -8782,6 +8801,12 @@ export type AuthSsoAcsData = {
 
 export type AuthSsoAcsResponse = unknown
 
+export type AuthDiscoverAuthMethodData = {
+  requestBody: AuthDiscoverRequest
+}
+
+export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
+
 export type PublicCheckHealthResponse = HealthResponse
 
 export type PublicCheckReadyResponse = ReadinessResponse
@@ -13263,6 +13288,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/discover": {
+    post: {
+      req: AuthDiscoverAuthMethodData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuthDiscoverResponse
         /**
          * Validation Error
          */
