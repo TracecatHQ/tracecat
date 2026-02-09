@@ -24,6 +24,7 @@ AuditResourceType = Literal[
     "case",
     "agent_preset",
     "agent_session",
+    "organization_domain",
     "organization_member",
     "organization_session",
     "organization_invitation",
