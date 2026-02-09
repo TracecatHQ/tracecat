@@ -4,6 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import Cookies from "js-cookie"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
+import { AdminOrgDomainsDialog } from "@/components/admin/admin-org-domains-dialog"
 import { AdminOrgRegistryDialog } from "@/components/admin/admin-org-registry-dialog"
 import { AdminOrgTierDialog } from "@/components/admin/admin-org-tier-dialog"
 import { AdminOrganizationEditDialog } from "@/components/admin/admin-organization-edit-dialog"
@@ -36,6 +37,7 @@ import { useAdminOrganizations, useAdminOrgTiers } from "@/hooks/use-admin"
 export function AdminOrganizationsTable() {
   const [editOrgId, setEditOrgId] = useState<string | null>(null)
   const [tierOrgId, setTierOrgId] = useState<string | null>(null)
+  const [domainsOrgId, setDomainsOrgId] = useState<string | null>(null)
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const { organizations, deleteOrganization } = useAdminOrganizations()
@@ -223,6 +225,11 @@ export function AdminOrganizationsTable() {
                         Manage tier
                       </DropdownMenuItem>
                       <DropdownMenuItem
+                        onSelect={() => setDomainsOrgId(row.original.id)}
+                      >
+                        Manage domains
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         onSelect={() => setRegistryOrgId(row.original.id)}
                       >
                         Manage registry
@@ -290,6 +297,17 @@ export function AdminOrganizationsTable() {
           onOpenChange={(isOpen) => {
             if (!isOpen) {
               setTierOrgId(null)
+            }
+          }}
+        />
+      )}
+      {domainsOrgId && (
+        <AdminOrgDomainsDialog
+          orgId={domainsOrgId}
+          open
+          onOpenChange={(isOpen) => {
+            if (!isOpen) {
+              setDomainsOrgId(null)
             }
           }}
         />
