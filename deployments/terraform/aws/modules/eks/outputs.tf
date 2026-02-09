@@ -78,3 +78,42 @@ output "s3_access_role_arn" {
   description = "ARN of the IAM role for S3 access (IRSA)"
   value       = aws_iam_role.tracecat_s3.arn
 }
+
+# Compliance Evidence Outputs
+
+output "database_authentication" {
+  description = "Database credential management and network access controls."
+  value = {
+    master_username            = aws_db_instance.tracecat.username
+    managed_credentials        = aws_db_instance.tracecat.manage_master_user_password
+    publicly_accessible        = aws_db_instance.tracecat.publicly_accessible
+    password_rotation_schedule = var.rds_password_rotation_schedule
+  }
+}
+
+output "encryption_at_rest" {
+  description = "Encryption at rest for RDS, ElastiCache, and S3."
+  value = {
+    rds_storage_encrypted          = aws_db_instance.tracecat.storage_encrypted
+    redis_encryption_enabled       = aws_elasticache_replication_group.tracecat.at_rest_encryption_enabled
+    s3_attachments_sse_algorithm   = one(one(aws_s3_bucket_server_side_encryption_configuration.attachments.rule).apply_server_side_encryption_by_default).sse_algorithm
+    s3_registry_sse_algorithm      = one(one(aws_s3_bucket_server_side_encryption_configuration.registry.rule).apply_server_side_encryption_by_default).sse_algorithm
+    s3_workflow_sse_algorithm      = one(one(aws_s3_bucket_server_side_encryption_configuration.workflow.rule).apply_server_side_encryption_by_default).sse_algorithm
+  }
+}
+
+output "encryption_in_transit" {
+  description = "HTTPS enforcement and TLS for all service connections."
+  value = {
+    alb_http_to_https_redirect = local.tracecat_alb_http_to_https_redirect_enabled
+    redis_tls_enabled          = aws_elasticache_replication_group.tracecat.transit_encryption_enabled
+  }
+}
+
+output "performance_monitoring" {
+  description = "RDS database performance monitoring configuration."
+  value = {
+    database_insights_mode       = aws_db_instance.tracecat.database_insights_mode
+    performance_insights_enabled = aws_db_instance.tracecat.performance_insights_enabled
+  }
+}
