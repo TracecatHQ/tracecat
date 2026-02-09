@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
@@ -54,7 +54,6 @@ OrgAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
     ),
 ]
 
@@ -225,7 +224,7 @@ async def delete_secret_by_id(
 
 
 @org_router.get("")
-@require_scope("secret:read")
+@require_scope("org:secret:read")
 async def list_org_secrets(
     *,
     role: OrgAdminUser,
@@ -251,7 +250,7 @@ async def list_org_secrets(
 
 
 @org_router.get("/{secret_name}")
-@require_scope("secret:read")
+@require_scope("org:secret:read")
 async def get_org_secret_by_name(
     *,
     role: OrgAdminUser,
@@ -272,7 +271,7 @@ async def get_org_secret_by_name(
 
 
 @org_router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("secret:create")
+@require_scope("org:secret:create")
 async def create_org_secret(
     *,
     role: OrgAdminUser,
@@ -299,7 +298,7 @@ async def create_org_secret(
     "/{secret_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-@require_scope("secret:update")
+@require_scope("org:secret:update")
 async def update_org_secret_by_id(
     *,
     role: OrgAdminUser,
@@ -334,7 +333,7 @@ async def update_org_secret_by_id(
     "/{secret_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-@require_scope("secret:delete")
+@require_scope("org:secret:delete")
 async def delete_org_secret_by_id(
     *,
     role: OrgAdminUser,

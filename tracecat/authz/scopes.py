@@ -105,6 +105,9 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         # Org settings management
         "org:settings:read",
         "org:settings:manage",
+        # Registry management (org-level custom actions)
+        "org:registry:read",
+        "org:registry:manage",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -149,6 +152,11 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "secret:create",
         "secret:update",
         "secret:delete",
+        # Organization secrets (org-scoped, not workspace-scoped)
+        "org:secret:read",
+        "org:secret:create",
+        "org:secret:update",
+        "org:secret:delete",
         # Full action execution
         "action:*:execute",
     }
@@ -172,6 +180,9 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         # Org settings management
         "org:settings:read",
         "org:settings:manage",
+        # Registry management (org-level custom actions)
+        "org:registry:read",
+        "org:registry:manage",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -216,6 +227,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "secret:create",
         "secret:update",
         "secret:delete",
+        # Organization secrets (org-scoped, not workspace-scoped)
+        "org:secret:read",
+        "org:secret:create",
+        "org:secret:update",
+        "org:secret:delete",
         # Full action execution
         "action:*:execute",
     }

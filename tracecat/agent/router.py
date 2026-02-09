@@ -10,7 +10,7 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -23,7 +23,6 @@ OrganizationAdminUserRole = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
     ),
 ]
 
