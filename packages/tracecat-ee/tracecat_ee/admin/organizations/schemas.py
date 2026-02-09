@@ -38,6 +38,40 @@ class OrgRead(Schema):
     model_config = {"from_attributes": True}
 
 
+# Org Domain Schemas
+
+
+class OrgDomainCreate(Schema):
+    """Create organization domain request."""
+
+    domain: str = Field(..., min_length=1, max_length=255)
+    is_primary: bool = False
+
+
+class OrgDomainUpdate(Schema):
+    """Update organization domain request."""
+
+    is_primary: bool | None = None
+    is_active: bool | None = None
+
+
+class OrgDomainRead(Schema):
+    """Organization domain response."""
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    domain: str
+    normalized_domain: str
+    is_primary: bool
+    is_active: bool
+    verified_at: datetime | None = None
+    verification_method: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # Org Registry Schemas
 
 
