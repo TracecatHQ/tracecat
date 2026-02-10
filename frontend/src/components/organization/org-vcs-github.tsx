@@ -1,12 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  CheckCircle2Icon,
-  ExternalLinkIcon,
-  GithubIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { CheckCircle2Icon, ExternalLinkIcon, GithubIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -79,6 +74,7 @@ const gitHubAppFormSchema = z.object({
 })
 
 type GitHubAppFormData = z.infer<typeof gitHubAppFormSchema>
+type GitHubConnectionTab = "create" | "existing"
 
 export function GitHubAppSetup() {
   const { manifest } = useGitHubAppManifest()
@@ -90,6 +86,7 @@ export function GitHubAppSetup() {
   const { deleteCredentials } = useDeleteGitHubAppCredentials()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<GitHubConnectionTab>("create")
   const { toast } = useToast()
 
   useEffect(() => {
@@ -105,6 +102,11 @@ export function GitHubAppSetup() {
 
   const isConfigured = credentialsStatus?.exists ?? false
 
+  const openConnectionDialog = (tab: GitHubConnectionTab) => {
+    setActiveTab(tab)
+    setDialogOpen(true)
+  }
+
   const handleFormSuccess = () => {
     setDialogOpen(false)
     refetchCredentialsStatus()
@@ -117,10 +119,14 @@ export function GitHubAppSetup() {
   const handleDelete = async () => {
     try {
       await deleteCredentials.mutateAsync()
+      await refetchCredentialsStatus()
       setDeleteDialogOpen(false)
+      setActiveTab("create")
+      setDialogOpen(true)
       toast({
-        title: "GitHub App credentials deleted",
-        description: "Workflow sync has been disconnected.",
+        title: "GitHub App setup reset",
+        description:
+          "Saved credentials were removed. Continue with Create new app to restart setup.",
       })
     } catch (error) {
       console.error("Failed to delete GitHub App credentials:", error)
@@ -173,20 +179,27 @@ export function GitHubAppSetup() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setDialogOpen(true)}
+                onClick={() => openConnectionDialog("create")}
               >
-                Update
+                Create new app
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openConnectionDialog("existing")}
+              >
+                Edit credentials
               </Button>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={() => setDeleteDialogOpen(true)}
               >
-                <Trash2Icon className="size-3.5" />
+                Start over
               </Button>
             </>
           ) : (
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <Button size="sm" onClick={() => openConnectionDialog("create")}>
               Connect
             </Button>
           )}
@@ -198,6 +211,8 @@ export function GitHubAppSetup() {
         onOpenChange={setDialogOpen}
         manifest={manifest}
         onFormSuccess={handleFormSuccess}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         existingAppId={
           isConfigured ? credentialsStatus?.app_id || undefined : undefined
         }
@@ -206,10 +221,12 @@ export function GitHubAppSetup() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete GitHub App credentials</AlertDialogTitle>
+            <AlertDialogTitle>
+              Start over with GitHub App setup
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the GitHub App credentials? This
-              will disable workflow synchronization with your Git repositories.
+              This will remove the saved GitHub App credentials. You can then
+              restart from the Create new app flow.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -221,7 +238,7 @@ export function GitHubAppSetup() {
               disabled={deleteCredentials.isPending}
               className="bg-destructive hover:bg-destructive/90"
             >
-              {deleteCredentials.isPending ? "Deleting..." : "Delete"}
+              {deleteCredentials.isPending ? "Resetting..." : "Start over"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -235,12 +252,16 @@ function GitHubConnectionDialog({
   onOpenChange,
   manifest,
   onFormSuccess,
+  activeTab,
+  onTabChange,
   existingAppId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   manifest: { manifest: Record<string, unknown> } | undefined
   onFormSuccess: () => void
+  activeTab: GitHubConnectionTab
+  onTabChange: (tab: GitHubConnectionTab) => void
   existingAppId?: string
 }) {
   const { toast } = useToast()
@@ -319,7 +340,15 @@ function GitHubConnectionDialog({
             {existingAppId ? "Update GitHub App" : "Connect GitHub App"}
           </DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="create" className="w-full">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => {
+            if (value === "create" || value === "existing") {
+              onTabChange(value)
+            }
+          }}
+          className="w-full"
+        >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="create" disableUnderline>
               Create new
