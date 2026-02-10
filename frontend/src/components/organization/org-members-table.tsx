@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
 import { useOrgMembers } from "@/lib/hooks"
 
@@ -53,7 +53,7 @@ export function OrgMembersTable() {
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { user } = useAuth()
+  const { canAdministerOrg } = useOrgMembership()
   const { orgMembers, updateOrgMember, deleteOrgMember } = useOrgMembers()
 
   const handleChangeRole = async (role: UserRole) => {
@@ -244,7 +244,7 @@ export function OrgMembersTable() {
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {user?.isPrivileged() && (
+                      {canAdministerOrg && (
                         <DropdownMenuGroup>
                           <DialogTrigger asChild>
                             <DropdownMenuItem

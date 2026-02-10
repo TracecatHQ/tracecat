@@ -62,7 +62,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
 import { useOrgInvitations } from "@/lib/hooks"
 
@@ -77,7 +77,7 @@ export function OrgInvitationsTable() {
   const [selectedInvitation, setSelectedInvitation] =
     useState<OrgInvitationRead | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const { user } = useAuth()
+  const { canAdministerOrg } = useOrgMembership()
   const { invitations, createInvitation, createPending, revokeInvitation } =
     useOrgInvitations()
 
@@ -130,7 +130,7 @@ export function OrgInvitationsTable() {
 
   return (
     <div className="space-y-4">
-      {user?.isPrivileged() && (
+      {canAdministerOrg && (
         <div className="flex justify-end">
           <Dialog
             open={isCreateDialogOpen}
@@ -360,7 +360,7 @@ export function OrgInvitationsTable() {
                       >
                         Copy invitation ID
                       </DropdownMenuItem>
-                      {user?.isPrivileged() && isPending && (
+                      {canAdministerOrg && isPending && (
                         <DropdownMenuItem
                           onSelect={async () => {
                             try {
@@ -387,7 +387,7 @@ export function OrgInvitationsTable() {
                           Copy invitation link
                         </DropdownMenuItem>
                       )}
-                      {user?.isPrivileged() && (
+                      {canAdministerOrg && (
                         <>
                           <DropdownMenuSeparator />
                           {isPending ? (
