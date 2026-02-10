@@ -14,6 +14,13 @@ type OAuthButtonProps = ComponentPropsWithoutRef<typeof Button> & {
   returnUrl?: string | null
 }
 
+type OidcProviderIcon = "google" | "saml"
+
+type OidcOAuthButtonProps = OAuthButtonProps & {
+  providerLabel?: string
+  providerIcon?: OidcProviderIcon
+}
+
 function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
   const secure = window.location.protocol === "https:"
   const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
@@ -48,8 +55,16 @@ export function GithubOAuthButton({
     </Button>
   )
 }
-export function GoogleOAuthButton({ returnUrl, ...props }: OAuthButtonProps) {
+
+export function OidcOAuthButton({
+  returnUrl,
+  providerLabel = "Single sign-on",
+  providerIcon = "saml",
+  ...props
+}: OidcOAuthButtonProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const ProviderIcon = providerIcon === "google" ? Icons.google : Icons.saml
+
   const handleClick = async () => {
     try {
       setIsLoading(true)
@@ -59,7 +74,7 @@ export function GoogleOAuthButton({ returnUrl, ...props }: OAuthButtonProps) {
       setPostAuthReturnUrlCookie(returnUrl)
       window.location.href = authorization_url
     } catch (error) {
-      console.error("Error authorizing with Google", error)
+      console.error("Error authorizing with OIDC", error)
     } finally {
       setIsLoading(false)
     }
@@ -74,9 +89,15 @@ export function GoogleOAuthButton({ returnUrl, ...props }: OAuthButtonProps) {
       {isLoading ? (
         <Icons.spinner className="mr-2 size-4 animate-spin" />
       ) : (
-        <Icons.google className="mr-2 size-4" />
+        <ProviderIcon className="mr-2 size-4" />
       )}{" "}
-      Google
+      {providerLabel}
     </Button>
+  )
+}
+
+export function GoogleOAuthButton(props: OAuthButtonProps) {
+  return (
+    <OidcOAuthButton {...props} providerLabel="Google" providerIcon="google" />
   )
 }

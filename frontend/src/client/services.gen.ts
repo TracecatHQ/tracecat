@@ -422,9 +422,7 @@ import type {
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
-  SettingsGetAuthSettingsResponse,
   SettingsGetGitSettingsResponse,
-  SettingsGetOauthSettingsResponse,
   SettingsGetSamlSettingsResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
@@ -432,12 +430,8 @@ import type {
   SettingsUpdateAppSettingsResponse,
   SettingsUpdateAuditSettingsData,
   SettingsUpdateAuditSettingsResponse,
-  SettingsUpdateAuthSettingsData,
-  SettingsUpdateAuthSettingsResponse,
   SettingsUpdateGitSettingsData,
   SettingsUpdateGitSettingsResponse,
-  SettingsUpdateOauthSettingsData,
-  SettingsUpdateOauthSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
   TablesBatchInsertRowsData,
@@ -5486,74 +5480,6 @@ export const settingsUpdateSamlSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/saml",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Auth Settings
- * @returns AuthSettingsRead Successful Response
- * @throws ApiError
- */
-export const settingsGetAuthSettings =
-  (): CancelablePromise<SettingsGetAuthSettingsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/settings/auth",
-    })
-  }
-
-/**
- * Update Auth Settings
- * @param data The data for the request.
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const settingsUpdateAuthSettings = (
-  data: SettingsUpdateAuthSettingsData
-): CancelablePromise<SettingsUpdateAuthSettingsResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/settings/auth",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Oauth Settings
- * @returns OAuthSettingsRead Successful Response
- * @throws ApiError
- */
-export const settingsGetOauthSettings =
-  (): CancelablePromise<SettingsGetOauthSettingsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/settings/oauth",
-    })
-  }
-
-/**
- * Update Oauth Settings
- * @param data The data for the request.
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const settingsUpdateOauthSettings = (
-  data: SettingsUpdateOauthSettingsData
-): CancelablePromise<SettingsUpdateOauthSettingsResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/settings/oauth",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

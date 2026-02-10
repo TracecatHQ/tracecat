@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -12,9 +13,7 @@ from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.router import check_other_auth_enabled
 from tracecat.settings.schemas import (
     AuditSettingsUpdate,
-    AuthSettingsUpdate,
     GitSettingsUpdate,
-    OAuthSettingsUpdate,
     SAMLSettingsUpdate,
     SettingCreate,
     SettingUpdate,
@@ -347,50 +346,6 @@ async def test_update_saml_settings(
 
 
 @pytest.mark.anyio
-async def test_update_auth_settings(
-    settings_service_with_defaults: SettingsService,
-) -> None:
-    """Test updating authentication settings."""
-    service = settings_service_with_defaults
-
-    test_params = AuthSettingsUpdate(
-        auth_basic_enabled=True,
-        auth_require_email_verification=True,
-        auth_allowed_email_domains=["test.com"],
-        auth_min_password_length=16,
-        auth_session_expire_time_seconds=3600,
-    )
-    await service.update_auth_settings(test_params)
-
-    auth_settings = await service.list_org_settings(keys=AuthSettingsUpdate.keys())
-    settings_dict = {
-        setting.key: service.get_value(setting) for setting in auth_settings
-    }
-    assert settings_dict["auth_basic_enabled"] is True
-    assert settings_dict["auth_require_email_verification"] is True
-    assert settings_dict["auth_allowed_email_domains"] == ["test.com"]  # Returns a list
-    assert settings_dict["auth_min_password_length"] == 16
-    assert settings_dict["auth_session_expire_time_seconds"] == 3600
-
-
-@pytest.mark.anyio
-async def test_update_oauth_settings(
-    settings_service_with_defaults: SettingsService,
-) -> None:
-    """Test updating OAuth settings."""
-    service = settings_service_with_defaults
-
-    test_params = OAuthSettingsUpdate(oauth_google_enabled=True)
-    await service.update_oauth_settings(test_params)
-
-    oauth_settings = await service.list_org_settings(keys=OAuthSettingsUpdate.keys())
-    settings_dict = {
-        setting.key: service.get_value(setting) for setting in oauth_settings
-    }
-    assert settings_dict["oauth_google_enabled"] is True
-
-
-@pytest.mark.anyio
 async def test_get_setting_shorthand(
     settings_service: SettingsService,
     create_params: SettingCreate,
@@ -438,17 +393,11 @@ async def test_get_setting_shorthand(
 @pytest.mark.anyio
 async def test_check_other_auth_enabled_success(
     settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test check_other_auth_enabled when another auth type is enabled."""
     service = settings_service_with_defaults
-
-    # Enable both SAML and Basic auth
-    await service.update_saml_settings(SAMLSettingsUpdate(saml_enabled=True))
-    await service.update_auth_settings(AuthSettingsUpdate(auth_basic_enabled=True))
-
-    # Should not raise an exception when checking SAML (since Basic is enabled)
-    from tracecat.auth.enums import AuthType
-    from tracecat.settings.router import check_other_auth_enabled
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.SAML, AuthType.BASIC})
 
     await check_other_auth_enabled(service, AuthType.SAML)
 
@@ -456,18 +405,15 @@ async def test_check_other_auth_enabled_success(
 @pytest.mark.anyio
 async def test_check_other_auth_enabled_failure(
     settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test check_other_auth_enabled when no other auth type is enabled."""
     service = settings_service_with_defaults
-
-    # Disable all auth types except Basic
-    await service.update_saml_settings(SAMLSettingsUpdate(saml_enabled=False))
-    await service.update_oauth_settings(OAuthSettingsUpdate(oauth_google_enabled=False))
-    await service.update_auth_settings(AuthSettingsUpdate(auth_basic_enabled=True))
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.SAML})
 
     # Should raise HTTPException when trying to disable the last enabled auth type
     with pytest.raises(HTTPException) as exc_info:
-        await check_other_auth_enabled(service, AuthType.BASIC)
+        await check_other_auth_enabled(service, AuthType.SAML)
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "At least one other auth type must be enabled"
@@ -510,8 +456,6 @@ async def test_init_default_settings(
     "key,env_value,expected",
     [
         ("saml_enabled", "true", "true"),
-        ("auth_basic_enabled", "false", "false"),
-        ("oauth_google_enabled", "1", "1"),
         ("unauthorized_setting", "true", None),
     ],
 )
@@ -530,8 +474,6 @@ def test_get_setting_override(
     "key,env_value,expected",
     [
         ("saml_enabled", "true", True),
-        ("auth_basic_enabled", "false", False),
-        ("oauth_google_enabled", "1", True),
         ("unauthorized_setting", "true", None),
         ("saml_enabled", "some_string", "some_string"),
     ],
@@ -545,7 +487,7 @@ async def test_setting_with_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test get_setting with environment overrides."""
-    if key in {"saml_enabled", "auth_basic_enabled", "oauth_google_enabled"}:
+    if key == "saml_enabled":
         monkeypatch.setenv(f"TRACECAT__SETTING_OVERRIDE_{key.upper()}", env_value)
 
     # Test with both session and role

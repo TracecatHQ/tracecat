@@ -8,13 +8,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.api.common import bootstrap_role
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
 from tracecat.db.models import Organization, OrganizationDomain
 from tracecat.organization.domains import normalize_domain
-from tracecat.settings.schemas import OAuthSettingsUpdate
-from tracecat.settings.service import SettingsService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -89,30 +86,6 @@ async def test_discovery_returns_oidc_for_mapped_non_saml_domains(
 
 
 @pytest.mark.anyio
-async def test_discovery_ignores_org_google_toggle(
-    session: AsyncSession,
-    organization: Organization,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    await _create_domain(session, organization.id, "acme.dev")
-    settings_service = SettingsService(session, role=bootstrap_role(organization.id))
-    await settings_service.init_default_settings()
-    await settings_service.update_oauth_settings(
-        OAuthSettingsUpdate(oauth_google_enabled=False)
-    )
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH},
-    )
-    service = AuthDiscoveryService(session)
-
-    response = await service.discover("user@acme.dev")
-
-    assert response.method == AuthDiscoveryMethod.OIDC
-
-
-@pytest.mark.anyio
 async def test_discovery_falls_back_when_mapped_org_is_inactive(
     session: AsyncSession,
     organization: Organization,
@@ -133,7 +106,6 @@ async def test_discovery_falls_back_when_mapped_org_is_inactive(
     assert response.method == AuthDiscoveryMethod.OIDC
 
 
-@pytest.mark.anyio
 async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,

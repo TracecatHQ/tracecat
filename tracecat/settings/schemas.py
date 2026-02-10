@@ -72,51 +72,6 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
     saml_idp_metadata_url: str | None = Field(default=None)
 
 
-class AuthSettingsRead(BaseSettingsGroup):
-    auth_basic_enabled: bool
-    auth_require_email_verification: bool
-    auth_allowed_email_domains: list[str]
-    auth_min_password_length: int
-    auth_session_expire_time_seconds: int
-
-
-class AuthSettingsUpdate(BaseSettingsGroup):
-    auth_basic_enabled: bool = Field(
-        default=True,
-        description="Whether basic auth is enabled.",
-    )
-    auth_require_email_verification: bool = Field(
-        default=False,
-        description="Whether email verification is required for authentication.",
-    )
-    auth_allowed_email_domains: list[str] = Field(
-        default_factory=list,
-        description="Allowed email domains for authentication. If empty, all domains are allowed.",
-    )
-    auth_min_password_length: int = Field(
-        default=12,
-        description="Minimum password length for authentication.",
-    )
-    auth_session_expire_time_seconds: int = Field(
-        default=86400 * 7,  # 1 week
-        description="Session expiration time in seconds.",
-    )
-
-
-class OAuthSettingsRead(BaseSettingsGroup):
-    """Settings for OAuth authentication."""
-
-    oauth_google_enabled: bool
-
-
-class OAuthSettingsUpdate(BaseSettingsGroup):
-    """Settings for OAuth authentication."""
-
-    oauth_google_enabled: bool = Field(
-        default=True, description="Whether OAuth is enabled."
-    )
-
-
 class AppSettingsRead(BaseSettingsGroup):
     """Settings for the app."""
 

@@ -44,7 +44,6 @@ class AuthDiscoverResponse(Schema):
 
 
 _SAML_SETTING_KEY: Final[str] = "saml_enabled"
-_BASIC_AUTH_SETTING_KEY: Final[str] = "auth_basic_enabled"
 
 
 class AuthDiscoveryService(BaseService):
@@ -99,23 +98,14 @@ class AuthDiscoveryService(BaseService):
         )
         return bool(value)
 
-    async def _org_oidc_enabled(self, org_id: OrganizationID) -> bool:
-        del org_id
+    async def _org_oidc_enabled(self, _org_id: OrganizationID) -> bool:
         return (
             AuthType.OIDC in config.TRACECAT__AUTH_TYPES
             or AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES
         )
 
-    async def _org_basic_enabled(self, org_id: OrganizationID) -> bool:
-        if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
-            return False
-        value = await get_setting(
-            _BASIC_AUTH_SETTING_KEY,
-            role=bootstrap_role(org_id),
-            session=self.session,
-            default=True,
-        )
-        return bool(value)
+    async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
+        return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
 
     @staticmethod
     def _extract_domain(email: str) -> str:

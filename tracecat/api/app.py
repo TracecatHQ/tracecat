@@ -574,8 +574,6 @@ class AppInfo(BaseModel):
     version: str
     public_app_url: str
     auth_allowed_types: list[AuthType]
-    auth_basic_enabled: bool
-    oauth_google_enabled: bool
     saml_enabled: bool
     ee_multi_tenant: bool
 
@@ -584,7 +582,7 @@ class AppInfo(BaseModel):
 async def info(session: AsyncDBSession) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
-    keys = {"auth_basic_enabled", "oauth_google_enabled", "saml_enabled"}
+    keys = {"saml_enabled"}
 
     # Get the default organization for platform-level settings
     org_id = await get_default_organization_id(session)
@@ -597,8 +595,6 @@ async def info(session: AsyncDBSession) -> AppInfo:
         version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
-        auth_basic_enabled=keyvalues["auth_basic_enabled"],
-        oauth_google_enabled=keyvalues["oauth_google_enabled"],
         saml_enabled=keyvalues["saml_enabled"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
     )

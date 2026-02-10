@@ -4,7 +4,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -78,7 +78,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         super().__init__(user_db)
         self._user_db = user_db
         self.logger = logger.bind(unit="UserManager")
-        self.role = bootstrap_role()
         # Store invitation token between create() and on_after_register()
         self._pending_invitation_token: str | None = None
 
@@ -145,11 +144,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return
 
         # For non-first users, apply normal domain validation
-        allowed_domains = cast(
-            list[str] | None,
-            await get_setting("auth_allowed_email_domains", role=self.role),
-            # Allow overriding of empty list
-        ) or list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
+        allowed_domains = list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
