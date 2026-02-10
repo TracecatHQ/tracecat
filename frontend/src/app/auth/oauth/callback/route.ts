@@ -30,6 +30,9 @@ export const GET = async (request: NextRequest) => {
     console.error(
       `OAuth callback failed with status ${response.status}: ${await response.text()}`
     )
+    const resp = await fetch(buildUrl("/info"))
+    const { public_app_url } = await resp.json()
+    return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
   // Get redirect
