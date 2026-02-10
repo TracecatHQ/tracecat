@@ -972,7 +972,7 @@ are not scoped to any organization or workspace.
 # --- Authenticated User Only (No Organization Context) ---
 
 
-async def _authenticated_user_only(
+async def authenticated_user_only(
     user: Annotated[User, Depends(current_active_user)],
 ) -> Role:
     """Dependency for endpoints requiring only an authenticated user.
@@ -1000,7 +1000,7 @@ async def _authenticated_user_only(
     return role
 
 
-AuthenticatedUserOnly = Annotated[Role, Depends(_authenticated_user_only)]
+AuthenticatedUserOnly = Annotated[Role, Depends(authenticated_user_only)]
 """Dependency for an authenticated user without organization context.
 
 Use this for endpoints where the user is authenticated but may not
