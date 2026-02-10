@@ -129,6 +129,11 @@ resource "helm_release" "tracecat" {
     },
     var.spot_node_group_enabled ? {
       scheduling = local.tracecat_spot_scheduling
+    } : {},
+    var.feature_flags != "" ? {
+      enterprise = {
+        featureFlags = var.feature_flags
+      }
     } : {}
   ))]
 
@@ -706,16 +711,6 @@ resource "helm_release" "tracecat" {
     content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"
-    }
-  }
-
-  # Enterprise feature flags
-  dynamic "set" {
-    for_each = var.feature_flags != "" ? [1] : []
-    content {
-      name  = "enterprise.featureFlags"
-      value = var.feature_flags
-      type  = "string"
     }
   }
 
