@@ -52,19 +52,19 @@ export function OrgSettingsSsoForm() {
     },
   })
 
-  const isSamlAllowed = appInfo?.auth_allowed_types.includes("saml")
+  const isSamlAllowed = appInfo?.auth_allowed_types.includes("saml") ?? false
   const onSubmit = async (data: SsoFormValues) => {
-    const conditional: Partial<SAMLSettingsUpdate> = {}
+    const samlEnabled = isSamlAllowed && data.saml_enabled
+    const requestBody: SAMLSettingsUpdate = {
+      saml_enforced: samlEnabled ? data.saml_enforced : false,
+      saml_idp_metadata_url: data.saml_idp_metadata_url,
+    }
     if (isSamlAllowed) {
-      conditional.saml_enabled = data.saml_enabled
+      requestBody.saml_enabled = samlEnabled
     }
     try {
       await updateSamlSettings({
-        requestBody: {
-          saml_enforced: data.saml_enforced,
-          saml_idp_metadata_url: data.saml_idp_metadata_url,
-          ...conditional,
-        },
+        requestBody,
       })
     } catch (error) {
       console.error("Failed to update SAML settings", error)
@@ -116,6 +116,7 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  disabled={!isSamlAllowed}
                 />
               </FormControl>
             </FormItem>
@@ -136,7 +137,7 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  disabled={!methods.watch("saml_enabled")}
+                  disabled={!isSamlAllowed || !methods.watch("saml_enabled")}
                 />
               </FormControl>
             </FormItem>

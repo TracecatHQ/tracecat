@@ -149,10 +149,16 @@ def require_any_auth_type_enabled(auth_types: Sequence[AuthType]) -> Any:
         raise ValueError("auth_types must not be empty")
 
     async def _check_any_auth_type_enabled(request: Request) -> None:
+        last_error: HTTPException | None = None
         for auth_type in candidate_types:
             if auth_type in config.TRACECAT__AUTH_TYPES:
-                await verify_auth_type(auth_type, request)
-                return
+                try:
+                    await verify_auth_type(auth_type, request)
+                    return
+                except HTTPException as exc:
+                    last_error = exc
+        if last_error is not None:
+            raise last_error
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Auth type not allowed",

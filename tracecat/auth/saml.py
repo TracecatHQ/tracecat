@@ -19,7 +19,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
-from tracecat.auth.dependencies import ServiceRole
+from tracecat.auth.dependencies import ServiceRole, require_auth_type_enabled
+from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.authz.enums import OrgRole
@@ -436,7 +437,11 @@ async def create_saml_client(
         return client
 
 
-@router.get("/login", name=f"saml:{auth_backend.name}.login")
+@router.get(
+    "/login",
+    name=f"saml:{auth_backend.name}.login",
+    dependencies=[require_auth_type_enabled(AuthType.SAML)],
+)
 async def login(
     request: Request,
     db_session: Annotated[AsyncSession, Depends(get_async_session)],

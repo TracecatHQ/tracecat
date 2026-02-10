@@ -530,10 +530,7 @@ def create_app(**kwargs) -> FastAPI:
                 require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
             ],
         )
-    app.include_router(
-        saml_router,
-        dependencies=[require_auth_type_enabled(AuthType.SAML)],
-    )
+    app.include_router(saml_router)
     app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -616,11 +613,13 @@ async def info(request: Request, session: AsyncDBSession) -> AppInfo:
 
     keys = {"saml_enabled", "saml_enforced"}
 
-    # Resolve organization-specific auth settings. Fall back to default org if
-    # caller didn't provide org context.
+    # Resolve organization-specific auth settings. Fall back to default org only
+    # when caller did not provide org context.
     try:
         org_id = await resolve_auth_organization_id(request, session=session)
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_428_PRECONDITION_REQUIRED:
+            raise
         org_id = await get_default_organization_id(session)
     service = SettingsService(session, role=bootstrap_role(org_id))
     settings = await service.list_org_settings(keys=keys)
