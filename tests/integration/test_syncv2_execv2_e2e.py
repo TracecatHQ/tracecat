@@ -873,7 +873,9 @@ class TestFailureScenarios:
         # Sync the same version to platform-scoped tables.
         # Executor lock resolution routes tracecat_registry to platform tables.
         platform_svc = PlatformRegistryReposService(committing_session)
-        platform_repo = await platform_svc.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+        platform_repo = await platform_svc.get_or_create_repository(
+            DEFAULT_REGISTRY_ORIGIN
+        )
         platform_sync_service = PlatformRegistrySyncService(committing_session)
         await platform_sync_service.sync_repository_v2(
             platform_repo,
@@ -909,7 +911,9 @@ class TestFailureScenarios:
         # For tracecat_registry, this may resolve to platform-scoped artifacts.
         backend = EphemeralBackend()
         tarball_uris = await backend._get_tarball_uris(input_data, test_role)
-        assert tarball_uris, "Expected resolved tarball URIs for locked registry version"
+        assert tarball_uris, (
+            "Expected resolved tarball URIs for locked registry version"
+        )
         for tarball_uri in tarball_uris:
             uri_parts = tarball_uri.replace("s3://", "").split("/", 1)
             bucket = uri_parts[0]

@@ -7,7 +7,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
-from httpx_oauth.clients.google import GoogleOAuth2
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
@@ -32,9 +31,13 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
-from tracecat.auth.dependencies import require_auth_type_enabled
+from tracecat.auth.dependencies import (
+    require_any_auth_type_enabled,
+    require_auth_type_enabled,
+)
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
+from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -474,27 +477,28 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    oauth_client = GoogleOAuth2(
-        client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
-    )
-    # This is the frontend URL that the user will be redirected to after authenticating
-    redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
-    logger.info("OAuth redirect URL", url=redirect_url)
-    app.include_router(
-        fastapi_users.get_oauth_router(
-            oauth_client,
-            auth_backend,
-            config.USER_AUTH_SECRET,
-            # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
-            associate_by_email=True,
-            is_verified_by_default=True,
-            # Points the user back to the login page
-            redirect_url=redirect_url,
-        ),
-        prefix="/auth/oauth",
-        tags=["auth"],
-        dependencies=[require_auth_type_enabled(AuthType.GOOGLE_OAUTH)],
-    )
+    if oidc_auth_type_enabled():
+        oauth_client = create_platform_oauth_client()
+        # This is the frontend URL that the user will be redirected to after authenticating
+        redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
+        logger.info("OAuth redirect URL", url=redirect_url)
+        app.include_router(
+            fastapi_users.get_oauth_router(
+                oauth_client,
+                auth_backend,
+                config.USER_AUTH_SECRET,
+                # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
+                associate_by_email=True,
+                is_verified_by_default=True,
+                # Points the user back to the login page
+                redirect_url=redirect_url,
+            ),
+            prefix="/auth/oauth",
+            tags=["auth"],
+            dependencies=[
+                require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+            ],
+        )
     app.include_router(
         saml_router,
         dependencies=[require_auth_type_enabled(AuthType.SAML)],
