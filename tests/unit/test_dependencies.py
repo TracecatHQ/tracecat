@@ -45,24 +45,26 @@ async def test_verify_auth_type_not_allowed(
 @pytest.mark.anyio
 async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
     """Test that disabled auth types raise HTTPException."""
-    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
+    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=False)
 
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(AuthType.BASIC)
+        await verify_auth_type(AuthType.SAML)
 
     assert exc.value.status_code == status.HTTP_403_FORBIDDEN
-    assert exc.value.detail == f"Auth type {AuthType.BASIC.value} is not enabled"
+    assert exc.value.detail == f"Auth type {AuthType.SAML.value} is not enabled"
 
 
 @pytest.mark.anyio
 async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
     """Test that invalid settings raise HTTPException."""
-    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
+    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(AuthType.BASIC)
+        await verify_auth_type(AuthType.SAML)
 
     assert exc.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert exc.value.detail == "Invalid setting configuration"
@@ -71,16 +73,17 @@ async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
 @pytest.mark.anyio
 async def test_verify_auth_type_success(mocker: MockerFixture):
     """Test successful auth type verification."""
-    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
+    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=True)
 
     # Should not raise any exceptions
-    await verify_auth_type(AuthType.BASIC)
+    await verify_auth_type(AuthType.SAML)
 
 
 @pytest.mark.parametrize(
     "auth_type",
-    [AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+    [AuthType.BASIC, AuthType.OIDC, AuthType.GOOGLE_OAUTH],
 )
 @pytest.mark.anyio
 async def test_verify_auth_type_oidc_is_platform_controlled(
