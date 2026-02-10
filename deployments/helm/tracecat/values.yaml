@@ -12,6 +12,7 @@ secrets:
   # - oauthClientSecret: Google OAuth client secret
   oauthSecret: ""
 
+
 # External Secrets Operator integration (optional)
 # When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
 externalSecrets:
@@ -137,9 +138,15 @@ tracecat:
     metadataCert: ""
 
   auth:
-    types: "basic,saml"
+    types: "oidc"
     allowedDomains: ""
     superadminEmail: ""
+
+  oidc:
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    scopes: ""
 
   temporal:
     # Search attributes to create in Temporal (name: type)

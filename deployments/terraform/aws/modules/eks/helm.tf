@@ -86,10 +86,10 @@ resource "helm_release" "tracecat" {
   values = [yamlencode(merge(
     {
       ingress = {
-        enabled   = true
-        split     = var.tracecat_ingress_split
-        className = "alb"
-        host      = var.domain_name
+        enabled     = true
+        split       = var.tracecat_ingress_split
+        className   = "alb"
+        host        = var.domain_name
         annotations = local.tracecat_alb_ingress_annotations
         ui = {
           annotations = {
@@ -722,6 +722,47 @@ resource "helm_release" "tracecat" {
   set {
     name  = "enterprise.multiTenant"
     value = var.ee_multi_tenant
+  }
+
+  # Auth types
+  set {
+    name  = "tracecat.auth.types"
+    value = var.auth_types
+    type  = "string"
+  }
+
+  # OIDC Configuration
+  dynamic "set" {
+    for_each = var.oidc_issuer != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.issuer"
+      value = var.oidc_issuer
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.oidc_client_id != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.clientId"
+      value = var.oidc_client_id
+    }
+  }
+
+  dynamic "set_sensitive" {
+    for_each = var.oidc_client_secret != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.clientSecret"
+      value = var.oidc_client_secret
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.oidc_scopes != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.scopes"
+      value = var.oidc_scopes
+      type  = "string"
+    }
   }
 
   depends_on = [

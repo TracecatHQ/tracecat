@@ -103,6 +103,15 @@ module "eks" {
 
   tags = var.tags
 
+  # Auth Configuration
+  auth_types = var.auth_types
+
+  # OIDC Configuration
+  oidc_issuer        = var.oidc_issuer
+  oidc_client_id     = var.oidc_client_id
+  oidc_client_secret = var.oidc_client_secret
+  oidc_scopes        = var.oidc_scopes
+
   # Enterprise Edition
   ee_multi_tenant = var.ee_multi_tenant
 

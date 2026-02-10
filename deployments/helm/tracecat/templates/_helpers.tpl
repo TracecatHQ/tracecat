@@ -713,6 +713,23 @@ Merges: common + temporal + postgres + redis + api-specific
 - name: SAML_METADATA_CERT
   value: {{ .Values.tracecat.saml.metadataCert | quote }}
 {{- end }}
+{{- /* OIDC settings */}}
+{{- if .Values.tracecat.oidc.issuer }}
+- name: OIDC_ISSUER
+  value: {{ .Values.tracecat.oidc.issuer | quote }}
+{{- end }}
+{{- if .Values.tracecat.oidc.clientId }}
+- name: OIDC_CLIENT_ID
+  value: {{ .Values.tracecat.oidc.clientId | quote }}
+{{- end }}
+{{- if .Values.tracecat.oidc.clientSecret }}
+- name: OIDC_CLIENT_SECRET
+  value: {{ .Values.tracecat.oidc.clientSecret | quote }}
+{{- end }}
+{{- if .Values.tracecat.oidc.scopes }}
+- name: OIDC_SCOPES
+  value: {{ .Values.tracecat.oidc.scopes | quote }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -883,6 +900,7 @@ Get the effective OAuth secrets name.
 {{- .Values.secrets.oauthSecret }}
 {{- end }}
 {{- end }}
+
 
 {{/*
 Get the effective PostgreSQL secrets name for external Postgres.

@@ -445,6 +445,39 @@ variable "tags" {
   }
 }
 
+# Auth Configuration
+variable "auth_types" {
+  description = "Comma-separated authentication types (e.g., 'oidc', 'basic,saml', 'basic,oidc')"
+  type        = string
+  default     = "oidc"
+}
+
+# OIDC Configuration
+variable "oidc_issuer" {
+  description = "OIDC issuer URL (e.g., https://accounts.google.com)"
+  type        = string
+  default     = ""
+}
+
+variable "oidc_client_id" {
+  description = "OIDC client ID"
+  type        = string
+  default     = ""
+}
+
+variable "oidc_client_secret" {
+  description = "OIDC client secret"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "oidc_scopes" {
+  description = "OIDC scopes to request (space-separated, e.g., 'openid email profile')"
+  type        = string
+  default     = ""
+}
+
 # Enterprise Edition
 variable "ee_multi_tenant" {
   description = "Enable enterprise multi-tenant mode"
