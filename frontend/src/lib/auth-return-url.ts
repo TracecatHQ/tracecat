@@ -3,6 +3,11 @@ export const POST_AUTH_RETURN_URL_COOKIE_MAX_AGE_SECONDS = 60 * 15
 
 const APP_URL_PLACEHOLDER = "https://tracecat.local"
 
+function getPostAuthReturnUrlCookieSameSite(secure: boolean): "None" | "Lax" {
+  // Cross-site POSTs (SAML ACS) require SameSite=None; browsers require Secure with None.
+  return secure ? "None" : "Lax"
+}
+
 export function sanitizeReturnUrl(
   value: string | null | undefined
 ): string | null {
@@ -44,11 +49,13 @@ export function serializePostAuthReturnUrlCookie(
   value: string,
   secure: boolean
 ): string {
+  const sameSite = getPostAuthReturnUrlCookieSameSite(secure)
   const secureAttr = secure ? "; Secure" : ""
-  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=${encodeURIComponent(value)}; Path=/; Max-Age=${POST_AUTH_RETURN_URL_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttr}`
+  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=${encodeURIComponent(value)}; Path=/; Max-Age=${POST_AUTH_RETURN_URL_COOKIE_MAX_AGE_SECONDS}; SameSite=${sameSite}${secureAttr}`
 }
 
 export function serializeClearPostAuthReturnUrlCookie(secure: boolean): string {
+  const sameSite = getPostAuthReturnUrlCookieSameSite(secure)
   const secureAttr = secure ? "; Secure" : ""
-  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax${secureAttr}`
+  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=${sameSite}${secureAttr}`
 }
