@@ -37,7 +37,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
     """
     session = aioboto3.Session()
     # Configure client based on protocol
-    if config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None:
+    if config.TRACECAT__BLOB_STORAGE_ENDPOINT:
         # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
         async with session.client(
             "s3",
@@ -237,7 +237,7 @@ async def generate_presigned_download_url(
             )
             if (
                 config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None
-                and config.TRACECAT__BLOB_STORAGE_ENDPOINT is not None
+                and config.TRACECAT__BLOB_STORAGE_ENDPOINT
             ):
                 url = url.replace(
                     config.TRACECAT__BLOB_STORAGE_ENDPOINT,

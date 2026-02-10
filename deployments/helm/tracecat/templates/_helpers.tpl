@@ -338,7 +338,7 @@ Internal Blob Storage URL
 {{- if .Values.tracecat.blobStorage.endpoint }}
 {{- .Values.tracecat.blobStorage.endpoint }}
 {{- else if .Values.externalS3.enabled }}
-{{- .Values.externalS3.endpoint | default "" }}
+{{- .Values.externalS3.endpoint }}
 {{- else if .Values.minio.enabled }}
 {{- printf "http://%s:9000" .Values.minio.fullnameOverride }}
 {{- else }}
