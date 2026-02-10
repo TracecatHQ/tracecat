@@ -125,9 +125,7 @@ OIDC_CLIENT_SECRET = (
 OIDC_SCOPES = tuple(
     scope
     for scope in (
-        os.environ.get("OIDC_SCOPES", "openid profile email")
-        .replace(",", " ")
-        .split()
+        os.environ.get("OIDC_SCOPES", "openid profile email").replace(",", " ").split()
     )
     if scope
 )

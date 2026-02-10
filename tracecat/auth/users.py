@@ -153,9 +153,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
-    async def authenticate(
-        self, credentials: OAuth2PasswordRequestForm
-    ) -> User | None:
+    async def authenticate(self, credentials: OAuth2PasswordRequestForm) -> User | None:
         """Authenticate local email/password and enforce platform/org policy."""
         user = await super().authenticate(credentials)
         if user is None:
