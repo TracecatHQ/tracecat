@@ -26,7 +26,7 @@ spec:
       restartPolicy: OnFailure
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
-      serviceAccountName: default
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
