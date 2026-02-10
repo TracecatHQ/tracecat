@@ -8,11 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import get_default_organization_id
+from tracecat.auth.credentials import ORG_OVERRIDE_COOKIE
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization
 from tracecat.identifiers import OrganizationID
-
-ORG_OVERRIDE_COOKIE = "tracecat-org-id"
 
 
 async def _resolve_by_slug(

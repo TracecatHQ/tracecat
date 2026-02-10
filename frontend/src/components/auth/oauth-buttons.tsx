@@ -31,7 +31,8 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
 }
 
 export function GithubOAuthButton({
-  returnUrl: _,
+  returnUrl: _returnUrl,
+  orgSlug: _orgSlug,
   ...props
 }: OAuthButtonProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false)

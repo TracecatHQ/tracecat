@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Final
 from urllib.parse import urlencode
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from pydantic import EmailStr
 from sqlalchemy import select
 
@@ -60,17 +60,21 @@ class AuthDiscoveryService(BaseService):
     ) -> AuthDiscoverResponse:
         """Resolve the recommended login flow from an email address."""
         if org_slug:
-            org_resolution = await self._resolve_organization_by_slug(org_slug)
-            if org_resolution is not None:
-                org_id, resolved_org_slug = org_resolution
-                method = await self._organization_discovery_method(org_id)
-                return AuthDiscoverResponse(
-                    method=method,
-                    next_url=self._build_next_url(
-                        method=method, email=str(email), org_slug=resolved_org_slug
-                    ),
-                    organization_slug=resolved_org_slug,
+            org_resolution = await self._resolve_organization_by_slug(org_slug.strip())
+            if org_resolution is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid organization",
                 )
+            org_id, resolved_org_slug = org_resolution
+            method = await self._organization_discovery_method(org_id)
+            return AuthDiscoverResponse(
+                method=method,
+                next_url=self._build_next_url(
+                    method=method, email=str(email), org_slug=resolved_org_slug
+                ),
+                organization_slug=resolved_org_slug,
+            )
 
         email_domain = self._extract_domain(email)
         resolution = await self._resolve_organization(email_domain)
