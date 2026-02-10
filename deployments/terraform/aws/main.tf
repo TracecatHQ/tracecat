@@ -103,6 +103,9 @@ module "eks" {
 
   tags = var.tags
 
+  # Enterprise Edition
+  ee_multi_tenant = var.ee_multi_tenant
+
   # Feature Flags
   feature_flags = var.feature_flags
 }

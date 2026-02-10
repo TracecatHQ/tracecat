@@ -710,11 +710,11 @@ resource "helm_release" "tracecat" {
   }
 
   # Enterprise feature flags
-  dynamic "set_list" {
+  dynamic "set" {
     for_each = var.feature_flags != "" ? [1] : []
     content {
       name  = "enterprise.featureFlags"
-      value = [for flag in split(",", var.feature_flags) : trimspace(flag) if trimspace(flag) != ""]
+      value = var.feature_flags
     }
   }
 
