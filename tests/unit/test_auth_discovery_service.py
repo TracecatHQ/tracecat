@@ -86,6 +86,27 @@ async def test_discovery_returns_oidc_for_mapped_non_saml_domains(
 
 
 @pytest.mark.anyio
+async def test_discovery_falls_back_when_mapped_org_is_inactive(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_domain(session, organization.id, "acme.dev")
+    organization.is_active = False
+    await session.commit()
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("user@acme.dev")
+
+    assert response.method == AuthDiscoveryMethod.OIDC
+
+
+@pytest.mark.anyio
 async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,

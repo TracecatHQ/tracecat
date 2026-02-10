@@ -14,7 +14,7 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import OrganizationDomain
+from tracecat.db.models import Organization, OrganizationDomain
 from tracecat.identifiers import OrganizationID
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
@@ -66,9 +66,14 @@ class AuthDiscoveryService(BaseService):
 
     async def _resolve_organization_id(self, domain: str) -> OrganizationID | None:
         normalized_domain = normalize_domain(domain).normalized_domain
-        stmt = select(OrganizationDomain.organization_id).where(
-            OrganizationDomain.normalized_domain == normalized_domain,
-            OrganizationDomain.is_active.is_(True),
+        stmt = (
+            select(OrganizationDomain.organization_id)
+            .join(Organization, Organization.id == OrganizationDomain.organization_id)
+            .where(
+                OrganizationDomain.normalized_domain == normalized_domain,
+                OrganizationDomain.is_active.is_(True),
+                Organization.is_active.is_(True),
+            )
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
