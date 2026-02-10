@@ -61,7 +61,9 @@ OrgAdminRole = Annotated[
 ]
 
 
-def _get_user_display_name_and_email(user: User | None) -> tuple[str | None, str | None]:
+def _get_user_display_name_and_email(
+    user: User | None,
+) -> tuple[str | None, str | None]:
     """Build display name/email pair for inviter fields."""
     if user is None:
         return None, None
