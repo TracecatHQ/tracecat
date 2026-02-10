@@ -93,7 +93,8 @@ resource "aws_db_instance" "tracecat" {
   final_snapshot_identifier = var.rds_skip_final_snapshot ? null : "${var.cluster_name}-postgres-${local.rds_suffix}-final"
   deletion_protection       = var.rds_deletion_protection
 
-  performance_insights_enabled = true
+  performance_insights_enabled          = true
+  performance_insights_retention_period = var.rds_database_insights_mode == "advanced" ? 465 : 7
 
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-postgres-${local.rds_suffix}"
