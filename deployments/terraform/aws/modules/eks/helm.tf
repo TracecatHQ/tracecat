@@ -33,7 +33,29 @@ locals {
     "-"
   )
   alb_group_name_truncated = substr(local.alb_group_name_compact, 0, 63)
-  alb_group_name = length(trim(local.alb_group_name_truncated, "-")) > 0 ? trim(local.alb_group_name_truncated, "-") : "tracecat"
+  alb_group_name           = length(trim(local.alb_group_name_truncated, "-")) > 0 ? trim(local.alb_group_name_truncated, "-") : "tracecat"
+
+  tracecat_alb_ingress_annotations = merge(
+    {
+      "alb.ingress.kubernetes.io/scheme"          = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"     = "ip"
+      "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
+      "alb.ingress.kubernetes.io/ssl-redirect"    = "443"
+      "alb.ingress.kubernetes.io/certificate-arn" = var.acm_certificate_arn
+      "alb.ingress.kubernetes.io/group.name"      = local.alb_group_name
+      "external-dns.alpha.kubernetes.io/hostname" = var.domain_name
+    },
+    var.enable_waf ? {
+      "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.main[0].arn
+    } : {}
+  )
+
+  tracecat_alb_listen_ports = jsondecode(local.tracecat_alb_ingress_annotations["alb.ingress.kubernetes.io/listen-ports"])
+  tracecat_alb_http_to_https_redirect_enabled = (
+    try(tonumber(local.tracecat_alb_ingress_annotations["alb.ingress.kubernetes.io/ssl-redirect"]), 0) == 443 &&
+    length([for lp in local.tracecat_alb_listen_ports : lp if lookup(lp, "HTTP", null) == 80]) > 0 &&
+    length([for lp in local.tracecat_alb_listen_ports : lp if lookup(lp, "HTTPS", null) == 443]) > 0
+  )
 }
 
 # Tracecat Helm Release
@@ -42,9 +64,12 @@ resource "helm_release" "tracecat" {
   chart     = "${path.module}/../../../../helm/tracecat"
   namespace = kubernetes_namespace.tracecat.metadata[0].name
 
-  wait          = true
-  wait_for_jobs = true
-  timeout       = 600
+  wait            = true
+  wait_for_jobs   = true
+  atomic          = true
+  cleanup_on_fail = true
+  upgrade_install = true
+  timeout         = 1500
 
   # Image tag override
   set {
@@ -59,55 +84,52 @@ resource "helm_release" "tracecat" {
 
   # Use values for complex nested structures that don't work well with set blocks
   values = [yamlencode(merge(
-  {
-    ingress = {
-      enabled   = true
-      split     = var.tracecat_ingress_split
-      className = "alb"
-      host      = var.domain_name
-      annotations = merge(
-        {
-          "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
-          "alb.ingress.kubernetes.io/target-type"      = "ip"
-          "alb.ingress.kubernetes.io/listen-ports"     = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
-          "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
-          "alb.ingress.kubernetes.io/certificate-arn"  = var.acm_certificate_arn
-          "alb.ingress.kubernetes.io/group.name"       = local.alb_group_name
-          "external-dns.alpha.kubernetes.io/hostname"  = var.domain_name
-        },
-        var.enable_waf ? {
-          "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.main[0].arn
-        } : {}
-      )
-      ui = {
-        annotations = {
-          "alb.ingress.kubernetes.io/group.order"            = "20"
-          "alb.ingress.kubernetes.io/target-group-attributes" = "stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400"
-          "alb.ingress.kubernetes.io/healthcheck-path"       = "/"
+    {
+      ingress = {
+        enabled   = true
+        split     = var.tracecat_ingress_split
+        className = "alb"
+        host      = var.domain_name
+        annotations = local.tracecat_alb_ingress_annotations
+        ui = {
+          annotations = {
+            "alb.ingress.kubernetes.io/group.order"             = "20"
+            "alb.ingress.kubernetes.io/target-group-attributes" = "stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400"
+            "alb.ingress.kubernetes.io/healthcheck-path"        = "/"
+          }
+        }
+        api = {
+          annotations = {
+            "alb.ingress.kubernetes.io/group.order"      = "10"
+            "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+          }
         }
       }
-      api = {
-        annotations = {
-          "alb.ingress.kubernetes.io/group.order"      = "10"
-          "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
+      urls = {
+        publicApp = "https://${var.domain_name}"
+        publicApi = "https://${var.domain_name}/api"
+      }
+      tracecat = {
+        temporal = {
+          metrics = {
+            enabled = true
+            port    = 9000
+            path    = "/metrics"
+            scrape  = true
+          }
         }
       }
-    }
-    urls = {
-      publicApp = "https://${var.domain_name}"
-      publicApi = "https://${var.domain_name}/api"
-    }
-    # PostgreSQL TLS configuration with AWS RDS CA certificate
-    externalPostgres = {
-      tls = {
-        verifyCA = true
-        caCert   = data.http.rds_ca_bundle.response_body
+      # PostgreSQL TLS configuration with AWS RDS CA certificate
+      externalPostgres = {
+        tls = {
+          verifyCA = true
+          caCert   = data.http.rds_ca_bundle.response_body
+        }
       }
-    }
-  },
-  var.spot_node_group_enabled ? {
-    scheduling = local.tracecat_spot_scheduling
-  } : {}
+    },
+    var.spot_node_group_enabled ? {
+      scheduling = local.tracecat_spot_scheduling
+    } : {}
   ))]
 
   # External Secrets Operator Configuration
@@ -133,19 +155,11 @@ resource "helm_release" "tracecat" {
     value = var.tracecat_secrets_arn
   }
 
-  # PostgreSQL credentials via ESO (RDS master user secret).
-  # When Temporal is self-hosted, Terraform pre-creates the ExternalSecret so the DB setup job can run first.
+  # PostgreSQL credentials via ESO are managed by Terraform (kubernetes_manifest.postgres_credentials_external_secret)
+  # so migration hooks do not race Helm-created ExternalSecrets.
   set {
     name  = "externalSecrets.postgres.enabled"
-    value = var.temporal_mode == "self-hosted" ? "false" : "true"
-  }
-
-  dynamic "set" {
-    for_each = var.temporal_mode == "self-hosted" ? [] : [1]
-    content {
-      name  = "externalSecrets.postgres.secretArn"
-      value = local.rds_master_secret_arn
-    }
+    value = "false"
   }
 
   # Redis URL via ESO
@@ -228,110 +242,105 @@ resource "helm_release" "tracecat" {
     value = var.ui_replicas
   }
 
-  # Resource configurations
-  # API: 1 vCPU, 1GB RAM
+  # Production resource requests and limits
   set {
     name  = "api.resources.requests.cpu"
-    value = "1000m"
+    value = "${var.api_cpu_request_millicores}m"
   }
 
   set {
     name  = "api.resources.requests.memory"
-    value = "1Gi"
+    value = "${var.api_memory_request_mib}Mi"
   }
 
   set {
     name  = "api.resources.limits.cpu"
-    value = "2000m"
+    value = "${var.api_cpu_request_millicores}m"
   }
 
   set {
     name  = "api.resources.limits.memory"
-    value = "2Gi"
+    value = "${var.api_memory_request_mib}Mi"
   }
 
-  # Worker: 2 vCPU, 4GB RAM (per Temporal best practices)
   set {
     name  = "worker.resources.requests.cpu"
-    value = "2000m"
+    value = "${var.worker_cpu_request_millicores}m"
   }
 
   set {
     name  = "worker.resources.requests.memory"
-    value = "4Gi"
+    value = "${var.worker_memory_request_mib}Mi"
   }
 
   set {
     name  = "worker.resources.limits.cpu"
-    value = "4000m"
+    value = "${var.worker_cpu_request_millicores}m"
   }
 
   set {
     name  = "worker.resources.limits.memory"
-    value = "8Gi"
+    value = "${var.worker_memory_request_mib}Mi"
   }
 
-  # Executor: 4 vCPU, 8GB RAM
   set {
     name  = "executor.resources.requests.cpu"
-    value = "4000m"
+    value = "${var.executor_cpu_request_millicores}m"
   }
 
   set {
     name  = "executor.resources.requests.memory"
-    value = "8Gi"
+    value = "${var.executor_memory_request_mib}Mi"
   }
 
   set {
     name  = "executor.resources.limits.cpu"
-    value = "8000m"
+    value = "${var.executor_cpu_request_millicores}m"
   }
 
   set {
     name  = "executor.resources.limits.memory"
-    value = "16Gi"
+    value = "${var.executor_memory_request_mib}Mi"
   }
 
-  # Agent Executor: 4 vCPU, 8GB RAM (same as executor)
   set {
     name  = "agentExecutor.resources.requests.cpu"
-    value = "4000m"
+    value = "${var.agent_executor_cpu_request_millicores}m"
   }
 
   set {
     name  = "agentExecutor.resources.requests.memory"
-    value = "8Gi"
+    value = "${var.agent_executor_memory_request_mib}Mi"
   }
 
   set {
     name  = "agentExecutor.resources.limits.cpu"
-    value = "8000m"
+    value = "${var.agent_executor_cpu_request_millicores}m"
   }
 
   set {
     name  = "agentExecutor.resources.limits.memory"
-    value = "16Gi"
+    value = "${var.agent_executor_memory_request_mib}Mi"
   }
 
-  # UI: 1 vCPU
   set {
     name  = "ui.resources.requests.cpu"
-    value = "1000m"
+    value = "${var.ui_cpu_request_millicores}m"
   }
 
   set {
     name  = "ui.resources.requests.memory"
-    value = "1Gi"
+    value = "${var.ui_memory_request_mib}Mi"
   }
 
   set {
     name  = "ui.resources.limits.cpu"
-    value = "2000m"
+    value = "${var.ui_cpu_request_millicores}m"
   }
 
   set {
     name  = "ui.resources.limits.memory"
-    value = "2Gi"
+    value = "${var.ui_memory_request_mib}Mi"
   }
 
   # Disable internal subcharts (using AWS managed services)
@@ -376,10 +385,10 @@ resource "helm_release" "tracecat" {
     value = "require"
   }
 
-  # Use the RDS master user secret directly for app DB connections.
+  # Use the ESO-synced Kubernetes secret so pre-install migrations don't depend on IRSA.
   set {
-    name  = "externalPostgres.auth.secretArn"
-    value = local.rds_master_secret_arn
+    name  = "externalPostgres.auth.existingSecret"
+    value = "tracecat-postgres-credentials"
   }
 
   # External Redis (ElastiCache)
@@ -709,9 +718,17 @@ resource "helm_release" "tracecat" {
     }
   }
 
+  set {
+    name  = "enterprise.multiTenant"
+    value = var.ee_multi_tenant
+  }
+
   depends_on = [
+    aws_eks_node_group.tracecat,
+    aws_eks_node_group.tracecat_spot,
     helm_release.aws_load_balancer_controller,
     kubernetes_manifest.external_secrets_cluster_store,
+    kubernetes_manifest.postgres_credentials_external_secret,
     aws_secretsmanager_secret_version.redis_url,
     kubernetes_job_v1.create_temporal_databases
   ]

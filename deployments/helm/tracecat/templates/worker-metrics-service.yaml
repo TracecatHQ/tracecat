@@ -1,0 +1,26 @@
+{{- if .Values.tracecat.temporal.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracecat.fullname" . }}-worker-metrics
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+  {{- if .Values.tracecat.temporal.metrics.scrape }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.tracecat.temporal.metrics.port | quote }}
+    prometheus.io/path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.tracecat.temporal.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "tracecat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+{{- end }}
+

@@ -82,3 +82,25 @@ output "configure_kubectl" {
   description = "Command to configure kubectl for the EKS cluster"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
+
+# Compliance Evidence Outputs
+
+output "database_authentication" {
+  description = "Database credential management and network access controls."
+  value       = module.eks.database_authentication
+}
+
+output "encryption_at_rest" {
+  description = "Encryption at rest for RDS, ElastiCache, and S3."
+  value       = module.eks.encryption_at_rest
+}
+
+output "encryption_in_transit" {
+  description = "HTTPS enforcement and TLS for all service connections."
+  value       = module.eks.encryption_in_transit
+}
+
+output "performance_monitoring" {
+  description = "RDS database performance monitoring configuration."
+  value       = module.eks.performance_monitoring
+}

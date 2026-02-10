@@ -460,6 +460,8 @@ Common environment variables shared across all backend services
   value: {{ .Values.tracecat.appEnv | quote }}
 - name: TRACECAT__FEATURE_FLAGS
   value: {{ include "tracecat.featureFlags" . | quote }}
+- name: TRACECAT__EE_MULTI_TENANT
+  value: {{ .Values.enterprise.multiTenant | quote }}
 {{- end }}
 
 {{/*
@@ -711,6 +713,7 @@ Merges: common + temporal + postgres + redis + api-specific
 - name: SAML_METADATA_CERT
   value: {{ .Values.tracecat.saml.metadataCert | quote }}
 {{- end }}
+{{- end }}
 
 {{/*
 Worker service environment variables
@@ -721,6 +724,10 @@ Merges: common + temporal + postgres + redis + worker-specific
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
+{{- if .Values.tracecat.temporal.metrics.enabled }}
+- name: TEMPORAL__METRICS_PORT
+  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
+{{- end }}
 - name: TRACECAT__API_ROOT_PATH
   value: "/api"
 - name: TRACECAT__API_URL
@@ -749,6 +756,10 @@ Merges: common + temporal + postgres + redis + executor-specific
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
+{{- if .Values.tracecat.temporal.metrics.enabled }}
+- name: TEMPORAL__METRICS_PORT
+  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
+{{- end }}
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 {{- /* Context compression */}}
@@ -777,6 +788,10 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
+{{- if .Values.tracecat.temporal.metrics.enabled }}
+- name: TEMPORAL__METRICS_PORT
+  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
+{{- end }}
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 {{- /* Context compression */}}

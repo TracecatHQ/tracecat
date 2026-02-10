@@ -27,8 +27,9 @@ It can be deployed into any VPC.
 This stack always provisions RDS, ElastiCache, and S3. The only deployment mode toggle is Temporal (`temporal_mode` = `self-hosted` or `cloud`). It also installs External Secrets Operator to sync AWS Secrets Manager secrets into Kubernetes, including the generated `rediss://` Redis URL.
 
 Network hardening:
-- RDS and ElastiCache are restricted to pods labeled for access via Security Groups for Pods (VPC CNI Pod ENI mode).
-- S3 access is limited to the Tracecat IRSA role via bucket policies; pods must use the chart’s service account.
+- RDS and ElastiCache are exclusively restricted to pods with SecurityGroupPolicy labels (VPC CNI Pod ENI mode). There is no VPC CIDR fallback; node instance types must support trunk ENI.
+- CoreDNS access rules are added to the cluster security group so SGP-labeled pods can resolve DNS.
+- S3 access is limited to the Tracecat IRSA role via bucket policies; pods must use the chart's service account.
 
 ## Capacity strategy (on-demand vs spot)
 
@@ -46,16 +47,18 @@ This is a preference, not a hard guarantee. If spot capacity is unavailable, pod
 
 The on-demand/spot mix is controlled by the node group sizes. There is no cluster autoscaler installed by default, so the ratio is static unless you change the node group sizes via Terraform.
 
-Default 50/50 node split (4 nodes total):
+Default node split (8 nodes, 75/25 on-demand/spot):
 
 ```bash
-export TF_VAR_node_min_size=2
-export TF_VAR_node_desired_size=2
+export TF_VAR_node_min_size=6
+export TF_VAR_node_desired_size=6
 export TF_VAR_spot_node_min_size=2
 export TF_VAR_spot_node_desired_size=2
 ```
 
 You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
+
+Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a 25% surge). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
 
 ## Resource sizing notes (with/without Temporal)
 
@@ -67,16 +70,17 @@ These estimates are based on Kubernetes **resource requests** from the chart def
 - **Tracecat total requests (chart defaults):** ~1.1 vCPU / 2.25Gi (Temporal not included).
 These defaults apply to manual Helm installs; Terraform overrides them for AWS production.
 
-**Terraform (AWS) production overrides** are defined inline in `terraform/aws/modules/eks/helm.tf` and via Terraform variables:
-- **Replicas:** ui=1, api=2, worker=4, executor=2, agentExecutor=1.
-- **Requests per replica (Terraform):** ui/api=1 vCPU/1Gi; worker=2 vCPU/4Gi; executor=4 vCPU/8Gi; agentExecutor=4 vCPU/8Gi.
-- **Tracecat total requests (Terraform):** ~23 vCPU / 43Gi (Temporal not included).
+**Terraform (AWS) production overrides** are defined via Terraform variables (see `variables.tf`). Resource requests equal limits (Guaranteed QoS):
+- **Replicas:** api=2, worker=4, executor=4, agentExecutor=2, ui=2.
+- **Requests per replica:** api=2 vCPU/4Gi; worker=2 vCPU/2Gi; executor=4 vCPU/8Gi; agentExecutor=4 vCPU/8Gi; ui=0.5 vCPU/0.5Gi.
+- **Tracecat steady-state requests:** ~37 vCPU / 65Gi (Temporal not included).
+- **Rollout peak (25% surge):** ~49.5 vCPU / 87.5Gi + configurable reserve for system workloads.
 
 **Temporal capacity:** the Temporal subchart does not set explicit resource requests by default. If `temporal_mode=self-hosted`, budget extra capacity (for the Temporal server + schema/admintools job), or set `temporal.server.resources` explicitly.
 
 **Recommended node capacity:**
-- **With self-hosted Temporal:** plan for **4× `m7g.2xlarge`** total nodes (e.g., 2 on-demand + 2 spot). This safely fits both profiles above with headroom.
-- **Without Temporal (external):** you can usually run with **3× `m7g.2xlarge`** total nodes, but 4 nodes provides safer headroom for upgrades and spikes.
+- **With self-hosted Temporal:** plan for **8× `m7g.2xlarge`** total nodes (e.g., 6 on-demand + 2 spot). This fits the production profile at rollout peak with headroom.
+- **Without Temporal (external):** you can run with **6× `m7g.2xlarge`** on-demand, but 8 nodes (6+2 spot) provides headroom for rolling updates and system workloads.
 
 
 ## How to deploy
