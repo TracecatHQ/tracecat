@@ -539,6 +539,7 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
   UsersSearchUserResponse,
@@ -841,13 +842,14 @@ export const publicReceiveInteraction = (
 
 /**
  * List Workspaces
- * List workspaces.
+ * List workspaces the user has access to.
  *
- * Access Level
- * ------------
- * - Basic: Can list workspaces where they are a member.
- * - Admin: Can list all workspaces regardless of membership.
- * - Org Owner/Admin: Can list all workspaces in the organization.
+ * Access
+ * ------
+ * - Org owners/admins (have `org:read` scope): See all workspaces in the org.
+ * - Other users: See only workspaces where they are a member.
+ *
+ * No scope requirement - membership itself is the authorization.
  * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
@@ -8454,13 +8456,20 @@ export const vcsGetGithubAppCredentialsStatus =
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */
-export const usersGetMyScopes =
-  (): CancelablePromise<UsersGetMyScopesResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me/scopes",
-    })
-  }
+export const usersGetMyScopes = (
+  data: UsersGetMyScopesData = {}
+): CancelablePromise<UsersGetMyScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/users/me/scopes",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * List Scopes

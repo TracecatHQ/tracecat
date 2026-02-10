@@ -99,6 +99,19 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "update",
         "Change member workspace roles",
     ),
+    # Workspace RBAC administration (delegated to workspace admins)
+    (
+        "workspace:rbac:read",
+        "workspace:rbac",
+        "read",
+        "View workspace role assignments and group permissions",
+    ),
+    (
+        "workspace:rbac:manage",
+        "workspace:rbac",
+        "manage",
+        "Manage workspace role assignments and group permissions",
+    ),
     # Workflow scopes
     ScopeDefinition(
         "workflow:read", "workflow", "read", "View workflows and their details"
@@ -310,7 +323,7 @@ async def seed_system_roles_for_org(
     session: AsyncSession,
     organization_id: UUID,
 ) -> int:
-    """Seed system roles (Admin, Editor, Viewer) for an organization.
+    """Seed system roles for an organization.
 
     Creates the system roles with their associated scopes if they don't exist.
     System roles are identified by their well-known slugs.
@@ -382,7 +395,6 @@ async def seed_system_roles_for_org(
                 slug=slug,
                 organization_id=organization_id,
             )
-            continue
 
         role_scope_values = []
         for scope_name in scope_names:
