@@ -143,7 +143,12 @@ async def create_organization_domain(
         return await service.create_org_domain(org_id, params)
     except ValueError as e:
         detail = str(e)
-        if "already assigned" in detail.lower():
+        detail_lower = detail.lower()
+        if "not found" in detail_lower:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=detail
+            ) from e
+        if "already assigned" in detail_lower:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail=detail
             ) from e

@@ -204,6 +204,27 @@ async def test_create_org_domain_conflict(
 
 
 @pytest.mark.anyio
+async def test_create_org_domain_not_found(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    org_id = uuid.uuid4()
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_org_domain.side_effect = ValueError(
+            f"Organization {org_id} not found"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/admin/organizations/{org_id}/domains",
+            json={"domain": "example.com"},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
 async def test_update_org_domain_not_found(
     client: TestClient, test_admin_role: Role
 ) -> None:
