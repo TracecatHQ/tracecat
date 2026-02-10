@@ -33,6 +33,7 @@ from tracecat.api.common import (
     tracecat_exception_handler,
 )
 from tracecat.auth.dependencies import require_auth_type_enabled
+from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
@@ -498,6 +499,7 @@ def create_app(**kwargs) -> FastAPI:
         saml_router,
         dependencies=[require_auth_type_enabled(AuthType.SAML)],
     )
+    app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint

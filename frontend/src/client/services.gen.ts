@@ -131,6 +131,8 @@ import type {
   AuthAuthDatabaseLoginData,
   AuthAuthDatabaseLoginResponse,
   AuthAuthDatabaseLogoutResponse,
+  AuthDiscoverAuthMethodData,
+  AuthDiscoverAuthMethodResponse,
   AuthOauthGoogleDatabaseAuthorizeData,
   AuthOauthGoogleDatabaseAuthorizeResponse,
   AuthOauthGoogleDatabaseCallbackData,
@@ -8852,6 +8854,28 @@ export const authSsoAcs = (
     url: "/auth/saml/acs",
     formData: data.formData,
     mediaType: "application/x-www-form-urlencoded",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Discover Auth Method
+ * Return the next-step auth method for a given email.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AuthDiscoverResponse Successful Response
+ * @throws ApiError
+ */
+export const authDiscoverAuthMethod = (
+  data: AuthDiscoverAuthMethodData
+): CancelablePromise<AuthDiscoverAuthMethodResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/auth/discover",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
