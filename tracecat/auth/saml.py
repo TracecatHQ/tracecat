@@ -281,6 +281,43 @@ async def should_allow_email_for_org(
     return normalized_domain in active_domains
 
 
+def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
+    """Extract candidate emails from known SAML attributes in priority order."""
+    candidates = [
+        parser.get_attribute_value("email"),
+        # Okta
+        parser.get_attribute_value(
+            "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+        ),
+        # Microsoft Entra ID (prefer explicit email over UPN/name)
+        parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        ),
+        parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+        ),
+    ]
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in candidates:
+        email = value.strip()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        deduped.append(email)
+    return deduped
+
+
+async def _select_allowlisted_email(
+    session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
+) -> str | None:
+    """Return the first candidate that satisfies org-domain allowlist."""
+    for candidate in candidates:
+        if await should_allow_email_for_org(session, organization_id, candidate):
+            return candidate
+    return None
+
+
 async def create_saml_client(
     saml_idp_metadata_url: str,
 ) -> Saml2Client:
@@ -608,23 +645,8 @@ async def sso_acs(
     logger.info("SAML response validated successfully")
 
     parser = SAMLParser(str(authn_response))
-
-    email = (
-        parser.get_attribute_value("email")
-        # Okta
-        or parser.get_attribute_value(
-            "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
-        )
-        # Microsoft Entra ID
-        or parser.get_attribute_value(
-            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
-        )
-        or parser.get_attribute_value(
-            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
-        )
-    )
-
-    if not email:
+    candidate_emails = _extract_candidate_emails(parser)
+    if not candidate_emails:
         attributes = parser.attributes or {}
         logger.error(
             f"Expected attribute 'email' in the SAML response, but got {len(attributes)} attributes"
@@ -634,7 +656,10 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
-    if not await should_allow_email_for_org(db_session, organization_id, email):
+    email = await _select_allowlisted_email(
+        db_session, organization_id, candidate_emails
+    )
+    if email is None:
         logger.warning("SAML login denied by org domain allowlist")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
