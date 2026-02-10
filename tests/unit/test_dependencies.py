@@ -3,7 +3,11 @@ from fastapi import HTTPException, status
 from pytest_mock import MockerFixture
 from starlette.requests import Request
 
-from tracecat.auth.dependencies import require_auth_type_enabled, verify_auth_type
+from tracecat.auth.dependencies import (
+    require_any_auth_type_enabled,
+    require_auth_type_enabled,
+    verify_auth_type,
+)
 from tracecat.auth.enums import AuthType
 
 
@@ -151,3 +155,62 @@ async def test_verify_auth_type_oidc_is_platform_controlled(
     await verify_auth_type(auth_type, make_request())
 
     get_setting_mock.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_require_any_auth_type_enabled_tries_next_candidate(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch(
+        "tracecat.config.TRACECAT__AUTH_TYPES",
+        [AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+    )
+    verify_auth_type_mock = mocker.patch(
+        "tracecat.auth.dependencies.verify_auth_type",
+        side_effect=[
+            HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="OIDC disabled for organization",
+            ),
+            None,
+        ],
+    )
+    dependency = require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+    check_any = dependency.dependency
+    assert check_any is not None
+
+    await check_any(make_request())
+
+    assert verify_auth_type_mock.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_require_any_auth_type_enabled_raises_last_candidate_error(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch(
+        "tracecat.config.TRACECAT__AUTH_TYPES",
+        [AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+    )
+    mocker.patch(
+        "tracecat.auth.dependencies.verify_auth_type",
+        side_effect=[
+            HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="OIDC disabled for organization",
+            ),
+            HTTPException(
+                status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+                detail="Organization selection required",
+            ),
+        ],
+    )
+    dependency = require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+    check_any = dependency.dependency
+    assert check_any is not None
+
+    with pytest.raises(HTTPException) as exc:
+        await check_any(make_request())
+
+    assert exc.value.status_code == status.HTTP_428_PRECONDITION_REQUIRED
+    assert exc.value.detail == "Organization selection required"

@@ -122,6 +122,9 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveredMethod, setDiscoveredMethod] = useState<"basic" | null>(null)
   const [discoveredEmail, setDiscoveredEmail] = useState("")
+  const [discoveredOrgSlug, setDiscoveredOrgSlug] = useState<string | null>(
+    null
+  )
   const router = useRouter()
 
   if (user) {
@@ -157,11 +160,13 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
         throw new Error("Failed to discover authentication method")
       }
       const data = (await response.json()) as AuthDiscoverResponse
+      const resolvedOrgSlug = data.organization_slug ?? orgSlug ?? null
 
       if (data.method === "basic") {
         if (!showBasicAuth) {
           throw new Error("Password login is not enabled")
         }
+        setDiscoveredOrgSlug(resolvedOrgSlug)
         setDiscoveredMethod("basic")
         return
       }
@@ -169,11 +174,13 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
         if (!showOidcAuth) {
           throw new Error("OIDC login is not enabled")
         }
-        await startOidcLogin(orgSlug, returnUrl)
+        await startOidcLogin(resolvedOrgSlug, returnUrl)
         return
       }
-
-      await startSamlLogin(email, data.next_url, orgSlug, returnUrl)
+      if (data.method === "saml") {
+        await startSamlLogin(email, data.next_url, resolvedOrgSlug, returnUrl)
+        return
+      }
     } catch (error) {
       console.error("Error discovering auth method", error)
       toast({
@@ -205,7 +212,10 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
         </CardHeader>
         <CardContent className="flex-col space-y-2">
           {discoveredMethod === "basic" ? (
-            <BasicLoginForm orgSlug={orgSlug} initialEmail={discoveredEmail} />
+            <BasicLoginForm
+              orgSlug={discoveredOrgSlug ?? orgSlug}
+              initialEmail={discoveredEmail}
+            />
           ) : (
             <EmailDiscoveryForm
               isLoading={isDiscovering}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -157,3 +158,24 @@ async def test_discovery_prefers_org_hint_over_email_domain(
     assert response.organization_slug == organization.slug
     assert response.next_url is not None
     assert f"org={organization.slug}" in response.next_url
+
+
+@pytest.mark.anyio
+async def test_discovery_rejects_invalid_org_hint_without_fallback(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_domain(session, organization.id, "acme.com")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+    )
+    service = AuthDiscoveryService(session)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.discover("user@acme.com", org_slug="does-not-exist")
+
+    assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert exc.value.detail == "Invalid organization"
