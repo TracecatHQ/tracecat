@@ -3192,22 +3192,6 @@ export type OrgDomainCreate = {
 }
 
 /**
- * Organization domain response.
- */
-export type OrgDomainRead = {
-  id: string
-  organization_id: string
-  domain: string
-  normalized_domain: string
-  is_primary: boolean
-  is_active: boolean
-  verified_at?: string | null
-  verification_method: string
-  created_at: string
-  updated_at: string
-}
-
-/**
  * Update organization domain request.
  */
 export type OrgDomainUpdate = {
@@ -6297,6 +6281,19 @@ export type tracecat__admin__registry__schemas__RegistryVersionRead = {
   created_at: string
 }
 
+export type tracecat__organization__schemas__OrgDomainRead = {
+  id: string
+  organization_id: string
+  domain: string
+  normalized_domain: string
+  is_primary: boolean
+  is_active: boolean
+  verified_at: string | null
+  verification_method: string
+  created_at: string
+  updated_at: string
+}
+
 export type tracecat__organization__schemas__OrgRead = {
   id: string
   name: string
@@ -6337,6 +6334,22 @@ export type tracecat__registry__repositories__schemas__RegistryVersionRead = {
   commit_sha: string | null
   tarball_uri: string | null
   created_at: string
+}
+
+/**
+ * Organization domain response.
+ */
+export type tracecat_ee__admin__organizations__schemas__OrgDomainRead = {
+  id: string
+  organization_id: string
+  domain: string
+  normalized_domain: string
+  is_primary: boolean
+  is_active: boolean
+  verified_at?: string | null
+  verification_method: string
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -7066,6 +7079,9 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationListOrganizationDomainsResponse =
+  Array<tracecat__organization__schemas__OrgDomainRead>
+
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberRead
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
@@ -7376,14 +7392,16 @@ export type AdminListOrganizationDomainsData = {
   orgId: string
 }
 
-export type AdminListOrganizationDomainsResponse = Array<OrgDomainRead>
+export type AdminListOrganizationDomainsResponse =
+  Array<tracecat_ee__admin__organizations__schemas__OrgDomainRead>
 
 export type AdminCreateOrganizationDomainData = {
   orgId: string
   requestBody: OrgDomainCreate
 }
 
-export type AdminCreateOrganizationDomainResponse = OrgDomainRead
+export type AdminCreateOrganizationDomainResponse =
+  tracecat_ee__admin__organizations__schemas__OrgDomainRead
 
 export type AdminUpdateOrganizationDomainData = {
   domainId: string
@@ -7391,7 +7409,8 @@ export type AdminUpdateOrganizationDomainData = {
   requestBody: OrgDomainUpdate
 }
 
-export type AdminUpdateOrganizationDomainResponse = OrgDomainRead
+export type AdminUpdateOrganizationDomainResponse =
+  tracecat_ee__admin__organizations__schemas__OrgDomainRead
 
 export type AdminDeleteOrganizationDomainData = {
   domainId: string
@@ -10008,6 +10027,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/domains": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__organization__schemas__OrgDomainRead>
+      }
+    }
+  }
   "/organization/members/me": {
     get: {
       res: {
@@ -10632,7 +10661,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<OrgDomainRead>
+        200: Array<tracecat_ee__admin__organizations__schemas__OrgDomainRead>
         /**
          * Validation Error
          */
@@ -10645,7 +10674,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: OrgDomainRead
+        201: tracecat_ee__admin__organizations__schemas__OrgDomainRead
         /**
          * Validation Error
          */
@@ -10660,7 +10689,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgDomainRead
+        200: tracecat_ee__admin__organizations__schemas__OrgDomainRead
         /**
          * Validation Error
          */

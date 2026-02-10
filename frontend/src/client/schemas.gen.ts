@@ -9902,77 +9902,6 @@ export const $OrgDomainCreate = {
   description: "Create organization domain request.",
 } as const
 
-export const $OrgDomainRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    domain: {
-      type: "string",
-      title: "Domain",
-    },
-    normalized_domain: {
-      type: "string",
-      title: "Normalized Domain",
-    },
-    is_primary: {
-      type: "boolean",
-      title: "Is Primary",
-    },
-    is_active: {
-      type: "boolean",
-      title: "Is Active",
-    },
-    verified_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Verified At",
-    },
-    verification_method: {
-      type: "string",
-      title: "Verification Method",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "organization_id",
-    "domain",
-    "normalized_domain",
-    "is_primary",
-    "is_active",
-    "verification_method",
-    "created_at",
-    "updated_at",
-  ],
-  title: "OrgDomainRead",
-  description: "Organization domain response.",
-} as const
-
 export const $OrgDomainUpdate = {
   properties: {
     is_primary: {
@@ -20586,6 +20515,77 @@ export const $tracecat__admin__registry__schemas__RegistryVersionRead = {
   description: "Registry version details.",
 } as const
 
+export const $tracecat__organization__schemas__OrgDomainRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    domain: {
+      type: "string",
+      title: "Domain",
+    },
+    normalized_domain: {
+      type: "string",
+      title: "Normalized Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    verified_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Verified At",
+    },
+    verification_method: {
+      type: "string",
+      title: "Verification Method",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "domain",
+    "normalized_domain",
+    "is_primary",
+    "is_active",
+    "verified_at",
+    "verification_method",
+    "created_at",
+    "updated_at",
+  ],
+  title: "OrgDomainRead",
+} as const
+
 export const $tracecat__organization__schemas__OrgRead = {
   properties: {
     id: {
@@ -20765,6 +20765,77 @@ export const $tracecat__registry__repositories__schemas__RegistryVersionRead = {
   ],
   title: "RegistryVersionRead",
   description: "Response model for reading a registry version.",
+} as const
+
+export const $tracecat_ee__admin__organizations__schemas__OrgDomainRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    domain: {
+      type: "string",
+      title: "Domain",
+    },
+    normalized_domain: {
+      type: "string",
+      title: "Normalized Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    verified_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Verified At",
+    },
+    verification_method: {
+      type: "string",
+      title: "Verification Method",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "domain",
+    "normalized_domain",
+    "is_primary",
+    "is_active",
+    "verification_method",
+    "created_at",
+    "updated_at",
+  ],
+  title: "OrgDomainRead",
+  description: "Organization domain response.",
 } as const
 
 export const $tracecat_ee__admin__organizations__schemas__OrgRead = {

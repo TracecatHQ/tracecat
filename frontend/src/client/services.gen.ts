@@ -327,6 +327,7 @@ import type {
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListMyPendingInvitationsResponse,
+  OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
   OrganizationRevokeInvitationData,
@@ -3072,6 +3073,20 @@ export const organizationGetOrganization =
   }
 
 /**
+ * List Organization Domains
+ * List domains assigned to the current organization.
+ * @returns tracecat__organization__schemas__OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListOrganizationDomains =
+  (): CancelablePromise<OrganizationListOrganizationDomainsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/domains",
+    })
+  }
+
+/**
  * Get Current Org Member
  * Get the current user's organization membership.
  *
@@ -4154,7 +4169,7 @@ export const adminDeleteOrganization = (
  * List all assigned domains for an organization.
  * @param data The data for the request.
  * @param data.orgId
- * @returns OrgDomainRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgDomainRead Successful Response
  * @throws ApiError
  */
 export const adminListOrganizationDomains = (
@@ -4178,7 +4193,7 @@ export const adminListOrganizationDomains = (
  * @param data The data for the request.
  * @param data.orgId
  * @param data.requestBody
- * @returns OrgDomainRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgDomainRead Successful Response
  * @throws ApiError
  */
 export const adminCreateOrganizationDomain = (
@@ -4205,7 +4220,7 @@ export const adminCreateOrganizationDomain = (
  * @param data.orgId
  * @param data.domainId
  * @param data.requestBody
- * @returns OrgDomainRead Successful Response
+ * @returns tracecat_ee__admin__organizations__schemas__OrgDomainRead Successful Response
  * @throws ApiError
  */
 export const adminUpdateOrganizationDomain = (

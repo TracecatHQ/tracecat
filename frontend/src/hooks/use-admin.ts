@@ -47,7 +47,7 @@ import {
   type OrganizationTierUpdate,
   type OrgCreate,
   type OrgDomainCreate,
-  type OrgDomainRead,
+  type tracecat_ee__admin__organizations__schemas__OrgDomainRead as OrgDomainRead,
   type OrgDomainUpdate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
