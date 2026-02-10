@@ -1,7 +1,7 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
-import { authOauthGoogleDatabaseAuthorize } from "@/client"
+import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -53,7 +53,7 @@ export function GoogleOAuthButton({ returnUrl, ...props }: OAuthButtonProps) {
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const { authorization_url } = await authOauthGoogleDatabaseAuthorize({
+      const { authorization_url } = await authOauthOidcDatabaseAuthorize({
         scopes: ["openid", "email", "profile"],
       })
       setPostAuthReturnUrlCookie(returnUrl)

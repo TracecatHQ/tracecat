@@ -76,6 +76,18 @@ class OrgInvitationReadMinimal(BaseModel):
     """
 
 
+class OrgPendingInvitationRead(BaseModel):
+    """Pending invitation visible to the invited authenticated user."""
+
+    token: str
+    organization_id: OrganizationID
+    organization_name: str
+    inviter_name: str | None
+    inviter_email: str | None
+    role: OrgRole
+    expires_at: datetime
+
+
 class OrgInvitationAccept(BaseModel):
     """Request body for accepting an organization invitation via token."""
 

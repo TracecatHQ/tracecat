@@ -133,10 +133,10 @@ import type {
   AuthAuthDatabaseLogoutResponse,
   AuthDiscoverAuthMethodData,
   AuthDiscoverAuthMethodResponse,
-  AuthOauthGoogleDatabaseAuthorizeData,
-  AuthOauthGoogleDatabaseAuthorizeResponse,
-  AuthOauthGoogleDatabaseCallbackData,
-  AuthOauthGoogleDatabaseCallbackResponse,
+  AuthOauthOidcDatabaseAuthorizeData,
+  AuthOauthOidcDatabaseAuthorizeResponse,
+  AuthOauthOidcDatabaseCallbackData,
+  AuthOauthOidcDatabaseCallbackResponse,
   AuthRegisterRegisterData,
   AuthRegisterRegisterResponse,
   AuthResetForgotPasswordData,
@@ -326,6 +326,7 @@ import type {
   OrganizationGetOrganizationResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
+  OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
   OrganizationRevokeInvitationData,
@@ -3309,6 +3310,20 @@ export const organizationAcceptInvitation = (
     },
   })
 }
+
+/**
+ * List My Pending Invitations
+ * List pending, unexpired invitations for the authenticated user.
+ * @returns OrgPendingInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListMyPendingInvitations =
+  (): CancelablePromise<OrganizationListMyPendingInvitationsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/invitations/pending/me",
+    })
+  }
 
 /**
  * Get Invitation By Token
@@ -8773,15 +8788,15 @@ export const authVerifyVerify = (
 }
 
 /**
- * Oauth:Google.Database.Authorize
+ * Oauth:Oidc.Database.Authorize
  * @param data The data for the request.
  * @param data.scopes
  * @returns OAuth2AuthorizeResponse Successful Response
  * @throws ApiError
  */
-export const authOauthGoogleDatabaseAuthorize = (
-  data: AuthOauthGoogleDatabaseAuthorizeData = {}
-): CancelablePromise<AuthOauthGoogleDatabaseAuthorizeResponse> => {
+export const authOauthOidcDatabaseAuthorize = (
+  data: AuthOauthOidcDatabaseAuthorizeData = {}
+): CancelablePromise<AuthOauthOidcDatabaseAuthorizeResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/auth/oauth/authorize",
@@ -8795,7 +8810,7 @@ export const authOauthGoogleDatabaseAuthorize = (
 }
 
 /**
- * Oauth:Google.Database.Callback
+ * Oauth:Oidc.Database.Callback
  * The response varies based on the authentication backend used.
  * @param data The data for the request.
  * @param data.code
@@ -8805,9 +8820,9 @@ export const authOauthGoogleDatabaseAuthorize = (
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const authOauthGoogleDatabaseCallback = (
-  data: AuthOauthGoogleDatabaseCallbackData = {}
-): CancelablePromise<AuthOauthGoogleDatabaseCallbackResponse> => {
+export const authOauthOidcDatabaseCallback = (
+  data: AuthOauthOidcDatabaseCallbackData = {}
+): CancelablePromise<AuthOauthOidcDatabaseCallbackResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/auth/oauth/callback",
