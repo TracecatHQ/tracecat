@@ -23,7 +23,7 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
-            DELETE FROM organization_setting
+            DELETE FROM organization_settings
             WHERE key IN (
                 'auth_basic_enabled',
                 'auth_require_email_verification',

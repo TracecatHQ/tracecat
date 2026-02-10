@@ -9,7 +9,7 @@ import type React from "react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
+import { OidcOAuthButton } from "@/components/auth/oauth-buttons"
 import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -56,9 +56,11 @@ export function SignIn({ className, returnUrl }: SignInProps) {
 
   const allowedAuthTypes: string[] = appInfo?.auth_allowed_types ?? []
   const showBasicAuth = allowedAuthTypes.includes("basic")
-  const showOidcAuth =
-    allowedAuthTypes.includes("oidc") ||
-    allowedAuthTypes.includes("google_oauth")
+  const showGenericOidcAuth = allowedAuthTypes.includes("oidc")
+  const showGoogleOauthAuth = allowedAuthTypes.includes("google_oauth")
+  const showOidcAuth = showGenericOidcAuth || showGoogleOauthAuth
+  const oidcProviderLabel = showGenericOidcAuth ? "Single sign-on" : "Google"
+  const oidcProviderIcon = showGenericOidcAuth ? "saml" : "google"
   const showSamlAuth =
     allowedAuthTypes.includes("saml") && appInfo?.saml_enabled
   return (
@@ -91,7 +93,12 @@ export function SignIn({ className, returnUrl }: SignInProps) {
             </div>
           )}
           {showOidcAuth && (
-            <GoogleOAuthButton className="w-full" returnUrl={returnUrl} />
+            <OidcOAuthButton
+              className="w-full"
+              returnUrl={returnUrl}
+              providerLabel={oidcProviderLabel}
+              providerIcon={oidcProviderIcon}
+            />
           )}
           {showSamlAuth && (
             <SamlSSOButton className="w-full" returnUrl={returnUrl} />

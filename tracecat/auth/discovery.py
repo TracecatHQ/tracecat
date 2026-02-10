@@ -98,15 +98,13 @@ class AuthDiscoveryService(BaseService):
         )
         return bool(value)
 
-    async def _org_oidc_enabled(self, org_id: OrganizationID) -> bool:
-        del org_id
+    async def _org_oidc_enabled(self, _org_id: OrganizationID) -> bool:
         return (
             AuthType.OIDC in config.TRACECAT__AUTH_TYPES
             or AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES
         )
 
-    async def _org_basic_enabled(self, org_id: OrganizationID) -> bool:
-        del org_id
+    async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
         return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
 
     @staticmethod

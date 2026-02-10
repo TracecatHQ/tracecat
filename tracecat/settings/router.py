@@ -50,10 +50,9 @@ OrgUserRole = Annotated[
 
 
 async def check_other_auth_enabled(
-    service: SettingsService, auth_type: AuthType
+    _service: SettingsService, auth_type: AuthType
 ) -> None:
     """Check if at least one other auth type is enabled."""
-    del service
     if auth_type is not AuthType.SAML:
         return
     if any(
