@@ -95,6 +95,55 @@ async def _create_user_with_org_membership(
     return user, organization
 
 
+async def _add_org_membership(
+    session: AsyncSession,
+    *,
+    user: User,
+    domain: str,
+    saml_enforced: bool,
+) -> Organization:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(organization)
+    await session.flush()
+
+    session.add(
+        OrganizationMembership(
+            user_id=user.id,
+            organization_id=organization.id,
+        )
+    )
+
+    normalized_domain = normalize_domain(domain)
+    session.add(
+        OrganizationDomain(
+            id=uuid.uuid4(),
+            organization_id=organization.id,
+            domain=normalized_domain.domain,
+            normalized_domain=normalized_domain.normalized_domain,
+            is_primary=True,
+            is_active=True,
+            verification_method="platform_admin",
+        )
+    )
+    await session.commit()
+
+    settings_service = SettingsService(session, role=bootstrap_role(organization.id))
+    await settings_service.init_default_settings()
+    await settings_service.update_saml_settings(
+        SAMLSettingsUpdate(
+            saml_enabled=True,
+            saml_enforced=saml_enforced,
+        )
+    )
+    await session.commit()
+    return organization
+
+
 @pytest.mark.anyio
 async def test_authenticate_rejects_password_when_platform_basic_disabled(
     session: AsyncSession,
@@ -174,3 +223,37 @@ async def test_authenticate_allows_password_when_basic_enabled_and_not_saml_enfo
 
     assert authenticated_user is not None
     assert authenticated_user.id == user.id
+
+
+@pytest.mark.anyio
+async def test_authenticate_rejects_password_when_any_membership_enforces_saml(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="user@acme-basic.com",
+        password="password-123456",
+        saml_enforced=False,
+    )
+    await _add_org_membership(
+        session,
+        user=user,
+        domain="secure-acme.com",
+        saml_enforced=True,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.SAML},
+    )
+
+    authenticated_user = await user_manager.authenticate(
+        OAuth2PasswordRequestForm(
+            username=user.email,
+            password="password-123456",
+        )
+    )
+
+    assert authenticated_user is None

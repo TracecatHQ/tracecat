@@ -179,17 +179,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         target_org_id = await self._resolve_target_org_for_email(user.email, org_ids)
         if target_org_id is not None:
-            return not await self._is_org_saml_enforced(target_org_id)
+            # Even with a domain-matched org, block local auth if any membership
+            # enforces SAML to avoid cross-org policy bypass.
+            return not await self._any_org_saml_enforced(org_ids)
 
         if len(org_ids) == 1:
             return not await self._is_org_saml_enforced(next(iter(org_ids)))
 
         # If org is ambiguous (multi-org user with no matching domain), block if any
         # org membership enforces SAML to avoid bypassing org login policy.
-        for org_id in org_ids:
-            if await self._is_org_saml_enforced(org_id):
-                return False
-        return True
+        return not await self._any_org_saml_enforced(org_ids)
 
     async def _list_user_org_ids(self, user_id: uuid.UUID) -> set[OrganizationID]:
         statement = select(OrganizationMembership.organization_id).where(
@@ -242,6 +241,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             default=False,
         )
         return bool(saml_enforced)
+
+    async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
+        for org_id in org_ids:
+            if await self._is_org_saml_enforced(org_id):
+                return True
+        return False
 
     async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
