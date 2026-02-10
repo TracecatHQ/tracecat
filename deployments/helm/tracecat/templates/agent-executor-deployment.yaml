@@ -41,14 +41,6 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       {{- include "tracecat.podScheduling" (dict "root" . "component" "agent-executor") | nindent 6 }}
-      {{- if not .Values.tracecat.sandbox.disableNsjail }}
-      initContainers:
-        - name: sysctl-userns
-          image: busybox:1.37
-          command: ['sh', '-c', 'sysctl -w user.max_user_namespaces=65536']
-          securityContext:
-            privileged: true
-      {{- end }}
       containers:
         - name: agent-executor
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
