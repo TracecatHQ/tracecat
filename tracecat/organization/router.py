@@ -2,13 +2,14 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import Role
+from tracecat.auth.users import current_active_user
 from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
@@ -56,6 +57,20 @@ OrgAdminRole = Annotated[
         require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
 ]
+
+
+def _get_user_display_name_and_email(user: User | None) -> tuple[str | None, str | None]:
+    """Build display name/email pair for inviter fields."""
+    if user is None:
+        return None, None
+
+    if user.first_name or user.last_name:
+        name_parts = [user.first_name, user.last_name]
+        name = " ".join(part for part in name_parts if part)
+    else:
+        name = user.email
+
+    return name, user.email
 
 
 @router.get("", response_model=OrgRead)
@@ -425,19 +440,10 @@ async def list_my_pending_invitations(
     *,
     role: AuthenticatedUserOnly,
     session: AsyncDBSession,
+    user: Annotated[User, Depends(current_active_user)],
 ) -> list[OrgPendingInvitationRead]:
     """List pending, unexpired invitations for the authenticated user."""
     assert role.user_id is not None
-
-    user_result = await session.execute(
-        select(User).where(User.id == role.user_id)  # pyright: ignore[reportArgumentType]
-    )
-    user = user_result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
 
     now = datetime.now(UTC)
     statement = (
@@ -462,15 +468,7 @@ async def list_my_pending_invitations(
 
     pending_invitations: list[OrgPendingInvitationRead] = []
     for invitation, organization, inviter in rows:
-        inviter_name: str | None = None
-        inviter_email: str | None = None
-        if inviter is not None:
-            if inviter.first_name or inviter.last_name:
-                name_parts = [inviter.first_name, inviter.last_name]
-                inviter_name = " ".join(part for part in name_parts if part)
-            else:
-                inviter_name = inviter.email
-            inviter_email = inviter.email
+        inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
 
         pending_invitations.append(
             OrgPendingInvitationRead(
@@ -521,14 +519,7 @@ async def get_invitation_by_token(
                 select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
             )
             inviter = inviter_result.scalar_one_or_none()
-            if inviter:
-                # Build display name from first/last name or fall back to email
-                if inviter.first_name or inviter.last_name:
-                    name_parts = [inviter.first_name, inviter.last_name]
-                    inviter_name = " ".join(p for p in name_parts if p)
-                else:
-                    inviter_name = inviter.email
-                inviter_email = inviter.email
+            inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
 
         # Check if authenticated user's email matches the invitation (case-insensitive)
         email_matches: bool | None = None
