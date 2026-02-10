@@ -26,7 +26,6 @@ import { useAppInfo, useOrgSamlSettings } from "@/lib/hooks"
 
 const ssoFormSchema = z.object({
   saml_enabled: z.boolean(),
-  saml_enforced: z.boolean(),
   saml_idp_metadata_url: z.string().url().nullish(),
   saml_sp_acs_url: z.string().url().nullish(),
 })
@@ -46,25 +45,23 @@ export function OrgSettingsSsoForm() {
     resolver: zodResolver(ssoFormSchema),
     values: {
       saml_enabled: samlSettings?.saml_enabled ?? false,
-      saml_enforced: samlSettings?.saml_enforced ?? false,
       saml_idp_metadata_url: samlSettings?.saml_idp_metadata_url,
       saml_sp_acs_url: samlSettings?.saml_sp_acs_url,
     },
   })
 
-  const isSamlAllowed = appInfo?.auth_allowed_types.includes("saml") ?? false
+  const isSamlAllowed = appInfo?.auth_allowed_types.includes("saml")
   const onSubmit = async (data: SsoFormValues) => {
-    const samlEnabled = isSamlAllowed && data.saml_enabled
-    const requestBody: SAMLSettingsUpdate = {
-      saml_enforced: samlEnabled ? data.saml_enforced : false,
-      saml_idp_metadata_url: data.saml_idp_metadata_url,
-    }
+    const conditional: Partial<SAMLSettingsUpdate> = {}
     if (isSamlAllowed) {
-      requestBody.saml_enabled = samlEnabled
+      conditional.saml_enabled = data.saml_enabled
     }
     try {
       await updateSamlSettings({
-        requestBody,
+        requestBody: {
+          saml_idp_metadata_url: data.saml_idp_metadata_url,
+          ...conditional,
+        },
       })
     } catch (error) {
       console.error("Failed to update SAML settings", error)
@@ -116,28 +113,6 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  disabled={!isSamlAllowed}
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={methods.control}
-          name="saml_enforced"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel>Enforce SAML SSO</FormLabel>
-                <FormDescription>
-                  When enabled, users in this org can only sign in with SAML.
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                  disabled={!isSamlAllowed || !methods.watch("saml_enabled")}
                 />
               </FormControl>
             </FormItem>

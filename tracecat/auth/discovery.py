@@ -16,6 +16,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
@@ -62,10 +63,7 @@ class AuthDiscoveryService(BaseService):
         if org_slug:
             org_resolution = await self._resolve_organization_by_slug(org_slug.strip())
             if org_resolution is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid organization",
-                )
+                raise TracecatValidationError("Invalid organization")
             org_id, resolved_org_slug = org_resolution
             method = await self._organization_discovery_method(org_id)
             return AuthDiscoverResponse(
@@ -197,4 +195,10 @@ async def discover_auth_method(
 ) -> AuthDiscoverResponse:
     """Return the next-step auth method for a given email."""
     service = AuthDiscoveryService(session)
-    return await service.discover(params.email, params.org)
+    try:
+        return await service.discover(params.email, params.org)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e

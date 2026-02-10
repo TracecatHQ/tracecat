@@ -530,6 +530,9 @@ def create_app(**kwargs) -> FastAPI:
                 require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
             ],
         )
+    # Keep SAML auth-type checks on endpoint handlers, not the entire router.
+    # The ACS callback resolves org context from RelayState, so requiring
+    # query/cookie org context at router level can block legitimate IdP callbacks.
     app.include_router(saml_router)
     app.include_router(auth_discovery_router)
 
