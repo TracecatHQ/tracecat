@@ -8,7 +8,6 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole
 from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.service import get_setting, get_setting_override
@@ -44,16 +43,6 @@ ServiceRole = Annotated[
 
 Sets the `ctx_role` context variable.
 """
-
-OrgAdminUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
-    ),
-]
 
 OrgUserRole = Annotated[
     Role,

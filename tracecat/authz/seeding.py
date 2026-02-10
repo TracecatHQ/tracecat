@@ -70,6 +70,32 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "manage",
         "Create/update/delete roles, scopes, groups, and manage assignments",
     ),
+    # Org settings management
+    ScopeDefinition(
+        "org:settings:read",
+        "org:settings",
+        "read",
+        "View organization settings and configuration",
+    ),
+    ScopeDefinition(
+        "org:settings:manage",
+        "org:settings",
+        "manage",
+        "Manage organization settings and configuration",
+    ),
+    # Registry administration
+    ScopeDefinition(
+        "org:registry:read",
+        "org:registry",
+        "read",
+        "View organization registry repositories and versions",
+    ),
+    ScopeDefinition(
+        "org:registry:manage",
+        "org:registry",
+        "manage",
+        "Manage organization registry repositories and versions",
+    ),
     # Workspace-level scopes
     ScopeDefinition("workspace:read", "workspace", "read", "View workspace settings"),
     ScopeDefinition("workspace:create", "workspace", "create", "Create workspaces"),
@@ -119,6 +145,16 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("table:create", "table", "create", "Create new tables"),
     ScopeDefinition("table:update", "table", "update", "Modify existing tables"),
     ScopeDefinition("table:delete", "table", "delete", "Delete tables"),
+    # Tag scopes
+    ScopeDefinition("tag:read", "tag", "read", "View tags"),
+    ScopeDefinition("tag:create", "tag", "create", "Create new tags"),
+    ScopeDefinition("tag:update", "tag", "update", "Modify existing tags"),
+    ScopeDefinition("tag:delete", "tag", "delete", "Delete tags"),
+    # Variable scopes
+    ScopeDefinition("variable:read", "variable", "read", "View variables"),
+    ScopeDefinition("variable:create", "variable", "create", "Create new variables"),
+    ScopeDefinition("variable:update", "variable", "update", "Modify variables"),
+    ScopeDefinition("variable:delete", "variable", "delete", "Delete variables"),
     # Schedule scopes
     ScopeDefinition("schedule:read", "schedule", "read", "View schedules"),
     ScopeDefinition("schedule:create", "schedule", "create", "Create new schedules"),
@@ -137,6 +173,17 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("secret:create", "secret", "create", "Create new secrets"),
     ScopeDefinition("secret:update", "secret", "update", "Modify existing secrets"),
     ScopeDefinition("secret:delete", "secret", "delete", "Delete secrets"),
+    # Organization secret scopes
+    ScopeDefinition("org:secret:read", "org:secret", "read", "View org-level secrets"),
+    ScopeDefinition(
+        "org:secret:create", "org:secret", "create", "Create org-level secrets"
+    ),
+    ScopeDefinition(
+        "org:secret:update", "org:secret", "update", "Modify org-level secrets"
+    ),
+    ScopeDefinition(
+        "org:secret:delete", "org:secret", "delete", "Delete org-level secrets"
+    ),
     # Wildcard action scopes (for role assignments)
     ScopeDefinition(
         "action:*:execute", "action", "execute", "Execute any registry action"

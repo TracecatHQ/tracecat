@@ -403,6 +403,7 @@ async def _prepare_step_context(
     executor_token = mint_executor_token(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
+        service_id=role.service_id,
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
@@ -711,6 +712,7 @@ async def prepare_resolved_context(
     executor_token = mint_executor_token(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
+        service_id=role.service_id,
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )

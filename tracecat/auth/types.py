@@ -1,4 +1,4 @@
-from enum import IntEnum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -7,18 +7,9 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 
 
-class AccessLevel(IntEnum):
-    """Access control levels for roles.
-
-    .. deprecated::
-        Use `require_org_roles` in RoleACL or `@require_org_role` decorator instead.
-        This enum will be removed in a future version.
-    """
-
-    BASIC = 0
-    """The access level for workspace members."""
-    ADMIN = 999
-    """The access level for organization admins. Org admins are members of all workspaces."""
+class AccessLevel(StrEnum):
+    BASIC = "BASIC"
+    ADMIN = "ADMIN"
 
 
 class Role(BaseModel):
@@ -54,8 +45,8 @@ class Role(BaseModel):
     workspace_role: WorkspaceRole | None = Field(default=None, frozen=True)
     org_role: OrgRole | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
-    access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
+    access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
     scopes: frozenset[str] = Field(default=frozenset(), frozen=True)
@@ -87,7 +78,7 @@ class Role(BaseModel):
         headers = {
             "x-tracecat-role-type": self.type,
             "x-tracecat-role-service-id": self.service_id,
-            "x-tracecat-role-access-level": self.access_level.name,
+            "x-tracecat-role-access-level": self.access_level.value,
         }
         if self.user_id is not None:
             headers["x-tracecat-role-user-id"] = str(self.user_id)
@@ -116,8 +107,8 @@ class PlatformRole(BaseModel):
     type: Literal["user", "service"] = Field(frozen=True)
     user_id: UserID = Field(frozen=True)
     """The superuser's ID - required for audit logging."""
-    access_level: AccessLevel = Field(default=AccessLevel.ADMIN, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
+    access_level: AccessLevel = Field(default=AccessLevel.ADMIN, frozen=True)
 
     @property
     def is_platform_superuser(self) -> bool:
@@ -130,6 +121,5 @@ def system_role() -> Role:
     return Role(
         type="service",
         service_id="tracecat-api",
-        access_level=AccessLevel.ADMIN,
         scopes=frozenset({"*"}),
     )
