@@ -715,6 +715,7 @@ resource "helm_release" "tracecat" {
     content {
       name  = "enterprise.featureFlags"
       value = var.feature_flags
+      type  = "string"
     }
   }
 
