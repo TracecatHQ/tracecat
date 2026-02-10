@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from tracecat.api.app import app
 from tracecat.auth.types import Role
-from tracecat.auth.users import current_active_user
 from tracecat.authz.enums import OrgRole
 from tracecat.db.engine import get_async_session
 
@@ -41,6 +40,9 @@ async def test_list_my_pending_invitations_success(
     )
     mock_organization = SimpleNamespace(name="Acme Security")
 
+    user_result = Mock()
+    user_result.scalar_one_or_none.return_value = mock_user
+
     tuples_result = Mock()
     tuples_result.all.return_value = [
         (mock_invitation, mock_organization, mock_inviter),
@@ -48,12 +50,9 @@ async def test_list_my_pending_invitations_success(
     pending_result = Mock()
     pending_result.tuples.return_value = tuples_result
 
-    mock_session.execute.side_effect = [pending_result]
-    app.dependency_overrides[current_active_user] = lambda: mock_user
-    try:
-        response = client.get("/organization/invitations/pending/me")
-    finally:
-        app.dependency_overrides.pop(current_active_user, None)
+    mock_session.execute.side_effect = [user_result, pending_result]
+
+    response = client.get("/organization/invitations/pending/me")
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
@@ -67,26 +66,16 @@ async def test_list_my_pending_invitations_success(
 
 
 @pytest.mark.anyio
-async def test_list_my_pending_invitations_no_results(
+async def test_list_my_pending_invitations_user_not_found(
     client: TestClient, test_admin_role: Role
 ) -> None:
     mock_session = await app.dependency_overrides[get_async_session]()
 
-    mock_user = SimpleNamespace(
-        id=test_admin_role.user_id,
-        email="missing@example.com",
-    )
-    tuples_result = Mock()
-    tuples_result.all.return_value = []
-    pending_result = Mock()
-    pending_result.tuples.return_value = tuples_result
-    mock_session.execute.side_effect = [pending_result]
+    user_result = Mock()
+    user_result.scalar_one_or_none.return_value = None
+    mock_session.execute.side_effect = [user_result]
 
-    app.dependency_overrides[current_active_user] = lambda: mock_user
-    try:
-        response = client.get("/organization/invitations/pending/me")
-    finally:
-        app.dependency_overrides.pop(current_active_user, None)
+    response = client.get("/organization/invitations/pending/me")
 
-    assert response.status_code == status.HTTP_200_OK
-    assert response.json() == []
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "User not found"
