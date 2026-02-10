@@ -307,7 +307,6 @@ class DurableAgentWorkflow:
             model=cfg.model_name,
             provider=cfg.model_provider,
             model_settings=cfg.model_settings,
-            output_type=cfg.output_type,
             use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
@@ -433,10 +432,14 @@ class DurableAgentWorkflow:
 
             # Agent completed successfully
             return AgentOutput(
-                output=None,  # NSJail path doesn't return structured output yet
+                output=result.structured_output,
                 message_history=result.messages,  # Messages fetched from DB by activity
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                usage=RunUsage(),  # TODO: Collect usage from sandbox runtime
+                usage=RunUsage(
+                    requests=result.result_num_turns or 0,
+                    input_tokens=(result.result_usage or {}).get("input_tokens", 0),
+                    output_tokens=(result.result_usage or {}).get("output_tokens", 0),
+                ),
                 session_id=self.session_id,
             )
 

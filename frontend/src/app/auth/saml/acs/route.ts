@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+import {
+  decodeAndSanitizeReturnUrl,
+  POST_AUTH_RETURN_URL_COOKIE_NAME,
+  serializeClearPostAuthReturnUrlCookie,
+} from "@/lib/auth-return-url"
 import { buildUrl } from "@/lib/ss-utils"
 
 /**
@@ -8,6 +13,9 @@ import { buildUrl } from "@/lib/ss-utils"
  */
 export async function POST(request: NextRequest) {
   console.log("POST /auth/saml/acs", request.nextUrl.toString())
+  const returnUrl = decodeAndSanitizeReturnUrl(
+    request.cookies.get(POST_AUTH_RETURN_URL_COOKIE_NAME)?.value
+  )
 
   // Parse the form data from the request
   const formData = await request.formData()
@@ -60,11 +68,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
-  console.log("Redirecting to / with GET")
-  const redirectUrl = new URL("/", public_app_url)
+  const targetPath = returnUrl ?? "/"
+  console.log(`Redirecting to ${targetPath} with GET`)
+  const redirectUrl = new URL(targetPath, public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {
     status: 303, // Force GET request
   })
-  redirectResponse.headers.set("set-cookie", setCookieHeader)
+  redirectResponse.headers.append("set-cookie", setCookieHeader)
+  redirectResponse.headers.append(
+    "set-cookie",
+    serializeClearPostAuthReturnUrlCookie(request.nextUrl.protocol === "https:")
+  )
   return redirectResponse
 }

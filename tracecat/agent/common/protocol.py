@@ -143,6 +143,7 @@ class RuntimeEventEnvelope:
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
     result_duration_ms: int | None = None
+    result_structured_output: Any = None
     # For type="log" - structured log forwarding from sandbox
     log_level: str | None = None  # "debug", "info", "warning", "error"
     log_message: str | None = None
@@ -167,6 +168,7 @@ class RuntimeEventEnvelope:
             result_usage=data.get("result_usage"),
             result_num_turns=data.get("result_num_turns"),
             result_duration_ms=data.get("result_duration_ms"),
+            result_structured_output=data.get("result_structured_output"),
             log_level=data.get("log_level"),
             log_message=data.get("log_message"),
             log_extra=data.get("log_extra"),
@@ -195,6 +197,8 @@ class RuntimeEventEnvelope:
             result["result_num_turns"] = self.result_num_turns
         if self.result_duration_ms is not None:
             result["result_duration_ms"] = self.result_duration_ms
+        if self.result_structured_output is not None:
+            result["result_structured_output"] = self.result_structured_output
         if self.log_level is not None:
             result["log_level"] = self.log_level
         if self.log_message is not None:
@@ -261,6 +265,7 @@ class RuntimeEventEnvelope:
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
         duration_ms: int | None = None,
+        structured_output: Any = None,
     ) -> RuntimeEventEnvelope:
         """Create a result envelope with usage data from Claude SDK ResultMessage."""
         return cls(
@@ -268,6 +273,7 @@ class RuntimeEventEnvelope:
             result_usage=usage,
             result_num_turns=num_turns,
             result_duration_ms=duration_ms,
+            result_structured_output=structured_output,
         )
 
     @classmethod

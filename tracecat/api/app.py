@@ -7,7 +7,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
-from httpx_oauth.clients.google import GoogleOAuth2
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
@@ -32,8 +31,13 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
-from tracecat.auth.dependencies import require_auth_type_enabled
+from tracecat.auth.dependencies import (
+    require_any_auth_type_enabled,
+    require_auth_type_enabled,
+)
+from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
+from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -71,7 +75,7 @@ from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.router import router as editor_router
-from tracecat.exceptions import EntitlementRequired, TracecatException
+from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import (
     FeatureFlag,
     FlagLike,
@@ -293,6 +297,40 @@ def entitlement_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
+def scope_denied_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle ScopeDeniedError exceptions with a 403 Forbidden response.
+
+    Returns a machine-readable error response with:
+    - code: "insufficient_scope"
+    - message: Human-readable error message
+    - required_scopes: Scopes that were required for the operation
+    - missing_scopes: Scopes that the user was missing
+    """
+    if not isinstance(exc, ScopeDeniedError):
+        return ORJSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": str(exc)},
+        )
+    logger.warning(
+        "Scope denied",
+        required_scopes=exc.required_scopes,
+        missing_scopes=exc.missing_scopes,
+        path=request.url.path,
+        role=ctx_role.get(),
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "error": {
+                "code": "insufficient_scope",
+                "message": str(exc),
+                "required_scopes": exc.required_scopes,
+                "missing_scopes": exc.missing_scopes,
+            }
+        },
+    )
+
+
 def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
     """Check if a feature flag is enabled."""
 
@@ -439,31 +477,33 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    oauth_client = GoogleOAuth2(
-        client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
-    )
-    # This is the frontend URL that the user will be redirected to after authenticating
-    redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
-    logger.info("OAuth redirect URL", url=redirect_url)
-    app.include_router(
-        fastapi_users.get_oauth_router(
-            oauth_client,
-            auth_backend,
-            config.USER_AUTH_SECRET,
-            # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
-            associate_by_email=True,
-            is_verified_by_default=True,
-            # Points the user back to the login page
-            redirect_url=redirect_url,
-        ),
-        prefix="/auth/oauth",
-        tags=["auth"],
-        dependencies=[require_auth_type_enabled(AuthType.GOOGLE_OAUTH)],
-    )
+    if oidc_auth_type_enabled():
+        oauth_client = create_platform_oauth_client()
+        # This is the frontend URL that the user will be redirected to after authenticating
+        redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
+        logger.info("OAuth redirect URL", url=redirect_url)
+        app.include_router(
+            fastapi_users.get_oauth_router(
+                oauth_client,
+                auth_backend,
+                config.USER_AUTH_SECRET,
+                # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
+                associate_by_email=True,
+                is_verified_by_default=True,
+                # Points the user back to the login page
+                redirect_url=redirect_url,
+            ),
+            prefix="/auth/oauth",
+            tags=["auth"],
+            dependencies=[
+                require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+            ],
+        )
     app.include_router(
         saml_router,
         dependencies=[require_auth_type_enabled(AuthType.SAML)],
     )
+    app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint
@@ -482,6 +522,7 @@ def create_app(**kwargs) -> FastAPI:
         fastapi_users_auth_exception_handler,
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
+    app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
@@ -533,8 +574,6 @@ class AppInfo(BaseModel):
     version: str
     public_app_url: str
     auth_allowed_types: list[AuthType]
-    auth_basic_enabled: bool
-    oauth_google_enabled: bool
     saml_enabled: bool
     ee_multi_tenant: bool
 
@@ -543,7 +582,7 @@ class AppInfo(BaseModel):
 async def info(session: AsyncDBSession) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
-    keys = {"auth_basic_enabled", "oauth_google_enabled", "saml_enabled"}
+    keys = {"saml_enabled"}
 
     # Get the default organization for platform-level settings
     org_id = await get_default_organization_id(session)
@@ -556,8 +595,6 @@ async def info(session: AsyncDBSession) -> AppInfo:
         version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
-        auth_basic_enabled=keyvalues["auth_basic_enabled"],
-        oauth_google_enabled=keyvalues["oauth_google_enabled"],
         saml_enabled=keyvalues["saml_enabled"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
     )

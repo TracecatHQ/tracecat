@@ -783,36 +783,24 @@ export type AuditSettingsUpdate = {
   } | null
 }
 
-export type AuthSettingsRead = {
-  auth_basic_enabled: boolean
-  auth_require_email_verification: boolean
-  auth_allowed_email_domains: Array<string>
-  auth_min_password_length: number
-  auth_session_expire_time_seconds: number
+/**
+ * Request payload for pre-auth discovery.
+ */
+export type AuthDiscoverRequest = {
+  email: string
 }
 
-export type AuthSettingsUpdate = {
-  /**
-   * Whether basic auth is enabled.
-   */
-  auth_basic_enabled?: boolean
-  /**
-   * Whether email verification is required for authentication.
-   */
-  auth_require_email_verification?: boolean
-  /**
-   * Allowed email domains for authentication. If empty, all domains are allowed.
-   */
-  auth_allowed_email_domains?: Array<string>
-  /**
-   * Minimum password length for authentication.
-   */
-  auth_min_password_length?: number
-  /**
-   * Session expiration time in seconds.
-   */
-  auth_session_expire_time_seconds?: number
+/**
+ * Pre-auth routing hint response.
+ */
+export type AuthDiscoverResponse = {
+  method: AuthDiscoveryMethod
 }
+
+/**
+ * Authentication method hint for client-side routing.
+ */
+export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
 
 /**
  * Batch update for action and trigger positions.
@@ -3188,28 +3176,27 @@ export type OAuth2AuthorizeResponse = {
 export type OAuthGrantType = "authorization_code" | "client_credentials"
 
 /**
- * Settings for OAuth authentication.
- */
-export type OAuthSettingsRead = {
-  oauth_google_enabled: boolean
-}
-
-/**
- * Settings for OAuth authentication.
- */
-export type OAuthSettingsUpdate = {
-  /**
-   * Whether OAuth is enabled.
-   */
-  oauth_google_enabled?: boolean
-}
-
-/**
  * Create organization request.
  */
 export type OrgCreate = {
   name: string
   slug: string
+}
+
+/**
+ * Create organization domain request.
+ */
+export type OrgDomainCreate = {
+  domain: string
+  is_primary?: boolean
+}
+
+/**
+ * Update organization domain request.
+ */
+export type OrgDomainUpdate = {
+  is_primary?: boolean | null
+  is_active?: boolean | null
 }
 
 /**
@@ -3266,9 +3253,21 @@ export type OrgMemberRead = {
   email: string
   role: OrgRole
   is_active: boolean
-  is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * Pending invitation visible to the invited authenticated user.
+ */
+export type OrgPendingInvitationRead = {
+  token: string
+  organization_id: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role: OrgRole
+  expires_at: string
 }
 
 /**
@@ -4218,6 +4217,7 @@ export type Role = {
     | "tracecat-service"
     | "tracecat-ui"
   is_platform_superuser?: boolean
+  scopes?: Array<string>
 }
 
 export type type3 = "user" | "service"
@@ -6281,6 +6281,19 @@ export type tracecat__admin__registry__schemas__RegistryVersionRead = {
   created_at: string
 }
 
+export type tracecat__organization__schemas__OrgDomainRead = {
+  id: string
+  organization_id: string
+  domain: string
+  normalized_domain: string
+  is_primary: boolean
+  is_active: boolean
+  verified_at: string | null
+  verification_method: string
+  created_at: string
+  updated_at: string
+}
+
 export type tracecat__organization__schemas__OrgRead = {
   id: string
   name: string
@@ -6321,6 +6334,22 @@ export type tracecat__registry__repositories__schemas__RegistryVersionRead = {
   commit_sha: string | null
   tarball_uri: string | null
   created_at: string
+}
+
+/**
+ * Organization domain response.
+ */
+export type tracecat_ee__admin__organizations__schemas__OrgDomainRead = {
+  id: string
+  organization_id: string
+  domain: string
+  normalized_domain: string
+  is_primary: boolean
+  is_active: boolean
+  verified_at?: string | null
+  verification_method: string
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -7050,6 +7079,9 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationListOrganizationDomainsResponse =
+  Array<tracecat__organization__schemas__OrgDomainRead>
+
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberRead
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
@@ -7108,6 +7140,9 @@ export type OrganizationAcceptInvitationData = {
 export type OrganizationAcceptInvitationResponse = {
   [key: string]: string
 }
+
+export type OrganizationListMyPendingInvitationsResponse =
+  Array<OrgPendingInvitationRead>
 
 export type OrganizationGetInvitationByTokenData = {
   token: string
@@ -7353,6 +7388,37 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminListOrganizationDomainsData = {
+  orgId: string
+}
+
+export type AdminListOrganizationDomainsResponse =
+  Array<tracecat_ee__admin__organizations__schemas__OrgDomainRead>
+
+export type AdminCreateOrganizationDomainData = {
+  orgId: string
+  requestBody: OrgDomainCreate
+}
+
+export type AdminCreateOrganizationDomainResponse =
+  tracecat_ee__admin__organizations__schemas__OrgDomainRead
+
+export type AdminUpdateOrganizationDomainData = {
+  domainId: string
+  orgId: string
+  requestBody: OrgDomainUpdate
+}
+
+export type AdminUpdateOrganizationDomainResponse =
+  tracecat_ee__admin__organizations__schemas__OrgDomainRead
+
+export type AdminDeleteOrganizationDomainData = {
+  domainId: string
+  orgId: string
+}
+
+export type AdminDeleteOrganizationDomainResponse = void
+
 export type AdminListOrgRepositoriesData = {
   orgId: string
 }
@@ -7406,6 +7472,15 @@ export type AdminCreateTierData = {
 }
 
 export type AdminCreateTierResponse = TierRead
+
+export type AdminListOrgTiersData = {
+  /**
+   * Optional list of organization IDs to filter results
+   */
+  orgIds?: Array<string> | null
+}
+
+export type AdminListOrgTiersResponse = Array<OrganizationTierRead>
 
 export type AdminGetTierData = {
   tierId: string
@@ -7684,22 +7759,6 @@ export type SettingsUpdateSamlSettingsData = {
 }
 
 export type SettingsUpdateSamlSettingsResponse = void
-
-export type SettingsGetAuthSettingsResponse = AuthSettingsRead
-
-export type SettingsUpdateAuthSettingsData = {
-  requestBody: AuthSettingsUpdate
-}
-
-export type SettingsUpdateAuthSettingsResponse = void
-
-export type SettingsGetOauthSettingsResponse = OAuthSettingsRead
-
-export type SettingsUpdateOauthSettingsData = {
-  requestBody: OAuthSettingsUpdate
-}
-
-export type SettingsUpdateOauthSettingsResponse = void
 
 export type SettingsGetAppSettingsResponse = AppSettingsRead
 
@@ -8690,20 +8749,20 @@ export type AuthVerifyVerifyData = {
 
 export type AuthVerifyVerifyResponse = UserRead
 
-export type AuthOauthGoogleDatabaseAuthorizeData = {
+export type AuthOauthOidcDatabaseAuthorizeData = {
   scopes?: Array<string>
 }
 
-export type AuthOauthGoogleDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
+export type AuthOauthOidcDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
 
-export type AuthOauthGoogleDatabaseCallbackData = {
+export type AuthOauthOidcDatabaseCallbackData = {
   code?: string | null
   codeVerifier?: string | null
   error?: string | null
   state?: string | null
 }
 
-export type AuthOauthGoogleDatabaseCallbackResponse = unknown
+export type AuthOauthOidcDatabaseCallbackResponse = unknown
 
 export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse
 
@@ -8712,6 +8771,12 @@ export type AuthSsoAcsData = {
 }
 
 export type AuthSsoAcsResponse = unknown
+
+export type AuthDiscoverAuthMethodData = {
+  requestBody: AuthDiscoverRequest
+}
+
+export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
 export type PublicCheckHealthResponse = HealthResponse
 
@@ -9962,6 +10027,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/domains": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__organization__schemas__OrgDomainRead>
+      }
+    }
+  }
   "/organization/members/me": {
     get: {
       res: {
@@ -10109,6 +10184,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/pending/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgPendingInvitationRead>
       }
     }
   }
@@ -10569,6 +10654,62 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/organizations/{org_id}/domains": {
+    get: {
+      req: AdminListOrganizationDomainsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat_ee__admin__organizations__schemas__OrgDomainRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AdminCreateOrganizationDomainData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: tracecat_ee__admin__organizations__schemas__OrgDomainRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/domains/{domain_id}": {
+    patch: {
+      req: AdminUpdateOrganizationDomainData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: tracecat_ee__admin__organizations__schemas__OrgDomainRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AdminDeleteOrganizationDomainData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/organizations/{org_id}/registry/repositories": {
     get: {
       req: AdminListOrgRepositoriesData
@@ -10673,6 +10814,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TierRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/tiers/organizations": {
+    get: {
+      req: AdminListOrgTiersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrganizationTierRead>
         /**
          * Validation Error
          */
@@ -11259,52 +11415,6 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateSamlSettingsData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/settings/auth": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AuthSettingsRead
-      }
-    }
-    patch: {
-      req: SettingsUpdateAuthSettingsData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/settings/oauth": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OAuthSettingsRead
-      }
-    }
-    patch: {
-      req: SettingsUpdateOauthSettingsData
       res: {
         /**
          * Successful Response
@@ -13073,7 +13183,7 @@ export type $OpenApiTs = {
   }
   "/auth/oauth/authorize": {
     get: {
-      req: AuthOauthGoogleDatabaseAuthorizeData
+      req: AuthOauthOidcDatabaseAuthorizeData
       res: {
         /**
          * Successful Response
@@ -13088,7 +13198,7 @@ export type $OpenApiTs = {
   }
   "/auth/oauth/callback": {
     get: {
-      req: AuthOauthGoogleDatabaseCallbackData
+      req: AuthOauthOidcDatabaseCallbackData
       res: {
         /**
          * Successful Response
@@ -13123,6 +13233,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/discover": {
+    post: {
+      req: AuthDiscoverAuthMethodData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuthDiscoverResponse
         /**
          * Validation Error
          */

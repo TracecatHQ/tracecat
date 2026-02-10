@@ -1,17 +1,20 @@
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import and_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.types import Role
+from tracecat.auth.users import current_active_user
 from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
+    OrganizationDomain,
     OrganizationInvitation,
     OrganizationMembership,
     User,
@@ -24,11 +27,13 @@ from tracecat.exceptions import (
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.schemas import (
+    OrgDomainRead,
     OrgInvitationAccept,
     OrgInvitationCreate,
     OrgInvitationRead,
     OrgInvitationReadMinimal,
     OrgMemberRead,
+    OrgPendingInvitationRead,
     OrgRead,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
@@ -54,6 +59,22 @@ OrgAdminRole = Annotated[
         require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
 ]
+
+
+def _get_user_display_name_and_email(
+    user: User | None,
+) -> tuple[str | None, str | None]:
+    """Build display name/email pair for inviter fields."""
+    if user is None:
+        return None, None
+
+    if user.first_name or user.last_name:
+        name_parts = [user.first_name, user.last_name]
+        name = " ".join(part for part in name_parts if part)
+    else:
+        name = user.email
+
+    return name, user.email
 
 
 @router.get("", response_model=OrgRead)
@@ -84,6 +105,48 @@ async def get_organization(
         )
 
     return OrgRead(id=org.id, name=org.name)
+
+
+@router.get("/domains", response_model=list[OrgDomainRead])
+async def list_organization_domains(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> list[OrgDomainRead]:
+    """List domains assigned to the current organization."""
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    stmt = (
+        select(OrganizationDomain)
+        .where(OrganizationDomain.organization_id == role.organization_id)
+        .order_by(
+            OrganizationDomain.is_primary.desc(),
+            OrganizationDomain.created_at.asc(),
+            OrganizationDomain.id.asc(),
+        )
+    )
+    result = await session.execute(stmt)
+    domains = result.scalars().all()
+
+    return [
+        OrgDomainRead(
+            id=domain.id,
+            organization_id=domain.organization_id,
+            domain=domain.domain,
+            normalized_domain=domain.normalized_domain,
+            is_primary=domain.is_primary,
+            is_active=domain.is_active,
+            verified_at=domain.verified_at,
+            verification_method=domain.verification_method,
+            created_at=domain.created_at,
+            updated_at=domain.updated_at,
+        )
+        for domain in domains
+    ]
 
 
 @router.get("/members/me", response_model=OrgMemberRead)
@@ -137,7 +200,6 @@ async def get_current_org_member(
             email=user.email,
             role=org_role,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
@@ -157,7 +219,6 @@ async def get_current_org_member(
                 email=user.email,
                 role=OrgRole.OWNER,  # Superusers have implicit owner role
                 is_active=user.is_active,
-                is_superuser=user.is_superuser,
                 is_verified=user.is_verified,
                 last_login_at=user.last_login_at,
             )
@@ -184,7 +245,6 @@ async def list_org_members(
             email=user.email,
             role=org_role,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
@@ -235,7 +295,6 @@ async def update_org_member(
             email=user.email,
             role=org_role,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
@@ -422,6 +481,55 @@ async def accept_invitation(
         ) from e
 
 
+@router.get("/invitations/pending/me", response_model=list[OrgPendingInvitationRead])
+async def list_my_pending_invitations(
+    *,
+    role: AuthenticatedUserOnly,
+    session: AsyncDBSession,
+    user: Annotated[User, Depends(current_active_user)],
+) -> list[OrgPendingInvitationRead]:
+    """List pending, unexpired invitations for the authenticated user."""
+    assert role.user_id is not None
+
+    now = datetime.now(UTC)
+    statement = (
+        select(OrganizationInvitation, Organization, User)
+        .join(
+            Organization,
+            Organization.id == OrganizationInvitation.organization_id,  # pyright: ignore[reportArgumentType]
+        )
+        .outerjoin(
+            User,
+            User.id == OrganizationInvitation.invited_by,  # pyright: ignore[reportArgumentType]
+        )
+        .where(
+            func.lower(OrganizationInvitation.email) == user.email.lower(),
+            OrganizationInvitation.status == InvitationStatus.PENDING,
+            OrganizationInvitation.expires_at > now,
+        )
+        .order_by(OrganizationInvitation.created_at.desc())
+    )
+    result = await session.execute(statement)
+    rows = result.tuples().all()
+
+    pending_invitations: list[OrgPendingInvitationRead] = []
+    for invitation, organization, inviter in rows:
+        inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
+
+        pending_invitations.append(
+            OrgPendingInvitationRead(
+                token=invitation.token,
+                organization_id=invitation.organization_id,
+                organization_name=organization.name,
+                inviter_name=inviter_name,
+                inviter_email=inviter_email,
+                role=invitation.role,
+                expires_at=invitation.expires_at,
+            )
+        )
+    return pending_invitations
+
+
 @router.get("/invitations/token/{token}", response_model=OrgInvitationReadMinimal)
 async def get_invitation_by_token(
     *,
@@ -457,14 +565,7 @@ async def get_invitation_by_token(
                 select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
             )
             inviter = inviter_result.scalar_one_or_none()
-            if inviter:
-                # Build display name from first/last name or fall back to email
-                if inviter.first_name or inviter.last_name:
-                    name_parts = [inviter.first_name, inviter.last_name]
-                    inviter_name = " ".join(p for p in name_parts if p)
-                else:
-                    inviter_name = inviter.email
-                inviter_email = inviter.email
+            inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
 
         # Check if authenticated user's email matches the invitation (case-insensitive)
         email_matches: bool | None = None

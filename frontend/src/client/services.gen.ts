@@ -17,10 +17,14 @@ import type {
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
   AdminCreateOrganizationData,
+  AdminCreateOrganizationDomainData,
+  AdminCreateOrganizationDomainResponse,
   AdminCreateOrganizationResponse,
   AdminCreateTierData,
   AdminCreateTierResponse,
   AdminDeleteOrganizationData,
+  AdminDeleteOrganizationDomainData,
+  AdminDeleteOrganizationDomainResponse,
   AdminDeleteOrganizationResponse,
   AdminDeleteTierData,
   AdminDeleteTierResponse,
@@ -35,11 +39,15 @@ import type {
   AdminGetTierResponse,
   AdminGetUserData,
   AdminGetUserResponse,
+  AdminListOrganizationDomainsData,
+  AdminListOrganizationDomainsResponse,
   AdminListOrganizationsResponse,
   AdminListOrgRepositoriesData,
   AdminListOrgRepositoriesResponse,
   AdminListOrgRepositoryVersionsData,
   AdminListOrgRepositoryVersionsResponse,
+  AdminListOrgTiersData,
+  AdminListOrgTiersResponse,
   AdminListTiersData,
   AdminListTiersResponse,
   AdminListUsersResponse,
@@ -62,6 +70,8 @@ import type {
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminUpdateOrganizationData,
+  AdminUpdateOrganizationDomainData,
+  AdminUpdateOrganizationDomainResponse,
   AdminUpdateOrganizationResponse,
   AdminUpdateOrgTierData,
   AdminUpdateOrgTierResponse,
@@ -121,10 +131,12 @@ import type {
   AuthAuthDatabaseLoginData,
   AuthAuthDatabaseLoginResponse,
   AuthAuthDatabaseLogoutResponse,
-  AuthOauthGoogleDatabaseAuthorizeData,
-  AuthOauthGoogleDatabaseAuthorizeResponse,
-  AuthOauthGoogleDatabaseCallbackData,
-  AuthOauthGoogleDatabaseCallbackResponse,
+  AuthDiscoverAuthMethodData,
+  AuthDiscoverAuthMethodResponse,
+  AuthOauthOidcDatabaseAuthorizeData,
+  AuthOauthOidcDatabaseAuthorizeResponse,
+  AuthOauthOidcDatabaseCallbackData,
+  AuthOauthOidcDatabaseCallbackResponse,
   AuthRegisterRegisterData,
   AuthRegisterRegisterResponse,
   AuthResetForgotPasswordData,
@@ -314,6 +326,8 @@ import type {
   OrganizationGetOrganizationResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
+  OrganizationListMyPendingInvitationsResponse,
+  OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
   OrganizationRevokeInvitationData,
@@ -409,9 +423,7 @@ import type {
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
-  SettingsGetAuthSettingsResponse,
   SettingsGetGitSettingsResponse,
-  SettingsGetOauthSettingsResponse,
   SettingsGetSamlSettingsResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
@@ -419,12 +431,8 @@ import type {
   SettingsUpdateAppSettingsResponse,
   SettingsUpdateAuditSettingsData,
   SettingsUpdateAuditSettingsResponse,
-  SettingsUpdateAuthSettingsData,
-  SettingsUpdateAuthSettingsResponse,
   SettingsUpdateGitSettingsData,
   SettingsUpdateGitSettingsResponse,
-  SettingsUpdateOauthSettingsData,
-  SettingsUpdateOauthSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
   TablesBatchInsertRowsData,
@@ -3065,6 +3073,20 @@ export const organizationGetOrganization =
   }
 
 /**
+ * List Organization Domains
+ * List domains assigned to the current organization.
+ * @returns tracecat__organization__schemas__OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListOrganizationDomains =
+  (): CancelablePromise<OrganizationListOrganizationDomainsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/domains",
+    })
+  }
+
+/**
  * Get Current Org Member
  * Get the current user's organization membership.
  *
@@ -3297,6 +3319,20 @@ export const organizationAcceptInvitation = (
     },
   })
 }
+
+/**
+ * List My Pending Invitations
+ * List pending, unexpired invitations for the authenticated user.
+ * @returns OrgPendingInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListMyPendingInvitations =
+  (): CancelablePromise<OrganizationListMyPendingInvitationsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/invitations/pending/me",
+    })
+  }
 
 /**
  * Get Invitation By Token
@@ -4129,6 +4165,108 @@ export const adminDeleteOrganization = (
 }
 
 /**
+ * List Organization Domains
+ * List all assigned domains for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @returns tracecat_ee__admin__organizations__schemas__OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrganizationDomains = (
+  data: AdminListOrganizationDomainsData
+): CancelablePromise<AdminListOrganizationDomainsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/domains",
+    path: {
+      org_id: data.orgId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Organization Domain
+ * Create a new assigned domain for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.requestBody
+ * @returns tracecat_ee__admin__organizations__schemas__OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const adminCreateOrganizationDomain = (
+  data: AdminCreateOrganizationDomainData
+): CancelablePromise<AdminCreateOrganizationDomainResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/domains",
+    path: {
+      org_id: data.orgId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Organization Domain
+ * Update active/primary state for an assigned organization domain.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.domainId
+ * @param data.requestBody
+ * @returns tracecat_ee__admin__organizations__schemas__OrgDomainRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateOrganizationDomain = (
+  data: AdminUpdateOrganizationDomainData
+): CancelablePromise<AdminUpdateOrganizationDomainResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/organizations/{org_id}/domains/{domain_id}",
+    path: {
+      org_id: data.orgId,
+      domain_id: data.domainId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Organization Domain
+ * Delete an assigned organization domain.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.domainId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminDeleteOrganizationDomain = (
+  data: AdminDeleteOrganizationDomainData
+): CancelablePromise<AdminDeleteOrganizationDomainResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/organizations/{org_id}/domains/{domain_id}",
+    path: {
+      org_id: data.orgId,
+      domain_id: data.domainId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Org Repositories
  * List registry repositories for an organization.
  * @param data The data for the request.
@@ -4306,6 +4444,29 @@ export const adminCreateTier = (
     url: "/admin/tiers",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Org Tiers
+ * List tier assignments for organizations.
+ * @param data The data for the request.
+ * @param data.orgIds Optional list of organization IDs to filter results
+ * @returns OrganizationTierRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrgTiers = (
+  data: AdminListOrgTiersData = {}
+): CancelablePromise<AdminListOrgTiersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/tiers/organizations",
+    query: {
+      org_ids: data.orgIds,
+    },
     errors: {
       422: "Validation Error",
     },
@@ -5334,74 +5495,6 @@ export const settingsUpdateSamlSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/saml",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Auth Settings
- * @returns AuthSettingsRead Successful Response
- * @throws ApiError
- */
-export const settingsGetAuthSettings =
-  (): CancelablePromise<SettingsGetAuthSettingsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/settings/auth",
-    })
-  }
-
-/**
- * Update Auth Settings
- * @param data The data for the request.
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const settingsUpdateAuthSettings = (
-  data: SettingsUpdateAuthSettingsData
-): CancelablePromise<SettingsUpdateAuthSettingsResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/settings/auth",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Oauth Settings
- * @returns OAuthSettingsRead Successful Response
- * @throws ApiError
- */
-export const settingsGetOauthSettings =
-  (): CancelablePromise<SettingsGetOauthSettingsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/settings/oauth",
-    })
-  }
-
-/**
- * Update Oauth Settings
- * @param data The data for the request.
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const settingsUpdateOauthSettings = (
-  data: SettingsUpdateOauthSettingsData
-): CancelablePromise<SettingsUpdateOauthSettingsResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/settings/oauth",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -8636,15 +8729,15 @@ export const authVerifyVerify = (
 }
 
 /**
- * Oauth:Google.Database.Authorize
+ * Oauth:Oidc.Database.Authorize
  * @param data The data for the request.
  * @param data.scopes
  * @returns OAuth2AuthorizeResponse Successful Response
  * @throws ApiError
  */
-export const authOauthGoogleDatabaseAuthorize = (
-  data: AuthOauthGoogleDatabaseAuthorizeData = {}
-): CancelablePromise<AuthOauthGoogleDatabaseAuthorizeResponse> => {
+export const authOauthOidcDatabaseAuthorize = (
+  data: AuthOauthOidcDatabaseAuthorizeData = {}
+): CancelablePromise<AuthOauthOidcDatabaseAuthorizeResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/auth/oauth/authorize",
@@ -8658,7 +8751,7 @@ export const authOauthGoogleDatabaseAuthorize = (
 }
 
 /**
- * Oauth:Google.Database.Callback
+ * Oauth:Oidc.Database.Callback
  * The response varies based on the authentication backend used.
  * @param data The data for the request.
  * @param data.code
@@ -8668,9 +8761,9 @@ export const authOauthGoogleDatabaseAuthorize = (
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const authOauthGoogleDatabaseCallback = (
-  data: AuthOauthGoogleDatabaseCallbackData = {}
-): CancelablePromise<AuthOauthGoogleDatabaseCallbackResponse> => {
+export const authOauthOidcDatabaseCallback = (
+  data: AuthOauthOidcDatabaseCallbackData = {}
+): CancelablePromise<AuthOauthOidcDatabaseCallbackResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/auth/oauth/callback",
@@ -8717,6 +8810,28 @@ export const authSsoAcs = (
     url: "/auth/saml/acs",
     formData: data.formData,
     mediaType: "application/x-www-form-urlencoded",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Discover Auth Method
+ * Return the next-step auth method for a given email.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AuthDiscoverResponse Successful Response
+ * @throws ApiError
+ */
+export const authDiscoverAuthMethod = (
+  data: AuthDiscoverAuthMethodData
+): CancelablePromise<AuthDiscoverAuthMethodResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/auth/discover",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

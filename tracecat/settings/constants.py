@@ -12,7 +12,5 @@ SENSITIVE_SETTINGS_KEYS = {
 """Settings that are encrypted at rest."""
 
 AUTH_TYPE_TO_SETTING_KEY = {
-    AuthType.BASIC: "auth_basic_enabled",
-    AuthType.GOOGLE_OAUTH: "oauth_google_enabled",
     AuthType.SAML: "saml_enabled",
 }

@@ -5,14 +5,13 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   GitBranchIcon,
+  GlobeIcon,
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
   LogsIcon,
-  MailIcon,
   SendIcon,
   Settings2,
-  ShieldIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -56,16 +55,10 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/sso"),
     },
     {
-      title: "OAuth",
-      url: "/organization/settings/oauth",
-      icon: ShieldIcon,
-      isActive: pathname?.includes("/organization/settings/oauth"),
-    },
-    {
-      title: "Email authentication",
-      url: "/organization/settings/auth",
-      icon: MailIcon,
-      isActive: pathname?.includes("/organization/settings/auth"),
+      title: "Domains",
+      url: "/organization/settings/domains",
+      icon: GlobeIcon,
+      isActive: pathname?.includes("/organization/settings/domains"),
     },
     {
       title: "Application",

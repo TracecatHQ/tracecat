@@ -2947,81 +2947,37 @@ export const $AuditSettingsUpdate = {
   description: "Settings for audit logging.",
 } as const
 
-export const $AuthSettingsRead = {
+export const $AuthDiscoverRequest = {
   properties: {
-    auth_basic_enabled: {
-      type: "boolean",
-      title: "Auth Basic Enabled",
-    },
-    auth_require_email_verification: {
-      type: "boolean",
-      title: "Auth Require Email Verification",
-    },
-    auth_allowed_email_domains: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Auth Allowed Email Domains",
-    },
-    auth_min_password_length: {
-      type: "integer",
-      title: "Auth Min Password Length",
-    },
-    auth_session_expire_time_seconds: {
-      type: "integer",
-      title: "Auth Session Expire Time Seconds",
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
     },
   },
   type: "object",
-  required: [
-    "auth_basic_enabled",
-    "auth_require_email_verification",
-    "auth_allowed_email_domains",
-    "auth_min_password_length",
-    "auth_session_expire_time_seconds",
-  ],
-  title: "AuthSettingsRead",
+  required: ["email"],
+  title: "AuthDiscoverRequest",
+  description: "Request payload for pre-auth discovery.",
 } as const
 
-export const $AuthSettingsUpdate = {
+export const $AuthDiscoverResponse = {
   properties: {
-    auth_basic_enabled: {
-      type: "boolean",
-      title: "Auth Basic Enabled",
-      description: "Whether basic auth is enabled.",
-      default: true,
-    },
-    auth_require_email_verification: {
-      type: "boolean",
-      title: "Auth Require Email Verification",
-      description: "Whether email verification is required for authentication.",
-      default: false,
-    },
-    auth_allowed_email_domains: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Auth Allowed Email Domains",
-      description:
-        "Allowed email domains for authentication. If empty, all domains are allowed.",
-    },
-    auth_min_password_length: {
-      type: "integer",
-      title: "Auth Min Password Length",
-      description: "Minimum password length for authentication.",
-      default: 12,
-    },
-    auth_session_expire_time_seconds: {
-      type: "integer",
-      title: "Auth Session Expire Time Seconds",
-      description: "Session expiration time in seconds.",
-      default: 604800,
+    method: {
+      $ref: "#/components/schemas/AuthDiscoveryMethod",
     },
   },
   type: "object",
-  title: "AuthSettingsUpdate",
+  required: ["method"],
+  title: "AuthDiscoverResponse",
+  description: "Pre-auth routing hint response.",
+} as const
+
+export const $AuthDiscoveryMethod = {
+  type: "string",
+  enum: ["basic", "oidc", "saml"],
+  title: "AuthDiscoveryMethod",
+  description: "Authentication method hint for client-side routing.",
 } as const
 
 export const $BatchPositionUpdate = {
@@ -9904,33 +9860,6 @@ export const $OAuthGrantType = {
   description: "Grant type for OAuth 2.0.",
 } as const
 
-export const $OAuthSettingsRead = {
-  properties: {
-    oauth_google_enabled: {
-      type: "boolean",
-      title: "Oauth Google Enabled",
-    },
-  },
-  type: "object",
-  required: ["oauth_google_enabled"],
-  title: "OAuthSettingsRead",
-  description: "Settings for OAuth authentication.",
-} as const
-
-export const $OAuthSettingsUpdate = {
-  properties: {
-    oauth_google_enabled: {
-      type: "boolean",
-      title: "Oauth Google Enabled",
-      description: "Whether OAuth is enabled.",
-      default: true,
-    },
-  },
-  type: "object",
-  title: "OAuthSettingsUpdate",
-  description: "Settings for OAuth authentication.",
-} as const
-
 export const $OrgCreate = {
   properties: {
     name: {
@@ -9951,6 +9880,56 @@ export const $OrgCreate = {
   required: ["name", "slug"],
   title: "OrgCreate",
   description: "Create organization request.",
+} as const
+
+export const $OrgDomainCreate = {
+  properties: {
+    domain: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["domain"],
+  title: "OrgDomainCreate",
+  description: "Create organization domain request.",
+} as const
+
+export const $OrgDomainUpdate = {
+  properties: {
+    is_primary: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Primary",
+    },
+    is_active: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Active",
+    },
+  },
+  type: "object",
+  title: "OrgDomainUpdate",
+  description: "Update organization domain request.",
 } as const
 
 export const $OrgInvitationAccept = {
@@ -10173,10 +10152,6 @@ export const $OrgMemberRead = {
       type: "boolean",
       title: "Is Active",
     },
-    is_superuser: {
-      type: "boolean",
-      title: "Is Superuser",
-    },
     is_verified: {
       type: "boolean",
       title: "Is Verified",
@@ -10202,11 +10177,70 @@ export const $OrgMemberRead = {
     "email",
     "role",
     "is_active",
-    "is_superuser",
     "is_verified",
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $OrgPendingInvitationRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: [
+    "token",
+    "organization_id",
+    "organization_name",
+    "inviter_name",
+    "inviter_email",
+    "role",
+    "expires_at",
+  ],
+  title: "OrgPendingInvitationRead",
+  description: "Pending invitation visible to the invited authenticated user.",
 } as const
 
 export const $OrgRegistryRepositoryRead = {
@@ -13196,6 +13230,15 @@ export const $Role = {
       type: "boolean",
       title: "Is Platform Superuser",
       default: false,
+    },
+    scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      uniqueItems: true,
+      title: "Scopes",
+      default: [],
     },
   },
   type: "object",
@@ -20472,6 +20515,77 @@ export const $tracecat__admin__registry__schemas__RegistryVersionRead = {
   description: "Registry version details.",
 } as const
 
+export const $tracecat__organization__schemas__OrgDomainRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    domain: {
+      type: "string",
+      title: "Domain",
+    },
+    normalized_domain: {
+      type: "string",
+      title: "Normalized Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    verified_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Verified At",
+    },
+    verification_method: {
+      type: "string",
+      title: "Verification Method",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "domain",
+    "normalized_domain",
+    "is_primary",
+    "is_active",
+    "verified_at",
+    "verification_method",
+    "created_at",
+    "updated_at",
+  ],
+  title: "OrgDomainRead",
+} as const
+
 export const $tracecat__organization__schemas__OrgRead = {
   properties: {
     id: {
@@ -20651,6 +20765,77 @@ export const $tracecat__registry__repositories__schemas__RegistryVersionRead = {
   ],
   title: "RegistryVersionRead",
   description: "Response model for reading a registry version.",
+} as const
+
+export const $tracecat_ee__admin__organizations__schemas__OrgDomainRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    domain: {
+      type: "string",
+      title: "Domain",
+    },
+    normalized_domain: {
+      type: "string",
+      title: "Normalized Domain",
+    },
+    is_primary: {
+      type: "boolean",
+      title: "Is Primary",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    verified_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Verified At",
+    },
+    verification_method: {
+      type: "string",
+      title: "Verification Method",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "domain",
+    "normalized_domain",
+    "is_primary",
+    "is_active",
+    "verification_method",
+    "created_at",
+    "updated_at",
+  ],
+  title: "OrgDomainRead",
+  description: "Organization domain response.",
 } as const
 
 export const $tracecat_ee__admin__organizations__schemas__OrgRead = {

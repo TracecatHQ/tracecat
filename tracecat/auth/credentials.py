@@ -19,7 +19,7 @@ from fastapi import (
     status,
 )
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -36,7 +36,20 @@ from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Organization, OrganizationMembership, User, Workspace
+from tracecat.db.models import (
+    GroupMember,
+    GroupRoleAssignment,
+    Organization,
+    OrganizationMembership,
+    RoleScope,
+    Scope,
+    User,
+    UserRoleAssignment,
+    Workspace,
+)
+from tracecat.db.models import (
+    Role as RoleModel,
+)
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
@@ -82,6 +95,82 @@ USER_ROLE_TO_ACCESS_LEVEL = {
 }
 
 ORG_OVERRIDE_COOKIE = "tracecat-org-id"
+
+
+async def compute_effective_scopes(role: Role) -> frozenset[str]:
+    """Compute the effective scopes for a role.
+
+    Results are cached by (user_id, organization_id, workspace_id) with a
+    30-second TTL so that repeated requests from the same user don't
+    re-run the multi-table JOIN query every time.
+
+    Queries UserRoleAssignment and GroupRoleAssignment tables to resolve
+    scopes through Role → RoleScope → Scope.
+
+    Scope computation follows this hierarchy:
+    1. Platform superusers get "*" (all scopes)
+    2. Direct user role assignments (org-wide and workspace-specific)
+    3. Group role assignments (org-wide and workspace-specific)
+    """
+    if role.is_platform_superuser:
+        return frozenset({"*"})
+
+    if role.user_id is None or role.organization_id is None:
+        return frozenset()
+
+    return await _compute_effective_scopes_cached(
+        role.user_id, role.organization_id, role.workspace_id
+    )
+
+
+@alru_cache(maxsize=10000, ttl=30)
+async def _compute_effective_scopes_cached(
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+) -> frozenset[str]:
+    async with get_async_session_context_manager() as session:
+        # Direct user role assignments → Role → RoleScope → Scope
+        user_scopes = (
+            select(Scope.name)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .join(RoleModel, RoleModel.id == RoleScope.role_id)
+            .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == organization_id,
+                or_(
+                    UserRoleAssignment.workspace_id.is_(None),
+                    UserRoleAssignment.workspace_id == workspace_id,
+                )
+                if workspace_id
+                else UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+
+        # Group role assignments → GroupMember → GroupRoleAssignment → Role → RoleScope → Scope
+        group_scopes = (
+            select(Scope.name)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .join(RoleModel, RoleModel.id == RoleScope.role_id)
+            .join(GroupRoleAssignment, GroupRoleAssignment.role_id == RoleModel.id)
+            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.organization_id == organization_id,
+                or_(
+                    GroupRoleAssignment.workspace_id.is_(None),
+                    GroupRoleAssignment.workspace_id == workspace_id,
+                )
+                if workspace_id
+                else GroupRoleAssignment.workspace_id.is_(None),
+            )
+        )
+
+        # Single atomic query: union both assignment paths
+        combined = user_scopes.union(group_scopes)
+        result = await session.execute(combined)
+        return frozenset(result.scalars().all())
 
 
 def get_role_from_user(
@@ -173,6 +262,12 @@ async def _authenticate_service(
         if (org_role_str := request.headers.get("x-tracecat-role-org-role")) is not None
         else None
     )
+    # Parse scopes from header if present (for inter-service calls)
+    scopes: frozenset[str] = frozenset()
+    if scopes_header := request.headers.get("x-tracecat-role-scopes"):
+        scopes = frozenset(
+            stripped for s in scopes_header.split(",") if (stripped := s.strip())
+        )
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
     return Role(
         type="service",
@@ -183,6 +278,7 @@ async def _authenticate_service(
         organization_id=organization_id,
         workspace_role=workspace_role,
         org_role=org_role,
+        scopes=scopes,
     )
 
 
@@ -566,7 +662,7 @@ async def _authenticate_executor(
     return role
 
 
-def _validate_role(
+async def _validate_role(
     role: Role,
     *,
     require_workspace: Literal["yes", "no", "optional"],
@@ -597,7 +693,14 @@ def _validate_role(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
 
-    return role
+    # Compute effective scopes and create new role with scopes included
+    scopes = await compute_effective_scopes(role)
+    logger.debug(
+        "Computed effective scopes",
+        scope_count=len(scopes),
+    )
+
+    return role.model_copy(update={"scopes": scopes})
 
 
 # --- Main Auth Orchestrator ---
@@ -661,7 +764,7 @@ async def _role_dependency(
             detail="Unauthorized",
         )
     # Validate structural requirements and set context
-    role = _validate_role(
+    role = await _validate_role(
         role,
         require_workspace=require_workspace,
         min_access_level=min_access_level,
@@ -891,6 +994,8 @@ async def _authenticated_user_only(
         is_platform_superuser=user.is_superuser,
         # organization_id intentionally None - user may not belong to any org
     )
+    scopes = await compute_effective_scopes(role)
+    role = role.model_copy(update={"scopes": scopes})
     ctx_role.set(role)
     return role
 

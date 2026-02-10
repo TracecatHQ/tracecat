@@ -263,8 +263,48 @@ class DSLWorkflow:
             raise ValueError("Workspace ID is required")
         return self.role.workspace_id
 
+    async def _heal_role_organization_id_if_missing(self) -> None:
+        """Recover missing organization_id for legacy scheduled workflow roles."""
+        if self.role.organization_id is not None:
+            return
+
+        if self.role.workspace_id is None:
+            self.logger.warning(
+                "Role is missing organization_id and workspace_id; skipping auto-heal"
+            )
+            return
+
+        self.logger.warning(
+            "Role missing organization_id; attempting workspace-based auto-heal",
+            workspace_id=self.role.workspace_id,
+        )
+        organization_id = await workflow.execute_activity(
+            WorkflowSchedulesService.get_workspace_organization_id_activity,
+            arg=self.role.workspace_id,
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
+        )
+        if organization_id is None:
+            self.logger.warning(
+                "Auto-heal could not resolve organization_id from workspace",
+                workspace_id=self.role.workspace_id,
+            )
+            return
+
+        self.role = self.role.model_copy(update={"organization_id": organization_id})
+        self.logger = self.logger.bind(role=self.role)
+        ctx_role.set(self.role)
+        ctx_logger.set(self.logger)
+        self.logger.info(
+            "Auto-healed role organization_id",
+            organization_id=organization_id,
+            workspace_id=self.role.workspace_id,
+        )
+
     @workflow.run
     async def run(self, args: DSLRunArgs) -> StoredObject:
+        await self._heal_role_organization_id_if_missing()
+
         # Set DSL and registry_lock
         registry_lock = None
         if args.dsl:

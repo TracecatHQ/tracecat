@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, status
@@ -73,6 +74,11 @@ async def verify_auth_type(auth_type: AuthType) -> None:
             detail="Auth type not allowed",
         )
 
+    # OIDC/Google OAuth/basic availability is platform-configured, not org-setting
+    # controlled.
+    if auth_type in {AuthType.BASIC, AuthType.OIDC, AuthType.GOOGLE_OAUTH}:
+        return
+
     # 2. Check that the setting is enabled
     key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
     # 2.5. Check for overrides
@@ -110,10 +116,33 @@ def require_auth_type_enabled(auth_type: AuthType) -> Any:
         FastAPI dependency that verifies the auth type
     """
 
-    if auth_type not in AUTH_TYPE_TO_SETTING_KEY:
+    if auth_type not in AUTH_TYPE_TO_SETTING_KEY and auth_type not in {
+        AuthType.BASIC,
+        AuthType.OIDC,
+        AuthType.GOOGLE_OAUTH,
+    }:
         raise ValueError(f"Invalid auth type: {auth_type}")
 
     async def _check_auth_type_enabled() -> None:
         await verify_auth_type(auth_type)
 
     return Depends(_check_auth_type_enabled)
+
+
+def require_any_auth_type_enabled(auth_types: Sequence[AuthType]) -> Any:
+    """FastAPI dependency to allow any one of the provided auth types."""
+    candidate_types = tuple(dict.fromkeys(auth_types))
+    if not candidate_types:
+        raise ValueError("auth_types must not be empty")
+
+    async def _check_any_auth_type_enabled() -> None:
+        for auth_type in candidate_types:
+            if auth_type in config.TRACECAT__AUTH_TYPES:
+                await verify_auth_type(auth_type)
+                return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auth type not allowed",
+        )
+
+    return Depends(_check_any_auth_type_enabled)

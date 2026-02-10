@@ -148,7 +148,7 @@ class AgentConfig:
     base_url: str | None = None
     # Agent
     instructions: str | None = None
-    output_type: OutputType | None = None
+    output_type: str | dict[str, Any] | None = None
     # Tools
     actions: list[str] | None = None
     namespaces: list[str] | None = None

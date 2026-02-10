@@ -12,15 +12,6 @@ resource "aws_security_group" "elasticache" {
     description     = "Redis from Tracecat pods with SecurityGroupPolicy"
   }
 
-  # Allow Redis access from any pod in the VPC (fallback for pods without SGP)
-  ingress {
-    from_port   = 6379
-    to_port     = 6379
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
-    description = "Redis from VPC CIDR (fallback)"
-  }
-
   egress {
     from_port   = 0
     to_port     = 0

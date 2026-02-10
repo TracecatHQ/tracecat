@@ -151,10 +151,21 @@ tracecat:
       TracecatAlias: Keyword
       TracecatExecutionType: Keyword
 
+    # Temporal SDK metrics (Prometheus endpoint exposed by Tracecat processes that connect to Temporal).
+    # This is controlled via TEMPORAL__METRICS_PORT in Tracecat.
+    metrics:
+      enabled: false
+      port: 9000
+      path: /metrics
+      # Adds Prometheus scrape annotations to pods/services.
+      scrape: true
+
 enterprise:
   # Enterprise-only feature flags (comma-separated).
   # These are appended to tracecat.featureFlags.
   featureFlags: ""
+  # Enable enterprise multi-tenant mode.
+  multiTenant: false
 
 ui:
   replicas: 1

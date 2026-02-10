@@ -26,10 +26,8 @@ from tracecat.settings.schemas import (
     AgentSettingsUpdate,
     AppSettingsUpdate,
     AuditSettingsUpdate,
-    AuthSettingsUpdate,
     BaseSettingsGroup,
     GitSettingsUpdate,
-    OAuthSettingsUpdate,
     SAMLSettingsUpdate,
     SettingCreate,
     SettingUpdate,
@@ -47,8 +45,6 @@ class SettingsService(BaseOrgService):
         AgentSettingsUpdate,
         GitSettingsUpdate,
         SAMLSettingsUpdate,
-        AuthSettingsUpdate,
-        OAuthSettingsUpdate,
         AppSettingsUpdate,
         AuditSettingsUpdate,
     ]
@@ -284,18 +280,6 @@ class SettingsService(BaseOrgService):
 
     @audit_log(resource_type="organization_setting", action="update")
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
-    async def update_auth_settings(self, params: AuthSettingsUpdate) -> None:
-        auth_settings = await self.list_org_settings(keys=AuthSettingsUpdate.keys())
-        await self._update_grouped_settings(auth_settings, params)
-
-    @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
-    async def update_oauth_settings(self, params: OAuthSettingsUpdate) -> None:
-        oauth_settings = await self.list_org_settings(keys=OAuthSettingsUpdate.keys())
-        await self._update_grouped_settings(oauth_settings, params)
-
-    @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
@@ -429,8 +413,6 @@ def get_setting_override(key: str) -> Any | None:
     # Only allow overrides for specific settings
     allowed_override_keys = {
         "saml_enabled",
-        "oauth_google_enabled",
-        "auth_basic_enabled",
     }
 
     if key not in allowed_override_keys:

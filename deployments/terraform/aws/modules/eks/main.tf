@@ -46,6 +46,93 @@ locals {
     "app.kubernetes.io/managed-by" = "terraform"
     "app.kubernetes.io/part-of"    = "tracecat"
   }
+
+  rollout_surge_fraction = var.rollout_surge_percent / 100
+
+  api_rollout_replicas            = var.api_replicas + ceil(var.api_replicas * local.rollout_surge_fraction)
+  worker_rollout_replicas         = var.worker_replicas + ceil(var.worker_replicas * local.rollout_surge_fraction)
+  executor_rollout_replicas       = var.executor_replicas + ceil(var.executor_replicas * local.rollout_surge_fraction)
+  agent_executor_rollout_replicas = var.agent_executor_replicas + ceil(var.agent_executor_replicas * local.rollout_surge_fraction)
+  ui_rollout_replicas             = var.ui_replicas + ceil(var.ui_replicas * local.rollout_surge_fraction)
+
+  tracecat_rollout_peak_cpu_millicores = (
+    local.api_rollout_replicas * var.api_cpu_request_millicores +
+    local.worker_rollout_replicas * var.worker_cpu_request_millicores +
+    local.executor_rollout_replicas * var.executor_cpu_request_millicores +
+    local.agent_executor_rollout_replicas * var.agent_executor_cpu_request_millicores +
+    local.ui_rollout_replicas * var.ui_cpu_request_millicores
+  )
+
+  tracecat_rollout_peak_memory_mib = (
+    local.api_rollout_replicas * var.api_memory_request_mib +
+    local.worker_rollout_replicas * var.worker_memory_request_mib +
+    local.executor_rollout_replicas * var.executor_memory_request_mib +
+    local.agent_executor_rollout_replicas * var.agent_executor_memory_request_mib +
+    local.ui_rollout_replicas * var.ui_memory_request_mib
+  )
+
+  tracecat_rollout_peak_pods = (
+    local.api_rollout_replicas +
+    local.worker_rollout_replicas +
+    local.executor_rollout_replicas +
+    local.agent_executor_rollout_replicas +
+    local.ui_rollout_replicas
+  )
+
+  desired_node_count = var.node_desired_size + (var.spot_node_group_enabled ? var.spot_node_desired_size : 0)
+
+  desired_cpu_capacity_millicores = local.desired_node_count * var.node_schedulable_cpu_millicores_per_node
+  desired_memory_capacity_mib     = local.desired_node_count * var.node_schedulable_memory_mib_per_node
+  desired_pod_eni_capacity        = local.desired_node_count * var.pod_eni_capacity_per_node
+
+  required_cpu_with_reserve_millicores = local.tracecat_rollout_peak_cpu_millicores + var.capacity_reserved_cpu_millicores
+  required_memory_with_reserve_mib     = local.tracecat_rollout_peak_memory_mib + var.capacity_reserved_memory_mib
+  required_pod_eni_with_reserve        = local.tracecat_rollout_peak_pods + var.capacity_reserved_pod_eni
+}
+
+check "tracecat_rollout_cpu_capacity" {
+  assert {
+    condition = local.required_cpu_with_reserve_millicores <= local.desired_cpu_capacity_millicores
+    error_message = format(
+      "Insufficient rollout CPU capacity: required %dm (%dm workload + %dm reserve), available %dm (%d nodes x %dm). Increase node_desired_size/spot_node_desired_size or lower CPU requests.",
+      local.required_cpu_with_reserve_millicores,
+      local.tracecat_rollout_peak_cpu_millicores,
+      var.capacity_reserved_cpu_millicores,
+      local.desired_cpu_capacity_millicores,
+      local.desired_node_count,
+      var.node_schedulable_cpu_millicores_per_node
+    )
+  }
+}
+
+check "tracecat_rollout_memory_capacity" {
+  assert {
+    condition = local.required_memory_with_reserve_mib <= local.desired_memory_capacity_mib
+    error_message = format(
+      "Insufficient rollout memory capacity: required %dMi (%dMi workload + %dMi reserve), available %dMi (%d nodes x %dMi). Increase node_desired_size/spot_node_desired_size or lower memory requests.",
+      local.required_memory_with_reserve_mib,
+      local.tracecat_rollout_peak_memory_mib,
+      var.capacity_reserved_memory_mib,
+      local.desired_memory_capacity_mib,
+      local.desired_node_count,
+      var.node_schedulable_memory_mib_per_node
+    )
+  }
+}
+
+check "tracecat_rollout_pod_eni_capacity" {
+  assert {
+    condition = local.required_pod_eni_with_reserve <= local.desired_pod_eni_capacity
+    error_message = format(
+      "Insufficient pod-eni budget: required %d pods (%d workload + %d reserve), available %d (%d nodes x %d). Increase node_desired_size/spot_node_desired_size or pod_eni_capacity_per_node.",
+      local.required_pod_eni_with_reserve,
+      local.tracecat_rollout_peak_pods,
+      var.capacity_reserved_pod_eni,
+      local.desired_pod_eni_capacity,
+      local.desired_node_count,
+      var.pod_eni_capacity_per_node
+    )
+  }
 }
 
 # Generate random suffix for RDS identifier to avoid clashes during snapshot restore

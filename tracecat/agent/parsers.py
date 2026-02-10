@@ -1,11 +1,11 @@
+from __future__ import annotations
+
 from typing import Any
 
 import orjson
 from pydantic import Json
 from pydantic_ai import StructuredDict
 from pydantic_core import from_json
-
-from tracecat.agent.types import OutputType
 
 
 def try_parse_json(x: Any) -> Json[Any] | str:
@@ -33,7 +33,7 @@ SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
 }
 
 
-def parse_output_type(output_type: OutputType | None) -> type[Any]:
+def parse_output_type(output_type: str | dict[str, Any] | None) -> type[Any]:
     """Normalize an OutputType spec into a concrete Python type."""
     if output_type is None:
         return str

@@ -76,3 +76,20 @@ async def test_verify_auth_type_success(mocker: MockerFixture):
 
     # Should not raise any exceptions
     await verify_auth_type(AuthType.BASIC)
+
+
+@pytest.mark.parametrize(
+    "auth_type",
+    [AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+)
+@pytest.mark.anyio
+async def test_verify_auth_type_oidc_is_platform_controlled(
+    mocker: MockerFixture, auth_type: AuthType
+) -> None:
+    """OIDC-style auth availability should not read org-level settings."""
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [auth_type])
+    get_setting_mock = mocker.patch("tracecat.auth.dependencies.get_setting")
+
+    await verify_auth_type(auth_type)
+
+    get_setting_mock.assert_not_called()

@@ -27,6 +27,7 @@ pytestmark = [
 ]
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.api.enums.v1 import EventType
 from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -39,7 +40,7 @@ from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Workflow
+from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
     RETRY_POLICIES,
@@ -65,6 +66,7 @@ from tracecat.dsl.schemas import (
 from tracecat.dsl.types import ActionErrorInfoAdapter
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers import ScheduleUUID
 from tracecat.identifiers.workflow import (
     WF_EXEC_ID_PATTERN,
     WorkflowExecutionID,
@@ -2014,6 +2016,103 @@ async def test_pull_based_workflow_fetches_latest_version(
         f"{wf_exec_id}:second", run_args, worker, executor_worker
     )
     assert await to_data(result) == "__EXPECTED_SECOND_RESULT__"
+
+
+@pytest.mark.anyio
+async def test_scheduled_workflow_legacy_role_auto_heals_organization_id(
+    temporal_client: Client,
+    test_role: Role,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = test_role.workspace_id
+    if workspace_id is None:
+        pytest.fail("test_role.workspace_id is required")
+
+    # Keep this test self-contained when local env vars are missing.
+    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
+    monkeypatch.setenv("TRACECAT__LOCAL_REPOSITORY_ENABLED", "1")
+    monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
+    minio_access_key = (
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("MINIO_ROOT_USER")
+        or "minio"
+    )
+    minio_secret_key = (
+        os.environ.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "password"
+    )
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", minio_access_key)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", minio_secret_key)
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+
+    dsl = DSLInput(
+        **{
+            "entrypoint": {"expects": {}, "ref": "echo"},
+            "actions": [
+                {
+                    "ref": "echo",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "${{ TRIGGER.legacy_payload }}"},
+                    "depends_on": [],
+                    "description": "",
+                }
+            ],
+            "description": "Scheduled workflow legacy role auto-heal test",
+            "returns": "${{ ACTIONS.echo.result }}",
+            "tests": [],
+            "title": "Legacy schedule role healing",
+            "triggers": [],
+        }
+    )
+    workflow = await _create_and_commit_workflow(dsl, test_role)
+    workflow_id = WorkflowUUID.new(workflow.id)
+
+    payload_value = "__LEGACY_SCHEDULE_PAYLOAD__"
+    async with get_async_session_context_manager() as session:
+        schedule = Schedule(
+            workspace_id=workspace_id,
+            workflow_id=workflow_id,
+            inputs={"legacy_payload": payload_value},
+            every=timedelta(minutes=30),
+            status="online",
+        )
+        session.add(schedule)
+        await session.commit()
+        await session.refresh(schedule)
+
+    legacy_schedule_role = Role(
+        type="service",
+        service_id="tracecat-schedule-runner",
+        workspace_id=workspace_id,
+    )
+    run_args = DSLRunArgs(
+        role=legacy_schedule_role,
+        wf_id=workflow_id,
+        schedule_id=ScheduleUUID.new(schedule.id),
+    )
+    wf_exec_id = generate_test_exec_id(
+        test_scheduled_workflow_legacy_role_auto_heals_organization_id.__name__
+    )
+
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+    assert await to_data(result) == payload_value
+
+    handle = temporal_client.get_workflow_handle(wf_exec_id)
+    activity_names: list[str] = []
+    async for event in handle.fetch_history_events():
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            attrs = event.activity_task_scheduled_event_attributes
+            activity_names.append(attrs.activity_type.name)
+
+    assert "get_workspace_organization_id_activity" in activity_names
+    assert "get_schedule_trigger_inputs_activity" in activity_names
 
 
 # Get the line number dynamically

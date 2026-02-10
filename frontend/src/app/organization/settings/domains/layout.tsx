@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Email authentication | Organization",
+  title: "Domains | Organization",
 }
 
-export default function EmailAuthenticationLayout({
+export default function DomainsLayout({
   children,
 }: {
   children: React.ReactNode

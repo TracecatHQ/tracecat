@@ -1,7 +1,8 @@
 # External Secrets Operator Installation
 # ESO syncs secrets from AWS Secrets Manager into Kubernetes automatically.
-# The Tracecat Helm chart creates most ExternalSecret resources; Terraform pre-creates
-# PostgreSQL credentials when Temporal is self-hosted.
+# The Tracecat Helm chart creates most ExternalSecret resources. Terraform pre-creates
+# PostgreSQL credentials so migrations and app startup can rely on a deterministic secret
+# path before Helm hook execution.
 
 resource "helm_release" "external_secrets" {
   name             = "external-secrets"
@@ -64,10 +65,8 @@ resource "kubernetes_manifest" "external_secrets_cluster_store" {
   depends_on = [helm_release.external_secrets]
 }
 
-# ExternalSecret for PostgreSQL credentials (needed before Helm installs when Temporal is self-hosted).
+# ExternalSecret for PostgreSQL credentials (needed before Helm installs).
 resource "kubernetes_manifest" "postgres_credentials_external_secret" {
-  count = var.temporal_mode == "self-hosted" ? 1 : 0
-
   manifest = {
     apiVersion = "external-secrets.io/v1"
     kind       = "ExternalSecret"
@@ -109,16 +108,15 @@ resource "kubernetes_manifest" "postgres_credentials_external_secret" {
 }
 
 # Note: ExternalSecret resources are created by the Tracecat Helm chart,
-# except for the PostgreSQL credentials when Temporal is self-hosted.
+# except for PostgreSQL credentials which Terraform creates for deterministic migration startup.
 # The chart's externalSecrets.* configuration creates ExternalSecrets for:
 # - Core Tracecat secrets (dbEncryptionKey, serviceKey, signingSecret, userAuthSecret)
-# - PostgreSQL credentials (username, password)
 # - Redis URL
 # - Temporal Cloud API key (when using Temporal Cloud)
 #
 # Terraform only manages:
 # - ESO Helm release (installs the operator)
 # - ClusterSecretStore (provides AWS Secrets Manager access)
-# - PostgreSQL ExternalSecret when Temporal is self-hosted
+# - PostgreSQL ExternalSecret (all deployment modes)
 #
 # The Helm chart handles ExternalSecret lifecycle including for Temporal setup.

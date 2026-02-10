@@ -4,9 +4,10 @@ import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users import (
     BaseUserManager,
     FastAPIUsers,
@@ -39,13 +40,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.audit.service import AuditService
+from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.types import PlatformRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
-from tracecat.db.models import AccessToken, OAuthAccount, User
+from tracecat.db.models import (
+    AccessToken,
+    OAuthAccount,
+    OrganizationDomain,
+    OrganizationMembership,
+    User,
+)
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
 
 
@@ -66,8 +76,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     def __init__(self, user_db: SQLAlchemyUserDatabase[User, uuid.UUID]) -> None:
         super().__init__(user_db)
+        self._user_db = user_db
         self.logger = logger.bind(unit="UserManager")
-        self.role = bootstrap_role()
         # Store invitation token between create() and on_after_register()
         self._pending_invitation_token: str | None = None
 
@@ -134,13 +144,102 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return
 
         # For non-first users, apply normal domain validation
-        allowed_domains = cast(
-            list[str] | None,
-            await get_setting("auth_allowed_email_domains", role=self.role),
-            # Allow overriding of empty list
-        ) or list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
+        allowed_domains = list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
+
+    async def authenticate(self, credentials: OAuth2PasswordRequestForm) -> User | None:
+        """Authenticate local email/password and enforce platform/org policy."""
+        user = await super().authenticate(credentials)
+        if user is None:
+            return None
+        if await self._is_local_password_login_allowed(user):
+            return user
+        self.logger.info(
+            "Blocked local email/password login by auth policy",
+            user_id=str(user.id),
+            email=user.email,
+        )
+        return None
+
+    async def _is_local_password_login_allowed(self, user: User) -> bool:
+        if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
+            return False
+
+        org_ids = await self._list_user_org_ids(user.id)
+        if not org_ids:
+            return True
+
+        target_org_id = await self._resolve_target_org_for_email(user.email, org_ids)
+        if target_org_id is not None:
+            # Even with a domain-matched org, block local auth if any membership
+            # enforces SAML to avoid cross-org policy bypass.
+            return not await self._any_org_saml_enforced(org_ids)
+
+        if len(org_ids) == 1:
+            return not await self._is_org_saml_enforced(next(iter(org_ids)))
+
+        # If org is ambiguous (multi-org user with no matching domain), block if any
+        # org membership enforces SAML to avoid bypassing org login policy.
+        return not await self._any_org_saml_enforced(org_ids)
+
+    async def _list_user_org_ids(self, user_id: uuid.UUID) -> set[OrganizationID]:
+        statement = select(OrganizationMembership.organization_id).where(
+            OrganizationMembership.user_id == user_id
+        )
+        result = await self._user_db.session.execute(statement)
+        return set(result.scalars().all())
+
+    async def _resolve_target_org_for_email(
+        self, email: str, org_ids: set[OrganizationID]
+    ) -> OrganizationID | None:
+        _, _, email_domain = email.rpartition("@")
+        if not email_domain:
+            return None
+
+        try:
+            normalized_domain = normalize_domain(email_domain).normalized_domain
+        except ValueError:
+            return None
+
+        statement = select(OrganizationDomain.organization_id).where(
+            OrganizationDomain.normalized_domain == normalized_domain,
+            OrganizationDomain.is_active.is_(True),
+        )
+        result = await self._user_db.session.execute(statement)
+        organization_id = result.scalar_one_or_none()
+        if organization_id is None or organization_id not in org_ids:
+            return None
+        return organization_id
+
+    async def _is_org_saml_enforced(self, org_id: OrganizationID) -> bool:
+        if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
+            return False
+
+        saml_enabled = bool(
+            await get_setting(
+                "saml_enabled",
+                role=bootstrap_role(org_id),
+                session=self._user_db.session,
+                default=True,
+            )
+        )
+        if not saml_enabled:
+            return False
+
+        saml_enforced = await get_setting(
+            "saml_enforced",
+            role=bootstrap_role(org_id),
+            session=self._user_db.session,
+            default=False,
+        )
+        return bool(saml_enforced)
+
+    async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
+        for org_id in org_ids:
+            if await self._is_org_saml_enforced(org_id):
+                return True
+        return False
 
     async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,

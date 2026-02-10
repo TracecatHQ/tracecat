@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from logging.config import fileConfig
+from urllib.parse import quote_plus
 
 import alembic_postgresql_enum
 import boto3
@@ -22,6 +23,7 @@ if not TRACECAT__DB_URI:
     host = os.getenv("TRACECAT__DB_ENDPOINT")
     port = os.getenv("TRACECAT__DB_PORT", 5432)
     database = os.getenv("TRACECAT__DB_NAME", "postgres")
+    sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
 
     # Check if in AWS environment
     if os.getenv("TRACECAT__DB_PASS__ARN"):
@@ -29,13 +31,26 @@ if not TRACECAT__DB_URI:
         session = boto3.Session()
         client = session.client("secretsmanager")
         response = client.get_secret_value(SecretId=os.getenv("TRACECAT__DB_PASS__ARN"))
-        password = json.loads(response["SecretString"])["password"]
+        secret_string = response["SecretString"]
+        try:
+            payload = json.loads(secret_string)
+        except json.JSONDecodeError:
+            payload = None
+
+        if isinstance(payload, dict):
+            password = payload["password"]
+            username = payload.get("username") or username
+        else:
+            password = secret_string
     else:
         logging.info("Fetching database password from environment variable")
         password = os.getenv("TRACECAT__DB_PASS")
 
+    user = quote_plus("" if username is None else str(username))
+    pwd = quote_plus("" if password is None else str(password))
     TRACECAT__DB_URI = (
-        f"postgresql+psycopg://{username}:{password}@{host}:{port!s}/{database}"
+        f"postgresql+psycopg://{user}:{pwd}@{host}:{port!s}/{database}"
+        f"?sslmode={sslmode}"
     )
 
 

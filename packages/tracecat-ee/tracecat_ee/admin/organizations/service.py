@@ -10,16 +10,24 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditAction
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.models import (
     Organization,
+    OrganizationDomain,
     RegistryRepository,
     RegistryVersion,
 )
+from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import create_organization_with_defaults
 from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
+    OrgDomainCreate,
+    OrgDomainRead,
+    OrgDomainUpdate,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -58,6 +66,12 @@ class AdminOrgService(BasePlatformService):
             raise ValueError(f"Organization {org_id} not found")
         return OrgRead.model_validate(org)
 
+    async def _require_organization(self, org_id: uuid.UUID) -> None:
+        """Ensure an organization exists."""
+        stmt = select(Organization.id).where(Organization.id == org_id)
+        if await self.session.scalar(stmt) is None:
+            raise ValueError(f"Organization {org_id} not found")
+
     async def update_organization(
         self, org_id: uuid.UUID, params: OrgUpdate
     ) -> OrgRead:
@@ -90,6 +104,270 @@ class AdminOrgService(BasePlatformService):
         await self.session.delete(org)
         await self.session.commit()
 
+    # Org Domain Methods
+
+    async def list_org_domains(self, org_id: uuid.UUID) -> Sequence[OrgDomainRead]:
+        """List assigned domains for an organization."""
+        await self._require_organization(org_id)
+        stmt = (
+            select(OrganizationDomain)
+            .where(OrganizationDomain.organization_id == org_id)
+            .order_by(
+                OrganizationDomain.is_primary.desc(),
+                OrganizationDomain.created_at.asc(),
+                OrganizationDomain.id.asc(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return OrgDomainRead.list_adapter().validate_python(result.scalars().all())
+
+    async def create_org_domain(
+        self, org_id: uuid.UUID, params: OrgDomainCreate
+    ) -> OrgDomainRead:
+        """Create and assign a domain to an organization."""
+        await self._require_organization(org_id)
+        normalized = normalize_domain(params.domain)
+        await self._audit_domain_event(action="create", status=AuditEventStatus.ATTEMPT)
+
+        stmt = select(OrganizationDomain).where(
+            OrganizationDomain.organization_id == org_id,
+            OrganizationDomain.is_active.is_(True),
+        )
+        result = await self.session.execute(stmt)
+        active_domains = list(result.scalars().all())
+        is_primary = params.is_primary or len(active_domains) == 0
+
+        if is_primary:
+            await self._demote_active_primaries(org_id=org_id)
+
+        domain = OrganizationDomain(
+            organization_id=org_id,
+            domain=normalized.domain,
+            normalized_domain=normalized.normalized_domain,
+            is_primary=is_primary,
+            is_active=True,
+            verification_method="platform_admin",
+            verified_at=None,
+        )
+        self.session.add(domain)
+
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            await self._audit_domain_event(
+                action="create",
+                status=AuditEventStatus.FAILURE,
+            )
+            raise self._domain_integrity_error(
+                exc, normalized.normalized_domain
+            ) from exc
+
+        await self._audit_domain_event(
+            action="create",
+            resource_id=domain.id,
+            status=AuditEventStatus.SUCCESS,
+        )
+        await self.session.refresh(domain)
+        return OrgDomainRead.model_validate(domain)
+
+    async def update_org_domain(
+        self, org_id: uuid.UUID, domain_id: uuid.UUID, params: OrgDomainUpdate
+    ) -> OrgDomainRead:
+        """Update primary/active state for an organization domain."""
+        domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
+        previous_primary = domain.is_primary
+        previous_active = domain.is_active
+        await self._audit_domain_event(
+            action="update",
+            resource_id=domain.id,
+            status=AuditEventStatus.ATTEMPT,
+        )
+
+        if params.is_primary is True and params.is_active is False:
+            await self._audit_domain_event(
+                action="update",
+                resource_id=domain.id,
+                status=AuditEventStatus.FAILURE,
+            )
+            raise ValueError("Primary domain must be active")
+
+        next_active = (
+            params.is_active if params.is_active is not None else domain.is_active
+        )
+        next_primary = (
+            params.is_primary if params.is_primary is not None else domain.is_primary
+        )
+        if not next_active:
+            next_primary = False
+
+        domain.is_active = next_active
+        domain.is_primary = next_primary
+
+        if next_primary:
+            domain.is_active = True
+            await self._demote_active_primaries(org_id=org_id, keep_domain_id=domain.id)
+
+        if not domain.is_active:
+            domain.is_primary = False
+
+        self.session.add(domain)
+        await self._ensure_primary_invariant(org_id=org_id)
+
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            await self._audit_domain_event(
+                action="update",
+                resource_id=domain.id,
+                status=AuditEventStatus.FAILURE,
+            )
+            raise self._domain_integrity_error(exc, domain.normalized_domain) from exc
+
+        await self.session.refresh(domain)
+
+        if previous_primary != domain.is_primary or previous_active != domain.is_active:
+            self.logger.info(
+                "Organization domain updated",
+                organization_id=str(org_id),
+                domain_id=str(domain.id),
+                is_primary=domain.is_primary,
+                is_active=domain.is_active,
+            )
+
+        await self._audit_domain_event(
+            action="update",
+            resource_id=domain.id,
+            status=AuditEventStatus.SUCCESS,
+        )
+
+        return OrgDomainRead.model_validate(domain)
+
+    async def delete_org_domain(self, org_id: uuid.UUID, domain_id: uuid.UUID) -> None:
+        """Delete an assigned organization domain."""
+        domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
+        await self._audit_domain_event(
+            action="delete",
+            resource_id=domain.id,
+            status=AuditEventStatus.ATTEMPT,
+        )
+
+        await self.session.delete(domain)
+        await self.session.flush()
+        await self._ensure_primary_invariant(org_id=org_id)
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            await self._audit_domain_event(
+                action="delete",
+                resource_id=domain.id,
+                status=AuditEventStatus.FAILURE,
+            )
+            raise ValueError("Failed to delete organization domain") from exc
+
+        await self._audit_domain_event(
+            action="delete",
+            resource_id=domain.id,
+            status=AuditEventStatus.SUCCESS,
+        )
+
+    async def _audit_domain_event(
+        self,
+        *,
+        action: AuditAction,
+        status: AuditEventStatus,
+        resource_id: uuid.UUID | None = None,
+    ) -> None:
+        """Emit audit events for organization domain operations."""
+        async with AuditService.with_session(self.role, session=self.session) as svc:
+            await svc.create_event(
+                resource_type="organization_domain",
+                action=action,
+                resource_id=resource_id,
+                status=status,
+            )
+
+    async def _demote_active_primaries(
+        self, *, org_id: uuid.UUID, keep_domain_id: uuid.UUID | None = None
+    ) -> None:
+        """Demote existing active primary domains for an organization."""
+        stmt = select(OrganizationDomain).where(
+            OrganizationDomain.organization_id == org_id,
+            OrganizationDomain.is_active.is_(True),
+            OrganizationDomain.is_primary.is_(True),
+        )
+        if keep_domain_id is not None:
+            stmt = stmt.where(OrganizationDomain.id != keep_domain_id)
+
+        result = await self.session.execute(stmt)
+        for existing_primary in result.scalars().all():
+            existing_primary.is_primary = False
+            self.session.add(existing_primary)
+
+    async def _ensure_primary_invariant(self, *, org_id: uuid.UUID) -> None:
+        """Ensure at most one active primary and deterministic fallback promotion."""
+        stmt = (
+            select(OrganizationDomain)
+            .where(
+                OrganizationDomain.organization_id == org_id,
+                OrganizationDomain.is_active.is_(True),
+            )
+            .order_by(
+                OrganizationDomain.created_at.asc(),
+                OrganizationDomain.normalized_domain.asc(),
+                OrganizationDomain.id.asc(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        active_domains = list(result.scalars().all())
+
+        if not active_domains:
+            return
+
+        active_primary_domains = [
+            domain for domain in active_domains if domain.is_primary
+        ]
+        selected_primary = (
+            active_primary_domains[0] if active_primary_domains else active_domains[0]
+        )
+
+        for active_domain in active_domains:
+            should_be_primary = active_domain.id == selected_primary.id
+            if active_domain.is_primary != should_be_primary:
+                active_domain.is_primary = should_be_primary
+                self.session.add(active_domain)
+
+    async def _get_org_domain(
+        self, *, org_id: uuid.UUID, domain_id: uuid.UUID
+    ) -> OrganizationDomain:
+        """Get a domain by ID and organization."""
+        stmt = select(OrganizationDomain).where(
+            OrganizationDomain.id == domain_id,
+            OrganizationDomain.organization_id == org_id,
+        )
+        result = await self.session.execute(stmt)
+        domain = result.scalar_one_or_none()
+        if domain is None:
+            raise ValueError(f"Domain {domain_id} not found in organization {org_id}")
+        return domain
+
+    def _domain_integrity_error(
+        self, error: IntegrityError, normalized_domain: str
+    ) -> ValueError:
+        """Translate domain-related integrity errors into user-facing messages."""
+        message = (
+            str(error.orig).lower() if error.orig is not None else str(error).lower()
+        )
+        if "ix_org_domain_normalized_domain_active_unique" in message:
+            return ValueError(
+                f"Domain {normalized_domain!r} is already assigned to another organization"
+            )
+        if "ix_org_domain_org_primary_active_unique" in message:
+            return ValueError("Organization already has an active primary domain")
+        return ValueError("Organization domain operation failed")
+
     # Org Registry Methods
 
     async def list_org_repositories(
@@ -97,7 +375,7 @@ class AdminOrgService(BasePlatformService):
     ) -> Sequence[OrgRegistryRepositoryRead]:
         """List registry repositories for an organization."""
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         stmt = select(RegistryRepository).where(
             RegistryRepository.organization_id == org_id
@@ -112,7 +390,7 @@ class AdminOrgService(BasePlatformService):
     ) -> Sequence[OrgRegistryVersionRead]:
         """List versions for a specific repository in an organization."""
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         # Verify repository exists and belongs to org
         repo_stmt = select(RegistryRepository).where(
@@ -152,7 +430,7 @@ class AdminOrgService(BasePlatformService):
         from tracecat.ssh import ssh_context
 
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         # Create a role for the org
         org_role = Role(
@@ -286,7 +564,7 @@ class AdminOrgService(BasePlatformService):
     ) -> OrgRegistryVersionPromoteResponse:
         """Promote a registry version to be the current version for an org repository."""
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         # Verify repository exists and belongs to org
         repo_stmt = select(RegistryRepository).where(

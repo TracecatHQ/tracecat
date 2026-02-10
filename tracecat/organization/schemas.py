@@ -17,7 +17,6 @@ class OrgMemberRead(BaseModel):
     email: EmailStr
     role: OrgRole
     is_active: bool
-    is_superuser: bool
     is_verified: bool
     last_login_at: datetime | None
 
@@ -28,6 +27,19 @@ class OrgMemberRead(BaseModel):
 class OrgRead(BaseModel):
     id: UUID
     name: str
+
+
+class OrgDomainRead(BaseModel):
+    id: UUID
+    organization_id: OrganizationID
+    domain: str
+    normalized_domain: str
+    is_primary: bool
+    is_active: bool
+    verified_at: datetime | None
+    verification_method: str
+    created_at: datetime
+    updated_at: datetime
 
 
 # Invitations
@@ -75,6 +87,18 @@ class OrgInvitationReadMinimal(BaseModel):
     - True: User's email matches the invitation
     - False: User's email does not match the invitation
     """
+
+
+class OrgPendingInvitationRead(BaseModel):
+    """Pending invitation visible to the invited authenticated user."""
+
+    token: str
+    organization_id: OrganizationID
+    organization_name: str
+    inviter_name: str | None
+    inviter_email: str | None
+    role: OrgRole
+    expires_at: datetime
 
 
 class OrgInvitationAccept(BaseModel):

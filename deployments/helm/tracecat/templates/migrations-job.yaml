@@ -6,9 +6,13 @@ metadata:
     {{- include "tracecat.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrations
   annotations:
-    "helm.sh/hook": post-install,post-upgrade
+    # Migrations must run before Deployments start (Helm wait/atomic).
+    # If this is a post-install hook, Helm will wait for the API to be Ready
+    # before running migrations, but the API requires the migrated schema,
+    # causing an install deadlock and eventual timeout.
+    "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
@@ -48,14 +52,14 @@ spec:
         - name: migrations
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python3", "-m", "alembic", "upgrade", "head"]
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              export PGSSLMODE="${TRACECAT__DB_SSLMODE:-require}"
+              python3 -m alembic upgrade head
           env:
             {{- include "tracecat.env.common" . | nindent 12 }}
             {{- include "tracecat.env.postgres" . | nindent 12 }}
-          {{- with include "tracecat.postgres.caVolumeMount" . }}
-          volumeMounts:
-            {{- . | nindent 12 }}
-          {{- end }}
           resources:
             requests:
               cpu: 100m
@@ -63,7 +67,3 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-      {{- with include "tracecat.postgres.caVolume" . }}
-      volumes:
-        {{- . | nindent 8 }}
-      {{- end }}
