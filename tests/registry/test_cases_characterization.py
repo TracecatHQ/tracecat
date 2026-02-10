@@ -59,7 +59,7 @@ from tracecat import config
 from tracecat.api.app import app
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
-    OrgAdminUser,
+    OrgUserRole,
     ServiceRole,
     WorkspaceUserRole,
 )
@@ -169,7 +169,7 @@ async def cases_ctx(
         WorkspaceUser,
         WorkspaceAdminUser,
         ServiceRole,
-        OrgAdminUser,
+        OrgUserRole,
     ]
     for annotated_type in role_dependencies:
         metadata = get_args(annotated_type)

@@ -175,8 +175,6 @@ async def test_auth_cache_reduces_database_queries(mocker):
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=None,
-        require_workspace_roles=None,
     )
 
     assert db_call_count == 1  # First call triggers DB query
@@ -191,8 +189,6 @@ async def test_auth_cache_reduces_database_queries(mocker):
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=None,
-        require_workspace_roles=None,
     )
 
     assert db_call_count == 1  # Still only 1 DB call - used cache!
@@ -275,8 +271,6 @@ async def test_performance_improvement(mocker):
             allow_user=True,
             allow_service=False,
             require_workspace="yes",
-            min_access_level=None,
-            require_workspace_roles=None,
         )
         end = time.perf_counter()
 
@@ -423,8 +417,6 @@ async def test_cache_user_id_validation():
             "allow_user": True,
             "allow_service": False,
             "require_workspace": "yes",
-            "min_access_level": None,
-            "require_workspace_roles": None,
         }
 
         # First check with user1 - should populate cache
@@ -516,8 +508,6 @@ async def test_cache_size_limit():
             allow_user=True,
             allow_service=False,
             require_workspace="yes",
-            min_access_level=None,
-            require_workspace_roles=None,
         )
 
         # Verify cache was NOT populated due to size limit
@@ -586,8 +576,6 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=None,
-        require_workspace_roles=None,
     )
 
     # Verify organization_id was inferred from the user's OrganizationMembership
@@ -652,8 +640,6 @@ async def test_role_dependency_infers_org_from_single_membership(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        min_access_level=None,
-        require_workspace_roles=None,
     )
 
     assert role.organization_id == org.id
@@ -738,8 +724,6 @@ async def test_role_dependency_requires_workspace_for_multi_org(
             allow_user=True,
             allow_service=False,
             require_workspace="no",
-            min_access_level=None,
-            require_workspace_roles=None,
         )
 
     assert excinfo.value.status_code == status.HTTP_400_BAD_REQUEST

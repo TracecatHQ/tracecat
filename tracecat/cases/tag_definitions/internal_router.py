@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
@@ -13,6 +14,7 @@ router = APIRouter(
 
 
 @router.get("", response_model=list[CaseTagRead])
+@require_scope("case:read")
 async def executor_list_case_tags(
     *,
     role: ExecutorWorkspaceRole,
@@ -24,6 +26,7 @@ async def executor_list_case_tags(
 
 
 @router.post("", response_model=CaseTagRead, status_code=status.HTTP_201_CREATED)
+@require_scope("case:create")
 async def executor_create_case_tag(
     *,
     role: ExecutorWorkspaceRole,

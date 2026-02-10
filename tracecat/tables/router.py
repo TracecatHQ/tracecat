@@ -21,7 +21,6 @@ from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
@@ -67,7 +66,6 @@ WorkspaceEditorUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=[WorkspaceRole.ADMIN, WorkspaceRole.EDITOR],
     ),
 ]
 
@@ -485,6 +483,7 @@ async def delete_row(
 
 
 @router.patch("/{table_id}/rows/{row_id}")
+@require_scope("table:update")
 async def update_row(
     role: WorkspaceEditorUser,
     session: AsyncDBSession,

@@ -7,7 +7,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep
-from tracecat.auth.dependencies import OrgUserRole, OrgAdminUser
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
@@ -20,9 +20,7 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
     UserRoleAssignment,
-)
-from tracecat.db.models import (
-    Role as DBRole,
+    Role as DBRole
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -230,34 +228,17 @@ async def get_current_org_member(
         )
     )
     result = await session.execute(statement)
-    user = result.scalar_one_or_none()
+    row = result.one_or_none()
 
-    if user is not None:
-        # Get their org-level role from RBAC tables
-        role_stmt = (
-            select(UserRoleAssignment.role_id, DBRole.slug)
-            .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
-            .where(
-                UserRoleAssignment.user_id == role.user_id,
-                UserRoleAssignment.organization_id == role.organization_id,
-                UserRoleAssignment.workspace_id.is_(None),
-            )
-        )
-        role_result = await session.execute(role_stmt)
-        role_row = role_result.one_or_none()
-        if role_row is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Missing organization role assignment",
-            )
-        role_slug = role_row[1]
+    if row is not None:
+        user, org_role = row
 
         return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=role_slug,
+            role=org_role,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
@@ -516,7 +497,7 @@ async def revoke_invitation(
 @require_scope("org:member:invite")
 async def get_invitation_token(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     invitation_id: UUID,
 ) -> dict[str, str]:

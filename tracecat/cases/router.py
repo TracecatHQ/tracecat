@@ -21,7 +21,6 @@ from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
@@ -80,7 +79,6 @@ WorkspaceAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=WorkspaceRole.ADMIN,
     ),
 ]
 

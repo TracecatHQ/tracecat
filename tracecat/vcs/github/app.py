@@ -10,8 +10,6 @@ from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 from pydantic import ValidationError as PydanticValidationError
 
-from tracecat.authz.controls import require_org_role
-from tracecat.authz.enums import OrgRole
 from tracecat.exceptions import TracecatException, TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
@@ -38,7 +36,6 @@ class GitHubAppService(BaseOrgService):
     # Organization-level methods
     # ============================================================================
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def register_app(
         self,
@@ -110,7 +107,6 @@ class GitHubAppService(BaseOrgService):
 
         return config
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def register_existing_app(
         self,
@@ -152,7 +148,6 @@ class GitHubAppService(BaseOrgService):
             app_id, private_key_pem, webhook_secret, client_id
         )
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def update_github_app_credentials(
         self,
@@ -240,7 +235,6 @@ class GitHubAppService(BaseOrgService):
 
         return config
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def save_github_app_credentials(
         self,
@@ -304,7 +298,6 @@ class GitHubAppService(BaseOrgService):
                 # Re-raise other GitHubAppErrors
                 raise
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def delete_github_app_credentials(self) -> None:
         """Delete GitHub App credentials for the organization.

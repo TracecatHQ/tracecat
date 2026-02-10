@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import validate_scope_string
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.db.models import (
     Group,
     GroupMember,
@@ -38,6 +39,9 @@ class RBACService(BaseOrgService):
     """Service for managing RBAC entities and computing effective scopes."""
 
     service_name = "rbac"
+    _PROTECTED_ROLE_SLUGS = frozenset(PRESET_ROLE_SCOPES) | frozenset(
+        {"admin", "editor", "viewer"}
+    )
 
     # =========================================================================
     # Scope Management
@@ -222,12 +226,12 @@ class RBACService(BaseOrgService):
     ) -> DBRole:
         """Update a role.
 
-        System roles (admin, editor, viewer) cannot have their scopes modified.
+        Preset roles cannot have their scopes modified.
         """
         role = await self.get_role(role_id)
 
-        # System roles cannot have scopes modified
-        if role.slug in {"admin", "editor", "viewer"} and scope_ids is not None:
+        # Preset roles cannot have scopes modified
+        if role.slug in self._PROTECTED_ROLE_SLUGS and scope_ids is not None:
             raise TracecatAuthorizationError("Cannot modify scopes of system roles")
 
         if name is not None:
@@ -246,12 +250,12 @@ class RBACService(BaseOrgService):
     async def delete_role(self, role_id: UUID) -> None:
         """Delete a role.
 
-        System roles (admin, editor, viewer) cannot be deleted.
+        Preset roles cannot be deleted.
         """
         role = await self.get_role(role_id)
 
-        # System roles cannot be deleted
-        if role.slug in {"admin", "editor", "viewer"}:
+        # Preset roles cannot be deleted
+        if role.slug in self._PROTECTED_ROLE_SLUGS:
             raise TracecatAuthorizationError("Cannot delete system roles")
 
         # Check if role is in use by any group assignments

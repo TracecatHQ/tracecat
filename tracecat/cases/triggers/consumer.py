@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from tenacity import RetryError
 
 from tracecat import config
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Case, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
@@ -278,7 +278,6 @@ class CaseTriggerConsumer:
             type="service",
             workspace_id=workspace_id,
             organization_id=workspace.organization_id,
-            access_level=AccessLevel.ADMIN,
             user_id=None,
             service_id="tracecat-case-triggers",
         )

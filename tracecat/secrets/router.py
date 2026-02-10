@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import SecretID
@@ -34,7 +34,6 @@ WorkspaceUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
     ),
 ]
 
@@ -44,16 +43,6 @@ WorkspaceAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=WorkspaceRole.ADMIN,
-    ),
-]
-
-OrgAdminUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
     ),
 ]
 
@@ -227,7 +216,7 @@ async def delete_secret_by_id(
 @require_scope("org:secret:read")
 async def list_org_secrets(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     types: set[SecretType] | None = Query(
         None, alias="type", description="Filter by secret type"
@@ -253,7 +242,7 @@ async def list_org_secrets(
 @require_scope("org:secret:read")
 async def get_org_secret_by_name(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     secret_name: str,
     environment: str | None = Query(None),
@@ -274,7 +263,7 @@ async def get_org_secret_by_name(
 @require_scope("org:secret:create")
 async def create_org_secret(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: SecretCreate,
 ) -> None:
@@ -301,7 +290,7 @@ async def create_org_secret(
 @require_scope("org:secret:update")
 async def update_org_secret_by_id(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
@@ -336,7 +325,7 @@ async def update_org_secret_by_id(
 @require_scope("org:secret:delete")
 async def delete_org_secret_by_id(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
 ) -> None:

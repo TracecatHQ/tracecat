@@ -203,3 +203,17 @@ async def test_system_scope_definitions_format(session):
         # Resource and action should be non-empty
         assert resource, f"Scope {name} should have a resource"
         assert action, f"Scope {name} should have an action"
+
+
+@pytest.mark.anyio
+async def test_system_scope_definitions_cover_all_preset_role_scopes(session):
+    """All preset role scopes must exist in system scope definitions."""
+    system_scope_names = {name for name, _, _, _ in SYSTEM_SCOPE_DEFINITIONS}
+    preset_scope_names = {
+        scope_name
+        for role_def in PRESET_ROLE_DEFINITIONS.values()
+        for scope_name in role_def.scopes
+    }
+
+    missing = preset_scope_names - system_scope_names
+    assert not missing, f"Missing system scope definitions for preset scopes: {missing}"

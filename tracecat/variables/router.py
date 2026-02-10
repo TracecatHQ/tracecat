@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import VariableID
@@ -28,7 +27,6 @@ WorkspaceUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
     ),
 ]
 
@@ -38,7 +36,6 @@ WorkspaceAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=WorkspaceRole.ADMIN,
     ),
 ]
 

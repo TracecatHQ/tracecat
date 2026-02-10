@@ -12,7 +12,7 @@ from tracecat.agent.preset.schemas import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
 
@@ -24,12 +24,12 @@ WorkspaceEditorRole = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
     ),
 ]
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
+@require_scope("agent:read")
 async def list_agent_presets(
     *,
     role: WorkspaceEditorRole,
@@ -46,6 +46,7 @@ async def list_agent_presets(
     response_model=AgentPresetRead,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("agent:update")
 async def create_agent_preset(
     *,
     params: AgentPresetCreate,
@@ -65,6 +66,7 @@ async def create_agent_preset(
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)
+@require_scope("agent:read")
 async def get_agent_preset(
     *,
     preset_id: uuid.UUID,
@@ -82,6 +84,7 @@ async def get_agent_preset(
 
 
 @router.get("/by-slug/{slug}", response_model=AgentPresetRead)
+@require_scope("agent:read")
 async def get_agent_preset_by_slug(
     *,
     slug: str,
@@ -99,6 +102,7 @@ async def get_agent_preset_by_slug(
 
 
 @router.patch("/{preset_id}", response_model=AgentPresetRead)
+@require_scope("agent:update")
 async def update_agent_preset(
     *,
     preset_id: uuid.UUID,
@@ -118,6 +122,7 @@ async def update_agent_preset(
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:delete")
 async def delete_agent_preset(
     *,
     preset_id: uuid.UUID,

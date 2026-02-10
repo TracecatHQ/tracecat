@@ -14,6 +14,10 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
+from typing import cast, get_args
+
+from tracecat.identifiers import InternalServiceID
+
 # =============================================================================
 # Workspace Role Scopes
 # =============================================================================
@@ -258,4 +262,57 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     "organization-owner": ORG_OWNER_SCOPES,
     "organization-admin": ORG_ADMIN_SCOPES,
     "organization-member": ORG_MEMBER_SCOPES,
+}
+
+# =============================================================================
+# Service Principal Scope Allowlist
+# =============================================================================
+
+WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
+    {
+        "workflow:read",
+        "workflow:create",
+        "workflow:update",
+        "workflow:delete",
+        "workflow:execute",
+        "case:read",
+        "case:create",
+        "case:update",
+        "case:delete",
+        "table:read",
+        "table:create",
+        "table:update",
+        "table:delete",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
+        "secret:read",
+        "secret:create",
+        "secret:update",
+        "secret:delete",
+        "agent:read",
+        "agent:create",
+        "agent:update",
+        "agent:delete",
+        "agent:execute",
+        "schedule:read",
+        "schedule:create",
+        "schedule:update",
+        "schedule:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "workspace:read",
+        "workspace:member:read",
+        "action:*:execute",
+    }
+)
+
+# Grant baseline operational scopes to all known internal service IDs.
+# Fine-grained admission is still enforced by service-role authentication.
+SERVICE_PRINCIPAL_SCOPES: dict[InternalServiceID, frozenset[str]] = {
+    cast(InternalServiceID, service_id): WORKSPACE_OPERATIONAL_SCOPES
+    for service_id in get_args(InternalServiceID)
 }

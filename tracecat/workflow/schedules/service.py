@@ -4,7 +4,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
-from tracecat.auth.types import AccessLevel
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Schedule, Workspace
 from tracecat.db.session_events import add_after_commit_callback
@@ -92,7 +91,6 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             update={
                 "type": "service",
                 "service_id": "tracecat-schedule-runner",
-                "access_level": AccessLevel.ADMIN,
                 "user_id": None,
             }
         )
