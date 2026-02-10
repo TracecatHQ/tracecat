@@ -11,6 +11,7 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.git.types import GitUrl
 from tracecat.sync import Author, PushObject, PushOptions
+from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workflow.store.sync import WorkflowSyncService
@@ -350,6 +351,62 @@ class TestWorkflowSyncService:
             with pytest.raises(Exception, match="GitHub API error"):
                 await workflow_sync_service.push(
                     objects=[push_obj], url=git_url, options=options
+                )
+
+    @pytest.mark.anyio
+    async def test_push_workflows_missing_branch_returns_helpful_error(
+        self, workflow_sync_service, sample_remote_workflow
+    ):
+        """Test missing base branch returns a user-facing message."""
+        push_obj = PushObject(
+            data=sample_remote_workflow, path="workflows/test-workflow.yml"
+        )
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(message="Update workflows", author=author)
+        missing_branch_url = GitUrl(
+            host="github.com",
+            org="test-org",
+            repo="test-repo",
+            ref="missing-branch",
+        )
+
+        mock_repo = Mock()
+        mock_repo.default_branch = "main"
+        mock_repo.get_branch.side_effect = GithubException(
+            404, {"message": "Branch not found"}, {}
+        )
+
+        mock_github_client = Mock()
+        mock_github_client.get_repo.return_value = mock_repo
+        mock_github_client.close = Mock()
+
+        with (
+            patch("tracecat.workflow.store.sync.GitHubAppService")
+            as mock_gh_service_class,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
+            mock_gh_service_class.return_value = mock_gh_service
+
+            async def mock_to_thread_impl(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            mock_to_thread.side_effect = mock_to_thread_impl
+
+            with pytest.raises(
+                GitHubAppError,
+                match=(
+                    "branch 'missing-branch' was not found in repository "
+                    "'test-org/test-repo'"
+                ),
+            ):
+                await workflow_sync_service.push(
+                    objects=[push_obj],
+                    url=missing_branch_url,
+                    options=options,
                 )
 
     @pytest.mark.anyio

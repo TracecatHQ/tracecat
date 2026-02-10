@@ -95,7 +95,9 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     )
     msg = str(tracecat_exc)
     logger.error(
-        msg,
+        "Tracecat exception",
+        exception_message=msg,
+        exception_type=type(exc).__name__,
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
