@@ -44,25 +44,25 @@ async def test_verify_auth_type_not_allowed(
 
 @pytest.mark.anyio
 async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
-    """Test that disabled auth types raise HTTPException."""
-    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
+    """Test that disabled settings-controlled auth types raise HTTPException."""
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=False)
 
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(AuthType.BASIC)
+        await verify_auth_type(AuthType.SAML)
 
     assert exc.value.status_code == status.HTTP_403_FORBIDDEN
-    assert exc.value.detail == f"Auth type {AuthType.BASIC.value} is not enabled"
+    assert exc.value.detail == f"Auth type {AuthType.SAML.value} is not enabled"
 
 
 @pytest.mark.anyio
 async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
-    """Test that invalid settings raise HTTPException."""
-    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.BASIC])
+    """Test that invalid settings for settings-controlled auth types raise."""
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await verify_auth_type(AuthType.BASIC)
+        await verify_auth_type(AuthType.SAML)
 
     assert exc.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert exc.value.detail == "Invalid setting configuration"
