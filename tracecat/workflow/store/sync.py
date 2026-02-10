@@ -35,6 +35,46 @@ from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspaces.service import WorkspaceService
 
 
+def _extract_github_error_message(data: Any) -> str:
+    """Extract a human-readable message from a GitHub API error payload."""
+    if isinstance(data, dict):
+        for key in ("message", "error"):
+            value = data.get(key)
+            if isinstance(value, str) and value:
+                return value
+    if isinstance(data, str) and data:
+        return data
+    return "Unknown GitHub API error"
+
+
+def _format_github_api_error(*, status: int, data: Any) -> str:
+    """Format GitHub API errors without embedding raw dict payloads."""
+    message = _extract_github_error_message(data)
+    return f"GitHub API error ({status}): {message}"
+
+
+def _format_push_error(
+    *,
+    status: int,
+    data: Any,
+    repo_name: str,
+    branch_name: str | None,
+) -> str:
+    """Format publish errors with branch-aware guidance."""
+    github_message = _extract_github_error_message(data)
+    if status == 404 and github_message.casefold() == "branch not found":
+        branch = branch_name or "<unknown>"
+        return (
+            f"Cannot publish workflow because branch '{branch}' was not found in "
+            f"repository '{repo_name}'. Update workspace Git settings to use an "
+            "existing branch."
+        )
+    return (
+        f"Cannot publish workflow to '{repo_name}'. "
+        f"{_format_github_api_error(status=status, data=data)}"
+    )
+
+
 # NOTE: Internal service called by higher level services, shouldn't use directly
 class WorkflowSyncService(BaseWorkspaceService):
     """Git synchronization service for workflow definitions.
@@ -124,7 +164,7 @@ class WorkflowSyncService(BaseWorkspaceService):
             )
 
         except GitHubAppError as e:
-            logger.error(f"GitHub API error during pull: {e}")
+            logger.error("GitHub API error during pull", error=str(e))
             return PullResult(
                 success=False,
                 commit_sha=options.commit_sha or "",
@@ -142,7 +182,7 @@ class WorkflowSyncService(BaseWorkspaceService):
                 message="GitHub API error",
             )
         except Exception as e:
-            logger.error(f"Unexpected error during pull: {e}", exc_info=True)
+            logger.error("Unexpected error during pull", error=str(e), exc_info=True)
             return PullResult(
                 success=False,
                 commit_sha=options.commit_sha or "",
@@ -214,7 +254,14 @@ class WorkflowSyncService(BaseWorkspaceService):
                                 content_map[definition_path] = content
                         except GithubException as e:
                             if e.status != 404:  # Ignore missing definition.yml files
-                                logger.warning(f"Failed to get {definition_path}: {e}")
+                                logger.warning(
+                                    "Failed to fetch workflow definition",
+                                    path=definition_path,
+                                    status=e.status,
+                                    github_message=_extract_github_error_message(
+                                        e.data
+                                    ),
+                                )
 
                 return content_map
 
@@ -225,7 +272,14 @@ class WorkflowSyncService(BaseWorkspaceService):
                 raise
 
         except GithubException as e:
-            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+            raise GitHubAppError(
+                _format_github_api_error(status=e.status, data=e.data),
+                detail={
+                    "status": e.status,
+                    "data": e.data,
+                    "repo": f"{url.org}/{url.repo}",
+                },
+            ) from e
         finally:
             gh.close()
 
@@ -325,9 +379,11 @@ class WorkflowSyncService(BaseWorkspaceService):
 
         # Use new PyGithub-based method that handles installation resolution automatically
         gh = await gh_svc.get_github_client_for_repo(url)
+        repo_name = f"{url.org}/{url.repo}"
+        base_branch_name: str | None = None
 
         try:
-            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            repo = await asyncio.to_thread(gh.get_repo, repo_name)
 
             # Get base branch
             base_branch_name = url.ref or repo.default_branch
@@ -341,7 +397,7 @@ class WorkflowSyncService(BaseWorkspaceService):
                 "Creating branch via GitHub API",
                 branch=branch_name,
                 base_branch=base_branch_name,
-                repo=f"{url.org}/{url.repo}",
+                repo=repo_name,
             )
 
             await asyncio.to_thread(
@@ -477,9 +533,24 @@ class WorkflowSyncService(BaseWorkspaceService):
                 "GitHub API error during push",
                 status=e.status,
                 data=e.data,
-                repo=f"{url.org}/{url.repo}",
+                repo=repo_name,
+                branch=base_branch_name,
+                github_message=_extract_github_error_message(e.data),
             )
-            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+            raise GitHubAppError(
+                _format_push_error(
+                    status=e.status,
+                    data=e.data,
+                    repo_name=repo_name,
+                    branch_name=base_branch_name or url.ref,
+                ),
+                detail={
+                    "status": e.status,
+                    "data": e.data,
+                    "repo": repo_name,
+                    "branch": base_branch_name or url.ref,
+                },
+            ) from e
         finally:
             gh.close()
 
@@ -568,4 +639,12 @@ class WorkflowSyncService(BaseWorkspaceService):
                 repo=f"{url.org}/{url.repo}",
                 branch=branch,
             )
-            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+            raise GitHubAppError(
+                _format_github_api_error(status=e.status, data=e.data),
+                detail={
+                    "status": e.status,
+                    "data": e.data,
+                    "repo": f"{url.org}/{url.repo}",
+                    "branch": branch,
+                },
+            ) from e
