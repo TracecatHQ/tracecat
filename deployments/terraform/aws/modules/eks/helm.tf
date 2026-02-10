@@ -110,6 +110,9 @@ resource "helm_release" "tracecat" {
         publicApi = "https://${var.domain_name}/api"
       }
       tracecat = {
+        auth = {
+          types = var.auth_types
+        }
         temporal = {
           metrics = {
             enabled = true
@@ -717,13 +720,6 @@ resource "helm_release" "tracecat" {
   set {
     name  = "enterprise.multiTenant"
     value = var.ee_multi_tenant
-  }
-
-  # Auth types
-  set {
-    name  = "tracecat.auth.types"
-    value = var.auth_types
-    type  = "string"
   }
 
   # OIDC Configuration
