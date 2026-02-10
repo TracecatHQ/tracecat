@@ -10,6 +10,7 @@ Objectives
 
 """
 
+import asyncio
 import datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
@@ -146,6 +147,19 @@ def create_mock_history_event(
         event.activity_task_completed_event_attributes = completed_attrs
 
     return event
+
+
+def create_test_dsl_input() -> DSLInput:
+    """Create a minimal valid DSLInput for tests."""
+    return DSLInput.model_validate(
+        {
+            "title": "Webhook test workflow",
+            "description": "Test workflow",
+            "entrypoint": {"ref": "start"},
+            "actions": [{"ref": "start", "action": "core.noop"}],
+            "config": {"enable_runtime_tests": False},
+        }
+    )
 
 
 @pytest.mark.anyio
@@ -903,15 +917,7 @@ class TestWorkflowStartAcknowledgement:
         service = WorkflowExecutionsService(client=mock_client, role=mock_role)
         mock_client.start_workflow = AsyncMock(return_value=Mock(spec=WorkflowHandle))
 
-        dsl = DSLInput.model_validate(
-            {
-                "title": "Webhook test workflow",
-                "description": "Test workflow",
-                "entrypoint": {"ref": "start"},
-                "actions": [{"ref": "start", "action": "core.noop"}],
-                "config": {"enable_runtime_tests": False},
-            }
-        )
+        dsl = create_test_dsl_input()
         wf_id = WorkflowUUID.new("wf_4itKqkgCZrLhgYiq5L211X")
 
         with patch.object(
@@ -932,3 +938,123 @@ class TestWorkflowStartAcknowledgement:
         assert (
             mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]
         )
+
+
+class TestWorkflowNowaitBackgroundBehavior:
+    @pytest.mark.anyio
+    async def test_create_workflow_execution_nowait_schedules_start_only(
+        self,
+        mock_client: Mock,
+        mock_role: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+        dsl = create_test_dsl_input()
+        wf_id = WorkflowUUID.new("wf_5K8NL5TYLRM8JqkDnGzYdE")
+
+        mock_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": wf_id,
+                "wf_exec_id": "unused",
+            }
+        )
+        mock_wait_for_completion = AsyncMock()
+
+        with (
+            patch.object(
+                service,
+                "create_workflow_execution_wait_for_start",
+                mock_wait_for_start,
+            ),
+            patch.object(
+                service,
+                "create_workflow_execution",
+                mock_wait_for_completion,
+            ),
+        ):
+            response = service.create_workflow_execution_nowait(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=None,
+                trigger_type=TriggerType.MANUAL,
+            )
+            await asyncio.sleep(0)
+
+        mock_wait_for_start.assert_awaited_once()
+        mock_wait_for_completion.assert_not_called()
+        assert mock_wait_for_start.await_args is not None
+        assert response["wf_exec_id"] == mock_wait_for_start.await_args.kwargs["wf_exec_id"]
+
+    @pytest.mark.anyio
+    async def test_create_draft_workflow_execution_nowait_schedules_start_only(
+        self,
+        mock_client: Mock,
+        mock_role: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+        dsl = create_test_dsl_input()
+        wf_id = WorkflowUUID.new("wf_4fHecX13GwQY74HCAS4j7L")
+
+        mock_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Draft workflow execution started",
+                "wf_id": wf_id,
+                "wf_exec_id": "unused",
+            }
+        )
+        mock_wait_for_completion = AsyncMock()
+
+        with (
+            patch.object(
+                service,
+                "create_draft_workflow_execution_wait_for_start",
+                mock_wait_for_start,
+            ),
+            patch.object(
+                service,
+                "create_draft_workflow_execution",
+                mock_wait_for_completion,
+            ),
+        ):
+            response = service.create_draft_workflow_execution_nowait(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=None,
+                trigger_type=TriggerType.MANUAL,
+            )
+            await asyncio.sleep(0)
+
+        mock_wait_for_start.assert_awaited_once()
+        mock_wait_for_completion.assert_not_called()
+        assert mock_wait_for_start.await_args is not None
+        assert response["wf_exec_id"] == mock_wait_for_start.await_args.kwargs["wf_exec_id"]
+
+    @pytest.mark.anyio
+    async def test_background_start_swallows_exceptions(
+        self,
+        mock_client: Mock,
+        mock_role: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+        dsl = create_test_dsl_input()
+        wf_id = WorkflowUUID.new("wf_5eP17nM2Cc7Bf1tBwNRar9")
+
+        mock_wait_for_start = AsyncMock(side_effect=RuntimeError("boom"))
+        with (
+            patch.object(
+                service,
+                "create_workflow_execution_wait_for_start",
+                mock_wait_for_start,
+            ),
+            patch.object(service.logger, "error") as mock_error,
+        ):
+            _ = service.create_workflow_execution_nowait(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=None,
+                trigger_type=TriggerType.MANUAL,
+            )
+            await asyncio.sleep(0)
+
+        mock_wait_for_start.assert_awaited_once()
+        mock_error.assert_called_once()

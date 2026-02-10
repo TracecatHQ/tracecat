@@ -102,6 +102,71 @@ class WorkflowExecutionsService:
                 exception=str(exc),
             )
 
+    async def _start_workflow_execution_background(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        wf_exec_id: WorkflowExecutionID,
+        payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+        time_anchor: datetime.datetime | None = None,
+        registry_lock: RegistryLock | None = None,
+        memo: dict[str, Any] | None = None,
+    ) -> None:
+        """Start a published workflow in the background and swallow start errors.
+
+        Background dispatches should never bubble exceptions back to the event loop.
+        """
+        try:
+            await self.create_workflow_execution_wait_for_start(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=payload,
+                trigger_type=trigger_type,
+                wf_exec_id=wf_exec_id,
+                time_anchor=time_anchor,
+                registry_lock=registry_lock,
+                memo=memo,
+            )
+        except Exception as e:
+            self.logger.error(
+                "Failed to start background workflow execution",
+                role=self.role,
+                wf_exec_id=wf_exec_id,
+                error=str(e),
+            )
+
+    async def _start_draft_workflow_execution_background(
+        self,
+        dsl: DSLInput,
+        *,
+        wf_id: WorkflowID,
+        wf_exec_id: WorkflowExecutionID,
+        payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
+        time_anchor: datetime.datetime | None = None,
+        registry_lock: RegistryLock | None = None,
+    ) -> None:
+        """Start a draft workflow in the background and swallow start errors."""
+        try:
+            await self.create_draft_workflow_execution_wait_for_start(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=payload,
+                trigger_type=trigger_type,
+                wf_exec_id=wf_exec_id,
+                time_anchor=time_anchor,
+                registry_lock=registry_lock,
+            )
+        except Exception as e:
+            self.logger.error(
+                "Failed to start background draft workflow execution",
+                role=self.role,
+                wf_exec_id=wf_exec_id,
+                error=str(e),
+            )
+
     def handle(
         self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowHandle[DSLWorkflow, StoredObject]:
@@ -700,14 +765,14 @@ class WorkflowExecutionsService:
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
-        Note: This method schedules the workflow execution and returns immediately.
+        Note: This method schedules the workflow start and returns immediately.
 
         Args:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
         """
         wf_exec_id = generate_exec_id(wf_id)
-        coro = self.create_workflow_execution(
+        coro = self._start_workflow_execution_background(
             dsl=dsl,
             wf_id=wf_id,
             payload=payload,
@@ -773,10 +838,10 @@ class WorkflowExecutionsService:
         """Create a new draft workflow execution.
 
         Draft executions use the draft workflow graph and resolve aliases from draft workflows.
-        This method schedules the workflow execution and returns immediately.
+        This method schedules workflow start and returns immediately.
         """
         wf_exec_id = generate_exec_id(wf_id)
-        coro = self.create_draft_workflow_execution(
+        coro = self._start_draft_workflow_execution_background(
             dsl=dsl,
             wf_id=wf_id,
             payload=payload,
