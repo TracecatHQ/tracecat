@@ -66,6 +66,12 @@ class AdminOrgService(BasePlatformService):
             raise ValueError(f"Organization {org_id} not found")
         return OrgRead.model_validate(org)
 
+    async def _require_organization(self, org_id: uuid.UUID) -> None:
+        """Ensure an organization exists."""
+        stmt = select(Organization.id).where(Organization.id == org_id)
+        if await self.session.scalar(stmt) is None:
+            raise ValueError(f"Organization {org_id} not found")
+
     async def update_organization(
         self, org_id: uuid.UUID, params: OrgUpdate
     ) -> OrgRead:
@@ -102,7 +108,7 @@ class AdminOrgService(BasePlatformService):
 
     async def list_org_domains(self, org_id: uuid.UUID) -> Sequence[OrgDomainRead]:
         """List assigned domains for an organization."""
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
         stmt = (
             select(OrganizationDomain)
             .where(OrganizationDomain.organization_id == org_id)
@@ -119,7 +125,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, params: OrgDomainCreate
     ) -> OrgDomainRead:
         """Create and assign a domain to an organization."""
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
         normalized = normalize_domain(params.domain)
         await self._audit_domain_event(action="create", status=AuditEventStatus.ATTEMPT)
 
@@ -369,7 +375,7 @@ class AdminOrgService(BasePlatformService):
     ) -> Sequence[OrgRegistryRepositoryRead]:
         """List registry repositories for an organization."""
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         stmt = select(RegistryRepository).where(
             RegistryRepository.organization_id == org_id
@@ -384,7 +390,7 @@ class AdminOrgService(BasePlatformService):
     ) -> Sequence[OrgRegistryVersionRead]:
         """List versions for a specific repository in an organization."""
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         # Verify repository exists and belongs to org
         repo_stmt = select(RegistryRepository).where(
@@ -424,7 +430,7 @@ class AdminOrgService(BasePlatformService):
         from tracecat.ssh import ssh_context
 
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         # Create a role for the org
         org_role = Role(
@@ -558,7 +564,7 @@ class AdminOrgService(BasePlatformService):
     ) -> OrgRegistryVersionPromoteResponse:
         """Promote a registry version to be the current version for an org repository."""
         # Verify org exists
-        await self.get_organization(org_id)
+        await self._require_organization(org_id)
 
         # Verify repository exists and belongs to org
         repo_stmt = select(RegistryRepository).where(
