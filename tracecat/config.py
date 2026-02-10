@@ -308,7 +308,7 @@ Default: true.
 """
 
 TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = int(
-    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024)
+    os.environ.get("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES") or 128 * 1024
 )
 """Threshold in bytes above which payloads are externalized to blob storage.
 
