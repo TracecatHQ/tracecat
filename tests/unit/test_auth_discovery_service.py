@@ -5,13 +5,13 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
 from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.exceptions import TracecatValidationError
 from tracecat.organization.domains import normalize_domain
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -174,8 +174,7 @@ async def test_discovery_rejects_invalid_org_hint_without_fallback(
     )
     service = AuthDiscoveryService(session)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(TracecatValidationError) as exc:
         await service.discover("user@acme.com", org_slug="does-not-exist")
 
-    assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert exc.value.detail == "Invalid organization"
+    assert str(exc.value) == "Invalid organization"
