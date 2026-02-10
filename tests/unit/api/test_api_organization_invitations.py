@@ -50,7 +50,6 @@ async def test_list_my_pending_invitations_success(
 
     mock_session.execute.side_effect = [pending_result]
     app.dependency_overrides[current_active_user] = lambda: mock_user
-
     try:
         response = client.get("/organization/invitations/pending/me")
     finally:
@@ -68,23 +67,22 @@ async def test_list_my_pending_invitations_success(
 
 
 @pytest.mark.anyio
-async def test_list_my_pending_invitations_empty_result(
+async def test_list_my_pending_invitations_no_results(
     client: TestClient, test_admin_role: Role
 ) -> None:
     mock_session = await app.dependency_overrides[get_async_session]()
+
     mock_user = SimpleNamespace(
         id=test_admin_role.user_id,
-        email="user@example.com",
+        email="missing@example.com",
     )
-
     tuples_result = Mock()
     tuples_result.all.return_value = []
     pending_result = Mock()
     pending_result.tuples.return_value = tuples_result
-
     mock_session.execute.side_effect = [pending_result]
-    app.dependency_overrides[current_active_user] = lambda: mock_user
 
+    app.dependency_overrides[current_active_user] = lambda: mock_user
     try:
         response = client.get("/organization/invitations/pending/me")
     finally:
