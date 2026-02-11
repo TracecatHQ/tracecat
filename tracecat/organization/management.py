@@ -187,7 +187,9 @@ async def delete_organization_with_cleanup(
             workspace_role=WorkspaceRole.ADMIN,
             access_level=AccessLevel.ADMIN,
         )
-        schedule_service = WorkflowSchedulesService(session=session, role=bootstrap_role)
+        schedule_service = WorkflowSchedulesService(
+            session=session, role=bootstrap_role
+        )
         for schedule in await schedule_service.list_schedules():
             await schedule_service.delete_schedule(schedule.id, commit=False)
 
@@ -205,7 +207,9 @@ async def delete_organization_with_cleanup(
             delete(Ownership).where(Ownership.resource_id.in_(workspace_resource_ids))
         )
 
-    await session.execute(delete(Ownership).where(Ownership.owner_id == organization.id))
+    await session.execute(
+        delete(Ownership).where(Ownership.owner_id == organization.id)
+    )
     await session.execute(
         delete(OrganizationSecret).where(
             OrganizationSecret.organization_id == organization.id
@@ -215,7 +219,9 @@ async def delete_organization_with_cleanup(
         delete(RegistryIndex).where(RegistryIndex.organization_id == organization.id)
     )
     await session.execute(
-        delete(RegistryVersion).where(RegistryVersion.organization_id == organization.id)
+        delete(RegistryVersion).where(
+            RegistryVersion.organization_id == organization.id
+        )
     )
     await session.execute(
         delete(RegistryAction).where(RegistryAction.organization_id == organization.id)

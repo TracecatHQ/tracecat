@@ -191,7 +191,9 @@ async def test_delete_organization_cleans_restrict_children(
     service = AdminOrgService(session, role=platform_role)
     await service.delete_organization(org_a.id, confirmation=org_a.name)
 
-    org_result = await session.execute(select(Organization).where(Organization.id == org_a.id))
+    org_result = await session.execute(
+        select(Organization).where(Organization.id == org_a.id)
+    )
     workspace_result = await session.execute(
         select(Workspace).where(Workspace.organization_id == org_a.id)
     )
