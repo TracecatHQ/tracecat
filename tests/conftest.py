@@ -369,7 +369,24 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "name": "reshape",
                 "action_type": "udf",
                 "description": "Reshapes the input value to the output",
-                "interface": {"expects": {}, "returns": None},
+                "interface": {
+                    "expects": {
+                        "properties": {
+                            "value": {
+                                "anyOf": [
+                                    {},
+                                    {"items": {}, "type": "array"},
+                                    {"additionalProperties": True, "type": "object"},
+                                ],
+                                "title": "Value",
+                            },
+                        },
+                        "required": ["value"],
+                        "title": "reshape",
+                        "type": "object",
+                    },
+                    "returns": None,
+                },
                 "implementation": core_transform_impl,
             }
 

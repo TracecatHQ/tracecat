@@ -11,6 +11,7 @@ from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -1232,3 +1233,280 @@ class TestTableDataTypes:
 
         # UUID comparison using string representation
         assert str(retrieved["uuid_col"]) == str(edge_cases["uuid_col"])
+
+    async def test_select_type(self, tables_service: TablesService) -> None:
+        """Test SELECT column type with options validation."""
+        table = await tables_service.create_table(TableCreate(name="select_test"))
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="status",
+                type=SqlType.SELECT,
+                options=["open", "closed", "pending"],
+            ),
+        )
+        await tables_service.session.refresh(table)
+
+        # Insert a valid option
+        row = await tables_service.insert_row(
+            table, TableRowInsert(data={"status": "open"})
+        )
+        assert row is not None
+        retrieved = await tables_service.get_row(table, row["id"])
+        assert retrieved["status"] == "open"
+
+    async def test_multi_select_type(self, tables_service: TablesService) -> None:
+        """Test MULTI_SELECT column type with list values."""
+        table = await tables_service.create_table(TableCreate(name="multiselect_test"))
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="tags",
+                type=SqlType.MULTI_SELECT,
+                options=["bug", "feature", "docs", "urgent"],
+            ),
+        )
+        await tables_service.session.refresh(table)
+
+        # Insert multiple selections
+        row = await tables_service.insert_row(
+            table, TableRowInsert(data={"tags": ["bug", "urgent"]})
+        )
+        assert row is not None
+        retrieved = await tables_service.get_row(table, row["id"])
+        assert set(retrieved["tags"]) == {"bug", "urgent"}
+
+
+@pytest.mark.anyio
+class TestTableSearch:
+    """Test search_rows functionality."""
+
+    @pytest.fixture
+    async def search_table(self, tables_service: TablesService) -> Table:
+        """Create a table with text data for search testing."""
+        table = await tables_service.create_table(
+            TableCreate(
+                name="search_test",
+                columns=[
+                    TableColumnCreate(name="title", type=SqlType.TEXT),
+                    TableColumnCreate(name="body", type=SqlType.TEXT),
+                    TableColumnCreate(name="count", type=SqlType.INTEGER),
+                ],
+            )
+        )
+        # Insert test data
+        rows = [
+            {
+                "title": "Security Alert",
+                "body": "Suspicious login detected",
+                "count": 1,
+            },
+            {
+                "title": "Network Issue",
+                "body": "Connection timeout occurred",
+                "count": 2,
+            },
+            {"title": "Security Patch", "body": "Updated firewall rules", "count": 3},
+            {"title": "Normal Activity", "body": "All systems operational", "count": 4},
+        ]
+        for row_data in rows:
+            await tables_service.insert_row(table, TableRowInsert(data=row_data))
+        return table
+
+    async def test_search_rows_text(
+        self, tables_service: TablesService, search_table: Table
+    ) -> None:
+        """Full-text search across text columns."""
+        results = await tables_service.search_rows(search_table, search_term="Security")
+        assert len(results) == 2
+        titles = {r["title"] for r in results}
+        assert "Security Alert" in titles
+        assert "Security Patch" in titles
+
+    async def test_search_rows_no_match(
+        self, tables_service: TablesService, search_table: Table
+    ) -> None:
+        """Search with no matching term should return empty."""
+        results = await tables_service.search_rows(
+            search_table, search_term="nonexistent_xyz"
+        )
+        assert results == []
+
+    async def test_search_rows_with_date_filter(
+        self, tables_service: TablesService, search_table: Table
+    ) -> None:
+        """Date range filtering on search results."""
+        now = datetime.now(tz=UTC)
+        # All rows were just inserted, so filtering with past start_time should return all
+        results = await tables_service.search_rows(
+            search_table,
+            start_time=now - timedelta(minutes=5),
+            end_time=now + timedelta(minutes=5),
+        )
+        assert len(results) == 4
+
+        # Future start_time should return none
+        results = await tables_service.search_rows(
+            search_table,
+            start_time=now + timedelta(hours=1),
+        )
+        assert results == []
+
+    async def test_search_rows_null_bytes_rejected(
+        self, tables_service: TablesService, search_table: Table
+    ) -> None:
+        """Null bytes in search term should be rejected."""
+        with pytest.raises(ValueError):
+            await tables_service.search_rows(
+                search_table, search_term="test\x00injection"
+            )
+
+    async def test_search_rows_with_limit(
+        self, tables_service: TablesService, search_table: Table
+    ) -> None:
+        """Search with limit parameter."""
+        results = await tables_service.search_rows(search_table, limit=2)
+        assert len(results) == 2
+
+
+@pytest.mark.anyio
+class TestTablePagination:
+    """Test cursor-based pagination for list_rows_paginated."""
+
+    @pytest.fixture
+    async def paginated_table(self, tables_service: TablesService) -> Table:
+        """Create a table with enough rows for pagination testing."""
+        table = await tables_service.create_table(
+            TableCreate(
+                name="pagination_test",
+                columns=[
+                    TableColumnCreate(name="label", type=SqlType.TEXT),
+                    TableColumnCreate(name="seq", type=SqlType.INTEGER),
+                ],
+            )
+        )
+        for i in range(10):
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"label": f"row_{i:02d}", "seq": i})
+            )
+        return table
+
+    async def test_list_rows_paginated_forward(
+        self, tables_service: TablesService, paginated_table: Table
+    ) -> None:
+        """Forward cursor pagination should return pages in order."""
+        # First page
+        params = CursorPaginationParams(limit=3)
+        page1 = await tables_service.list_rows_paginated(paginated_table, params)
+        assert len(page1.items) == 3
+        assert page1.has_more is True
+        assert page1.next_cursor is not None
+
+        # Second page
+        params2 = CursorPaginationParams(limit=3, cursor=page1.next_cursor)
+        page2 = await tables_service.list_rows_paginated(paginated_table, params2)
+        assert len(page2.items) == 3
+        assert page2.has_previous is True
+
+        # No overlap between pages
+        page1_ids = {r["id"] for r in page1.items}
+        page2_ids = {r["id"] for r in page2.items}
+        assert page1_ids.isdisjoint(page2_ids)
+
+    async def test_list_rows_paginated_reverse(
+        self, tables_service: TablesService, paginated_table: Table
+    ) -> None:
+        """Reverse pagination should navigate backward."""
+        # Get first page
+        params = CursorPaginationParams(limit=3)
+        page1 = await tables_service.list_rows_paginated(paginated_table, params)
+
+        # Get second page
+        params2 = CursorPaginationParams(limit=3, cursor=page1.next_cursor)
+        page2 = await tables_service.list_rows_paginated(paginated_table, params2)
+
+        # Go back to first page using prev_cursor
+        assert page2.prev_cursor is not None
+        params_prev = CursorPaginationParams(
+            limit=3, cursor=page2.prev_cursor, reverse=True
+        )
+        page_back = await tables_service.list_rows_paginated(
+            paginated_table, params_prev
+        )
+        assert len(page_back.items) == 3
+
+    async def test_list_rows_paginated_with_sort_column(
+        self, tables_service: TablesService, paginated_table: Table
+    ) -> None:
+        """Pagination with a custom sort column."""
+        params = CursorPaginationParams(limit=5)
+        result = await tables_service.list_rows_paginated(
+            paginated_table, params, order_by="seq", sort="asc"
+        )
+        assert len(result.items) == 5
+        # Should be sorted ascending by seq
+        seqs = [r["seq"] for r in result.items]
+        assert seqs == sorted(seqs)
+
+    async def test_list_rows_paginated_full_traverse(
+        self, tables_service: TablesService, paginated_table: Table
+    ) -> None:
+        """Traversing all pages should yield all rows."""
+        all_rows: list[dict] = []
+        cursor = None
+        while True:
+            params = CursorPaginationParams(limit=4, cursor=cursor)
+            page = await tables_service.list_rows_paginated(paginated_table, params)
+            all_rows.extend(page.items)
+            if not page.has_more:
+                break
+            cursor = page.next_cursor
+        assert len(all_rows) == 10
+
+
+@pytest.mark.anyio
+class TestTableExistsRows:
+    """Test exists_rows efficient EXISTS query."""
+
+    async def test_exists_rows_found(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """exists_rows should return True when matching row exists."""
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 30})
+        )
+        result = await tables_service.exists_rows(
+            table.name, columns=["name"], values=["Alice"]
+        )
+        assert result is True
+
+    async def test_exists_rows_not_found(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """exists_rows should return False when no matching row exists."""
+        result = await tables_service.exists_rows(
+            table.name, columns=["name"], values=["NonexistentPerson"]
+        )
+        assert result is False
+
+    async def test_exists_rows_multiple_columns(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """exists_rows with multiple column matching."""
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 25})
+        )
+        # Match on both columns
+        assert (
+            await tables_service.exists_rows(
+                table.name, columns=["name", "age"], values=["Bob", 25]
+            )
+            is True
+        )
+        # Mismatch on age
+        assert (
+            await tables_service.exists_rows(
+                table.name, columns=["name", "age"], values=["Bob", 99]
+            )
+            is False
+        )

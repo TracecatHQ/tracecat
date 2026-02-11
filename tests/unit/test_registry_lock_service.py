@@ -358,11 +358,11 @@ async def test_resolve_lock_allows_template_step_with_run_python(
     template_action = "tools.testing.template_with_python"
     platform_action = PlatformAction.RUN_PYTHON
 
-    # Use org-scoped origin override to avoid ambiguity with the built-in
-    # `tracecat_registry` definition of `core.script.run_python`.
+    # Use a unique origin to avoid collisions with other parallel tests that
+    # may also insert a RegistryRepository for the same organization.
     org_repo = RegistryRepository(
         organization_id=svc_role.organization_id,
-        origin="tracecat_registry",
+        origin="tracecat_registry_template_python_test",
     )
     session.add(org_repo)
     await session.flush()

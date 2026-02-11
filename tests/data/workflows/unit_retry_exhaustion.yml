@@ -1,0 +1,21 @@
+title: Retry Exhaustion Workflow
+description: Action fails at runtime to test retry exhaustion behavior
+config:
+  scheduler: dynamic
+entrypoint:
+  ref: setup_action
+
+actions:
+  - ref: setup_action
+    action: core.transform.reshape
+    args:
+      value:
+        data: 42
+
+  - ref: failing_action
+    action: core.transform.reshape
+    depends_on:
+      - setup_action
+    args:
+      # Access a nonexistent nested field to force a runtime error
+      value: ${{ int(ACTIONS.setup_action.result.nonexistent_field) + 1 }}

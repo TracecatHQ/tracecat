@@ -2,7 +2,7 @@
 
 from collections.abc import Generator
 from typing import get_args
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -52,7 +52,22 @@ def override_role_dependency() -> Role:
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+def mock_session() -> AsyncMock:
+    """Mock DB session for HTTP tests.
+
+    Configured so sync method chains work: ``result = await session.execute(...)``
+    then ``result.scalars().first()`` returns ``None`` by default.
+    """
+    session = AsyncMock(name="mock_async_session")
+    # session.execute is async, but its return value's .scalars()/.first() are sync
+    mock_execute_result = MagicMock()
+    mock_execute_result.scalars.return_value.first.return_value = None
+    session.execute.return_value = mock_execute_result
+    return session
+
+
+@pytest.fixture
+def client(mock_session: AsyncMock) -> Generator[TestClient, None, None]:
     """Create FastAPI test client.
 
     Uses the existing app instance and relies on ctx_role context
@@ -88,8 +103,6 @@ def client() -> Generator[TestClient, None, None]:
             original_dependency = metadata[1].dependency
             # Override the actual dependency function
             app.dependency_overrides[original_dependency] = override_role_dependency
-
-    mock_session = AsyncMock(name="mock_async_session")
 
     async def override_get_async_session() -> AsyncMock:
         """Return a mock DB session so HTTP tests do not hit Postgres."""
