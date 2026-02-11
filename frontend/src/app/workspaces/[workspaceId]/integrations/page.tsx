@@ -328,9 +328,26 @@ export default function IntegrationsPage() {
   )
 
   const allIntegrations = useMemo<IntegrationItem[]>(() => {
+    // Track which MCP provider IDs already have MCP integration records
+    // so we don't show duplicates for connected MCP OAuth providers
+    const mcpOAuthProviderIds = new Set(
+      (mcpIntegrations ?? [])
+        .filter((mcp) => mcp.auth_type === "OAUTH2" && mcp.oauth_integration_id)
+        .flatMap((mcp) => {
+          const integration = integrationById.get(mcp.oauth_integration_id!)
+          return integration?.provider_id ? [integration.provider_id] : []
+        })
+    )
+
     const oauthItems: IntegrationItem[] =
       providers
-        ?.filter((provider) => !provider.id.endsWith("_mcp"))
+        ?.filter((provider) => {
+          // Exclude MCP OAuth providers that already have MCP integration records
+          if (provider.id.endsWith("_mcp")) {
+            return !mcpOAuthProviderIds.has(provider.id)
+          }
+          return true
+        })
         .map((provider) => ({
           type: "oauth" as const,
           id: provider.id,
@@ -364,7 +381,7 @@ export default function IntegrationsPage() {
       })) ?? []
 
     return [...oauthItems, ...mcpItems, ...credentialItems]
-  }, [providers, mcpIntegrations, secretDefinitions])
+  }, [providers, mcpIntegrations, secretDefinitions, integrationById])
 
   const filteredIntegrations = useMemo(() => {
     const filtered = allIntegrations.filter((item) => {
@@ -381,6 +398,12 @@ export default function IntegrationsPage() {
           }
           if (filter === "custom_mcp") {
             return item.type === "mcp" && isCustomMcpIntegration(item)
+          }
+          if (filter === "mcp") {
+            return (
+              item.type === "mcp" ||
+              (item.type === "oauth" && item.id.endsWith("_mcp"))
+            )
           }
           return item.type === filter
         })
@@ -509,11 +532,6 @@ export default function IntegrationsPage() {
 
     lastHandledConnectRef.current = handleKey
 
-    if (provider.id.endsWith("_mcp")) {
-      clearConnectParams()
-      return
-    }
-
     if (provider.requires_config) {
       handleOpenOAuthModal(provider.id, provider.grant_type)
       return
@@ -621,6 +639,7 @@ export default function IntegrationsPage() {
             const isCredential = item.type === "credential"
             const isMcp = item.type === "mcp"
             const isCustomOAuth = isOAuth && item.id.startsWith("custom_")
+            const isMcpOAuth = isOAuth && item.id.endsWith("_mcp")
             const isCustomMcp = isMcp && isCustomMcpIntegration(item)
             const status = getIntegrationStatus(item)
             const configuredEnvironments = isCredential
@@ -658,9 +677,11 @@ export default function IntegrationsPage() {
               disconnectConfirmTextByKey[disconnectKey] ?? ""
             const displayType = isCustomOAuth
               ? "custom_oauth"
-              : isCustomMcp
-                ? "custom_mcp"
-                : item.type
+              : isMcpOAuth
+                ? "mcp"
+                : isCustomMcp
+                  ? "custom_mcp"
+                  : item.type
             const TypeIcon = integrationTypeIcons[displayType]
             const typeLabel = integrationTypeLabels[displayType]
 

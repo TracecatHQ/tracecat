@@ -13,7 +13,12 @@ from slugify import slugify
 from sqlalchemy import and_, or_, select
 
 from tracecat import config
-from tracecat.db.models import MCPIntegration, OAuthIntegration, WorkspaceOAuthProvider
+from tracecat.db.models import (
+    AgentPreset,
+    MCPIntegration,
+    OAuthIntegration,
+    WorkspaceOAuthProvider,
+)
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers import get_provider_class
@@ -1197,6 +1202,23 @@ class IntegrationService(BaseWorkspaceService):
         )
         if not mcp_integration:
             return False
+
+        id_str = str(mcp_integration_id)
+
+        # Remove stale ID references from agent presets in this workspace
+        result = await self.session.execute(
+            select(AgentPreset).where(
+                and_(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.mcp_integrations.isnot(None),
+                )
+            )
+        )
+        for preset in result.scalars().all():
+            if preset.mcp_integrations and id_str in preset.mcp_integrations:
+                preset.mcp_integrations = [
+                    m for m in preset.mcp_integrations if m != id_str
+                ]
 
         await self.session.delete(mcp_integration)
         await self.session.commit()
