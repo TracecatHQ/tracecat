@@ -47,6 +47,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
 from tracecat.validation.service import validate_dsl
 
@@ -969,8 +970,6 @@ async def test_agent_tool_approvals_requires_entitlement(
     session, db_repo_id = db_session_with_repo
 
     # Ensure entitlement disabled
-    from tracecat.tiers import defaults as tier_defaults
-
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
@@ -1037,8 +1036,6 @@ async def test_agent_tool_approvals_passes_with_entitlement(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
-
-    from tracecat.tiers import defaults as tier_defaults
 
     monkeypatch.setattr(
         tier_defaults,
