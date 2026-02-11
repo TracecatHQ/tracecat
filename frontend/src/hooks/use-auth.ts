@@ -7,11 +7,22 @@ import {
   type ApiError,
   type AuthAuthDatabaseLoginData,
   authAuthDatabaseLogin,
-  authAuthDatabaseLogout,
   authRegisterRegister,
 } from "@/client"
 import { authConfig } from "@/config/auth"
 import { getCurrentUser, User } from "@/lib/auth"
+
+async function logoutViaServerRoute(): Promise<void> {
+  try {
+    await fetch("/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    })
+  } catch (error) {
+    console.warn("Failed to execute server logout route", error)
+  }
+}
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
 
@@ -32,12 +43,11 @@ export function useAuthActions() {
 
   const logout = useCallback(
     async (redirectUrl?: string) => {
-      const logoutResponse = await authAuthDatabaseLogout()
+      await logoutViaServerRoute()
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })
       router.push(redirectUrl ?? "/sign-in")
-      return logoutResponse
     },
     [queryClient, router]
   )
