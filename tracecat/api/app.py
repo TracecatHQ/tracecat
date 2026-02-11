@@ -49,8 +49,8 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
-from tracecat.authz.seeding import seed_all_system_data
 from tracecat.authz.rbac.router import user_scopes_router
+from tracecat.authz.seeding import seed_all_system_data
 from tracecat.cases.attachments.internal_router import (
     router as internal_case_attachments_router,
 )

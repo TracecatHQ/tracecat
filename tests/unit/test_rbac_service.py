@@ -263,7 +263,7 @@ class TestRBACServiceRoles:
         group = await service.create_group(name="Test Group")
 
         # Create assignment
-        await service.create_assignment(
+        await service.create_group_role_assignment(
             group_id=group.id,
             role_id=custom_role.id,
         )
@@ -357,7 +357,7 @@ class TestRBACServiceAssignments:
         custom_role = await service.create_role(name="Test Role")
         group = await service.create_group(name="Test Group")
 
-        assignment = await service.create_assignment(
+        assignment = await service.create_group_role_assignment(
             group_id=group.id,
             role_id=custom_role.id,
             workspace_id=None,  # Org-wide
@@ -379,7 +379,7 @@ class TestRBACServiceAssignments:
         custom_role = await service.create_role(name="Test Role")
         group = await service.create_group(name="Test Group")
 
-        assignment = await service.create_assignment(
+        assignment = await service.create_group_role_assignment(
             group_id=group.id,
             role_id=custom_role.id,
             workspace_id=workspace.id,
@@ -399,12 +399,12 @@ class TestRBACServiceAssignments:
         role2 = await service.create_role(name="Role 2")
         group = await service.create_group(name="Test Group")
 
-        assignment = await service.create_assignment(
+        assignment = await service.create_group_role_assignment(
             group_id=group.id,
             role_id=role1.id,
         )
 
-        updated = await service.update_assignment(
+        updated = await service.update_group_role_assignment(
             assignment.id,
             role_id=role2.id,
         )
@@ -498,7 +498,7 @@ class TestRBACServiceScopeComputation:
         await service.add_group_member(group.id, user.id)
 
         # Create assignment
-        await service.create_assignment(
+        await service.create_group_role_assignment(
             group_id=group.id,
             role_id=custom_role.id,
         )
@@ -528,7 +528,7 @@ class TestRBACServiceScopeComputation:
         # Create group, add user, and assign to specific workspace
         group = await service.create_group(name="Test Group")
         await service.add_group_member(group.id, user.id)
-        await service.create_assignment(
+        await service.create_group_role_assignment(
             group_id=group.id,
             role_id=custom_role.id,
             workspace_id=workspace.id,
@@ -564,7 +564,7 @@ class TestRBACServiceScopeComputation:
         # Create group, add user, and assign org-wide
         group = await service.create_group(name="Test Group")
         await service.add_group_member(group.id, user.id)
-        await service.create_assignment(
+        await service.create_group_role_assignment(
             group_id=group.id,
             role_id=custom_role.id,
             workspace_id=None,  # Org-wide

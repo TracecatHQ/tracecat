@@ -15,15 +15,15 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat_ee.rbac.schemas import (
-    GroupAssignmentCreate,
-    GroupAssignmentList,
-    GroupAssignmentReadWithDetails,
-    GroupAssignmentUpdate,
     GroupCreate,
     GroupList,
     GroupMemberAdd,
     GroupMemberRead,
     GroupReadWithMembers,
+    GroupRoleAssignmentCreate,
+    GroupRoleAssignmentList,
+    GroupRoleAssignmentReadWithDetails,
+    GroupRoleAssignmentUpdate,
     GroupUpdate,
     RoleCreate,
     RoleList,
@@ -62,7 +62,7 @@ async def list_scopes(
     service = RBACService(session, role=role)
     scopes = await service.list_scopes(include_system=include_system, source=source)
     return ScopeList(
-        items=[ScopeRead.model_validate(s) for s in scopes],
+        items=ScopeRead.list_adapter().validate_python(scopes),
         total=len(scopes),
     )
 
@@ -170,7 +170,7 @@ async def list_roles(
                 created_at=r.created_at,
                 updated_at=r.updated_at,
                 created_by=r.created_by,
-                scopes=[ScopeRead.model_validate(s) for s in r.scopes],
+                scopes=ScopeRead.list_adapter().validate_python(r.scopes),
             )
             for r in roles
         ],
@@ -201,7 +201,7 @@ async def get_role(
             created_at=db_role.created_at,
             updated_at=db_role.updated_at,
             created_by=db_role.created_by,
-            scopes=[ScopeRead.model_validate(s) for s in db_role.scopes],
+            scopes=ScopeRead.list_adapter().validate_python(db_role.scopes),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -236,7 +236,7 @@ async def create_role(
             created_at=db_role.created_at,
             updated_at=db_role.updated_at,
             created_by=db_role.created_by,
-            scopes=[ScopeRead.model_validate(s) for s in db_role.scopes],
+            scopes=ScopeRead.list_adapter().validate_python(db_role.scopes),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -278,7 +278,7 @@ async def update_role(
             created_at=db_role.created_at,
             updated_at=db_role.updated_at,
             created_by=db_role.created_by,
-            scopes=[ScopeRead.model_validate(s) for s in db_role.scopes],
+            scopes=ScopeRead.list_adapter().validate_python(db_role.scopes),
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -574,7 +574,7 @@ async def remove_group_member(
 assignments_router = APIRouter(prefix="/rbac/assignments", tags=["rbac"])
 
 
-@assignments_router.get("", response_model=GroupAssignmentList)
+@assignments_router.get("", response_model=GroupRoleAssignmentList)
 @require_scope("org:rbac:read")
 async def list_assignments(
     *,
@@ -582,19 +582,19 @@ async def list_assignments(
     session: AsyncDBSession,
     group_id: UUID | None = Query(None, description="Filter by group ID"),
     workspace_id: UUID | None = Query(None, description="Filter by workspace ID"),
-) -> GroupAssignmentList:
+) -> GroupRoleAssignmentList:
     """List group assignments for the organization.
 
     Requires: org:rbac:read scope
     """
     service = RBACService(session, role=role)
-    assignments = await service.list_assignments(
+    assignments = await service.list_group_role_assignments(
         group_id=group_id,
         workspace_id=workspace_id,
     )
-    return GroupAssignmentList(
+    return GroupRoleAssignmentList(
         items=[
-            GroupAssignmentReadWithDetails(
+            GroupRoleAssignmentReadWithDetails(
                 id=a.id,
                 organization_id=a.organization_id,
                 group_id=a.group_id,
@@ -613,7 +613,7 @@ async def list_assignments(
 
 
 @assignments_router.get(
-    "/{assignment_id}", response_model=GroupAssignmentReadWithDetails
+    "/{assignment_id}", response_model=GroupRoleAssignmentReadWithDetails
 )
 @require_scope("org:rbac:read")
 async def get_assignment(
@@ -621,15 +621,15 @@ async def get_assignment(
     role: OrgUserRole,
     session: AsyncDBSession,
     assignment_id: UUID,
-) -> GroupAssignmentReadWithDetails:
+) -> GroupRoleAssignmentReadWithDetails:
     """Get a group assignment by ID.
 
     Requires: org:rbac:read scope
     """
     service = RBACService(session, role=role)
     try:
-        a = await service.get_assignment(assignment_id)
-        return GroupAssignmentReadWithDetails(
+        a = await service.get_group_role_assignment(assignment_id)
+        return GroupRoleAssignmentReadWithDetails(
             id=a.id,
             organization_id=a.organization_id,
             group_id=a.group_id,
@@ -647,7 +647,7 @@ async def get_assignment(
 
 @assignments_router.post(
     "",
-    response_model=GroupAssignmentReadWithDetails,
+    response_model=GroupRoleAssignmentReadWithDetails,
     status_code=status.HTTP_201_CREATED,
 )
 @require_scope("org:rbac:manage")
@@ -655,8 +655,8 @@ async def create_assignment(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
-    params: GroupAssignmentCreate,
-) -> GroupAssignmentReadWithDetails:
+    params: GroupRoleAssignmentCreate,
+) -> GroupRoleAssignmentReadWithDetails:
     """Create a group assignment.
 
     Assigns a role to a group. If workspace_id is None, creates an org-wide
@@ -667,12 +667,12 @@ async def create_assignment(
     """
     service = RBACService(session, role=role)
     try:
-        a = await service.create_assignment(
+        a = await service.create_group_role_assignment(
             group_id=params.group_id,
             role_id=params.role_id,
             workspace_id=params.workspace_id,
         )
-        return GroupAssignmentReadWithDetails(
+        return GroupRoleAssignmentReadWithDetails(
             id=a.id,
             organization_id=a.organization_id,
             group_id=a.group_id,
@@ -694,7 +694,7 @@ async def create_assignment(
 
 
 @assignments_router.patch(
-    "/{assignment_id}", response_model=GroupAssignmentReadWithDetails
+    "/{assignment_id}", response_model=GroupRoleAssignmentReadWithDetails
 )
 @require_scope("org:rbac:manage")
 async def update_assignment(
@@ -702,16 +702,18 @@ async def update_assignment(
     role: OrgUserRole,
     session: AsyncDBSession,
     assignment_id: UUID,
-    params: GroupAssignmentUpdate,
-) -> GroupAssignmentReadWithDetails:
+    params: GroupRoleAssignmentUpdate,
+) -> GroupRoleAssignmentReadWithDetails:
     """Update a group assignment (change role).
 
     Requires: org:rbac:manage scope
     """
     service = RBACService(session, role=role)
     try:
-        a = await service.update_assignment(assignment_id, role_id=params.role_id)
-        return GroupAssignmentReadWithDetails(
+        a = await service.update_group_role_assignment(
+            assignment_id, role_id=params.role_id
+        )
+        return GroupRoleAssignmentReadWithDetails(
             id=a.id,
             organization_id=a.organization_id,
             group_id=a.group_id,
@@ -741,7 +743,7 @@ async def delete_assignment(
     """
     service = RBACService(session, role=role)
     try:
-        await service.delete_assignment(assignment_id)
+        await service.delete_group_role_assignment(assignment_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

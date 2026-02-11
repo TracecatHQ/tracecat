@@ -8804,162 +8804,6 @@ export const $GraphResponse = {
 Returns the canonical graph projection from Actions.`,
 } as const
 
-export const $GroupAssignmentCreate = {
-  properties: {
-    group_id: {
-      type: "string",
-      format: "uuid",
-      title: "Group Id",
-      description: "Group ID to assign",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-      description: "Role ID to assign to the group",
-    },
-    workspace_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Id",
-      description:
-        "Workspace ID for workspace-level assignment. If None, creates org-wide assignment.",
-    },
-  },
-  type: "object",
-  required: ["group_id", "role_id"],
-  title: "GroupAssignmentCreate",
-  description: "Create schema for a group assignment.",
-} as const
-
-export const $GroupAssignmentList = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/GroupAssignmentReadWithDetails",
-      },
-      type: "array",
-      title: "Items",
-    },
-    total: {
-      type: "integer",
-      title: "Total",
-    },
-  },
-  type: "object",
-  required: ["items", "total"],
-  title: "GroupAssignmentList",
-  description: "Response schema for listing group assignments.",
-} as const
-
-export const $GroupAssignmentReadWithDetails = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    group_id: {
-      type: "string",
-      format: "uuid",
-      title: "Group Id",
-    },
-    workspace_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Id",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-    },
-    assigned_at: {
-      type: "string",
-      format: "date-time",
-      title: "Assigned At",
-    },
-    assigned_by: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Assigned By",
-    },
-    group_name: {
-      type: "string",
-      title: "Group Name",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    workspace_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Name",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "organization_id",
-    "group_id",
-    "role_id",
-    "assigned_at",
-    "group_name",
-    "role_name",
-  ],
-  title: "GroupAssignmentReadWithDetails",
-  description:
-    "Read schema for a group assignment with group and role details.",
-} as const
-
-export const $GroupAssignmentUpdate = {
-  properties: {
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-      description: "New role ID to assign",
-    },
-  },
-  type: "object",
-  required: ["role_id"],
-  title: "GroupAssignmentUpdate",
-  description: "Update schema for a group assignment (change role only).",
-} as const
-
 export const $GroupCreate = {
   properties: {
     name: {
@@ -9135,6 +8979,162 @@ export const $GroupReadWithMembers = {
   required: ["id", "name", "organization_id", "created_at", "updated_at"],
   title: "GroupReadWithMembers",
   description: "Read schema for a group with its members.",
+} as const
+
+export const $GroupRoleAssignmentCreate = {
+  properties: {
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+      description: "Group ID to assign",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+      description: "Role ID to assign to the group",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+      description:
+        "Workspace ID for workspace-level assignment. If None, creates org-wide assignment.",
+    },
+  },
+  type: "object",
+  required: ["group_id", "role_id"],
+  title: "GroupRoleAssignmentCreate",
+  description: "Create schema for a group assignment.",
+} as const
+
+export const $GroupRoleAssignmentList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GroupRoleAssignmentReadWithDetails",
+      },
+      type: "array",
+      title: "Items",
+    },
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+  },
+  type: "object",
+  required: ["items", "total"],
+  title: "GroupRoleAssignmentList",
+  description: "Response schema for listing group assignments.",
+} as const
+
+export const $GroupRoleAssignmentReadWithDetails = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    assigned_at: {
+      type: "string",
+      format: "date-time",
+      title: "Assigned At",
+    },
+    assigned_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assigned By",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    workspace_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "group_id",
+    "role_id",
+    "assigned_at",
+    "group_name",
+    "role_name",
+  ],
+  title: "GroupRoleAssignmentReadWithDetails",
+  description:
+    "Read schema for a group assignment with group and role details.",
+} as const
+
+export const $GroupRoleAssignmentUpdate = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+      description: "New role ID to assign",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "GroupRoleAssignmentUpdate",
+  description: "Update schema for a group assignment (change role only).",
 } as const
 
 export const $GroupUpdate = {

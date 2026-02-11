@@ -9109,7 +9109,7 @@ export const rbacRemoveGroupMember = (
  * @param data The data for the request.
  * @param data.groupId Filter by group ID
  * @param data.workspaceId Filter by workspace ID
- * @returns GroupAssignmentList Successful Response
+ * @returns GroupRoleAssignmentList Successful Response
  * @throws ApiError
  */
 export const rbacListAssignments = (
@@ -9139,7 +9139,7 @@ export const rbacListAssignments = (
  * Requires: org:rbac:manage scope
  * @param data The data for the request.
  * @param data.requestBody
- * @returns GroupAssignmentReadWithDetails Successful Response
+ * @returns GroupRoleAssignmentReadWithDetails Successful Response
  * @throws ApiError
  */
 export const rbacCreateAssignment = (
@@ -9163,7 +9163,7 @@ export const rbacCreateAssignment = (
  * Requires: org:rbac:read scope
  * @param data The data for the request.
  * @param data.assignmentId
- * @returns GroupAssignmentReadWithDetails Successful Response
+ * @returns GroupRoleAssignmentReadWithDetails Successful Response
  * @throws ApiError
  */
 export const rbacGetAssignment = (
@@ -9189,7 +9189,7 @@ export const rbacGetAssignment = (
  * @param data The data for the request.
  * @param data.assignmentId
  * @param data.requestBody
- * @returns GroupAssignmentReadWithDetails Successful Response
+ * @returns GroupRoleAssignmentReadWithDetails Successful Response
  * @throws ApiError
  */
 export const rbacUpdateAssignment = (

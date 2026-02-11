@@ -269,15 +269,11 @@ async def list_cases(
     ] = 100,
     cursor: Annotated[
         str | None,
-        Doc(
-            "Pagination cursor used to fetch a specific page when paginate=true."
-        ),
+        Doc("Pagination cursor used to fetch a specific page when paginate=true."),
     ] = None,
     reverse: Annotated[
         bool,
-        Doc(
-            "Reverse pagination direction when paginate=true."
-        ),
+        Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
@@ -370,15 +366,11 @@ async def search_cases(
     ] = 100,
     cursor: Annotated[
         str | None,
-        Doc(
-            "Pagination cursor used to fetch a specific page when paginate=true."
-        ),
+        Doc("Pagination cursor used to fetch a specific page when paginate=true."),
     ] = None,
     reverse: Annotated[
         bool,
-        Doc(
-            "Reverse pagination direction when paginate=true."
-        ),
+        Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
