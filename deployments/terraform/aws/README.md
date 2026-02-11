@@ -4,11 +4,11 @@ Deploy Tracecat on AWS EKS with managed services (RDS PostgreSQL, ElastiCache Re
 
 ## Prerequisites
 
-- Terraform
+- Terraform 1.11.0
+- AWS CLI v2
 - `openssl` to create cryptographic keys used in the Tracecat app
 - Route53 hosted zone for your domain
-- AWS credentials
-- AWS CLI
+- AWS credentials with permissions to create EKS, RDS, ElastiCache, S3, IAM, VPC, ACM, WAF, and Route53 resources
 - `jq` to parse JSON from AWS CLI output
 
 ## Resources
@@ -154,21 +154,25 @@ rds_database_insights_mode="standard"
 
 ## How to deploy
 
+### 1. Configure variables
+
 ```bash
-# 1. Set domain name, hosted zone ID, AWS region,
-# and AWS account ID to deploy into
 export DOMAIN_NAME="tracecat.example.com"
 export AWS_REGION="us-west-2"
+export SUPERADMIN_EMAIL="admin@example.com"
+
+# (Optional) For cross-account deploys, both must be set together.
 export AWS_ACCOUNT_ID="123456789012"
-# (Optional) AWS role name to assume for cross-account deploys.
-# If you set AWS_ROLE_NAME, you must also set AWS_ACCOUNT_ID.
 export AWS_ROLE_NAME="YourRole"
 
-# Either hardcode or use AWS CLI to get hosted zone ID
-hosted_zone_id=$(aws route53 list-hosted-zones | jq -r '.HostedZones[] | select(.Name == "'$DOMAIN_NAME'.") | .Id')
-export HOSTED_ZONE_ID=$hosted_zone_id
+# Look up hosted zone ID (strip the /hostedzone/ prefix)
+export HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
+  | jq -r '.HostedZones[] | select(.Name == "'$DOMAIN_NAME'.") | .Id | split("/") | last')
+```
 
-# 2. Create Tracecat secret in AWS Secrets Manager
+### 2. Create Tracecat secret in AWS Secrets Manager
+
+```bash
 aws secretsmanager create-secret --name tracecat/secrets \
   --secret-string '{
    "dbEncryptionKey": "'$(openssl rand -base64 32 | tr '+/' '-_')'",
@@ -177,20 +181,114 @@ aws secretsmanager create-secret --name tracecat/secrets \
    "userAuthSecret": "'$(openssl rand -hex 32)'"
 }'
 
-# 3. Store secret ARNs in variables
-tracecat_secrets_arn=$(aws secretsmanager describe-secret --secret-id tracecat/secrets | jq -r '.ARN')
+tracecat_secrets_arn=$(aws secretsmanager describe-secret \
+  --secret-id tracecat/secrets | jq -r '.ARN')
+```
 
-# 4. Run Terraform to deploy Tracecat
-export TF_VAR_tracecat_secrets_arn=$tracecat_secrets_arn
+### 3. Export Terraform variables
+
+```bash
 export TF_VAR_domain_name=$DOMAIN_NAME
 export TF_VAR_hosted_zone_id=$HOSTED_ZONE_ID
 export TF_VAR_aws_region=$AWS_REGION
-export TF_VAR_aws_account_id=$AWS_ACCOUNT_ID
-# Optional
-export TF_VAR_aws_role_name=$AWS_ROLE_NAME
+export TF_VAR_superadmin_email=$SUPERADMIN_EMAIL
+export TF_VAR_tracecat_secrets_arn=$tracecat_secrets_arn
 
+# Optional
+export TF_VAR_aws_account_id=$AWS_ACCOUNT_ID
+export TF_VAR_aws_role_name=$AWS_ROLE_NAME
+```
+
+### 4. Deploy (3-stage first-time apply)
+
+First-time deployments require 3 targeted applies due to provider and CRD bootstrapping dependencies. Subsequent applies (upgrades, config changes) only need a single `terraform apply`.
+
+**Why 3 stages?**
+
+- The Kubernetes/Helm providers reference the EKS cluster endpoint, which doesn't exist yet.
+- `kubernetes_manifest` resources validate CRDs at plan time, but the External Secrets Operator and VPC CNI (which install those CRDs) haven't been deployed yet.
+- The Tracecat Helm release depends on the `kubernetes_manifest` resources.
+
+```bash
 terraform init
+
+# Stage 1 — Bootstrap EKS cluster and security groups.
+# Creates the cluster so the Kubernetes/Helm providers can connect,
+# and materializes security group IDs so for_each is plannable.
+# Network module resources (VPC, subnets, NAT, ACM) are created
+# automatically as dependencies.
+terraform apply \
+  -target=module.eks.aws_eks_cluster.tracecat \
+  -target=module.eks.aws_security_group.tracecat_postgres_client \
+  -target=module.eks.aws_security_group.tracecat_redis_client
+
+# Stage 2 — Deploy infrastructure and install CRDs.
+# Creates node groups, RDS, ElastiCache, S3, and Helm charts
+# (External Secrets Operator, ExternalDNS, ALB Controller, Reloader).
+# Skips kubernetes_manifest resources (CRD validation fails at plan
+# time) and helm_release.tracecat (depends on them).
+terraform apply \
+  -target=module.eks.aws_eks_node_group.tracecat \
+  -target=module.eks.aws_eks_addon.vpc_cni \
+  -target=module.eks.aws_eks_addon.coredns \
+  -target=module.eks.aws_eks_addon.kube_proxy \
+  -target=module.eks.helm_release.external_secrets \
+  -target=module.eks.helm_release.external_dns \
+  -target=module.eks.helm_release.aws_load_balancer_controller \
+  -target=module.eks.helm_release.reloader \
+  -target=module.eks.aws_db_instance.tracecat \
+  -target=module.eks.aws_elasticache_replication_group.tracecat \
+  -target=module.eks.aws_secretsmanager_secret_version.redis_url \
+  -target=module.eks.kubernetes_job_v1.create_temporal_databases
+
+# Stage 3 — Full apply.
+# CRDs are now installed. Creates the remaining kubernetes_manifest
+# resources (ClusterSecretStore, ExternalSecret, SecurityGroupPolicy)
+# and deploys the Tracecat Helm release.
 terraform apply
+```
+
+If `spot_node_group_enabled=true` (default), add this target to stage 2:
+
+```bash
+  -target='module.eks.aws_eks_node_group.tracecat_spot[0]'
+```
+
+If `enable_waf=true` (default), add this target to stage 2:
+
+```bash
+  -target='module.eks.aws_wafv2_web_acl.main[0]'
+```
+
+## Multi-region and multi-account deployments
+
+IAM role names derived from `cluster_name` are **globally unique per AWS account** (e.g., `tracecat-eks-cluster-role`). When deploying multiple instances in the same account, set a unique `cluster_name` per deployment to avoid collisions:
+
+```bash
+# us-east-2 (default)
+export TF_VAR_cluster_name="tracecat-eks"
+
+# eu-west-1
+export TF_VAR_cluster_name="tracecat-eks-eu"
+```
+
+The cluster name is used as a prefix for EKS cluster, IAM roles, security groups, S3 buckets, WAF rules, and ALB group names.
+
+## EKS cluster authentication
+
+The EKS cluster is created with `authentication_mode = API`, which uses the IAM access entry API exclusively. This avoids the `aws-auth` ConfigMap attack surface (any principal with `kube-system` ConfigMap write access can escalate to cluster admin). Access entries are IAM-controlled and CloudTrail-audited:
+
+```bash
+# Example: grant admin access to an SSO role
+aws eks create-access-entry \
+  --cluster-name tracecat-eks \
+  --principal-arn arn:aws:iam::123456789012:role/YourSSORole
+
+aws eks associate-access-policy \
+  --cluster-name tracecat-eks \
+  --principal-arn arn:aws:iam::123456789012:role/YourSSORole \
+  --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
+  --access-scope type=cluster
 ```
 
 ## Temporal self-hosted vs external cluster
@@ -198,7 +296,7 @@ terraform apply
 To deploy Temporal in self-hosted mode, set `temporal_mode` to `self-hosted`.
 
 ```bash
-temporal_mode="self-hosted"
+export TF_VAR_temporal_mode="self-hosted"
 ```
 
 To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
@@ -212,9 +310,10 @@ aws secretsmanager create-secret --name tracecat/temporal-api-key --secret-strin
 The deployment variables are:
 
 ```bash
-cluster_url="us-west-2.aws.api.temporal.io:7233"
-temporal_cluster_namespace="my-temporal-namespace"
-temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-temporal-api-key-secret"
+export TF_VAR_temporal_mode="cloud"
+export TF_VAR_temporal_cluster_url="us-west-2.aws.api.temporal.io:7233"
+export TF_VAR_temporal_cluster_namespace="my-temporal-namespace"
+export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat/temporal-api-key-AbCdEf"
 ```
 
 ## Snapshots and restore
@@ -222,7 +321,7 @@ temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-tem
 To restore the RDS instance from an existing snapshot, set `rds_snapshot_identifier` to the snapshot identifier or ARN before running `terraform apply`.
 
 ```bash
-rds_snapshot_identifier="my-rds-snapshot-id"
+export TF_VAR_rds_snapshot_identifier="my-rds-snapshot-id"
 ```
 
 Notes:

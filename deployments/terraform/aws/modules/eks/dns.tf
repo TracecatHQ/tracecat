@@ -58,6 +58,24 @@ resource "helm_release" "external_dns" {
     value = aws_iam_role.external_dns.arn
   }
 
+  # Only manage A, CNAME, and TXT records. Exclude AAAA to prevent ExternalDNS
+  # from creating spurious IPv6 alias records for IPv4-only ALBs, which causes
+  # DNS resolution failures for clients that prefer AAAA.
+  set {
+    name  = "extraArgs[0]"
+    value = "--managed-record-types=A"
+  }
+
+  set {
+    name  = "extraArgs[1]"
+    value = "--managed-record-types=CNAME"
+  }
+
+  set {
+    name  = "extraArgs[2]"
+    value = "--managed-record-types=TXT"
+  }
+
   depends_on = [
     aws_eks_node_group.tracecat,
     aws_iam_role_policy.external_dns
