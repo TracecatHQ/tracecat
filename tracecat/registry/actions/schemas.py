@@ -410,6 +410,7 @@ class RegistryActionUpdate(BaseModel):
             options=RegistryActionOptions(
                 include_in_schema=action.include_in_schema,
                 requires_approval=action.requires_approval,
+                required_entitlements=action.required_entitlements,
             ),
             secrets=action.secrets,
         )
