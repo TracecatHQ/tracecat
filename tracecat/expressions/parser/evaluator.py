@@ -43,6 +43,25 @@ class ExprEvaluator(Transformer[Token, Any]):
                 detail=str(e),
             ) from e
 
+    def _transform_tree(self, tree: Tree[Token]) -> Any:
+        if tree.data == "ternary":
+            true_node, condition_node, false_node = tree.children
+            condition = self._transform_child(condition_node)
+            selected_node = true_node if condition else false_node
+            selected_value = self._transform_child(selected_node)
+            self.logger.trace(
+                "Visiting ternary:",
+                condition=condition,
+                selected_branch="true" if condition else "false",
+            )
+            return selected_value
+        return super()._transform_tree(tree)
+
+    def _transform_child(self, child: Tree[Token] | Token) -> Any:
+        if isinstance(child, Tree):
+            return self._transform_tree(child)
+        return self._call_userfunc_token(child)
+
     @v_args(inline=True)
     def root(self, node: Tree[Token]) -> Tree[Token]:
         logger.trace("Visiting root:", node=node)
