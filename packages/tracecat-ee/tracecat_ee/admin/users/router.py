@@ -9,10 +9,31 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
 
-from .schemas import AdminUserRead
+from .schemas import AdminUserCreate, AdminUserRead
 from .service import AdminUserService
 
 router = APIRouter(prefix="/users", tags=["admin:users"])
+
+
+@router.post("", response_model=AdminUserRead, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    params: AdminUserCreate,
+) -> AdminUserRead:
+    """Create a platform-level user without org membership."""
+    service = AdminUserService(session, role)
+    try:
+        return await service.create_user(params)
+    except ValueError as e:
+        detail = str(e)
+        if "already exists" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=detail
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+        ) from e
 
 
 @router.get("", response_model=list[AdminUserRead])

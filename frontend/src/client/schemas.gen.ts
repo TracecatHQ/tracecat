@@ -863,6 +863,51 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AdminUserCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    password: {
+      type: "string",
+      title: "Password",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    is_superuser: {
+      type: "boolean",
+      title: "Is Superuser",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["email", "password"],
+  title: "AdminUserCreate",
+  description: "Create a user from the platform admin control plane.",
+} as const
+
 export const $AdminUserRead = {
   properties: {
     id: {

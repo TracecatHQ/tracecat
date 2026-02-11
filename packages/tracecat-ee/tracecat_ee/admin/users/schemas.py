@@ -9,6 +9,16 @@ from tracecat.auth.schemas import UserRole
 from tracecat.core.schemas import Schema
 
 
+class AdminUserCreate(Schema):
+    """Create a user from the platform admin control plane."""
+
+    email: EmailStr
+    password: str
+    first_name: str | None = None
+    last_name: str | None = None
+    is_superuser: bool = False
+
+
 class AdminUserRead(Schema):
     """Admin view of a user."""
 

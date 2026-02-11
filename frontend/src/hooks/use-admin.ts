@@ -6,16 +6,19 @@ import {
   type AdminCreateOrganizationDomainResponse,
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
+  type AdminCreateUserResponse,
   type AdminListOrganizationDomainsResponse,
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminUserCreate,
   type AdminUserRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateTier,
+  adminCreateUser,
   adminDeleteOrganization,
   adminDeleteOrganizationDomain,
   adminDeleteTier,
@@ -228,6 +231,16 @@ export function useAdminUsers() {
     queryFn: adminListUsers,
   })
 
+  const { mutateAsync: createUser, isPending: createPending } = useMutation<
+    AdminCreateUserResponse,
+    Error,
+    AdminUserCreate
+  >({
+    mutationFn: (data) => adminCreateUser({ requestBody: data }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  })
+
   const { mutateAsync: promoteToSuperuser, isPending: promotePending } =
     useMutation<AdminUserRead, Error, string>({
       mutationFn: (userId) => adminPromoteToSuperuser({ userId }),
@@ -246,6 +259,8 @@ export function useAdminUsers() {
     users,
     isLoading,
     error,
+    createUser,
+    createPending,
     promoteToSuperuser,
     promotePending,
     demoteFromSuperuser,
