@@ -328,7 +328,6 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
     )
 
 
-
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
