@@ -875,6 +875,7 @@ filelock==3.20.3 \
     --hash=sha256:4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1
     # via
     #   huggingface-hub
+    #   polyfile
     #   tracecat
     #   virtualenv
 flupy==1.2.3 \
@@ -1838,6 +1839,7 @@ packaging==26.0 \
     #   hatchling
     #   huggingface-hub
     #   marshmallow
+    #   polyfile
     #   pytest
 paramiko==3.5.0 \
     --hash=sha256:1fedf06b085359051cd7d0d270cebe19e755a8a921cc2ddbfa647fb0cd7d68f9 \
@@ -1861,9 +1863,9 @@ pathvalidate==3.3.1 \
     --hash=sha256:5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f \
     --hash=sha256:b18c07212bfead624345bb8e1d6141cdcf15a39736994ea0b94035ad2b1ba177
     # via py-key-value-aio
-pdfminer-six==20240706 \
-    --hash=sha256:c631a46d5da957a9ffe4460c5dce21e8431dabb615fee5f9f4400603a58d95a6 \
-    --hash=sha256:f4f70e74174b4b3542fcb8406a210b6e2e27cd0f0b5fd04534a8cc0d8951e38c
+pdfminer-six==20260107 \
+    --hash=sha256:366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9 \
+    --hash=sha256:96bfd431e3577a55a0efd25676968ca4ce8fd5b53f14565f85716ff363889602
     # via polyfile
 pexpect==4.9.0 \
     --hash=sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523 \
@@ -1972,9 +1974,9 @@ polars-runtime-32==1.38.1 \
     --hash=sha256:e8a5f7a8125e2d50e2e060296551c929aec09be23a9edcb2b12ca923f555a5ba \
     --hash=sha256:fef2ef2626a954e010e006cc8e4de467ecf32d08008f130cea1c78911f545323
     # via polars
-polyfile==0.5.5 \
-    --hash=sha256:0d20f6b1cb2334b62f11a4b85978f72a2adeeb6f6441e871bf4c1edec6f161c4 \
-    --hash=sha256:ab152643ddb7e4a312292fa8cbb631e5b968e120f89e134268522a72e9620b79
+polyfile==0.5.6 \
+    --hash=sha256:a4bae94367bd2cce44f2f84e17285b456d5b3379e91be475813a317e4ce65dd2 \
+    --hash=sha256:e9e951a9c64db060d3ae7d624b061958fd8b6dd5e3c260e49d703a557c622972
     # via tracecat
 pre-commit==4.1.0 \
     --hash=sha256:ae3f018575a588e30dfddfab9a05448bfbd6b73d78709617b5a2b853549716d4 \

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 import orjson
 from pydantic_ai.messages import (
@@ -37,7 +38,7 @@ def _truncate_content(content: str, max_chars: int) -> str:
     )
 
 
-def _get_content_size(content: str | dict | list | None) -> tuple[str, int]:
+def _get_content_size(content: Any) -> tuple[str, int]:
     """Get string representation and size of content.
 
     Returns (serialized_content, size) tuple.

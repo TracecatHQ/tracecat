@@ -2964,15 +2964,15 @@ wheels = [
 
 [[package]]
 name = "pdfminer-six"
-version = "20240706"
+version = "20260107"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "charset-normalizer" },
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/37/63cb918ffa21412dd5d54e32e190e69bfc340f3d6aa072ad740bec9386bb/pdfminer.six-20240706.tar.gz", hash = "sha256:c631a46d5da957a9ffe4460c5dce21e8431dabb615fee5f9f4400603a58d95a6", size = 7363505, upload-time = "2024-07-06T13:48:50.795Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/a4/5cec1112009f0439a5ca6afa8ace321f0ab2f48da3255b7a1c8953014670/pdfminer_six-20260107.tar.gz", hash = "sha256:96bfd431e3577a55a0efd25676968ca4ce8fd5b53f14565f85716ff363889602", size = 8512094, upload-time = "2026-01-07T13:29:12.937Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/7d/44d6b90e5a293d3a975cefdc4e12a932ebba814995b2a07e37e599dd27c6/pdfminer.six-20240706-py3-none-any.whl", hash = "sha256:f4f70e74174b4b3542fcb8406a210b6e2e27cd0f0b5fd04534a8cc0d8951e38c", size = 5615414, upload-time = "2024-07-06T13:48:48.408Z" },
+    { url = "https://files.pythonhosted.org/packages/20/8b/28c4eaec9d6b036a52cb44720408f26b1a143ca9bce76cc19e8f5de00ab4/pdfminer_six-20260107-py3-none-any.whl", hash = "sha256:366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9", size = 6592252, upload-time = "2026-01-07T13:29:10.742Z" },
 ]
 
 [[package]]
@@ -3131,27 +3131,29 @@ wheels = [
 
 [[package]]
 name = "polyfile"
-version = "0.5.5"
+version = "0.5.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "abnf" },
     { name = "chardet" },
     { name = "cint" },
     { name = "fickling" },
+    { name = "filelock" },
     { name = "graphviz" },
     { name = "intervaltree" },
     { name = "jinja2" },
     { name = "kaitaistruct" },
     { name = "networkx" },
+    { name = "packaging" },
     { name = "pdfminer-six" },
     { name = "pillow" },
     { name = "pyreadline3", marker = "sys_platform == 'win32'" },
     { name = "pyyaml" },
     { name = "setuptools" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/38/c0cf3819dbf067f632d514867906439026d590e8c8068d571f91f6aa0fed/polyfile-0.5.5.tar.gz", hash = "sha256:ab152643ddb7e4a312292fa8cbb631e5b968e120f89e134268522a72e9620b79", size = 6016098, upload-time = "2025-03-10T16:08:40.454Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/ce/62a798d7ec49211a1dba041a5cf4b9d4d16b253f66153f54d5769220cf17/polyfile-0.5.6.tar.gz", hash = "sha256:a4bae94367bd2cce44f2f84e17285b456d5b3379e91be475813a317e4ce65dd2", size = 7209440, upload-time = "2026-02-11T22:05:37.794Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/1b/48e46e81cb44f74e10d7ebeca1c585c39a5e4ef1d3e15bccfca8e1f0c1fc/polyfile-0.5.5-py3-none-any.whl", hash = "sha256:0d20f6b1cb2334b62f11a4b85978f72a2adeeb6f6441e871bf4c1edec6f161c4", size = 1673612, upload-time = "2025-03-10T16:08:39.141Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/a4/64af1fab3d7834d85286d0df02594b5d0779ce887b11344fb9e5251d00e3/polyfile-0.5.6-py3-none-any.whl", hash = "sha256:e9e951a9c64db060d3ae7d624b061958fd8b6dd5e3c260e49d703a557c622972", size = 1402195, upload-time = "2026-02-11T22:05:36.552Z" },
 ]
 
 [[package]]
@@ -4883,7 +4885,7 @@ requires-dist = [
     { name = "paramiko", specifier = "==3.5.0" },
     { name = "phonenumbers", specifier = "==8.13.55" },
     { name = "pip", specifier = "==26.0.1" },
-    { name = "polyfile", specifier = "==0.5.5" },
+    { name = "polyfile", specifier = "==0.5.6" },
     { name = "protobuf", specifier = "==6.33.5" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.1.19" },
     { name = "pyarrow", specifier = "==16.1.0" },
