@@ -31,6 +31,10 @@ Network hardening:
 - CoreDNS access rules are added to the cluster security group so SGP-labeled pods can resolve DNS.
 - S3 access is limited to the Tracecat IRSA role via bucket policies; pods must use the chart's service account.
 
+## Default deployment profile (~100 concurrent users)
+
+
+
 ## Capacity strategy (on-demand vs spot)
 
 The EKS module uses managed node groups with capacity labels to steer scheduling:
@@ -43,45 +47,59 @@ When the spot node group is enabled, Terraform injects scheduling defaults into 
 - **Preferred node affinity** for `tracecat.com/capacity=spot` (soft preference).
 - **Topology spread** across `tracecat.com/capacity` with `whenUnsatisfiable=ScheduleAnyway` to balance across on-demand and spot when both are available.
 
-This is a preference, not a hard guarantee. If spot capacity is unavailable, pods will still schedule onto on-demand nodes (as long as there is capacity).
-
-The on-demand/spot mix is controlled by the node group sizes. There is no cluster autoscaler installed by default, so the ratio is static unless you change the node group sizes via Terraform.
-
-Default node split (8 nodes, 75/25 on-demand/spot):
-
-```bash
-export TF_VAR_node_min_size=6
-export TF_VAR_node_desired_size=6
-export TF_VAR_spot_node_min_size=2
-export TF_VAR_spot_node_desired_size=2
-```
-
 You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
 
 Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a 25% surge). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
 
-## Resource sizing notes (with/without Temporal)
+## Light deployment profile
 
-These estimates are based on Kubernetes **resource requests** from the chart defaults and Terraform overrides. Actual usage varies; leave headroom for system add-ons (CoreDNS, VPC CNI, External Secrets, AWS Load Balancer Controller, Reloader) and for Temporal when self-hosting.
+- Nodes: `3 x m7g.xlarge`
+- Requested capacity: `9.75 vCPU`, `23 GiB RAM`
+- Scheduled capacity: `12 vCPU`, `48 GiB RAM`
+- Percent headroom: `~15%` (`1.8 vCPU`, `28 GiB RAM`)
+- Cost estimate: `$1000/month`
 
-**Chart defaults (`helm/tracecat/values.yaml`)** are tuned for local development:
-- **Replicas:** ui=1, api=1, worker=1, executor=1, agentExecutor=1.
-- **Requests per replica:** ui=100m/256Mi; api/worker/executor/agentExecutor=250m/512Mi.
-- **Tracecat total requests (chart defaults):** ~1.1 vCPU / 2.25Gi (Temporal not included).
-These defaults apply to manual Helm installs; Terraform overrides them for AWS production.
+Set these Terraform variables:
 
-**Terraform (AWS) production overrides** are defined via Terraform variables (see `variables.tf`). Resource requests equal limits (Guaranteed QoS):
-- **Replicas:** api=2, worker=4, executor=4, agentExecutor=2, ui=2.
-- **Requests per replica:** api=2 vCPU/4Gi; worker=2 vCPU/2Gi; executor=4 vCPU/8Gi; agentExecutor=4 vCPU/8Gi; ui=0.5 vCPU/0.5Gi.
-- **Tracecat steady-state requests:** ~37 vCPU / 65Gi (Temporal not included).
-- **Rollout peak (25% surge):** ~49.5 vCPU / 87.5Gi + configurable reserve for system workloads.
+```bash
+# Replica counts
+api_replicas=2
+worker_replicas=2
+executor_replicas=2
+agent_executor_replicas=1
+ui_replicas=1
 
-**Temporal capacity:** the Temporal subchart does not set explicit resource requests by default. If `temporal_mode=self-hosted`, budget extra capacity (for the Temporal server + schema/admintools job), or set `temporal.server.resources` explicitly.
+# Resource requests (requests == limits)
+api_cpu_request_millicores=500
+api_memory_request_mib=1024
+worker_cpu_request_millicores=500
+worker_memory_request_mib=1024
+executor_cpu_request_millicores=750
+executor_memory_request_mib=2048
+agent_executor_cpu_request_millicores=500
+agent_executor_memory_request_mib=1024
+ui_cpu_request_millicores=250
+ui_memory_request_mib=512
 
-**Recommended node capacity:**
-- **With self-hosted Temporal:** plan for **8× `m7g.2xlarge`** total nodes (e.g., 6 on-demand + 2 spot). This fits the production profile at rollout peak with headroom.
-- **Without Temporal (external):** you can run with **6× `m7g.2xlarge`** on-demand, but 8 nodes (6+2 spot) provides headroom for rolling updates and system workloads.
+# Node groups: 3 on-demand, all m7g.xlarge
+node_instance_types='["m7g.xlarge"]'
+node_ami_type="AL2023_ARM_64_STANDARD"
+node_min_size=3
+node_desired_size=3
+node_max_size=4
+spot_node_group_enabled=false
 
+# Capacity guardrail inputs
+node_schedulable_cpu_millicores_per_node=4000
+node_schedulable_memory_mib_per_node=16384
+capacity_reserved_cpu_millicores=3000
+capacity_reserved_memory_mib=8192
+
+# Persistence services
+rds_instance_class="db.t4g.medium"
+elasticache_node_type="cache.t4g.small"
+rds_database_insights_mode="standard"
+```
 
 ## How to deploy
 
@@ -129,7 +147,7 @@ terraform apply
 To deploy Temporal in self-hosted mode, set `temporal_mode` to `self-hosted`.
 
 ```bash
-export TF_VAR_temporal_mode="self-hosted"
+temporal_mode="self-hosted"
 ```
 
 To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
@@ -143,9 +161,9 @@ aws secretsmanager create-secret --name tracecat/temporal-api-key --secret-strin
 The deployment variables are:
 
 ```bash
-export TF_VAR_temporal_cluster_url="us-west-2.aws.api.temporal.io:7233"
-export TF_VAR_temporal_cluster_namespace="my-temporal-namespace"
-export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-temporal-api-key-secret"
+cluster_url="us-west-2.aws.api.temporal.io:7233"
+temporal_cluster_namespace="my-temporal-namespace"
+temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:my-temporal-api-key-secret"
 ```
 
 ## Snapshots and restore
@@ -153,7 +171,7 @@ export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012
 To restore the RDS instance from an existing snapshot, set `rds_snapshot_identifier` to the snapshot identifier or ARN before running `terraform apply`.
 
 ```bash
-export TF_VAR_rds_snapshot_identifier="my-rds-snapshot-id"
+rds_snapshot_identifier="my-rds-snapshot-id"
 ```
 
 Notes:
