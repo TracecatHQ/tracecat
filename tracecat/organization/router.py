@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
@@ -32,7 +32,9 @@ from tracecat.organization.schemas import (
     OrgInvitationCreate,
     OrgInvitationRead,
     OrgInvitationReadMinimal,
+    OrgMemberDetail,
     OrgMemberRead,
+    OrgMemberStatus,
     OrgPendingInvitationRead,
     OrgRead,
 )
@@ -149,12 +151,12 @@ async def list_organization_domains(
     ]
 
 
-@router.get("/members/me", response_model=OrgMemberRead)
+@router.get("/members/me", response_model=OrgMemberDetail)
 async def get_current_org_member(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
-) -> OrgMemberRead:
+) -> OrgMemberDetail:
     """Get the current user's organization membership.
 
     Returns the organization membership details for the authenticated user,
@@ -193,7 +195,7 @@ async def get_current_org_member(
 
     if row is not None:
         user, org_role = row
-        return OrgMemberRead(
+        return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
@@ -212,7 +214,7 @@ async def get_current_org_member(
         )
         user = user_result.scalar_one_or_none()
         if user is not None:
-            return OrgMemberRead(
+            return OrgMemberDetail(
                 user_id=user.id,
                 first_name=user.first_name,
                 last_name=user.last_name,
@@ -237,19 +239,39 @@ async def list_org_members(
 ) -> list[OrgMemberRead]:
     service = OrgService(session, role=role)
     members = await service.list_members()
-    return [
+    now = datetime.now(UTC)
+
+    result: list[OrgMemberRead] = [
         OrgMemberRead(
             user_id=user.id,
-            first_name=user.first_name,
-            last_name=user.last_name,
             email=user.email,
             role=org_role,
-            is_active=user.is_active,
-            is_verified=user.is_verified,
+            status=OrgMemberStatus.ACTIVE
+            if user.is_active
+            else OrgMemberStatus.INACTIVE,
+            first_name=user.first_name,
+            last_name=user.last_name,
             last_login_at=user.last_login_at,
         )
         for user, org_role in members
     ]
+
+    # Add pending, non-expired invitations as "invited" members
+    invitations = await service.list_invitations(status=InvitationStatus.PENDING)
+    for inv in invitations:
+        if inv.expires_at > now:
+            result.append(
+                OrgMemberRead(
+                    invitation_id=inv.id,
+                    email=inv.email,
+                    role=inv.role,
+                    status=OrgMemberStatus.INVITED,
+                    expires_at=inv.expires_at,
+                    created_at=inv.created_at,
+                )
+            )
+
+    return result
 
 
 @router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -277,18 +299,18 @@ async def delete_org_member(
         ) from e
 
 
-@router.patch("/members/{user_id}", response_model=OrgMemberRead)
+@router.patch("/members/{user_id}", response_model=OrgMemberDetail)
 async def update_org_member(
     *,
     role: OrgAdminRole,
     session: AsyncDBSession,
     user_id: UserID,
     params: UserUpdate,
-) -> OrgMemberRead:
+) -> OrgMemberDetail:
     service = OrgService(session, role=role)
     try:
         user, org_role = await service.update_member(user_id, params)
-        return OrgMemberRead(
+        return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
@@ -378,32 +400,6 @@ async def create_invitation(
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
     )
-
-
-@router.get("/invitations", response_model=list[OrgInvitationRead])
-async def list_invitations(
-    *,
-    role: OrgAdminRole,
-    session: AsyncDBSession,
-    invitation_status: InvitationStatus | None = Query(None, alias="status"),
-) -> list[OrgInvitationRead]:
-    """List invitations for the organization."""
-    service = OrgService(session, role=role)
-    invitations = await service.list_invitations(status=invitation_status)
-    return [
-        OrgInvitationRead(
-            id=inv.id,
-            organization_id=inv.organization_id,
-            email=inv.email,
-            role=inv.role,
-            status=inv.status,
-            invited_by=inv.invited_by,
-            expires_at=inv.expires_at,
-            created_at=inv.created_at,
-            accepted_at=inv.accepted_at,
-        )
-        for inv in invitations
-    ]
 
 
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
