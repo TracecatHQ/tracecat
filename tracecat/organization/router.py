@@ -60,6 +60,16 @@ OrgAdminRole = Annotated[
     ),
 ]
 
+OrgOwnerRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        require_org_roles=[OrgRole.OWNER],
+    ),
+]
+
 
 def _get_user_display_name_and_email(
     user: User | None,
@@ -147,6 +157,40 @@ async def list_organization_domains(
         )
         for domain in domains
     ]
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_organization(
+    *,
+    role: OrgOwnerRole,
+    session: AsyncDBSession,
+    confirm: str | None = Query(
+        default=None,
+        description="Must exactly match the organization name.",
+    ),
+) -> None:
+    """Delete the current organization.
+
+    Restricted to organization owners and platform superusers.
+    """
+    service = OrgService(session, role=role)
+    try:
+        await service.delete_organization(confirmation=confirm)
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 @router.get("/members/me", response_model=OrgMemberRead)

@@ -5,18 +5,32 @@ from __future__ import annotations
 import uuid
 
 from pydantic import UUID4
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import AccessLevel, Role
+from tracecat.authz.enums import WorkspaceRole
+from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Organization, Workspace
+from tracecat.db.models import (
+    Membership,
+    Organization,
+    OrganizationSecret,
+    Ownership,
+    RegistryAction,
+    RegistryIndex,
+    RegistryRepository,
+    RegistryVersion,
+    Workspace,
+)
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.settings.service import SettingsService
 from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 from tracecat.tiers.service import TierService
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -132,6 +146,88 @@ async def create_organization_with_defaults(
     await ensure_organization_defaults(session, org.id)
     await session.refresh(org)
     return org
+
+
+def validate_organization_delete_confirmation(
+    organization: Organization,
+    *,
+    confirmation: str | None,
+) -> None:
+    """Validate the operator confirmation text for destructive org deletion."""
+    if confirmation is None or confirmation.strip() != organization.name:
+        raise TracecatValidationError(
+            "Confirmation text must exactly match the organization name."
+        )
+
+
+async def delete_organization_with_cleanup(
+    session: AsyncSession,
+    *,
+    organization: Organization,
+    operator_user_id: uuid.UUID | None,
+) -> None:
+    """Delete an organization after cleaning up dependent resources.
+
+    This handles explicit cleanup for resources guarded by RESTRICT organization FKs
+    and runs workspace teardown logic that isn't represented by FK cascades.
+    """
+    result = await session.execute(
+        select(Workspace).where(Workspace.organization_id == organization.id)
+    )
+    workspaces = list(result.scalars().all())
+    workspace_ids = [workspace.id for workspace in workspaces]
+
+    for workspace in workspaces:
+        bootstrap_role = Role(
+            type="service",
+            user_id=operator_user_id,
+            service_id="tracecat-service",
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+            workspace_role=WorkspaceRole.ADMIN,
+            access_level=AccessLevel.ADMIN,
+        )
+        schedule_service = WorkflowSchedulesService(session=session, role=bootstrap_role)
+        for schedule in await schedule_service.list_schedules():
+            await schedule_service.delete_schedule(schedule.id, commit=False)
+
+        case_fields_service = CaseFieldsService(session=session, role=bootstrap_role)
+        await case_fields_service.drop_workspace_schema()
+
+        await session.execute(
+            delete(Membership).where(Membership.workspace_id == workspace.id)
+        )
+        await session.delete(workspace)
+
+    if workspace_ids:
+        workspace_resource_ids = [str(workspace_id) for workspace_id in workspace_ids]
+        await session.execute(
+            delete(Ownership).where(Ownership.resource_id.in_(workspace_resource_ids))
+        )
+
+    await session.execute(delete(Ownership).where(Ownership.owner_id == organization.id))
+    await session.execute(
+        delete(OrganizationSecret).where(
+            OrganizationSecret.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(RegistryIndex).where(RegistryIndex.organization_id == organization.id)
+    )
+    await session.execute(
+        delete(RegistryVersion).where(RegistryVersion.organization_id == organization.id)
+    )
+    await session.execute(
+        delete(RegistryAction).where(RegistryAction.organization_id == organization.id)
+    )
+    await session.execute(
+        delete(RegistryRepository).where(
+            RegistryRepository.organization_id == organization.id
+        )
+    )
+
+    await session.delete(organization)
+    await session.flush()
 
 
 async def get_default_organization_id(session: AsyncSession) -> OrganizationID:
