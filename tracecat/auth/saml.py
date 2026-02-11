@@ -301,6 +301,8 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
     seen: set[str] = set()
     deduped: list[str] = []
     for value in candidates:
+        if not value:
+            continue
         email = value.strip()
         if not email or email in seen:
             continue
@@ -673,12 +675,20 @@ async def sso_acs(
 
     logger.info("SAML authentication successful")
 
+    auto_provisioning = await get_setting(
+        "saml_auto_provisioning",
+        role=bootstrap_role(organization_id),
+        session=db_session,
+        default=True,
+    )
+
     try:
         user = await user_manager.saml_callback(
             email=email,
             organization_id=organization_id,
             associate_by_email=True,
             is_verified_by_default=True,
+            allow_auto_provisioning=bool(auto_provisioning),
         )
     except UserAlreadyExists as e:
         logger.error("User already exists during SAML authentication")
@@ -703,6 +713,15 @@ async def sso_acs(
         await db_session.execute(membership_stmt)
     ).scalar_one_or_none()
     if existing_membership is None:
+        if not auto_provisioning:
+            logger.warning(
+                "SAML login denied: user has no org membership and auto-provisioning is disabled",
+                email=email,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication failed",
+            )
         db_session.add(
             OrganizationMembership(
                 user_id=user.id,  # pyright: ignore[reportArgumentType]

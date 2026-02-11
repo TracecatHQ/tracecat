@@ -1,13 +1,12 @@
 from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.enums import AuthType
-from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.types import Role
 from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
@@ -59,7 +58,7 @@ Sets the `ctx_role` context variable.
 """
 
 
-async def verify_auth_type(auth_type: AuthType, request: Request) -> None:
+async def verify_auth_type(auth_type: AuthType) -> None:
     """Verify if an auth type is enabled and properly configured.
 
     Args:
@@ -77,45 +76,35 @@ async def verify_auth_type(auth_type: AuthType, request: Request) -> None:
             detail="Auth type not allowed",
         )
 
-    if auth_type is AuthType.SAML:
-        # 2. Check that SAML is enabled for the selected organization.
-        key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
-        override = get_setting_override(key)
-        if override is not None:
-            logger.warning(
-                "Overriding auth setting from environment variables. "
-                "This is not recommended for production environments.",
-                key=key,
-                override=override,
-            )
-            return
-
-        org_id = await resolve_auth_organization_id(request)
-        setting = await get_setting(key=key, role=bootstrap_role(org_id))
-        if setting is None or not isinstance(setting, bool):
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Invalid setting configuration",
-            )
-        if not setting:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Auth type {auth_type} is not enabled",
-            )
+    # OIDC/Google OAuth/basic availability is platform-configured, not org-setting
+    # controlled.
+    if auth_type in {AuthType.BASIC, AuthType.OIDC, AuthType.GOOGLE_OAUTH}:
         return
 
-    # OIDC/Google OAuth/basic availability is platform-configured, but org-level
-    # SAML enforcement can still block non-SAML methods.
-    org_id = await resolve_auth_organization_id(request)
-    saml_enforced = await get_setting(
-        key="saml_enforced",
-        role=bootstrap_role(org_id),
-        default=False,
-    )
-    if saml_enforced is True:
+    # 2. Check that the setting is enabled
+    key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
+    # 2.5. Check for overrides
+    override = get_setting_override(key)
+    if override is not None:
+        logger.warning(
+            "Overriding auth setting from environment variables. "
+            "This is not recommended for production environments.",
+            key=key,
+            override=override,
+        )
+        return
+    # NOTE: These settings were introduced after org settings implemented
+    # so no defaults required
+    setting = await get_setting(key=key, role=bootstrap_role())
+    if setting is None or not isinstance(setting, bool):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid setting configuration",
+        )
+    if not setting:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="SAML authentication is enforced for this organization",
+            detail=f"Auth type {auth_type} is not enabled",
         )
 
 
@@ -136,8 +125,8 @@ def require_auth_type_enabled(auth_type: AuthType) -> Any:
     }:
         raise ValueError(f"Invalid auth type: {auth_type}")
 
-    async def _check_auth_type_enabled(request: Request) -> None:
-        await verify_auth_type(auth_type, request)
+    async def _check_auth_type_enabled() -> None:
+        await verify_auth_type(auth_type)
 
     return Depends(_check_auth_type_enabled)
 
@@ -148,17 +137,11 @@ def require_any_auth_type_enabled(auth_types: Sequence[AuthType]) -> Any:
     if not candidate_types:
         raise ValueError("auth_types must not be empty")
 
-    async def _check_any_auth_type_enabled(request: Request) -> None:
-        last_error: HTTPException | None = None
+    async def _check_any_auth_type_enabled() -> None:
         for auth_type in candidate_types:
             if auth_type in config.TRACECAT__AUTH_TYPES:
-                try:
-                    await verify_auth_type(auth_type, request)
-                    return
-                except HTTPException as exc:
-                    last_error = exc
-        if last_error is not None:
-            raise last_error
+                await verify_auth_type(auth_type)
+                return
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Auth type not allowed",
