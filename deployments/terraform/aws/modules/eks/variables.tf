@@ -48,19 +48,19 @@ variable "node_ami_type" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 10
+  default     = 8
 }
 
 variable "node_min_size" {
   description = "Minimum number of nodes in the node group"
   type        = number
-  default     = 10
+  default     = 8
 }
 
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 14
+  default     = 12
 }
 
 variable "node_disk_size" {
