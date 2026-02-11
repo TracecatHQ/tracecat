@@ -3246,7 +3246,10 @@ export type OrgInvitationReadMinimal = {
   email_matches?: boolean | null
 }
 
-export type OrgMemberRead = {
+/**
+ * Detailed member info for /me and update endpoints.
+ */
+export type OrgMemberDetail = {
   user_id: string
   first_name: string | null
   last_name: string | null
@@ -3256,6 +3259,24 @@ export type OrgMemberRead = {
   is_verified: boolean
   last_login_at: string | null
 }
+
+/**
+ * Unified member representation — covers active, inactive, and pending (invited) members.
+ */
+export type OrgMemberRead = {
+  user_id?: string | null
+  invitation_id?: string | null
+  email: string
+  role: OrgRole
+  status: OrgMemberStatus
+  first_name?: string | null
+  last_name?: string | null
+  last_login_at?: string | null
+  expires_at?: string | null
+  created_at?: string | null
+}
+
+export type OrgMemberStatus = "active" | "inactive" | "invited"
 
 /**
  * Pending invitation visible to the invited authenticated user.
@@ -7082,7 +7103,7 @@ export type OrganizationGetOrganizationResponse =
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
-export type OrganizationGetCurrentOrgMemberResponse = OrgMemberRead
+export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
 
@@ -7097,7 +7118,7 @@ export type OrganizationUpdateOrgMemberData = {
   userId: string
 }
 
-export type OrganizationUpdateOrgMemberResponse = OrgMemberRead
+export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -7112,12 +7133,6 @@ export type OrganizationCreateInvitationData = {
 }
 
 export type OrganizationCreateInvitationResponse = OrgInvitationRead
-
-export type OrganizationListInvitationsData = {
-  status?: InvitationStatus | null
-}
-
-export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
 
 export type OrganizationRevokeInvitationData = {
   invitationId: string
@@ -10043,7 +10058,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgMemberRead
+        200: OrgMemberDetail
       }
     }
   }
@@ -10077,7 +10092,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgMemberRead
+        200: OrgMemberDetail
         /**
          * Validation Error
          */
@@ -10118,19 +10133,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: OrgInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: OrganizationListInvitationsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<OrgInvitationRead>
         /**
          * Validation Error
          */

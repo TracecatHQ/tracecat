@@ -10111,7 +10111,7 @@ Excludes sensitive fields like email, invited_by ID, and timestamps
 to reduce information disclosure when querying by token.`,
 } as const
 
-export const $OrgMemberRead = {
+export const $OrgMemberDetail = {
   properties: {
     user_id: {
       type: "string",
@@ -10180,7 +10180,117 @@ export const $OrgMemberRead = {
     "is_verified",
     "last_login_at",
   ],
+  title: "OrgMemberDetail",
+  description: "Detailed member info for /me and update endpoints.",
+} as const
+
+export const $OrgMemberRead = {
+  properties: {
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    invitation_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invitation Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    status: {
+      $ref: "#/components/schemas/OrgMemberStatus",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    last_login_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Login At",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["email", "role", "status"],
   title: "OrgMemberRead",
+  description:
+    "Unified member representation — covers active, inactive, and pending (invited) members.",
+} as const
+
+export const $OrgMemberStatus = {
+  type: "string",
+  enum: ["active", "inactive", "invited"],
+  title: "OrgMemberStatus",
 } as const
 
 export const $OrgPendingInvitationRead = {

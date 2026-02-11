@@ -138,12 +138,10 @@ import {
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
   type OrgInvitationCreate,
-  type OrgInvitationRead,
   type OrgMemberRead,
   organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
-  organizationListInvitations,
   organizationListOrgMembers,
   organizationListSessions,
   organizationRevokeInvitation,
@@ -2131,38 +2129,14 @@ export function useOrgMembers() {
     },
   })
 
-  return {
-    orgMembers,
-    updateOrgMember,
-    updateOrgMemberIsPending,
-    updateOrgMemberError,
-    deleteOrgMember,
-    deleteOrgMemberIsPending,
-    deleteOrgMemberError,
-  }
-}
-
-export function useOrgInvitations() {
-  const queryClient = useQueryClient()
-
-  const {
-    data: invitations,
-    isLoading,
-    error,
-  } = useQuery<OrgInvitationRead[]>({
-    queryKey: ["org-invitations"],
-    queryFn: async () => await organizationListInvitations({}),
-  })
-
   const {
     mutateAsync: createInvitation,
-    isPending: createPending,
-    error: createError,
+    isPending: createInvitationIsPending,
   } = useMutation({
     mutationFn: async (params: OrgInvitationCreate) =>
       await organizationCreateInvitation({ requestBody: params }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-invitations"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Invitation created",
         description: "Invitation sent successfully.",
@@ -2179,15 +2153,11 @@ export function useOrgInvitations() {
     },
   })
 
-  const {
-    mutateAsync: revokeInvitation,
-    isPending: revokePending,
-    error: revokeError,
-  } = useMutation({
+  const { mutateAsync: revokeInvitation } = useMutation({
     mutationFn: async (invitationId: string) =>
       await organizationRevokeInvitation({ invitationId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-invitations"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Invitation revoked",
         description: "Invitation has been revoked.",
@@ -2205,15 +2175,16 @@ export function useOrgInvitations() {
   })
 
   return {
-    invitations,
-    isLoading,
-    error,
+    orgMembers,
+    updateOrgMember,
+    updateOrgMemberIsPending,
+    updateOrgMemberError,
+    deleteOrgMember,
+    deleteOrgMemberIsPending,
+    deleteOrgMemberError,
     createInvitation,
-    createPending,
-    createError,
+    createInvitationIsPending,
     revokeInvitation,
-    revokePending,
-    revokeError,
   }
 }
 

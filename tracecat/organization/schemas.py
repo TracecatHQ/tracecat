@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
@@ -10,7 +11,30 @@ from tracecat.invitations.enums import InvitationStatus
 # Members
 
 
+class OrgMemberStatus(StrEnum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    INVITED = "invited"
+
+
 class OrgMemberRead(BaseModel):
+    """Unified member representation — covers active, inactive, and pending (invited) members."""
+
+    user_id: UserID | None = None
+    invitation_id: UUID | None = None
+    email: EmailStr
+    role: OrgRole
+    status: OrgMemberStatus
+    first_name: str | None = None
+    last_name: str | None = None
+    last_login_at: datetime | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class OrgMemberDetail(BaseModel):
+    """Detailed member info for /me and update endpoints."""
+
     user_id: UserID
     first_name: str | None
     last_name: str | None
