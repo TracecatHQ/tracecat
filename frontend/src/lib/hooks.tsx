@@ -330,21 +330,15 @@ interface AppInfo {
   ee_multi_tenant: boolean
 }
 
-export function useAppInfo(orgSlug?: string | null) {
+export function useAppInfo() {
   const {
     data: appInfo,
     isLoading: appInfoIsLoading,
     error: appInfoError,
   } = useQuery<AppInfo, Error>({
-    queryKey: ["app-info", orgSlug ?? null],
+    queryKey: ["app-info"],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      if (orgSlug) {
-        params.set("org", orgSlug)
-      }
-      const resp = await fetch(
-        `${getBaseUrl()}/info${params.toString() ? `?${params.toString()}` : ""}`
-      )
+      const resp = await fetch(`${getBaseUrl()}/info`)
       try {
         return await resp.json()
       } catch (_error) {

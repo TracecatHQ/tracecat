@@ -1,9 +1,9 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
+import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import { getBaseUrl } from "@/lib/api"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -12,7 +12,6 @@ import {
 
 type OAuthButtonProps = ComponentPropsWithoutRef<typeof Button> & {
   returnUrl?: string | null
-  orgSlug?: string | null
 }
 
 type OidcProviderIcon = "google" | "saml"
@@ -31,8 +30,7 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
 }
 
 export function GithubOAuthButton({
-  returnUrl: _returnUrl,
-  orgSlug: _orgSlug,
+  returnUrl: _,
   ...props
 }: OAuthButtonProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -60,7 +58,6 @@ export function GithubOAuthButton({
 
 export function OidcOAuthButton({
   returnUrl,
-  orgSlug,
   providerLabel = "Single sign-on",
   providerIcon = "saml",
   ...props
@@ -71,28 +68,11 @@ export function OidcOAuthButton({
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const params = new URLSearchParams()
-      params.append("scopes", "openid")
-      params.append("scopes", "email")
-      params.append("scopes", "profile")
-      if (orgSlug) {
-        params.set("org", orgSlug)
-      }
-      const response = await fetch(
-        `${getBaseUrl()}/auth/oauth/oidc/authorize?${params.toString()}`,
-        {
-          credentials: "include",
-        }
-      )
-      if (!response.ok) {
-        throw new Error("Failed to start OIDC login")
-      }
-      const data = (await response.json()) as { authorization_url: string }
-      if (!data.authorization_url) {
-        throw new Error("OIDC authorization URL missing")
-      }
+      const { authorization_url } = await authOauthOidcDatabaseAuthorize({
+        scopes: ["openid", "email", "profile"],
+      })
       setPostAuthReturnUrlCookie(returnUrl)
-      window.location.href = data.authorization_url
+      window.location.href = authorization_url
     } catch (error) {
       console.error("Error authorizing with OIDC", error)
     } finally {
