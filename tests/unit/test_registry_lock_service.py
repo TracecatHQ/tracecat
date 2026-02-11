@@ -10,6 +10,7 @@ This test suite validates:
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -360,12 +361,19 @@ async def test_resolve_lock_allows_template_step_with_run_python(
 
     # Use org-scoped origin override to avoid ambiguity with the built-in
     # `tracecat_registry` definition of `core.script.run_python`.
-    org_repo = RegistryRepository(
-        organization_id=svc_role.organization_id,
-        origin="tracecat_registry",
+    org_repo = await session.scalar(
+        select(RegistryRepository).where(
+            RegistryRepository.organization_id == svc_role.organization_id,
+            RegistryRepository.origin == "tracecat_registry",
+        )
     )
-    session.add(org_repo)
-    await session.flush()
+    if org_repo is None:
+        org_repo = RegistryRepository(
+            organization_id=svc_role.organization_id,
+            origin="tracecat_registry",
+        )
+        session.add(org_repo)
+        await session.flush()
 
     org_version = RegistryVersion(
         organization_id=svc_role.organization_id,
