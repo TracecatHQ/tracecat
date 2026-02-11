@@ -53,62 +53,65 @@ def _make_template_manifest(
     *,
     template_action: str,
     step_action: str,
+    include_step_action: bool = False,
 ) -> dict:
     """Create a manifest with a template action and a single step action."""
     template_namespace, template_name = template_action.rsplit(".", 1)
-    step_namespace, step_name = step_action.rsplit(".", 1)
-
-    step_module = "tracecat_registry.core.script"
-    step_fn = "run_python"
-    if step_action == PlatformAction.CHILD_WORKFLOW_EXECUTE:
-        step_module = "tracecat_registry.core.workflow"
-        step_fn = "execute"
-
-    return {
-        "version": "1.0",
-        "actions": {
-            template_action: {
-                "namespace": template_namespace,
-                "name": template_name,
-                "action_type": "template",
-                "description": f"Template action {template_action}",
-                "interface": {"expects": {}, "returns": None},
-                "implementation": {
-                    "type": "template",
-                    "template_action": {
-                        "type": "action",
-                        "definition": {
-                            "name": template_name,
-                            "namespace": template_namespace,
-                            "title": "Template action",
-                            "display_group": "Testing",
-                            "expects": {},
-                            "steps": [
-                                {
-                                    "ref": "step1",
-                                    "action": step_action,
-                                    "args": {},
-                                }
-                            ],
-                            "returns": "${{ steps.step1.result }}",
-                        },
+    actions = {
+        template_action: {
+            "namespace": template_namespace,
+            "name": template_name,
+            "action_type": "template",
+            "description": f"Template action {template_action}",
+            "interface": {"expects": {}, "returns": None},
+            "implementation": {
+                "type": "template",
+                "template_action": {
+                    "type": "action",
+                    "definition": {
+                        "name": template_name,
+                        "namespace": template_namespace,
+                        "title": "Template action",
+                        "display_group": "Testing",
+                        "expects": {},
+                        "steps": [
+                            {
+                                "ref": "step1",
+                                "action": step_action,
+                                "args": {},
+                            }
+                        ],
+                        "returns": "${{ steps.step1.result }}",
                     },
                 },
             },
-            step_action: {
-                "namespace": step_namespace,
-                "name": step_name,
-                "action_type": "udf",
-                "description": f"Platform action {step_action}",
-                "interface": {"expects": {}, "returns": None},
-                "implementation": {
-                    "type": "udf",
-                    "url": "tracecat_registry",
-                    "module": step_module,
-                    "name": step_fn,
-                },
-            },
         },
+    }
+
+    if include_step_action:
+        step_namespace, step_name = step_action.rsplit(".", 1)
+        step_module = "tracecat_registry.core.script"
+        step_fn = "run_python"
+        if step_action == PlatformAction.CHILD_WORKFLOW_EXECUTE:
+            step_module = "tracecat_registry.core.workflow"
+            step_fn = "execute"
+        actions[step_action] = {
+            "namespace": step_namespace,
+            "name": step_name,
+            "action_type": "udf",
+            "description": f"Platform action {step_action}",
+            "interface": {"expects": {}, "returns": None},
+            "implementation": {
+                "type": "udf",
+                "url": "tracecat_registry",
+                "module": step_module,
+                "name": step_fn,
+            },
+        }
+
+    return {
+        "version": "1.0",
+        "actions": actions,
     }
 
 
@@ -355,24 +358,31 @@ async def test_resolve_lock_allows_template_step_with_run_python(
     template_action = "tools.testing.template_with_python"
     platform_action = PlatformAction.RUN_PYTHON
 
-    platform_repo = PlatformRegistryRepository(origin="platform_registry")
-    session.add(platform_repo)
+    # Use org-scoped origin override to avoid ambiguity with the built-in
+    # `tracecat_registry` definition of `core.script.run_python`.
+    org_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin="tracecat_registry",
+    )
+    session.add(org_repo)
     await session.flush()
 
-    platform_version = PlatformRegistryVersion(
-        repository_id=platform_repo.id,
+    org_version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=org_repo.id,
         version="1.0.0",
         manifest=_make_template_manifest(
             template_action=template_action,
             step_action=platform_action,
+            include_step_action=True,
         ),
         tarball_uri="s3://platform/v1.tar.gz",
     )
-    session.add(platform_version)
+    session.add(org_version)
     await session.flush()
 
-    platform_repo.current_version_id = platform_version.id
-    session.add(platform_repo)
+    org_repo.current_version_id = org_version.id
+    session.add(org_repo)
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
