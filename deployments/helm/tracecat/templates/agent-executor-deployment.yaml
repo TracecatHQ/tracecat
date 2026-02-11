@@ -30,15 +30,8 @@ spec:
         {{- end }}
       {{- end }}
     spec:
-      {{- if not .Values.tracecat.sandbox.disableNsjail }}
-      # nsjail requires root to set up mount namespaces
-      securityContext:
-        fsGroup: 0
-        runAsUser: 0
-      {{- else }}
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
-      {{- end }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       {{- include "tracecat.podScheduling" (dict "root" . "component" "agent-executor") | nindent 6 }}
       containers:
