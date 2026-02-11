@@ -35,6 +35,7 @@ from tracecat.agent.common.config import (
     TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.sandbox.executor import _build_sandbox_resolv_conf
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -368,7 +369,7 @@ def build_agent_nsjail_config(
     # is mounted read-write at /work inside the sandbox.
     if enable_internet_access:
         resolv_conf_path = socket_dir / "resolv.conf"
-        resolv_conf_path.write_text("nameserver 10.255.255.1\n")
+        resolv_conf_path.write_text(_build_sandbox_resolv_conf())
 
         hosts_path = socket_dir / "hosts"
         hosts_path.write_text(
