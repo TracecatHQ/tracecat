@@ -11,7 +11,6 @@ function SignInContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnUrl = searchParams?.get("returnUrl") ?? null
-  const orgSlug = searchParams?.get("org") ?? null
 
   useEffect(() => {
     if (user) {
@@ -30,7 +29,6 @@ function SignInContent() {
       <SignIn
         className="flex size-16 w-full justify-center"
         returnUrl={returnUrl}
-        orgSlug={orgSlug}
       />
     </div>
   )

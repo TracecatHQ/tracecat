@@ -14471,6 +14471,10 @@ export const $SAMLSettingsRead = {
       type: "boolean",
       title: "Saml Enforced",
     },
+    saml_auto_provisioning: {
+      type: "boolean",
+      title: "Saml Auto Provisioning",
+    },
     saml_idp_metadata_url: {
       anyOf: [
         {
@@ -14497,7 +14501,12 @@ export const $SAMLSettingsRead = {
     },
   },
   type: "object",
-  required: ["saml_enabled", "saml_enforced", "saml_sp_acs_url"],
+  required: [
+    "saml_enabled",
+    "saml_enforced",
+    "saml_auto_provisioning",
+    "saml_sp_acs_url",
+  ],
   title: "SAMLSettingsRead",
 } as const
 
@@ -14515,6 +14524,13 @@ export const $SAMLSettingsUpdate = {
       description:
         "Whether SAML is enforced. If true, users can only use SAML to authenticate. Requires SAML to be enabled.",
       default: false,
+    },
+    saml_auto_provisioning: {
+      type: "boolean",
+      title: "Saml Auto Provisioning",
+      description:
+        "Whether to automatically create user accounts and org memberships on first SAML login. When disabled, users must be pre-invited.",
+      default: true,
     },
     saml_idp_metadata_url: {
       anyOf: [

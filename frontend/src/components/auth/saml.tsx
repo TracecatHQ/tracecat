@@ -1,9 +1,9 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
+import { authSamlDatabaseLogin } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import { getBaseUrl } from "@/lib/api"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -12,7 +12,6 @@ import {
 
 type SamlSSOButtonProps = ComponentPropsWithoutRef<typeof Button> & {
   returnUrl?: string | null
-  orgSlug?: string | null
 }
 
 function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
@@ -23,32 +22,15 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
     : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
-export function SamlSSOButton({
-  returnUrl,
-  orgSlug,
-  ...props
-}: SamlSSOButtonProps) {
+export function SamlSSOButton({ returnUrl, ...props }: SamlSSOButtonProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const params = new URLSearchParams()
-      if (orgSlug) {
-        params.set("org", orgSlug)
-      }
-      const response = await fetch(
-        `${getBaseUrl()}/auth/saml/login${params.toString() ? `?${params.toString()}` : ""}`,
-        { credentials: "include" }
-      )
-      if (!response.ok) {
-        throw new Error("Failed to start SAML login")
-      }
-      const data = (await response.json()) as { redirect_url?: string }
-      if (!data.redirect_url) {
-        throw new Error("SAML redirect URL missing")
-      }
+      // Call api/auth/saml/login
+      const { redirect_url } = await authSamlDatabaseLogin()
       setPostAuthReturnUrlCookie(returnUrl)
-      window.location.href = data.redirect_url
+      window.location.href = redirect_url
     } catch (error) {
       console.error("Error authorizing with SAML", error)
     } finally {

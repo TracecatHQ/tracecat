@@ -9,6 +9,9 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { AuthDiscoverResponse } from "@/client"
+import { authDiscoverAuthMethod } from "@/client"
+import { OidcOAuthButton } from "@/components/auth/oauth-buttons"
 import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -30,7 +33,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { getBaseUrl } from "@/lib/api"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -41,15 +43,6 @@ import { cn } from "@/lib/utils"
 
 interface SignInProps extends React.HTMLProps<HTMLDivElement> {
   returnUrl?: string | null
-  orgSlug?: string | null
-}
-
-type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
-
-type AuthDiscoverResponse = {
-  method: AuthDiscoveryMethod
-  next_url?: string | null
-  organization_slug?: string | null
 }
 
 function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
@@ -60,71 +53,28 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
     : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
-async function startOidcLogin(
-  orgSlug?: string | null,
-  returnUrl?: string | null
-): Promise<void> {
-  const params = new URLSearchParams()
-  params.append("scopes", "openid")
-  params.append("scopes", "email")
-  params.append("scopes", "profile")
-  if (orgSlug) {
-    params.set("org", orgSlug)
-  }
-
-  const response = await fetch(
-    `${getBaseUrl()}/auth/oauth/oidc/authorize?${params.toString()}`,
-    {
-      credentials: "include",
-    }
-  )
-  if (!response.ok) {
-    throw new Error("Failed to start OIDC login")
-  }
-  const data = (await response.json()) as { authorization_url?: string }
-  if (!data.authorization_url) {
-    throw new Error("OIDC authorization URL missing")
-  }
-
-  setPostAuthReturnUrlCookie(returnUrl)
-  window.location.href = data.authorization_url
-}
-
 async function startSamlLogin(
-  email: string,
-  nextUrl?: string | null,
-  orgSlug?: string | null,
-  returnUrl?: string | null
+  returnUrl?: string | null,
+  nextUrl?: string | null
 ): Promise<void> {
-  const fallbackParams = new URLSearchParams({ email })
-  if (orgSlug) {
-    fallbackParams.set("org", orgSlug)
+  // Use the org-scoped next_url from discovery when available so the
+  // backend can resolve the correct organization for SAML login.
+  const loginUrl = nextUrl ?? "/api/auth/saml/login"
+  const res = await fetch(loginUrl, { credentials: "include" })
+  if (!res.ok) {
+    throw new Error(`SAML login request failed: ${res.status}`)
   }
-  const samlLoginUrl =
-    nextUrl ?? `${getBaseUrl()}/auth/saml/login?${fallbackParams.toString()}`
-
-  const response = await fetch(samlLoginUrl, { credentials: "include" })
-  if (!response.ok) {
-    throw new Error("Failed to start SAML login")
-  }
-  const data = (await response.json()) as { redirect_url?: string }
-  if (!data.redirect_url) {
-    throw new Error("SAML redirect URL missing")
-  }
-
+  const { redirect_url } = (await res.json()) as { redirect_url: string }
   setPostAuthReturnUrlCookie(returnUrl)
-  window.location.href = data.redirect_url
+  window.location.href = redirect_url
 }
 
-export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
+export function SignIn({ className, returnUrl }: SignInProps) {
   const { user } = useAuth()
-  const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo(orgSlug)
+  const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveredMethod, setDiscoveredMethod] = useState<"basic" | null>(null)
   const [discoveredEmail, setDiscoveredEmail] = useState("")
-  const [discoveredOrgSlug, setDiscoveredOrgSlug] = useState<string | null>(
-    null
-  )
   const router = useRouter()
 
   if (user) {
@@ -143,30 +93,20 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
   const showGenericOidcAuth = allowedAuthTypes.includes("oidc")
   const showGoogleOauthAuth = allowedAuthTypes.includes("google_oauth")
   const showOidcAuth = showGenericOidcAuth || showGoogleOauthAuth
-
+  const oidcProviderLabel = showGenericOidcAuth ? "Single sign-on" : "Google"
+  const oidcProviderIcon = showGenericOidcAuth ? "saml" : "google"
   const onDiscover = async (email: string) => {
     setIsDiscovering(true)
     setDiscoveredEmail(email)
     try {
-      const response = await fetch(`${getBaseUrl()}/auth/discover`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, org: orgSlug ?? undefined }),
+      const data: AuthDiscoverResponse = await authDiscoverAuthMethod({
+        requestBody: { email },
       })
-      if (!response.ok) {
-        throw new Error("Failed to discover authentication method")
-      }
-      const data = (await response.json()) as AuthDiscoverResponse
-      const resolvedOrgSlug = data.organization_slug ?? orgSlug ?? null
 
       if (data.method === "basic") {
         if (!showBasicAuth) {
           throw new Error("Password login is not enabled")
         }
-        setDiscoveredOrgSlug(resolvedOrgSlug)
         setDiscoveredMethod("basic")
         return
       }
@@ -174,11 +114,13 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
         if (!showOidcAuth) {
           throw new Error("OIDC login is not enabled")
         }
-        await startOidcLogin(resolvedOrgSlug, returnUrl)
+        // Fall through — show OIDC buttons so user can click
+        // (OIDC requires user-initiated navigation for OAuth redirects)
+        setDiscoveredMethod(null)
         return
       }
       if (data.method === "saml") {
-        await startSamlLogin(email, data.next_url, resolvedOrgSlug, returnUrl)
+        await startSamlLogin(returnUrl, data.next_url)
         return
       }
     } catch (error) {
@@ -212,14 +154,31 @@ export function SignIn({ className, returnUrl, orgSlug }: SignInProps) {
         </CardHeader>
         <CardContent className="flex-col space-y-2">
           {discoveredMethod === "basic" ? (
-            <BasicLoginForm
-              orgSlug={discoveredOrgSlug ?? orgSlug}
-              initialEmail={discoveredEmail}
-            />
+            <BasicLoginForm initialEmail={discoveredEmail} />
           ) : (
             <EmailDiscoveryForm
               isLoading={isDiscovering}
               onSubmit={onDiscover}
+            />
+          )}
+          {discoveredMethod === null && showOidcAuth && (
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative my-6 flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or continue with
+                </span>
+              </div>
+            </div>
+          )}
+          {discoveredMethod === null && showOidcAuth && (
+            <OidcOAuthButton
+              className="w-full"
+              returnUrl={returnUrl}
+              providerLabel={oidcProviderLabel}
+              providerIcon={oidcProviderIcon}
             />
           )}
         </CardContent>
@@ -305,15 +264,9 @@ const basicLoginSchema = z.object({
 
 type BasicLoginFormValues = z.infer<typeof basicLoginSchema>
 
-export function BasicLoginForm({
-  orgSlug,
-  initialEmail,
-}: {
-  orgSlug?: string | null
-  initialEmail?: string
-}) {
+export function BasicLoginForm({ initialEmail }: { initialEmail?: string }) {
   const [isLoading, setIsLoading] = useState(false)
-  const { login } = useAuthActions(orgSlug)
+  const { login } = useAuthActions()
   const form = useForm<BasicLoginFormValues>({
     resolver: zodResolver(basicLoginSchema),
     defaultValues: {
