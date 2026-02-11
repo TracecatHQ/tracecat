@@ -218,7 +218,7 @@ async def resolve_action_origins_from_lock(
                 )
                 continue
             for step in impl.template_action.definition.steps:
-                if PlatformAction.is_interface(step.action):
+                if not PlatformAction.is_template_step_supported(step.action):
                     errors.append(
                         RegistryActionResolutionError(
                             action=step.action,
