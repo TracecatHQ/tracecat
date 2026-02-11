@@ -2,6 +2,10 @@
 
 Verifies that VARS expressions are resolved in agent action args,
 mirroring the enrichment done by executor/service.py for regular actions.
+
+Note: These tests mock get_workspace_variables to isolate expression
+evaluation logic from the database layer, consistent with the pattern
+in test_executor_manifest_resolution.py.
 """
 
 from __future__ import annotations
@@ -191,6 +195,61 @@ class TestBuildAgentArgsActivity:
             environment="staging",
             role=role,
         )
+
+    @pytest.mark.anyio
+    async def test_environment_override_changes_resolved_vars(self, role: Role):
+        """An action-level environment override should resolve VARS from that environment.
+
+        When workflow.py resolves task.environment (e.g. "staging") and passes it
+        into the activity input, the activity should query variables for "staging",
+        not the workflow default. This test verifies different environments produce
+        different variable values.
+        """
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "${{ VARS.models.claude }}",
+            "model_provider": "anthropic",
+        }
+
+        # Simulate workflow default environment
+        input_default = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            environment="default",
+        )
+
+        # Simulate action-level environment override to "staging"
+        input_staging = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            environment="staging",
+        )
+
+        # Each environment returns a different model
+        async def _mock_get_vars(
+            variable_exprs: set[str],
+            environment: str | None = None,
+            role: Role | None = None,
+        ) -> dict[str, dict[str, str]]:
+            if environment == "staging":
+                return {"models": {"claude": "claude-haiku-4-5-20251001"}}
+            return {"models": {"claude": "claude-sonnet-4-5-20250929"}}
+
+        with patch(
+            "tracecat.dsl.action.get_workspace_variables",
+            side_effect=_mock_get_vars,
+        ):
+            result_default = await DSLActivities.build_agent_args_activity(
+                input_default
+            )
+            result_staging = await DSLActivities.build_agent_args_activity(
+                input_staging
+            )
+
+        assert result_default.model_name == "claude-sonnet-4-5-20250929"
+        assert result_staging.model_name == "claude-haiku-4-5-20251001"
 
 
 class TestBuildPresetAgentArgsActivity:
