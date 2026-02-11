@@ -20,29 +20,6 @@ from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
-_PASTA_GATEWAY_IP = "10.255.255.1"
-
-
-def build_sandbox_resolv_conf() -> str:
-    """Build resolv.conf for the sandbox with pasta nameserver + host search domains.
-
-    Reads the host's /etc/resolv.conf to extract `search` and `options` lines
-    (needed for Kubernetes DNS resolution of short service names) and combines
-    them with pasta's gateway nameserver.
-
-    Falls back to nameserver-only if /etc/resolv.conf is unreadable.
-    """
-    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
-    try:
-        host_resolv = Path("/etc/resolv.conf").read_text()
-        for line in host_resolv.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("search ") or stripped.startswith("options "):
-                lines.append(stripped)
-    except OSError:
-        pass
-    return "\n".join(lines) + "\n"
-
 
 @dataclass
 class ActionSandboxConfig:
@@ -288,7 +265,7 @@ class NsjailExecutor:
         # Docker export leaves these empty since Docker manages them at runtime
         if network_enabled:
             resolv_conf_path = job_dir / "resolv.conf"
-            resolv_conf_path.write_text(build_sandbox_resolv_conf())
+            resolv_conf_path.write_text("nameserver 10.255.255.1\n")
 
             hosts_path = job_dir / "hosts"
             hosts_path.write_text(
@@ -743,7 +720,7 @@ class NsjailExecutor:
         # Network config: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
         # Docker export leaves /etc files empty since Docker manages them at runtime
         resolv_conf_path = job_dir / "resolv.conf"
-        resolv_conf_path.write_text(build_sandbox_resolv_conf())
+        resolv_conf_path.write_text("nameserver 10.255.255.1\n")
 
         hosts_path = job_dir / "hosts"
         hosts_path.write_text(
