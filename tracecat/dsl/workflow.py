@@ -792,6 +792,9 @@ class DSLWorkflow:
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    resolved_env = await self._resolve_action_environment(
+                        task, agent_operand
+                    )
                     self._set_logical_time_context()
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
@@ -799,7 +802,7 @@ class DSLWorkflow:
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
-                            environment=self.run_context.environment,
+                            environment=resolved_env,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -852,6 +855,9 @@ class DSLWorkflow:
                 case PlatformAction.AI_ACTION:
                     logger.info("Executing AI action", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    resolved_env = await self._resolve_action_environment(
+                        task, agent_operand
+                    )
                     self._set_logical_time_context()
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
@@ -859,7 +865,7 @@ class DSLWorkflow:
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
-                            environment=self.run_context.environment,
+                            environment=resolved_env,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -914,6 +920,9 @@ class DSLWorkflow:
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
+                    resolved_env = await self._resolve_action_environment(
+                        task, agent_operand
+                    )
                     self._set_logical_time_context()
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
@@ -921,7 +930,7 @@ class DSLWorkflow:
                             args=dict(task.args),
                             operand=agent_operand,
                             role=self.role,
-                            environment=self.run_context.environment,
+                            environment=resolved_env,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1710,6 +1719,27 @@ class DSLWorkflow:
     def _set_logical_time_context(self) -> None:
         """Set ctx_logical_time for deterministic FN.now() in template evaluations."""
         ctx_logical_time.set(self._compute_logical_time())
+
+    async def _resolve_action_environment(
+        self, task: ActionStatement, operand: ExecutionContext
+    ) -> str:
+        """Resolve the effective environment for an action.
+
+        Precedence: task.environment > self.run_context.environment.
+        If task.environment is a template expression, it is evaluated against the operand.
+        """
+        if task.environment is None:
+            return self.run_context.environment
+        environment = task.environment.strip()
+        if is_template_only(environment):
+            self._set_logical_time_context()
+            environment = await workflow.execute_activity(
+                DSLActivities.evaluate_single_expression_activity,
+                args=(task.environment, operand),
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        return environment
 
     async def _run_action(self, task: ActionStatement) -> StoredObject:
         # XXX(perf): We shouldn't pass the full execution context to the activity
