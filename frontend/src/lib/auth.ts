@@ -42,12 +42,12 @@ export function userIsPrivileged(
 /**
  * Check if user has platform-level admin privileges.
  *
- * This checks the platform role (superuser or role=admin), NOT the
+ * This checks platform superuser status, NOT the
  * organization membership role. For org-level admin checks, use
  * the useOrgMembership hook's canAdministerOrg.
  */
 export function userIsPlatformAdmin(user?: UserRead | null): boolean {
-  return user?.is_superuser || user?.role === "admin"
+  return Boolean(user?.is_superuser)
 }
 
 export function getDisplayName(
@@ -114,7 +114,7 @@ export class User {
   /**
    * Returns true if the user has platform-level admin privileges.
    *
-   * This checks the platform role (superuser or role=admin), NOT the
+   * This checks platform superuser status, NOT the
    * organization membership role. For org-level admin checks, use
    * the useOrgMembership hook's canAdministerOrg.
    */
