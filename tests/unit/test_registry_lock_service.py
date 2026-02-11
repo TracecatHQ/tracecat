@@ -19,6 +19,7 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
 )
+from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import RegistryError
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -46,6 +47,69 @@ def _make_manifest(action_names: list[str]) -> dict:
             },
         }
     return {"version": "1.0", "actions": actions}
+
+
+def _make_template_manifest(
+    *,
+    template_action: str,
+    step_action: str,
+) -> dict:
+    """Create a manifest with a template action and a single step action."""
+    template_namespace, template_name = template_action.rsplit(".", 1)
+    step_namespace, step_name = step_action.rsplit(".", 1)
+
+    step_module = "tracecat_registry.core.script"
+    step_fn = "run_python"
+    if step_action == PlatformAction.CHILD_WORKFLOW_EXECUTE:
+        step_module = "tracecat_registry.core.workflow"
+        step_fn = "execute"
+
+    return {
+        "version": "1.0",
+        "actions": {
+            template_action: {
+                "namespace": template_namespace,
+                "name": template_name,
+                "action_type": "template",
+                "description": f"Template action {template_action}",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": {
+                    "type": "template",
+                    "template_action": {
+                        "type": "action",
+                        "definition": {
+                            "name": template_name,
+                            "namespace": template_namespace,
+                            "title": "Template action",
+                            "display_group": "Testing",
+                            "expects": {},
+                            "steps": [
+                                {
+                                    "ref": "step1",
+                                    "action": step_action,
+                                    "args": {},
+                                }
+                            ],
+                            "returns": "${{ steps.step1.result }}",
+                        },
+                    },
+                },
+            },
+            step_action: {
+                "namespace": step_namespace,
+                "name": step_name,
+                "action_type": "udf",
+                "description": f"Platform action {step_action}",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": {
+                    "type": "udf",
+                    "url": "tracecat_registry",
+                    "module": step_module,
+                    "name": step_fn,
+                },
+            },
+        },
+    }
 
 
 @pytest.mark.anyio
@@ -280,3 +344,76 @@ async def test_resolve_lock_combines_platform_and_org(
     assert "org_origin" in lock.origins
     assert lock.actions["platform.action"] == "platform_origin"
     assert lock.actions["org.action"] == "org_origin"
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_allows_template_step_with_run_python(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """Template steps should allow core.script.run_python platform action."""
+    template_action = "tools.testing.template_with_python"
+    platform_action = PlatformAction.RUN_PYTHON
+
+    platform_repo = PlatformRegistryRepository(origin="platform_registry")
+    session.add(platform_repo)
+    await session.flush()
+
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version="1.0.0",
+        manifest=_make_template_manifest(
+            template_action=template_action,
+            step_action=platform_action,
+        ),
+        tarball_uri="s3://platform/v1.tar.gz",
+    )
+    session.add(platform_version)
+    await session.flush()
+
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    lock = await service.resolve_lock_with_bindings({template_action})
+
+    assert template_action in lock.actions
+    assert platform_action in lock.actions
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_rejects_template_step_with_other_platform_action(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """Template steps should still reject unsupported platform actions."""
+    template_action = "tools.testing.template_with_subflow"
+    platform_action = PlatformAction.CHILD_WORKFLOW_EXECUTE
+
+    platform_repo = PlatformRegistryRepository(origin="platform_registry")
+    session.add(platform_repo)
+    await session.flush()
+
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version="1.0.0",
+        manifest=_make_template_manifest(
+            template_action=template_action,
+            step_action=platform_action,
+        ),
+        tarball_uri="s3://platform/v1.tar.gz",
+    )
+    session.add(platform_version)
+    await session.flush()
+
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    with pytest.raises(
+        RegistryError,
+        match="Platform actions cannot be used inside templates",
+    ):
+        await service.resolve_lock_with_bindings({template_action})

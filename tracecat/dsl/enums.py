@@ -36,6 +36,18 @@ class PlatformAction(StrEnum):
     def is_interface(cls, action: str) -> bool:
         return action in cls.interface_actions()
 
+    @classmethod
+    def is_template_step_supported(cls, action: str) -> bool:
+        """Return whether a platform action can be used in template steps.
+
+        Most platform/interface actions are orchestrated by DSLWorkflow and are not safe
+        to embed within template actions. `core.script.run_python` is the exception
+        because executor backends handle it as a concrete runtime action.
+        """
+        if not cls.is_interface(action):
+            return True
+        return action == cls.RUN_PYTHON
+
 
 class FailStrategy(StrEnum):
     ISOLATED = "isolated"
