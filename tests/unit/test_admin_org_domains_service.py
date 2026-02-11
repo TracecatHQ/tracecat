@@ -5,12 +5,14 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.organizations.schemas import OrgDomainCreate, OrgDomainUpdate
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import Organization
+from tracecat.db.models import Organization, OrganizationSecret, Workspace
+from tracecat.exceptions import TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -147,3 +149,55 @@ async def test_primary_domain_cannot_be_set_inactive_in_same_update(
             domain.id,
             OrgDomainUpdate(is_primary=True, is_active=False),
         )
+
+
+@pytest.mark.anyio
+async def test_delete_organization_requires_exact_confirmation(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+) -> None:
+    service = AdminOrgService(session, role=platform_role)
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="Confirmation text must exactly match the organization name.",
+    ):
+        await service.delete_organization(org_a.id, confirmation="wrong")
+
+
+@pytest.mark.anyio
+async def test_delete_organization_cleans_restrict_children(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+) -> None:
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        organization_id=org_a.id,
+        name=f"ws-{uuid.uuid4().hex[:8]}",
+    )
+    org_secret = OrganizationSecret(
+        id=uuid.uuid4(),
+        organization_id=org_a.id,
+        type="custom",
+        name=f"secret-{uuid.uuid4().hex[:8]}",
+        encrypted_keys=b"encrypted",
+        environment="default",
+    )
+    session.add_all([workspace, org_secret])
+    await session.commit()
+
+    service = AdminOrgService(session, role=platform_role)
+    await service.delete_organization(org_a.id, confirmation=org_a.name)
+
+    org_result = await session.execute(select(Organization).where(Organization.id == org_a.id))
+    workspace_result = await session.execute(
+        select(Workspace).where(Workspace.organization_id == org_a.id)
+    )
+    secret_result = await session.execute(
+        select(OrganizationSecret).where(OrganizationSecret.organization_id == org_a.id)
+    )
+    assert org_result.scalar_one_or_none() is None
+    assert workspace_result.scalars().all() == []
+    assert secret_result.scalars().all() == []
