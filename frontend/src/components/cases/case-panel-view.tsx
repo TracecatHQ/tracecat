@@ -60,6 +60,8 @@ import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
   useCaseDropdownDefinitions,
+  useCaseDurationDefinitions,
+  useCaseDurations,
   useCaseTagCatalog,
   useGetCase,
   useRemoveCaseTag,

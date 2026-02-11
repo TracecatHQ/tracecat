@@ -92,7 +92,7 @@ import {
 } from "@/components/workspaces/add-workspace-variable"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
@@ -971,8 +971,8 @@ function CaseStatusControl({
   caseId: string
   workspaceId: string
 }) {
-  const { isFeatureEnabled } = useFeatureFlag()
-  const caseDurationsEnabled = isFeatureEnabled("case-durations")
+  const { hasEntitlement } = useEntitlements()
+  const caseDurationsEnabled = hasEntitlement("case_durations")
   const { caseDurations, caseDurationsIsLoading } = useCaseDurations({
     caseId,
     workspaceId,
