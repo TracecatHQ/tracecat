@@ -357,7 +357,6 @@ def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
 
     return _is_feature_enabled
 
-
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
