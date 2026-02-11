@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 from slugify import slugify
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 
 from tracecat import config
 from tracecat.db.models import (
@@ -1206,19 +1206,17 @@ class IntegrationService(BaseWorkspaceService):
         id_str = str(mcp_integration_id)
 
         # Remove stale ID references from agent presets in this workspace
-        result = await self.session.execute(
-            select(AgentPreset).where(
+        await self.session.execute(
+            update(AgentPreset)
+            .where(
                 and_(
                     AgentPreset.workspace_id == self.workspace_id,
                     AgentPreset.mcp_integrations.isnot(None),
+                    AgentPreset.mcp_integrations.contains([id_str]),
                 )
             )
+            .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
         )
-        for preset in result.scalars().all():
-            if preset.mcp_integrations and id_str in preset.mcp_integrations:
-                preset.mcp_integrations = [
-                    m for m in preset.mcp_integrations if m != id_str
-                ]
 
         await self.session.delete(mcp_integration)
         await self.session.commit()
