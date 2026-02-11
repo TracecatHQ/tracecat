@@ -75,21 +75,10 @@ const invitationFormSchema = z.object({
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
 
-export function OrgMembersTable() {
-  const [selectedMember, setSelectedMember] = useState<OrgMemberRead | null>(
-    null
-  )
-  const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
+function InviteMemberDialogButton() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const { canAdministerOrg } = useOrgMembership()
-  const {
-    orgMembers,
-    updateOrgMember,
-    deleteOrgMember,
-    createInvitation,
-    createInvitationIsPending,
-    revokeInvitation,
-  } = useOrgMembers()
+  const { createInvitation, createInvitationIsPending } = useOrgMembers()
 
   const form = useForm<InvitationFormValues>({
     resolver: zodResolver(invitationFormSchema),
@@ -98,6 +87,119 @@ export function OrgMembersTable() {
       role: "member",
     },
   })
+
+  const handleCreateInvitation = async (values: InvitationFormValues) => {
+    try {
+      await createInvitation({
+        email: values.email,
+        role: values.role as OrgRole,
+      })
+      form.reset()
+      setIsCreateDialogOpen(false)
+    } catch {
+      // Error handled in hook
+    }
+  }
+
+  if (!canAdministerOrg) {
+    return null
+  }
+
+  return (
+    <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <PlusIcon className="mr-2 size-4" />
+          Invite member
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Invite member</DialogTitle>
+          <DialogDescription>
+            Send an invitation to join this organization.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleCreateInvitation)}
+            className="space-y-4"
+          >
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="user@example.com"
+                      type="email"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    The email address of the person to invite.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Role</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a role" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="owner">Owner</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    The role to assign when the invitation is accepted.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsCreateDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createInvitationIsPending}>
+                {createInvitationIsPending ? "Sending..." : "Send invitation"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function OrgMembersTable() {
+  const [selectedMember, setSelectedMember] = useState<OrgMemberRead | null>(
+    null
+  )
+  const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
+  const { canAdministerOrg } = useOrgMembership()
+  const { orgMembers, updateOrgMember, deleteOrgMember, revokeInvitation } =
+    useOrgMembers()
 
   const handleChangeRole = async (role: UserRole) => {
     try {
@@ -148,113 +250,13 @@ export function OrgMembersTable() {
     }
   }
 
-  const handleCreateInvitation = async (values: InvitationFormValues) => {
-    try {
-      await createInvitation({
-        email: values.email,
-        role: values.role as OrgRole,
-      })
-      form.reset()
-      setIsCreateDialogOpen(false)
-    } catch {
-      // Error handled in hook
-    }
+  const toolbarProps: DataTableToolbarProps<OrgMemberRead> = {
+    ...defaultToolbarProps,
+    actions: <InviteMemberDialogButton />,
   }
 
   return (
     <div className="space-y-4">
-      {canAdministerOrg && (
-        <div className="flex justify-end">
-          <Dialog
-            open={isCreateDialogOpen}
-            onOpenChange={setIsCreateDialogOpen}
-          >
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <PlusIcon className="mr-2 size-4" />
-                Invite member
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Invite member</DialogTitle>
-                <DialogDescription>
-                  Send an invitation to join this organization.
-                </DialogDescription>
-              </DialogHeader>
-              <Form {...form}>
-                <form
-                  onSubmit={form.handleSubmit(handleCreateInvitation)}
-                  className="space-y-4"
-                >
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="user@example.com"
-                            type="email"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          The email address of the person to invite.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="role"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Role</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a role" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="member">Member</SelectItem>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="owner">Owner</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          The role to assign when the invitation is accepted.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsCreateDialogOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={createInvitationIsPending}>
-                      {createInvitationIsPending
-                        ? "Sending..."
-                        : "Send invitation"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        </div>
-      )}
       <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
         <AlertDialog
           onOpenChange={(isOpen) => {
@@ -476,7 +478,7 @@ export function OrgMembersTable() {
                 },
               },
             ]}
-            toolbarProps={defaultToolbarProps}
+            toolbarProps={toolbarProps}
           />
           <AlertDialogContent>
             <AlertDialogHeader>
