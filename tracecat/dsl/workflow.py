@@ -796,7 +796,10 @@ class DSLWorkflow:
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
                         arg=BuildAgentArgsActivityInput(
-                            args=dict(task.args), operand=agent_operand
+                            args=dict(task.args),
+                            operand=agent_operand,
+                            role=self.role,
+                            environment=self.run_context.environment,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -853,7 +856,10 @@ class DSLWorkflow:
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
                         arg=BuildAgentArgsActivityInput(
-                            args=dict(task.args), operand=agent_operand
+                            args=dict(task.args),
+                            operand=agent_operand,
+                            role=self.role,
+                            environment=self.run_context.environment,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -912,7 +918,10 @@ class DSLWorkflow:
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
                         arg=BuildPresetAgentArgsActivityInput(
-                            args=dict(task.args), operand=agent_operand
+                            args=dict(task.args),
+                            operand=agent_operand,
+                            role=self.role,
+                            environment=self.run_context.environment,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],

@@ -36,9 +36,11 @@ from tracecat.dsl.schemas import (
 from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.exceptions import TracecatExpressionError
+from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
+    collect_expressions,
     eval_templated_object,
     get_iterables_from_expression,
 )
@@ -118,11 +120,15 @@ class FinalizeGatherActivityResult(BaseModel):
 class BuildAgentArgsActivityInput(BaseModel):
     args: dict[str, Any]
     operand: ExecutionContext
+    role: Role
+    environment: str | None = None
 
 
 class BuildPresetAgentArgsActivityInput(BaseModel):
     args: dict[str, Any]
     operand: ExecutionContext
+    role: Role
+    environment: str | None = None
 
 
 class EvaluateTemplatedObjectActivityInput(BaseModel):
@@ -548,29 +554,59 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    def build_agent_args_activity(
+    async def build_agent_args_activity(
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
         """Build an AgentActionArgs from a dictionary of arguments.
 
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
+
+        Also resolves workspace variables (VARS) referenced in the args, mirroring
+        the enrichment done by executor/service.py for regular actions.
         """
-        materialized = run_sync(materialize_context(input.operand))
+        materialized = await materialize_context(input.operand)
+
+        # Collect expressions and resolve workspace variables
+        collected = collect_expressions(input.args)
+        if collected.variables:
+            workspace_variables = await get_workspace_variables(
+                variable_exprs=collected.variables,
+                environment=input.environment,
+                role=input.role,
+            )
+            if workspace_variables:
+                materialized["VARS"] = workspace_variables
+
         evaled_args = eval_templated_object(input.args, operand=materialized)
         return AgentActionArgs(**evaled_args)
 
     @staticmethod
     @activity.defn
-    def build_preset_agent_args_activity(
+    async def build_preset_agent_args_activity(
         input: BuildPresetAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
         """Build a PresetAgentActionArgs from a dictionary of arguments.
 
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
+
+        Also resolves workspace variables (VARS) referenced in the args, mirroring
+        the enrichment done by executor/service.py for regular actions.
         """
-        materialized = run_sync(materialize_context(input.operand))
+        materialized = await materialize_context(input.operand)
+
+        # Collect expressions and resolve workspace variables
+        collected = collect_expressions(input.args)
+        if collected.variables:
+            workspace_variables = await get_workspace_variables(
+                variable_exprs=collected.variables,
+                environment=input.environment,
+                role=input.role,
+            )
+            if workspace_variables:
+                materialized["VARS"] = workspace_variables
+
         evaled_args = eval_templated_object(input.args, operand=materialized)
         return PresetAgentActionArgs(**evaled_args)
 
