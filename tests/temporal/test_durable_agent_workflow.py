@@ -57,13 +57,12 @@ from tracecat.auth.types import Role
 from tracecat.db.models import User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.tiers import defaults as tier_defaults
 
 
 @pytest.fixture(autouse=True)
 def enable_agent_approvals_entitlement(monkeypatch):
     """Enable agent approvals entitlement for all tests in this module."""
-    from tracecat.tiers import defaults as tier_defaults
-
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
