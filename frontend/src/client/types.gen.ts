@@ -2680,58 +2680,6 @@ export type GraphResponse = {
 }
 
 /**
- * Create schema for a group assignment.
- */
-export type GroupAssignmentCreate = {
-  /**
-   * Group ID to assign
-   */
-  group_id: string
-  /**
-   * Role ID to assign to the group
-   */
-  role_id: string
-  /**
-   * Workspace ID for workspace-level assignment. If None, creates org-wide assignment.
-   */
-  workspace_id?: string | null
-}
-
-/**
- * Response schema for listing group assignments.
- */
-export type GroupAssignmentList = {
-  items: Array<GroupAssignmentReadWithDetails>
-  total: number
-}
-
-/**
- * Read schema for a group assignment with group and role details.
- */
-export type GroupAssignmentReadWithDetails = {
-  id: string
-  organization_id: string
-  group_id: string
-  workspace_id?: string | null
-  role_id: string
-  assigned_at: string
-  assigned_by?: string | null
-  group_name: string
-  role_name: string
-  workspace_name?: string | null
-}
-
-/**
- * Update schema for a group assignment (change role only).
- */
-export type GroupAssignmentUpdate = {
-  /**
-   * New role ID to assign
-   */
-  role_id: string
-}
-
-/**
  * Create schema for a group.
  */
 export type GroupCreate = {
@@ -2787,6 +2735,58 @@ export type GroupReadWithMembers = {
   created_by?: string | null
   members?: Array<GroupMemberRead>
   member_count?: number
+}
+
+/**
+ * Create schema for a group assignment.
+ */
+export type GroupRoleAssignmentCreate = {
+  /**
+   * Group ID to assign
+   */
+  group_id: string
+  /**
+   * Role ID to assign to the group
+   */
+  role_id: string
+  /**
+   * Workspace ID for workspace-level assignment. If None, creates org-wide assignment.
+   */
+  workspace_id?: string | null
+}
+
+/**
+ * Response schema for listing group assignments.
+ */
+export type GroupRoleAssignmentList = {
+  items: Array<GroupRoleAssignmentReadWithDetails>
+  total: number
+}
+
+/**
+ * Read schema for a group assignment with group and role details.
+ */
+export type GroupRoleAssignmentReadWithDetails = {
+  id: string
+  organization_id: string
+  group_id: string
+  workspace_id?: string | null
+  role_id: string
+  assigned_at: string
+  assigned_by?: string | null
+  group_name: string
+  role_name: string
+  workspace_name?: string | null
+}
+
+/**
+ * Update schema for a group assignment (change role only).
+ */
+export type GroupRoleAssignmentUpdate = {
+  /**
+   * New role ID to assign
+   */
+  role_id: string
 }
 
 /**
@@ -9091,26 +9091,26 @@ export type RbacListAssignmentsData = {
   workspaceId?: string | null
 }
 
-export type RbacListAssignmentsResponse = GroupAssignmentList
+export type RbacListAssignmentsResponse = GroupRoleAssignmentList
 
 export type RbacCreateAssignmentData = {
-  requestBody: GroupAssignmentCreate
+  requestBody: GroupRoleAssignmentCreate
 }
 
-export type RbacCreateAssignmentResponse = GroupAssignmentReadWithDetails
+export type RbacCreateAssignmentResponse = GroupRoleAssignmentReadWithDetails
 
 export type RbacGetAssignmentData = {
   assignmentId: string
 }
 
-export type RbacGetAssignmentResponse = GroupAssignmentReadWithDetails
+export type RbacGetAssignmentResponse = GroupRoleAssignmentReadWithDetails
 
 export type RbacUpdateAssignmentData = {
   assignmentId: string
-  requestBody: GroupAssignmentUpdate
+  requestBody: GroupRoleAssignmentUpdate
 }
 
-export type RbacUpdateAssignmentResponse = GroupAssignmentReadWithDetails
+export type RbacUpdateAssignmentResponse = GroupRoleAssignmentReadWithDetails
 
 export type RbacDeleteAssignmentData = {
   assignmentId: string
@@ -13642,7 +13642,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: GroupAssignmentList
+        200: GroupRoleAssignmentList
         /**
          * Validation Error
          */
@@ -13655,7 +13655,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: GroupAssignmentReadWithDetails
+        201: GroupRoleAssignmentReadWithDetails
         /**
          * Validation Error
          */
@@ -13670,7 +13670,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: GroupAssignmentReadWithDetails
+        200: GroupRoleAssignmentReadWithDetails
         /**
          * Validation Error
          */
@@ -13683,7 +13683,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: GroupAssignmentReadWithDetails
+        200: GroupRoleAssignmentReadWithDetails
         /**
          * Validation Error
          */

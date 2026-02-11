@@ -8,16 +8,15 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from tracecat.authz.enums import ScopeSource
+from tracecat.core.schemas import Schema
 
 # =============================================================================
 # Scope Schemas
 # =============================================================================
 
 
-class ScopeRead(BaseModel):
+class ScopeRead(Schema):
     """Read schema for a scope."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     name: str
@@ -76,7 +75,14 @@ class RoleRead(BaseModel):
     @property
     def is_system(self) -> bool:
         """Whether this is a system role (admin, editor, viewer)."""
-        return self.slug in {"admin", "editor", "viewer"}
+        return self.slug in {
+            "workspace-admin",
+            "workspace-editor",
+            "workspace-viewer",
+            "organization-owner",
+            "organization-admin",
+            "organization-member",
+        }
 
 
 class RoleReadWithScopes(RoleRead):
@@ -194,7 +200,7 @@ class GroupList(BaseModel):
 # =============================================================================
 
 
-class GroupAssignmentRead(BaseModel):
+class GroupRoleAssignmentRead(BaseModel):
     """Read schema for a group assignment."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -208,7 +214,7 @@ class GroupAssignmentRead(BaseModel):
     assigned_by: UUID | None = None
 
 
-class GroupAssignmentReadWithDetails(GroupAssignmentRead):
+class GroupRoleAssignmentReadWithDetails(GroupRoleAssignmentRead):
     """Read schema for a group assignment with group and role details."""
 
     group_name: str
@@ -216,7 +222,7 @@ class GroupAssignmentReadWithDetails(GroupAssignmentRead):
     workspace_name: str | None = None
 
 
-class GroupAssignmentCreate(BaseModel):
+class GroupRoleAssignmentCreate(BaseModel):
     """Create schema for a group assignment."""
 
     group_id: UUID = Field(..., description="Group ID to assign")
@@ -228,16 +234,16 @@ class GroupAssignmentCreate(BaseModel):
     )
 
 
-class GroupAssignmentUpdate(BaseModel):
+class GroupRoleAssignmentUpdate(BaseModel):
     """Update schema for a group assignment (change role only)."""
 
     role_id: UUID = Field(..., description="New role ID to assign")
 
 
-class GroupAssignmentList(BaseModel):
+class GroupRoleAssignmentList(BaseModel):
     """Response schema for listing group assignments."""
 
-    items: list[GroupAssignmentReadWithDetails]
+    items: list[GroupRoleAssignmentReadWithDetails]
     total: int
 
 

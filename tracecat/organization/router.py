@@ -22,7 +22,7 @@ from tracecat.db.models import (
     UserRoleAssignment,
 )
 from tracecat.db.models import (
-    Role as RoleModel,
+    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -189,8 +189,8 @@ async def get_current_org_member(
     if user is not None:
         # Get their org-level role from RBAC tables
         role_stmt = (
-            select(UserRoleAssignment.role_id, RoleModel.slug)
-            .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+            select(UserRoleAssignment.role_id, DBRole.slug)
+            .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
             .where(
                 UserRoleAssignment.user_id == role.user_id,
                 UserRoleAssignment.organization_id == role.organization_id,

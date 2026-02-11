@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from uuid import UUID
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
@@ -22,14 +23,14 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import (
-    Role as RoleModel,
+    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.identifiers import UserID, WorkspaceID
+from tracecat.identifiers import WorkspaceID
 from tracecat.service import BaseOrgService
 
 
@@ -57,17 +58,15 @@ class RBACService(BaseOrgService):
         Returns:
             List of Scope objects
         """
-        # Build query for org-specific scopes
-        conditions = [Scope.organization_id == self.organization_id]
-
         if include_system:
-            # Include system scopes (organization_id IS NULL)
-            conditions = [
-                (Scope.organization_id == self.organization_id)
-                | (Scope.organization_id.is_(None))
-            ]
+            # Include system scopes (organization_id IS NULL).
+            visibility_condition = (Scope.organization_id == self.organization_id) | (
+                Scope.organization_id.is_(None)
+            )
+        else:
+            visibility_condition = Scope.organization_id == self.organization_id
 
-        stmt = select(Scope).where(*conditions)
+        stmt = select(Scope).where(visibility_condition)
 
         if source is not None:
             stmt = stmt.where(Scope.source == source)
@@ -76,7 +75,7 @@ class RBACService(BaseOrgService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_scope(self, scope_id: UserID) -> Scope:
+    async def get_scope(self, scope_id: UUID) -> Scope:
         """Get a scope by ID."""
         stmt = select(Scope).where(
             Scope.id == scope_id,
@@ -133,7 +132,7 @@ class RBACService(BaseOrgService):
         return scope
 
     @audit_log(resource_type="rbac_scope", action="delete", resource_id_attr="scope_id")
-    async def delete_scope(self, scope_id: UserID) -> None:
+    async def delete_scope(self, scope_id: UUID) -> None:
         """Delete a custom scope.
 
         Only custom scopes (source=CUSTOM) can be deleted.
@@ -155,27 +154,27 @@ class RBACService(BaseOrgService):
     # Role Management
     # =========================================================================
 
-    async def list_roles(self) -> Sequence[RoleModel]:
+    async def list_roles(self) -> Sequence[DBRole]:
         """List roles for the organization."""
         stmt = (
-            select(RoleModel)
-            .where(RoleModel.organization_id == self.organization_id)
-            .options(selectinload(RoleModel.scopes))
-            .order_by(RoleModel.name)
+            select(DBRole)
+            .where(DBRole.organization_id == self.organization_id)
+            .options(selectinload(DBRole.scopes))
+            .order_by(DBRole.name)
         )
 
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_role(self, role_id: UserID) -> RoleModel:
+    async def get_role(self, role_id: UUID) -> DBRole:
         """Get a role by ID with its scopes."""
         stmt = (
-            select(RoleModel)
+            select(DBRole)
             .where(
-                RoleModel.id == role_id,
-                RoleModel.organization_id == self.organization_id,
+                DBRole.id == role_id,
+                DBRole.organization_id == self.organization_id,
             )
-            .options(selectinload(RoleModel.scopes))
+            .options(selectinload(DBRole.scopes))
         )
         result = await self.session.execute(stmt)
         role = result.scalar_one_or_none()
@@ -189,13 +188,13 @@ class RBACService(BaseOrgService):
         *,
         name: str,
         description: str | None = None,
-        scope_ids: list[UserID] | None = None,
-    ) -> RoleModel:
+        scope_ids: list[UUID] | None = None,
+    ) -> DBRole:
         """Create a custom role for the organization."""
         if self.role.user_id is None:
             raise TracecatAuthorizationError("User ID required to create role")
 
-        role = RoleModel(
+        role = DBRole(
             name=name,
             description=description,
             organization_id=self.organization_id,
@@ -215,12 +214,12 @@ class RBACService(BaseOrgService):
     @audit_log(resource_type="rbac_role", action="update", resource_id_attr="role_id")
     async def update_role(
         self,
-        role_id: UserID,
+        role_id: UUID,
         *,
         name: str | None = None,
         description: str | None = None,
-        scope_ids: list[UserID] | None = None,
-    ) -> RoleModel:
+        scope_ids: list[UUID] | None = None,
+    ) -> DBRole:
         """Update a role.
 
         System roles (admin, editor, viewer) cannot have their scopes modified.
@@ -244,7 +243,7 @@ class RBACService(BaseOrgService):
         return role
 
     @audit_log(resource_type="rbac_role", action="delete", resource_id_attr="role_id")
-    async def delete_role(self, role_id: UserID) -> None:
+    async def delete_role(self, role_id: UUID) -> None:
         """Delete a role.
 
         System roles (admin, editor, viewer) cannot be deleted.
@@ -278,7 +277,7 @@ class RBACService(BaseOrgService):
         await self.session.delete(role)
         await self.session.commit()
 
-    async def _set_role_scopes(self, role_id: UserID, scope_ids: list[UserID]) -> None:
+    async def _set_role_scopes(self, role_id: UUID, scope_ids: list[UUID]) -> None:
         """Set the scopes for a role (replaces existing)."""
         # Delete existing role-scope associations
         await self.session.execute(
@@ -287,10 +286,40 @@ class RBACService(BaseOrgService):
 
         # Add new associations
         for scope_id in scope_ids:
-            # Verify scope exists and is accessible
-            await self.get_scope(scope_id)
+            await self._assert_scope_exists(scope_id)
             role_scope = RoleScope(role_id=role_id, scope_id=scope_id)
             self.session.add(role_scope)
+
+    async def _assert_scope_exists(self, scope_id: UUID) -> None:
+        """Assert a scope exists and is accessible to the organization."""
+        stmt = select(Scope.id).where(
+            Scope.id == scope_id,
+            (Scope.organization_id == self.organization_id)
+            | (Scope.organization_id.is_(None)),
+        )
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise TracecatNotFoundError("Scope not found")
+
+    async def _assert_group_exists(self, group_id: UUID) -> None:
+        """Assert a group exists and belongs to the organization."""
+        stmt = select(Group.id).where(
+            Group.id == group_id,
+            Group.organization_id == self.organization_id,
+        )
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise TracecatNotFoundError("Group not found")
+
+    async def _assert_role_exists(self, role_id: UUID) -> None:
+        """Assert a role exists and belongs to the organization."""
+        stmt = select(DBRole.id).where(
+            DBRole.id == role_id,
+            DBRole.organization_id == self.organization_id,
+        )
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise TracecatNotFoundError("Role not found")
 
     # =========================================================================
     # Group Management
@@ -307,7 +336,7 @@ class RBACService(BaseOrgService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_group(self, group_id: UserID) -> Group:
+    async def get_group(self, group_id: UUID) -> Group:
         """Get a group by ID with its members."""
         stmt = (
             select(Group)
@@ -345,7 +374,7 @@ class RBACService(BaseOrgService):
     @audit_log(resource_type="rbac_group", action="update", resource_id_attr="group_id")
     async def update_group(
         self,
-        group_id: UserID,
+        group_id: UUID,
         *,
         name: str | None = None,
         description: str | None = None,
@@ -363,7 +392,7 @@ class RBACService(BaseOrgService):
         return group
 
     @audit_log(resource_type="rbac_group", action="delete", resource_id_attr="group_id")
-    async def delete_group(self, group_id: UserID) -> None:
+    async def delete_group(self, group_id: UUID) -> None:
         """Delete a group."""
         group = await self.get_group(group_id)
         await self.session.delete(group)
@@ -372,10 +401,10 @@ class RBACService(BaseOrgService):
     @audit_log(
         resource_type="rbac_group_member", action="create", resource_id_attr="group_id"
     )
-    async def add_group_member(self, group_id: UserID, user_id: UserID) -> None:
+    async def add_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Add a user to a group."""
         # Verify group exists
-        await self.get_group(group_id)
+        await self._assert_group_exists(group_id)
 
         # Verify user belongs to this organization
         stmt = select(OrganizationMembership).where(
@@ -402,7 +431,7 @@ class RBACService(BaseOrgService):
     @audit_log(
         resource_type="rbac_group_member", action="delete", resource_id_attr="group_id"
     )
-    async def remove_group_member(self, group_id: UserID, user_id: UserID) -> None:
+    async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
         stmt = select(GroupMember).where(
             GroupMember.group_id == group_id,
@@ -417,7 +446,7 @@ class RBACService(BaseOrgService):
         await self.session.commit()
 
     async def list_group_members(
-        self, group_id: UserID
+        self, group_id: UUID
     ) -> Sequence[tuple[User, GroupMember]]:
         """List members of a group with their membership info."""
         stmt = (
@@ -433,10 +462,10 @@ class RBACService(BaseOrgService):
     # Group Assignment Management
     # =========================================================================
 
-    async def list_assignments(
+    async def list_group_role_assignments(
         self,
         *,
-        group_id: UserID | None = None,
+        group_id: UUID | None = None,
         workspace_id: WorkspaceID | None = None,
     ) -> Sequence[GroupRoleAssignment]:
         """List group assignments for the organization."""
@@ -458,7 +487,9 @@ class RBACService(BaseOrgService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_assignment(self, assignment_id: UserID) -> GroupRoleAssignment:
+    async def get_group_role_assignment(
+        self, assignment_id: UUID
+    ) -> GroupRoleAssignment:
         """Get a group assignment by ID."""
         stmt = (
             select(GroupRoleAssignment)
@@ -479,11 +510,11 @@ class RBACService(BaseOrgService):
         return assignment
 
     @audit_log(resource_type="rbac_assignment", action="create")
-    async def create_assignment(
+    async def create_group_role_assignment(
         self,
         *,
-        group_id: UserID,
-        role_id: UserID,
+        group_id: UUID,
+        role_id: UUID,
         workspace_id: WorkspaceID | None = None,
     ) -> GroupRoleAssignment:
         """Create a group assignment.
@@ -497,8 +528,8 @@ class RBACService(BaseOrgService):
             Created GroupRoleAssignment
         """
         # Verify role and group exist
-        await self.get_group(group_id)
-        await self.get_role(role_id)
+        await self._assert_group_exists(group_id)
+        await self._assert_role_exists(role_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
@@ -527,17 +558,17 @@ class RBACService(BaseOrgService):
         action="update",
         resource_id_attr="assignment_id",
     )
-    async def update_assignment(
+    async def update_group_role_assignment(
         self,
-        assignment_id: UserID,
+        assignment_id: UUID,
         *,
-        role_id: UserID,
+        role_id: UUID,
     ) -> GroupRoleAssignment:
         """Update a group assignment (change role)."""
-        assignment = await self.get_assignment(assignment_id)
+        assignment = await self.get_group_role_assignment(assignment_id)
 
         # Verify new role exists
-        await self.get_role(role_id)
+        await self._assert_role_exists(role_id)
 
         assignment.role_id = role_id
         await self.session.commit()
@@ -549,9 +580,9 @@ class RBACService(BaseOrgService):
         action="delete",
         resource_id_attr="assignment_id",
     )
-    async def delete_assignment(self, assignment_id: UserID) -> None:
+    async def delete_group_role_assignment(self, assignment_id: UUID) -> None:
         """Delete a group assignment."""
-        assignment = await self.get_assignment(assignment_id)
+        assignment = await self.get_group_role_assignment(assignment_id)
         await self.session.delete(assignment)
         await self.session.commit()
 
@@ -562,7 +593,7 @@ class RBACService(BaseOrgService):
     async def list_user_assignments(
         self,
         *,
-        user_id: UserID | None = None,
+        user_id: UUID | None = None,
         workspace_id: WorkspaceID | None = None,
     ) -> Sequence[UserRoleAssignment]:
         """List user role assignments for the organization."""
@@ -584,7 +615,7 @@ class RBACService(BaseOrgService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_user_assignment(self, assignment_id: UserID) -> UserRoleAssignment:
+    async def get_user_assignment(self, assignment_id: UUID) -> UserRoleAssignment:
         """Get a user role assignment by ID."""
         stmt = (
             select(UserRoleAssignment)
@@ -608,8 +639,8 @@ class RBACService(BaseOrgService):
     async def create_user_assignment(
         self,
         *,
-        user_id: UserID,
-        role_id: UserID,
+        user_id: UUID,
+        role_id: UUID,
         workspace_id: WorkspaceID | None = None,
     ) -> UserRoleAssignment:
         """Create a user role assignment.
@@ -632,7 +663,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
-        await self.get_role(role_id)
+        await self._assert_role_exists(role_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
@@ -663,15 +694,15 @@ class RBACService(BaseOrgService):
     )
     async def update_user_assignment(
         self,
-        assignment_id: UserID,
+        assignment_id: UUID,
         *,
-        role_id: UserID,
+        role_id: UUID,
     ) -> UserRoleAssignment:
         """Update a user role assignment (change role)."""
         assignment = await self.get_user_assignment(assignment_id)
 
         # Verify new role exists
-        await self.get_role(role_id)
+        await self._assert_role_exists(role_id)
 
         assignment.role_id = role_id
         await self.session.commit()
@@ -683,7 +714,7 @@ class RBACService(BaseOrgService):
         action="delete",
         resource_id_attr="assignment_id",
     )
-    async def delete_user_assignment(self, assignment_id: UserID) -> None:
+    async def delete_user_assignment(self, assignment_id: UUID) -> None:
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
@@ -691,7 +722,7 @@ class RBACService(BaseOrgService):
 
     async def get_user_role_scopes(
         self,
-        user_id: UserID,
+        user_id: UUID,
         *,
         workspace_id: WorkspaceID | None = None,
     ) -> frozenset[str]:
@@ -709,8 +740,8 @@ class RBACService(BaseOrgService):
         stmt = (
             select(Scope.name)
             .select_from(UserRoleAssignment)
-            .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
-            .join(RoleScope, RoleScope.role_id == RoleModel.id)
+            .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
+            .join(RoleScope, RoleScope.role_id == DBRole.id)
             .join(Scope, RoleScope.scope_id == Scope.id)
             .where(
                 UserRoleAssignment.user_id == user_id,
@@ -741,7 +772,7 @@ class RBACService(BaseOrgService):
 
     async def get_group_scopes(
         self,
-        user_id: UserID,
+        user_id: UUID,
         *,
         workspace_id: WorkspaceID | None = None,
     ) -> frozenset[str]:
@@ -766,8 +797,8 @@ class RBACService(BaseOrgService):
             .select_from(GroupMember)
             .join(Group, GroupMember.group_id == Group.id)
             .join(GroupRoleAssignment, GroupRoleAssignment.group_id == Group.id)
-            .join(RoleModel, GroupRoleAssignment.role_id == RoleModel.id)
-            .join(RoleScope, RoleScope.role_id == RoleModel.id)
+            .join(DBRole, GroupRoleAssignment.role_id == DBRole.id)
+            .join(RoleScope, RoleScope.role_id == DBRole.id)
             .join(Scope, RoleScope.scope_id == Scope.id)
             .where(
                 GroupMember.user_id == user_id,
@@ -794,7 +825,7 @@ class RBACService(BaseOrgService):
 
     async def get_user_effective_scopes(
         self,
-        user_id: UserID,
+        user_id: UUID,
         *,
         workspace_id: WorkspaceID | None = None,
     ) -> dict[str, list[str]]:
