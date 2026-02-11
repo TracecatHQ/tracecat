@@ -23,7 +23,7 @@ from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 _PASTA_GATEWAY_IP = "10.255.255.1"
 
 
-def _build_sandbox_resolv_conf() -> str:
+def build_sandbox_resolv_conf() -> str:
     """Build resolv.conf for the sandbox with pasta nameserver + host search domains.
 
     Reads the host's /etc/resolv.conf to extract `search` and `options` lines
@@ -288,7 +288,7 @@ class NsjailExecutor:
         # Docker export leaves these empty since Docker manages them at runtime
         if network_enabled:
             resolv_conf_path = job_dir / "resolv.conf"
-            resolv_conf_path.write_text(_build_sandbox_resolv_conf())
+            resolv_conf_path.write_text(build_sandbox_resolv_conf())
 
             hosts_path = job_dir / "hosts"
             hosts_path.write_text(
@@ -743,7 +743,7 @@ class NsjailExecutor:
         # Network config: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
         # Docker export leaves /etc files empty since Docker manages them at runtime
         resolv_conf_path = job_dir / "resolv.conf"
-        resolv_conf_path.write_text(_build_sandbox_resolv_conf())
+        resolv_conf_path.write_text(build_sandbox_resolv_conf())
 
         hosts_path = job_dir / "hosts"
         hosts_path.write_text(
