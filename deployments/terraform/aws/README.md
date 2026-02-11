@@ -15,14 +15,8 @@ Deploy Tracecat on AWS EKS with managed services (RDS PostgreSQL, ElastiCache Re
 
 The Terraform stack is split into two modules: `network` and `eks`.
 
-`network` deploys:
-- VPC
-
-`eks` deploys:
-- EKS cluster
-
-Note: the `eks` module is agnostic to `network` module.
-It can be deployed into any VPC.
+- `network` module: VPC, subnets, NAT gateways, ACM certificate
+- `eks` module: EKS cluster, node groups, add-ons, RDS, ElastiCache, S3, Tracecat Helm release
 
 This stack always provisions RDS, ElastiCache, and S3. The only deployment mode toggle is Temporal (`temporal_mode` = `self-hosted` or `cloud`). It also installs External Secrets Operator to sync AWS Secrets Manager secrets into Kubernetes, including the generated `rediss://` Redis URL.
 
