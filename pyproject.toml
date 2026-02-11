@@ -34,7 +34,7 @@ dependencies = [
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
     "croniter==6.0.0",
-    "cryptography==44.0.1",
+    "cryptography==46.0.5",
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
@@ -44,7 +44,7 @@ dependencies = [
     "fickling==0.1.7",
     "filelock==3.20.3",
     "fastapi-sso==0.16.0",
-    "google-auth==2.37.0",
+    "google-auth==2.48.0",
     "greenlet==3.0.3",
     "hatchling==1.27.0",
     "httpx==0.28.1",
@@ -62,7 +62,7 @@ dependencies = [
     "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
-    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.29.0",
+    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.58.0",
     "pydantic-extra-types==2.11.0",
     "pydantic==2.12.5",
     "pygithub==2.8.1",
@@ -115,6 +115,7 @@ override-dependencies = [
     "rich==13.9.4",
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",
+    "pillow==12.1.1",
 ]
 
 [dependency-groups]
