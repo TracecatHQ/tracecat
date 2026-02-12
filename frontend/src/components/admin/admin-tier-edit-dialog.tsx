@@ -27,6 +27,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminTier } from "@/hooks/use-admin"
+import {
+  TIER_ENTITLEMENTS,
+  tierEntitlementsSchema,
+  withDefaultTierEntitlements,
+} from "@/lib/tier-entitlements"
 
 const formSchema = z.object({
   display_name: z
@@ -53,6 +58,7 @@ const formSchema = z.object({
     .nullable(),
   api_rate_limit: z.coerce.number().int().positive().optional().nullable(),
   api_burst_capacity: z.coerce.number().int().positive().optional().nullable(),
+  entitlements: tierEntitlementsSchema,
   is_default: z.boolean(),
   is_active: z.boolean(),
   sort_order: z.coerce.number().int().min(0),
@@ -88,6 +94,7 @@ export function AdminTierEditDialog({
     resolver: zodResolver(formSchema),
     defaultValues: {
       display_name: "",
+      entitlements: withDefaultTierEntitlements(),
       is_default: false,
       is_active: true,
       sort_order: 0,
@@ -104,6 +111,7 @@ export function AdminTierEditDialog({
         max_concurrent_actions: tier.max_concurrent_actions,
         api_rate_limit: tier.api_rate_limit,
         api_burst_capacity: tier.api_burst_capacity,
+        entitlements: withDefaultTierEntitlements(tier.entitlements),
         is_default: tier.is_default,
         is_active: tier.is_active,
         sort_order: tier.sort_order,
@@ -121,6 +129,7 @@ export function AdminTierEditDialog({
         max_concurrent_actions: values.max_concurrent_actions ?? null,
         api_rate_limit: values.api_rate_limit ?? null,
         api_burst_capacity: values.api_burst_capacity ?? null,
+        entitlements: values.entitlements,
         is_default: values.is_default,
         is_active: values.is_active,
         sort_order: values.sort_order,
@@ -355,6 +364,38 @@ export function AdminTierEditDialog({
                       </FormItem>
                     )}
                   />
+                </div>
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="mb-3 text-sm font-medium">Entitlements</h4>
+                <div className="space-y-3">
+                  {TIER_ENTITLEMENTS.map((entitlement) => (
+                    <FormField
+                      key={entitlement.key}
+                      control={form.control}
+                      name={`entitlements.${entitlement.key}` as const}
+                      render={({ field }) => (
+                        <FormItem className="flex items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) =>
+                                field.onChange(checked === true)
+                              }
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel className="font-normal">
+                              {entitlement.label}
+                            </FormLabel>
+                            <FormDescription>
+                              {entitlement.description}
+                            </FormDescription>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  ))}
                 </div>
               </div>
 

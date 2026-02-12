@@ -1,6 +1,10 @@
 "use client"
 
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import {
+  CheckIcon,
+  Cross2Icon,
+  DotsHorizontalIcon,
+} from "@radix-ui/react-icons"
 import { useState } from "react"
 import type { TierRead } from "@/client"
 import { AdminTierEditDialog } from "@/components/admin/admin-tier-edit-dialog"
@@ -30,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminTiers } from "@/hooks/use-admin"
+import { TIER_ENTITLEMENTS } from "@/lib/tier-entitlements"
 
 export function AdminTiersTable() {
   const [editTierId, setEditTierId] = useState<string | null>(null)
@@ -69,7 +74,6 @@ export function AdminTiersTable() {
       >
         <DataTable
           data={tiers ?? []}
-          initialSortingState={[{ id: "sort_order", desc: false }]}
           columns={[
             {
               accessorKey: "display_name",
@@ -103,7 +107,9 @@ export function AdminTiersTable() {
               ),
               cell: ({ row }) =>
                 row.getValue<TierRead["is_default"]>("is_default") ? (
-                  <div className="text-xs font-medium">Default</div>
+                  <div className="flex items-center text-xs font-medium">
+                    <CheckIcon aria-label="Default tier" className="size-4" />
+                  </div>
                 ) : (
                   <div className="text-xs text-muted-foreground">-</div>
                 ),
@@ -111,21 +117,64 @@ export function AdminTiersTable() {
               enableHiding: false,
             },
             {
-              accessorKey: "sort_order",
+              accessorKey: "is_active",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Order"
+                  title="Active"
                 />
               ),
-              cell: ({ row }) => (
-                <div className="text-xs text-muted-foreground">
-                  {row.getValue<TierRead["sort_order"]>("sort_order")}
-                </div>
-              ),
+              cell: ({ row }) => {
+                const isActive =
+                  row.getValue<TierRead["is_active"]>("is_active")
+                return (
+                  <div className="flex items-center text-xs">
+                    {isActive ? (
+                      <CheckIcon aria-label="Active tier" className="size-4" />
+                    ) : (
+                      <Cross2Icon
+                        aria-label="Inactive tier"
+                        className="size-4 text-muted-foreground"
+                      />
+                    )}
+                  </div>
+                )
+              },
               enableSorting: true,
-              enableHiding: true,
+              enableHiding: false,
+            },
+            {
+              id: "entitlements",
+              accessorFn: (row) =>
+                getEnabledEntitlements(row)
+                  .map((item) => item.label)
+                  .join(", "),
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Entitlements"
+                />
+              ),
+              cell: ({ row }) => {
+                const enabledEntitlements = getEnabledEntitlements(row.original)
+                return (
+                  <div className="text-xs text-muted-foreground">
+                    {enabledEntitlements.length > 0 ? (
+                      <div className="flex flex-col gap-1">
+                        {enabledEntitlements.map((item) => (
+                          <span key={item.key}>{item.label}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      "None"
+                    )}
+                  </div>
+                )
+              },
+              enableSorting: true,
+              enableHiding: false,
             },
             {
               accessorKey: "max_concurrent_workflows",
@@ -263,4 +312,10 @@ const defaultToolbarProps: DataTableToolbarProps<TierRead> = {
     placeholder: "Filter tiers...",
     column: "display_name",
   },
+}
+
+function getEnabledEntitlements(tier: TierRead) {
+  return TIER_ENTITLEMENTS.filter(
+    (entitlement) => tier.entitlements[entitlement.key] === true
+  )
 }
