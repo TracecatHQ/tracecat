@@ -11,6 +11,7 @@ from tracecat import config
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
 from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.exceptions import TracecatValidationError
 from tracecat.organization.domains import normalize_domain
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -106,6 +107,7 @@ async def test_discovery_falls_back_when_mapped_org_is_inactive(
     assert response.method == AuthDiscoveryMethod.OIDC
 
 
+@pytest.mark.anyio
 async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -133,3 +135,46 @@ async def test_discovery_returns_basic_when_basic_is_only_platform_auth_type(
     response = await service.discover("user@unknown-domain.example")
 
     assert response.method == AuthDiscoveryMethod.BASIC
+
+
+@pytest.mark.anyio
+async def test_discovery_prefers_org_hint_over_email_domain(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover(
+        "user@external-guest.example", org_slug=organization.slug
+    )
+
+    assert response.method == AuthDiscoveryMethod.SAML
+    assert response.organization_slug == organization.slug
+    assert response.next_url is not None
+    assert f"org={organization.slug}" in response.next_url
+
+
+@pytest.mark.anyio
+async def test_discovery_rejects_invalid_org_hint_without_fallback(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_domain(session, organization.id, "acme.com")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+    )
+    service = AuthDiscoveryService(session)
+
+    with pytest.raises(TracecatValidationError) as exc:
+        await service.discover("user@acme.com", org_slug="does-not-exist")
+
+    assert str(exc.value) == "Invalid organization"
