@@ -329,6 +329,7 @@ class OrgService(BaseOrgService):
         await self.session.refresh(membership)
         return membership
 
+    @audit_log(resource_type="organization", action="delete")
     @require_org_role(OrgRole.OWNER)
     async def delete_organization(self, *, confirmation: str | None) -> None:
         """Delete the current organization and all associated resources."""
