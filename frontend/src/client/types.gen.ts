@@ -3244,6 +3244,7 @@ export type OrgInvitationAccept = {
 export type OrgInvitationCreate = {
   email: string
   role?: OrgRole
+  workspace_assignments?: Array<WorkspaceAssignment>
 }
 
 /**
@@ -3259,6 +3260,7 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
+  workspace_invitations_created?: number
 }
 
 /**
@@ -5548,6 +5550,15 @@ export type UserUpdate = {
   } | null
 }
 
+/**
+ * A user's membership in a workspace, for org-level viewing.
+ */
+export type UserWorkspaceMembership = {
+  workspace_id: string
+  workspace_name: string
+  role: WorkspaceRole
+}
+
 export type ValidationDetail = {
   type: string
   msg: string
@@ -6198,6 +6209,14 @@ export type WorkflowUpdate = {
   config?: DSLConfig_Input | null
   alias?: string | null
   error_handler?: string | null
+}
+
+/**
+ * Workspace + role pair for assigning a user to a workspace at invite time.
+ */
+export type WorkspaceAssignment = {
+  workspace_id: string
+  role?: WorkspaceRole
 }
 
 export type WorkspaceCreate = {
@@ -7215,6 +7234,13 @@ export type OrganizationUpdateOrgMemberData = {
 }
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
+
+export type OrganizationListMemberWorkspaceMembershipsData = {
+  userId: string
+}
+
+export type OrganizationListMemberWorkspaceMembershipsResponse =
+  Array<UserWorkspaceMembership>
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -10244,6 +10270,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgMemberDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/{user_id}/workspace-memberships": {
+    get: {
+      req: OrganizationListMemberWorkspaceMembershipsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<UserWorkspaceMembership>
         /**
          * Validation Error
          */

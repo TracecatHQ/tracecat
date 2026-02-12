@@ -2,14 +2,18 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
-import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { XIcon } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   type OrgMemberRead,
   type OrgRole,
   organizationGetInvitationToken,
   type UserRole,
+  type WorkspaceRole,
+  workspacesCreateWorkspaceInvitation,
+  workspacesUpdateWorkspaceMembership,
 } from "@/client"
 import {
   DataTable,
@@ -56,6 +60,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -66,11 +71,21 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
-import { useOrgMembers } from "@/lib/hooks"
+import {
+  useOrgMembers,
+  useOrgMemberWorkspaces,
+  useWorkspaceManager,
+} from "@/lib/hooks"
 
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["member", "admin", "owner"]),
+  workspace_assignments: z.array(
+    z.object({
+      workspace_id: z.string().uuid(),
+      role: z.enum(["viewer", "editor", "admin"]),
+    })
+  ),
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
@@ -79,20 +94,35 @@ function InviteMemberDialogButton() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const { canAdministerOrg } = useOrgMembership()
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
+  const { workspaces } = useWorkspaceManager()
 
   const form = useForm<InvitationFormValues>({
     resolver: zodResolver(invitationFormSchema),
     defaultValues: {
       email: "",
       role: "member",
+      workspace_assignments: [],
     },
   })
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "workspace_assignments",
+  })
+
+  const selectedWorkspaceIds = form
+    .watch("workspace_assignments")
+    .map((a) => a.workspace_id)
+  const availableWorkspaces = (workspaces ?? []).filter(
+    (ws) => !selectedWorkspaceIds.includes(ws.id)
+  )
 
   const handleCreateInvitation = async (values: InvitationFormValues) => {
     try {
       await createInvitation({
         email: values.email,
         role: values.role as OrgRole,
+        workspace_assignments: values.workspace_assignments,
       })
       form.reset()
       setIsCreateDialogOpen(false)
@@ -106,7 +136,13 @@ function InviteMemberDialogButton() {
   }
 
   return (
-    <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+    <Dialog
+      open={isCreateDialogOpen}
+      onOpenChange={(open) => {
+        setIsCreateDialogOpen(open)
+        if (!open) form.reset()
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm">
           <PlusIcon className="mr-2 size-4" />
@@ -150,7 +186,7 @@ function InviteMemberDialogButton() {
               name="role"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Role</FormLabel>
+                  <FormLabel>Organization role</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     defaultValue={field.value}
@@ -173,6 +209,90 @@ function InviteMemberDialogButton() {
                 </FormItem>
               )}
             />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">
+                  Workspace assignments
+                </Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={availableWorkspaces.length === 0}
+                  onClick={() => append({ workspace_id: "", role: "editor" })}
+                >
+                  Add
+                </Button>
+              </div>
+              {fields.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No workspace assignments. The user will only be invited to the
+                  organization.
+                </p>
+              )}
+              {fields.map((field, index) => (
+                <div key={field.id} className="flex items-center gap-2">
+                  <Select
+                    value={form.watch(
+                      `workspace_assignments.${index}.workspace_id`
+                    )}
+                    onValueChange={(value) =>
+                      form.setValue(
+                        `workspace_assignments.${index}.workspace_id`,
+                        value
+                      )
+                    }
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select workspace" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(workspaces ?? [])
+                        .filter(
+                          (ws) =>
+                            !selectedWorkspaceIds.includes(ws.id) ||
+                            ws.id ===
+                              form.watch(
+                                `workspace_assignments.${index}.workspace_id`
+                              )
+                        )
+                        .map((ws) => (
+                          <SelectItem key={ws.id} value={ws.id}>
+                            {ws.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={form.watch(`workspace_assignments.${index}.role`)}
+                    onValueChange={(value) =>
+                      form.setValue(
+                        `workspace_assignments.${index}.role`,
+                        value as "viewer" | "editor" | "admin"
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="viewer">Viewer</SelectItem>
+                      <SelectItem value="editor">Editor</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    onClick={() => remove(index)}
+                  >
+                    <XIcon className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
             <DialogFooter>
               <Button
                 type="button"
@@ -197,6 +317,7 @@ export function OrgMembersTable() {
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
+  const [isAssignWorkspaceOpen, setIsAssignWorkspaceOpen] = useState(false)
   const { canAdministerOrg } = useOrgMembership()
   const { orgMembers, updateOrgMember, deleteOrgMember, revokeInvitation } =
     useOrgMembers()
@@ -257,7 +378,13 @@ export function OrgMembersTable() {
 
   return (
     <div className="space-y-4">
-      <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
+      <Dialog
+        open={isChangeRoleOpen}
+        onOpenChange={(open) => {
+          setIsChangeRoleOpen(open)
+          if (!open) setSelectedMember(null)
+        }}
+      >
         <AlertDialog
           onOpenChange={(isOpen) => {
             if (!isOpen) {
@@ -459,6 +586,14 @@ export function OrgMembersTable() {
                                     Change role
                                   </DropdownMenuItem>
                                 </DialogTrigger>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedMember(member)
+                                    setIsAssignWorkspaceOpen(true)
+                                  }}
+                                >
+                                  Assign to workspace
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <AlertDialogTrigger asChild>
                                   <DropdownMenuItem
@@ -514,7 +649,117 @@ export function OrgMembersTable() {
           onConfirm={handleChangeRole}
         />
       </Dialog>
+      <AssignToWorkspaceDialog
+        open={isAssignWorkspaceOpen}
+        onOpenChange={(open) => {
+          setIsAssignWorkspaceOpen(open)
+          if (!open) setSelectedMember(null)
+        }}
+        member={selectedMember}
+      />
     </div>
+  )
+}
+
+function AssignToWorkspaceDialog({
+  open,
+  onOpenChange,
+  member,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  member: OrgMemberRead | null
+}) {
+  const [workspaceId, setWorkspaceId] = useState<string>("")
+  const [wsRole, setWsRole] = useState<WorkspaceRole>("editor")
+  const [isPending, setIsPending] = useState(false)
+  const { workspaces } = useWorkspaceManager()
+
+  const handleSubmit = useCallback(async () => {
+    if (!member?.email || !workspaceId) return
+    setIsPending(true)
+    try {
+      await workspacesCreateWorkspaceInvitation({
+        workspaceId,
+        requestBody: { email: member.email, role: wsRole },
+      })
+      toast({
+        title: "Workspace invitation sent",
+        description: `${member.email} has been invited to the workspace.`,
+      })
+      onOpenChange(false)
+    } catch {
+      toast({
+        title: "Failed to assign workspace",
+        description:
+          "An error occurred while creating the workspace invitation.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsPending(false)
+    }
+  }, [member?.email, workspaceId, wsRole, onOpenChange])
+
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setWorkspaceId("")
+      setWsRole("editor")
+    }
+  }, [open])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Assign to workspace</DialogTitle>
+          <DialogDescription>
+            Invite {member?.email} to a workspace.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label className="text-sm">Workspace</Label>
+            <Select value={workspaceId} onValueChange={setWorkspaceId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select workspace" />
+              </SelectTrigger>
+              <SelectContent>
+                {(workspaces ?? []).map((ws) => (
+                  <SelectItem key={ws.id} value={ws.id}>
+                    {ws.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm">Workspace role</Label>
+            <Select
+              value={wsRole}
+              onValueChange={(v) => setWsRole(v as WorkspaceRole)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewer">Viewer</SelectItem>
+                <SelectItem value="editor">Editor</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={!workspaceId || isPending}>
+            {isPending ? "Sending..." : "Assign"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -528,31 +773,122 @@ function ChangeUserRoleDialog({
   onConfirm: (role: UserRole) => void
 }) {
   const [newRole, setNewRole] = useState<UserRole>("basic")
+  const [wsRoleChanges, setWsRoleChanges] = useState<
+    Record<string, WorkspaceRole>
+  >({})
+  const [isSaving, setIsSaving] = useState(false)
+  const { workspaceMemberships, workspaceMembershipsLoading } =
+    useOrgMemberWorkspaces(selectedUser?.user_id)
+
+  // Reset local state when the selected user changes
+  useEffect(() => {
+    setWsRoleChanges({})
+  }, [selectedUser?.user_id])
+
+  const handleConfirm = useCallback(async () => {
+    if (!selectedUser?.user_id) return
+    setIsSaving(true)
+    try {
+      // Update org role
+      onConfirm(newRole)
+
+      // Update changed workspace roles
+      const updates = Object.entries(wsRoleChanges)
+      for (const [wsId, role] of updates) {
+        const original = workspaceMemberships?.find(
+          (m) => m.workspace_id === wsId
+        )
+        if (original && original.role !== role) {
+          await workspacesUpdateWorkspaceMembership({
+            workspaceId: wsId,
+            userId: selectedUser.user_id,
+            requestBody: { role },
+          })
+        }
+      }
+    } catch {
+      toast({
+        title: "Failed to update roles",
+        description: "Some role updates may not have been applied.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }, [selectedUser, newRole, wsRoleChanges, workspaceMemberships, onConfirm])
+
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Change User Role</DialogTitle>
+        <DialogTitle>Change user role</DialogTitle>
         <DialogDescription>
-          Select a new role for {selectedUser?.email}
+          Update roles for {selectedUser?.email}
         </DialogDescription>
       </DialogHeader>
-      <Select
-        value={newRole}
-        onValueChange={(value) => setNewRole(value as UserRole)}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Select a role" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="admin">Admin</SelectItem>
-          <SelectItem value="basic">Basic</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Organization role</Label>
+          <Select
+            value={newRole}
+            onValueChange={(value) => setNewRole(value as UserRole)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="basic">Basic</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {workspaceMembershipsLoading && (
+          <p className="text-xs text-muted-foreground">
+            Loading workspace memberships...
+          </p>
+        )}
+        {workspaceMemberships && workspaceMemberships.length > 0 && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Workspace roles</Label>
+            {workspaceMemberships.map((membership) => (
+              <div
+                key={membership.workspace_id}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1 truncate text-sm">
+                  {membership.workspace_name}
+                </span>
+                <Select
+                  value={
+                    wsRoleChanges[membership.workspace_id] ?? membership.role
+                  }
+                  onValueChange={(value) =>
+                    setWsRoleChanges((prev) => ({
+                      ...prev,
+                      [membership.workspace_id]: value as WorkspaceRole,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="viewer">Viewer</SelectItem>
+                    <SelectItem value="editor">Editor</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       <DialogFooter>
         <Button variant="outline" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm(newRole)}>Change Role</Button>
+        <Button onClick={handleConfirm} disabled={isSaving}>
+          {isSaving ? "Saving..." : "Save changes"}
+        </Button>
       </DialogFooter>
     </DialogContent>
   )

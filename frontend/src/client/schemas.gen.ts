@@ -10033,6 +10033,14 @@ export const $OrgInvitationCreate = {
       $ref: "#/components/schemas/OrgRole",
       default: "member",
     },
+    workspace_assignments: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAssignment",
+      },
+      type: "array",
+      title: "Workspace Assignments",
+      default: [],
+    },
   },
   type: "object",
   required: ["email"],
@@ -10096,6 +10104,11 @@ export const $OrgInvitationRead = {
         },
       ],
       title: "Accepted At",
+    },
+    workspace_invitations_created: {
+      type: "integer",
+      title: "Workspace Invitations Created",
+      default: 0,
     },
   },
   type: "object",
@@ -17689,6 +17702,27 @@ export const $UserUpdate = {
   title: "UserUpdate",
 } as const
 
+export const $UserWorkspaceMembership = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "workspace_name", "role"],
+  title: "UserWorkspaceMembership",
+  description: "A user's membership in a workspace, for org-level viewing.",
+} as const
+
 export const $ValidationDetail = {
   properties: {
     type: {
@@ -20124,6 +20158,25 @@ export const $WorkflowUpdate = {
   },
   type: "object",
   title: "WorkflowUpdate",
+} as const
+
+export const $WorkspaceAssignment = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+      default: "editor",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "WorkspaceAssignment",
+  description:
+    "Workspace + role pair for assigning a user to a workspace at invite time.",
 } as const
 
 export const $WorkspaceCreate = {

@@ -699,7 +699,7 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(
+        invitation, _ = await service.create_invitation(
             email="newuser@example.com",
             role=OrgRole.MEMBER,
         )
@@ -723,7 +723,7 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(
+        invitation, _ = await service.create_invitation(
             email="newadmin@example.com",
             role=OrgRole.ADMIN,
         )
@@ -762,7 +762,7 @@ class TestOrganizationServiceInvitations:
         role = create_superuser_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(
+        invitation, _ = await service.create_invitation(
             email="newowner@example.com",
             role=OrgRole.OWNER,
         )
@@ -801,7 +801,7 @@ class TestOrganizationServiceInvitations:
         service = OrgService(session, role=role)
 
         # Create first invitation
-        invitation = await service.create_invitation(email="expired@example.com")
+        invitation, _ = await service.create_invitation(email="expired@example.com")
         old_id = invitation.id
 
         # Manually expire it
@@ -809,7 +809,7 @@ class TestOrganizationServiceInvitations:
         await session.commit()
 
         # Create new invitation for same email - should succeed
-        new_invitation = await service.create_invitation(email="expired@example.com")
+        new_invitation, _ = await service.create_invitation(email="expired@example.com")
 
         assert new_invitation.id != old_id
         assert new_invitation.email == "expired@example.com"
@@ -846,8 +846,8 @@ class TestOrganizationServiceInvitations:
         service = OrgService(session, role=role)
 
         # Create invitations for org1
-        inv1 = await service.create_invitation(email="user1@example.com")
-        inv2 = await service.create_invitation(email="user2@example.com")
+        inv1, _ = await service.create_invitation(email="user1@example.com")
+        inv2, _ = await service.create_invitation(email="user2@example.com")
 
         # Create invitation for org2 directly
         org2_invitation = OrganizationInvitation(
@@ -882,10 +882,10 @@ class TestOrganizationServiceInvitations:
         service = OrgService(session, role=role)
 
         # Create pending invitation
-        pending_inv = await service.create_invitation(email="pending@example.com")
+        pending_inv, _ = await service.create_invitation(email="pending@example.com")
 
         # Create and revoke another invitation
-        revoked_inv = await service.create_invitation(email="revoked@example.com")
+        revoked_inv, _ = await service.create_invitation(email="revoked@example.com")
         await service.revoke_invitation(revoked_inv.id)
 
         # List only pending invitations
@@ -913,7 +913,7 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(email="test@example.com")
+        invitation, _ = await service.create_invitation(email="test@example.com")
 
         retrieved = await service.get_invitation_by_token(invitation.token)
 
@@ -936,7 +936,7 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(email="test@example.com")
+        invitation, _ = await service.create_invitation(email="test@example.com")
 
         # Get invitation by token
         retrieved = await service.get_invitation_by_token(invitation.token)
@@ -986,7 +986,7 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(email="test@example.com")
+        invitation, _ = await service.create_invitation(email="test@example.com")
         assert invitation.status == InvitationStatus.PENDING
 
         revoked = await service.revoke_invitation(invitation.id)
@@ -1004,7 +1004,7 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        invitation = await service.create_invitation(email="test@example.com")
+        invitation, _ = await service.create_invitation(email="test@example.com")
         await service.revoke_invitation(invitation.id)
 
         with pytest.raises(
@@ -1053,7 +1053,7 @@ class TestOrganizationServiceInvitations:
         # Create invitation as admin
         admin_role = create_admin_role(org1.id, admin_in_org1.id)
         admin_service = OrgService(session, role=admin_role)
-        invitation = await admin_service.create_invitation(
+        invitation, _ = await admin_service.create_invitation(
             email=user_in_org2.email,
             role=OrgRole.MEMBER,
         )
@@ -1091,7 +1091,7 @@ class TestOrganizationServiceInvitations:
         # Create and accept invitation
         admin_role = create_admin_role(org1.id, admin_in_org1.id)
         admin_service = OrgService(session, role=admin_role)
-        invitation = await admin_service.create_invitation(
+        invitation, _ = await admin_service.create_invitation(
             email=user_in_org2.email,
             role=OrgRole.MEMBER,
         )
@@ -1123,7 +1123,7 @@ class TestOrganizationServiceInvitations:
         # Create invitation for user_in_org2
         admin_role = create_admin_role(org1.id, admin_in_org1.id)
         admin_service = OrgService(session, role=admin_role)
-        invitation = await admin_service.create_invitation(
+        invitation, _ = await admin_service.create_invitation(
             email=user_in_org2.email,
             role=OrgRole.MEMBER,
         )
@@ -1170,7 +1170,7 @@ class TestOrganizationServiceInvitations:
         # Create and revoke invitation
         admin_role = create_admin_role(org1.id, admin_in_org1.id)
         admin_service = OrgService(session, role=admin_role)
-        invitation = await admin_service.create_invitation(
+        invitation, _ = await admin_service.create_invitation(
             email=user_in_org2.email,
             role=OrgRole.MEMBER,
         )

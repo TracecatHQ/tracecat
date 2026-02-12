@@ -34,7 +34,7 @@ from fastapi_users.exceptions import (
 from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -47,20 +47,16 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
 from tracecat.db.models import (
     AccessToken,
-    Invitation,
     OAuthAccount,
     OrganizationDomain,
-    OrganizationInvitation,
     OrganizationMembership,
     User,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import OrganizationID
-from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
-from tracecat.workspaces.service import accept_workspace_invitation_for_user
 
 
 class InvalidEmailException(FastAPIUsersException):
@@ -308,10 +304,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 error=e,
             )
 
-        # Auto-accept any pending invitations for this user
-        async with get_async_session_context_manager() as session:
-            await self._auto_accept_pending_invitations(session, user)
-
     async def on_after_register(
         self, user: User, request: Request | None = None
     ) -> None:
@@ -385,75 +377,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 email=user.email,
                 error=str(e),
             )
-
-    async def _auto_accept_pending_invitations(
-        self,
-        session: AsyncSession,
-        user: User,
-    ) -> None:
-        """Auto-accept all pending invitations for the newly registered user.
-
-        This method finds all pending organization and workspace invitations
-        for the user's email and accepts them, adding the user to the respective
-        organizations and workspaces with their invited roles.
-
-        Args:
-            session: Database session.
-            user: The newly registered user.
-        """
-        from tracecat.organization.service import accept_invitation_for_user
-
-        now = datetime.now(UTC)
-        email_lower = user.email.lower()
-
-        # Accept all pending organization invitations
-        org_stmt = select(OrganizationInvitation).where(
-            func.lower(OrganizationInvitation.email) == email_lower,
-            OrganizationInvitation.status == InvitationStatus.PENDING,
-            OrganizationInvitation.expires_at > now,
-        )
-        org_result = await session.execute(org_stmt)
-        for invite in org_result.scalars().all():
-            try:
-                await accept_invitation_for_user(
-                    session, user_id=user.id, token=invite.token
-                )
-                self.logger.info(
-                    "Auto-accepted org invitation on login",
-                    user_id=str(user.id),
-                    organization_id=str(invite.organization_id),
-                )
-            except Exception as e:
-                self.logger.error(
-                    "Failed to auto-accept org invitation",
-                    user_id=str(user.id),
-                    error=str(e),
-                )
-
-        # Accept all pending workspace invitations
-
-        ws_stmt = select(Invitation).where(
-            func.lower(Invitation.email) == email_lower,
-            Invitation.status == InvitationStatus.PENDING,
-            Invitation.expires_at > now,
-        )
-        ws_result = await session.execute(ws_stmt)
-        for invite in ws_result.scalars().all():
-            try:
-                await accept_workspace_invitation_for_user(
-                    session, user_id=user.id, token=invite.token
-                )
-                self.logger.info(
-                    "Auto-accepted workspace invitation on login",
-                    user_id=str(user.id),
-                    workspace_id=str(invite.workspace_id),
-                )
-            except Exception as e:
-                self.logger.error(
-                    "Failed to auto-accept workspace invitation",
-                    user_id=str(user.id),
-                    error=str(e),
-                )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None

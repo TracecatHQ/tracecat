@@ -142,6 +142,7 @@ import {
   organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
+  organizationListMemberWorkspaceMemberships,
   organizationListOrgMembers,
   organizationListSessions,
   organizationRevokeInvitation,
@@ -2190,6 +2191,23 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+  }
+}
+
+export function useOrgMemberWorkspaces(userId: string | null | undefined) {
+  const { data: workspaceMemberships, isLoading: workspaceMembershipsLoading } =
+    useQuery({
+      queryKey: ["org-member-workspaces", userId],
+      queryFn: async () =>
+        await organizationListMemberWorkspaceMemberships({
+          userId: userId as string,
+        }),
+      enabled: !!userId,
+    })
+
+  return {
+    workspaceMemberships,
+    workspaceMembershipsLoading,
   }
 }
 

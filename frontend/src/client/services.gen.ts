@@ -326,6 +326,8 @@ import type {
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationListMemberWorkspaceMembershipsData,
+  OrganizationListMemberWorkspaceMembershipsResponse,
   OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
@@ -3256,6 +3258,32 @@ export const organizationUpdateOrgMember = (
 }
 
 /**
+ * List Member Workspace Memberships
+ * List workspace memberships for an org member.
+ *
+ * Returns all workspaces the user belongs to within this organization,
+ * along with their workspace role.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns UserWorkspaceMembership Successful Response
+ * @throws ApiError
+ */
+export const organizationListMemberWorkspaceMemberships = (
+  data: OrganizationListMemberWorkspaceMembershipsData
+): CancelablePromise<OrganizationListMemberWorkspaceMembershipsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/members/{user_id}/workspace-memberships",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Sessions
  * @returns SessionRead Successful Response
  * @throws ApiError
@@ -3293,6 +3321,9 @@ export const organizationDeleteSession = (
 /**
  * Create Invitation
  * Create an invitation to join the organization.
+ *
+ * Optionally assigns the invitee to workspaces by creating workspace
+ * invitations alongside the org invitation.
  * @param data The data for the request.
  * @param data.requestBody
  * @returns OrgInvitationRead Successful Response

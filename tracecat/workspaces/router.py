@@ -16,7 +16,6 @@ from tracecat.auth.credentials import (
     RoleACL,
 )
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
@@ -52,12 +51,6 @@ from tracecat.workspaces.service import (
 )
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
-
-SLUG_TO_WORKSPACE_ROLE: dict[str, WorkspaceRole] = {
-    "viewer": WorkspaceRole.VIEWER,
-    "editor": WorkspaceRole.EDITOR,
-    "admin": WorkspaceRole.ADMIN,
-}
 
 OrgUser = Annotated[
     Role,
@@ -496,7 +489,6 @@ async def revoke_workspace_invitation(
 
 
 @router.get("/{workspace_id}/invitations/{invitation_id}/token")
-@require_scope("workspace:member:invite")
 async def get_invitation_token(
     *,
     role: WorkspaceAdminUserInPath,
@@ -519,6 +511,11 @@ async def get_invitation_token(
         if invitation is None:
             raise TracecatNotFoundError("Invitation not found")
         return {"token": invitation.token}
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

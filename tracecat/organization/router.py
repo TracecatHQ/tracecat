@@ -37,6 +37,7 @@ from tracecat.organization.schemas import (
     OrgMemberStatus,
     OrgPendingInvitationRead,
     OrgRead,
+    UserWorkspaceMembership,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 
@@ -374,6 +375,30 @@ async def update_org_member(
         ) from e
 
 
+@router.get(
+    "/members/{user_id}/workspace-memberships",
+    response_model=list[UserWorkspaceMembership],
+)
+async def list_member_workspace_memberships(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+    user_id: UserID,
+) -> list[UserWorkspaceMembership]:
+    """List workspace memberships for an org member.
+
+    Returns all workspaces the user belongs to within this organization,
+    along with their workspace role.
+    """
+    service = OrgService(session, role=role)
+    try:
+        return await service.list_member_workspace_memberships(user_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
+
+
 @router.get("/sessions", response_model=list[SessionRead])
 async def list_sessions(
     *,
@@ -414,12 +439,17 @@ async def create_invitation(
     session: AsyncDBSession,
     params: OrgInvitationCreate,
 ) -> OrgInvitationRead:
-    """Create an invitation to join the organization."""
+    """Create an invitation to join the organization.
+
+    Optionally assigns the invitee to workspaces by creating workspace
+    invitations alongside the org invitation.
+    """
     service = OrgService(session, role=role)
     try:
-        invitation = await service.create_invitation(
+        invitation, ws_invite_count = await service.create_invitation(
             email=params.email,
             role=params.role,
+            workspace_assignments=params.workspace_assignments or None,
         )
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -443,6 +473,7 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
+        workspace_invitations_created=ws_invite_count,
     )
 
 
