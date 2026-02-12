@@ -19,8 +19,6 @@ from tracecat.db.models import (
     OrganizationInvitation,
     OrganizationMembership,
     User,
-    UserRoleAssignment,
-    Role as DBRole
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -96,6 +94,7 @@ async def get_organization(
 
 
 @router.get("/domains", response_model=list[OrgDomainRead])
+@require_scope("org:read")
 async def list_organization_domains(
     *,
     role: OrgUserRole,
@@ -138,9 +137,10 @@ async def list_organization_domains(
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:delete")
 async def delete_organization(
     *,
-    role: OrgOwnerRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     confirm: str | None = Query(
         default=None,
@@ -189,6 +189,7 @@ async def get_organization_entitlements(
 
 
 @router.get("/members/me", response_model=OrgMemberDetail)
+@require_scope("org:member:read")
 async def get_current_org_member(
     *,
     role: OrgUserRole,

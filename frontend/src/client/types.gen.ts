@@ -4547,7 +4547,7 @@ export type RoleReadWithScopes = {
   created_by?: string | null
   scopes?: Array<ScopeRead>
   /**
-   * Whether this is a preset/system role.
+   * Whether this is a preset system role.
    */
   readonly is_system: boolean
 }

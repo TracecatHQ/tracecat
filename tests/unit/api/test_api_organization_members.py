@@ -44,7 +44,6 @@ def _override_organization_role_dependencies(  # pyright: ignore[reportUnusedFun
 ):
     role_dependencies = [
         organization_router.OrgUserRole,
-        organization_router.OrgAdminRole,
     ]
 
     for annotated_type in role_dependencies:

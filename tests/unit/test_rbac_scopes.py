@@ -188,6 +188,9 @@ class TestGetMissingScopes:
 class TestSystemRoleScopes:
     """Tests for system role scope definitions."""
 
+    def test_viewer_includes_inbox_read(self):
+        assert "inbox:read" in VIEWER_SCOPES
+
     def test_viewer_scopes_are_read_only(self):
         for scope in VIEWER_SCOPES:
             # Viewer should only have read scopes (no create, update, delete, execute)

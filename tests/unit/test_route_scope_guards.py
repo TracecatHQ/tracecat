@@ -8,6 +8,7 @@ from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.inbox import router as inbox_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
 
@@ -87,3 +88,15 @@ async def test_agent_preset_scope_guards(
 @pytest.mark.anyio
 async def test_table_update_row_requires_table_update_scope() -> None:
     await _assert_endpoint_requires_scope(tables_router.update_row, "table:update")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (inbox_router.list_items, "inbox:read"),
+        (inbox_router.list_items_paginated, "inbox:read"),
+    ],
+)
+async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)

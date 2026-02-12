@@ -770,6 +770,7 @@ async def update_webhook(
     tags=["triggers"],
     response_model=CaseTriggerRead,
 )
+@require_scope("workflow:create")
 async def create_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -794,6 +795,7 @@ async def create_case_trigger(
     tags=["triggers"],
     response_model=CaseTriggerRead,
 )
+@require_scope("workflow:read")
 async def get_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -813,6 +815,7 @@ async def get_case_trigger(
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:update")
 async def update_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

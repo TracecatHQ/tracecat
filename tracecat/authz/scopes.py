@@ -24,6 +24,7 @@ from tracecat.identifiers import InternalServiceID
 
 VIEWER_SCOPES: frozenset[str] = frozenset(
     {
+        "inbox:read",
         "workflow:read",
         "case:read",
         "table:read",
@@ -122,6 +123,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:member:remove",
         "workspace:member:update",
         # Full resource control
+        "inbox:read",
         "workflow:read",
         "workflow:create",
         "workflow:update",
@@ -197,6 +199,7 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:member:remove",
         "workspace:member:update",
         # Full resource control
+        "inbox:read",
         "workflow:read",
         "workflow:create",
         "workflow:update",
@@ -270,6 +273,7 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
 
 WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
     {
+        "inbox:read",
         "workflow:read",
         "workflow:create",
         "workflow:update",

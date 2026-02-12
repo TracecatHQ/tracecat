@@ -14231,7 +14231,7 @@ export const $RoleReadWithScopes = {
     is_system: {
       type: "boolean",
       title: "Is System",
-      description: "Whether this is a preset/system role.",
+      description: "Whether this is a preset system role.",
       readOnly: true,
     },
   },

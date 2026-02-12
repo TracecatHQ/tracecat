@@ -140,6 +140,8 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("case:create", "case", "create", "Create new cases"),
     ScopeDefinition("case:update", "case", "update", "Modify existing cases"),
     ScopeDefinition("case:delete", "case", "delete", "Delete cases"),
+    # Inbox scopes
+    ScopeDefinition("inbox:read", "inbox", "read", "View inbox items"),
     # Table scopes
     ScopeDefinition("table:read", "table", "read", "View tables"),
     ScopeDefinition("table:create", "table", "create", "Create new tables"),
@@ -213,32 +215,32 @@ class RoleDefinition(NamedTuple):
 PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
     # slug → RoleDefinition(name, description, scopes)
     "workspace-viewer": RoleDefinition(
-        "Viewer",
+        "Workspace Viewer",
         "Read-only access to workspace resources",
         PRESET_ROLE_SCOPES["workspace-viewer"],
     ),
     "workspace-editor": RoleDefinition(
-        "Editor",
+        "Workspace Editor",
         "Create and edit resources, no delete or admin access",
         PRESET_ROLE_SCOPES["workspace-editor"],
     ),
     "workspace-admin": RoleDefinition(
-        "Admin",
+        "Workspace Admin",
         "Full workspace capabilities",
         PRESET_ROLE_SCOPES["workspace-admin"],
     ),
     "organization-owner": RoleDefinition(
-        "Owner",
+        "Organization Owner",
         "Full organization control",
         PRESET_ROLE_SCOPES["organization-owner"],
     ),
     "organization-admin": RoleDefinition(
-        "Admin",
+        "Organization Admin",
         "Organization admin without delete or billing manage",
         PRESET_ROLE_SCOPES["organization-admin"],
     ),
     "organization-member": RoleDefinition(
-        "Member",
+        "Organization Member",
         "Basic organization membership",
         PRESET_ROLE_SCOPES["organization-member"],
     ),
@@ -502,12 +504,16 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
             )
 
     role_insert_stmt = pg_insert(Role).values(role_values)
-    role_insert_stmt = role_insert_stmt.on_conflict_do_nothing(
-        index_elements=["organization_id", "slug"]
+    role_insert_stmt = role_insert_stmt.on_conflict_do_update(
+        index_elements=["organization_id", "slug"],
+        set_={
+            "name": role_insert_stmt.excluded.name,
+            "description": role_insert_stmt.excluded.description,
+        },
     ).returning(Role.organization_id)
     role_insert_result = await session.execute(role_insert_stmt)
 
-    # Return shape remains {org_id: roles_created_for_org}.
+    # Return shape: {org_id: roles_upserted_for_org} (includes both inserts and updates).
     results: dict[UUID, int] = dict.fromkeys(org_ids, 0)
     for (organization_id,) in role_insert_result.tuples().all():
         results[organization_id] += 1

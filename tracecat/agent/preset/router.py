@@ -46,7 +46,7 @@ async def list_agent_presets(
     response_model=AgentPresetRead,
     status_code=status.HTTP_201_CREATED,
 )
-@require_scope("agent:update")
+@require_scope("agent:create")
 async def create_agent_preset(
     *,
     params: AgentPresetCreate,

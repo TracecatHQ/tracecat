@@ -3243,7 +3243,7 @@ class Role(Base, TimestampMixin):
     """Roles that bundle scopes together.
 
     Roles are organization-scoped and identified by an optional slug:
-    - System roles have well-known slugs: "admin", "editor", "viewer"
+    - System roles have well-known slugs: "workspace-admin", "workspace-editor", "workspace-viewer", "organization-owner", "organization-admin", "organization-member"
     - Custom roles have NULL slugs
 
     System roles are seeded on startup and should not be deleted.
