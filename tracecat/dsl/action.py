@@ -65,6 +65,16 @@ from tracecat.validation.schemas import ValidationDetail
 _thread_local = threading.local()
 
 
+def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
+    """Strip leading/trailing whitespace from string values in args.
+
+    This ensures expressions like ``  ${{ VARS.x }}  `` are recognized as
+    template-only (rather than inline interpolation) so the resolved value
+    is returned without surrounding spaces.
+    """
+    return {k: v.strip() if isinstance(v, str) else v for k, v in args.items()}
+
+
 class ScatterActionInput(BaseModel):
     """Input for the scatter action activity.
 
@@ -120,15 +130,21 @@ class FinalizeGatherActivityResult(BaseModel):
 class BuildAgentArgsActivityInput(BaseModel):
     args: dict[str, Any]
     operand: ExecutionContext
-    role: Role
-    environment: str | None = None
 
 
 class BuildPresetAgentArgsActivityInput(BaseModel):
     args: dict[str, Any]
     operand: ExecutionContext
+
+
+class ResolveAgentVarsActivityInput(BaseModel):
+    """Input for fetching workspace variables for agent actions."""
+
+    args: dict[str, Any]
+    """Raw action args — scanned for VARS expressions."""
     role: Role
-    environment: str | None = None
+    environment: str
+    """Already-resolved environment string."""
 
 
 class EvaluateTemplatedObjectActivityInput(BaseModel):
@@ -554,7 +570,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def build_agent_args_activity(
+    def build_agent_args_activity(
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
         """Build an AgentActionArgs from a dictionary of arguments.
@@ -562,28 +578,17 @@ class DSLActivities:
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
 
-        Also resolves workspace variables (VARS) referenced in the args, mirroring
-        the enrichment done by executor/service.py for regular actions.
+        The operand should already contain resolved VARS (injected by the workflow
+        via resolve_agent_context_activity before calling this activity).
         """
-        materialized = await materialize_context(input.operand)
-
-        # Collect expressions and resolve workspace variables
-        collected = collect_expressions(input.args)
-        if collected.variables:
-            workspace_variables = await get_workspace_variables(
-                variable_exprs=collected.variables,
-                environment=input.environment,
-                role=input.role,
-            )
-            if workspace_variables:
-                materialized["VARS"] = workspace_variables
-
-        evaled_args = eval_templated_object(input.args, operand=materialized)
+        materialized = run_sync(materialize_context(input.operand))
+        args = _strip_string_values(input.args)
+        evaled_args = eval_templated_object(args, operand=materialized)
         return AgentActionArgs(**evaled_args)
 
     @staticmethod
     @activity.defn
-    async def build_preset_agent_args_activity(
+    def build_preset_agent_args_activity(
         input: BuildPresetAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
         """Build a PresetAgentActionArgs from a dictionary of arguments.
@@ -591,24 +596,37 @@ class DSLActivities:
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
 
-        Also resolves workspace variables (VARS) referenced in the args, mirroring
-        the enrichment done by executor/service.py for regular actions.
+        The operand should already contain resolved VARS (injected by the workflow
+        via resolve_agent_context_activity before calling this activity).
         """
-        materialized = await materialize_context(input.operand)
-
-        # Collect expressions and resolve workspace variables
-        collected = collect_expressions(input.args)
-        if collected.variables:
-            workspace_variables = await get_workspace_variables(
-                variable_exprs=collected.variables,
-                environment=input.environment,
-                role=input.role,
-            )
-            if workspace_variables:
-                materialized["VARS"] = workspace_variables
-
-        evaled_args = eval_templated_object(input.args, operand=materialized)
+        materialized = run_sync(materialize_context(input.operand))
+        args = _strip_string_values(input.args)
+        evaled_args = eval_templated_object(args, operand=materialized)
         return PresetAgentActionArgs(**evaled_args)
+
+    @staticmethod
+    @activity.defn
+    async def resolve_agent_vars_activity(
+        input: ResolveAgentVarsActivityInput,
+    ) -> dict[str, Any]:
+        """Fetch workspace variables for agent actions.
+
+        Scans the raw args for VARS expressions and fetches matching variables
+        from the DB, scoped to the given environment. Returns a dict to inject
+        as the VARS context in the operand before calling the sync build activity.
+
+        Expression scanning is offloaded to a thread via asyncio.to_thread to
+        keep the Temporal worker event loop responsive. The DB call remains
+        async on the event loop (required by SQLAlchemy's shared AsyncEngine).
+        """
+        collected = await asyncio.to_thread(collect_expressions, input.args)
+        if not collected.variables:
+            return {}
+        return await get_workspace_variables(
+            variable_exprs=collected.variables,
+            environment=input.environment,
+            role=input.role,
+        )
 
     @staticmethod
     @activity.defn
@@ -920,7 +938,10 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     materialized = await materialize_context(input.operand)
 
     # Evaluate task args to get workflow_id or workflow_alias
-    evaluated_args = eval_templated_object(task.args, operand=materialized)
+    # Run CPU-bound expression evaluation in thread to avoid blocking event loop
+    evaluated_args = await asyncio.to_thread(
+        eval_templated_object, task.args, operand=materialized
+    )
     val_args = ExecuteSubflowArgs.model_validate(evaluated_args)
 
     # Resolve workflow ID
@@ -963,7 +984,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
 
     # For single subflows (no for_each), evaluate args and return
     if not task.for_each:
-        evaluated_args = eval_templated_object(dict(task.args), operand=materialized)
+        evaluated_args = await asyncio.to_thread(
+            eval_templated_object, dict(task.args), operand=materialized
+        )
         val_args = ExecuteSubflowArgs.model_validate(evaluated_args)
 
         runtime_config = DSLConfig(
