@@ -34,9 +34,34 @@ data "aws_secretsmanager_secret" "oauth_client_secret" {
   arn   = var.oauth_client_secret_arn
 }
 
+data "aws_secretsmanager_secret" "oidc_client_id" {
+  count = var.oidc_client_id_arn != null ? 1 : 0
+  arn   = var.oidc_client_id_arn
+}
+
+data "aws_secretsmanager_secret" "oidc_client_secret" {
+  count = var.oidc_client_secret_arn != null ? 1 : 0
+  arn   = var.oidc_client_secret_arn
+}
+
+data "aws_secretsmanager_secret" "user_auth_secret" {
+  count = var.user_auth_secret_arn != null ? 1 : 0
+  arn   = var.user_auth_secret_arn
+}
+
 data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   count = var.saml_idp_metadata_url_arn != null ? 1 : 0
   arn   = var.saml_idp_metadata_url_arn
+}
+
+data "aws_secretsmanager_secret" "saml_ca_certs" {
+  count = var.saml_ca_certs_arn != null ? 1 : 0
+  arn   = var.saml_ca_certs_arn
+}
+
+data "aws_secretsmanager_secret" "saml_metadata_cert" {
+  count = var.saml_metadata_cert_arn != null ? 1 : 0
+  arn   = var.saml_metadata_cert_arn
 }
 
 # Temporal UI authentication
@@ -77,9 +102,34 @@ data "aws_secretsmanager_secret_version" "oauth_client_secret" {
   secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
 }
 
+data "aws_secretsmanager_secret_version" "oidc_client_id" {
+  count     = var.oidc_client_id_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oidc_client_id[0].id
+}
+
+data "aws_secretsmanager_secret_version" "oidc_client_secret" {
+  count     = var.oidc_client_secret_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oidc_client_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "user_auth_secret" {
+  count     = var.user_auth_secret_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.user_auth_secret[0].id
+}
+
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   count     = var.saml_idp_metadata_url_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
+}
+
+data "aws_secretsmanager_secret_version" "saml_ca_certs" {
+  count     = var.saml_ca_certs_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.saml_ca_certs[0].id
+}
+
+data "aws_secretsmanager_secret_version" "saml_metadata_cert" {
+  count     = var.saml_metadata_cert_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.saml_metadata_cert[0].id
 }
 
 # Temporal UI secrets
@@ -146,10 +196,45 @@ locals {
     }
   ] : []
 
+  oidc_client_id_secret = var.oidc_client_id_arn != null ? [
+    {
+      name      = "OIDC_CLIENT_ID"
+      valueFrom = data.aws_secretsmanager_secret_version.oidc_client_id[0].arn
+    }
+  ] : []
+
+  oidc_client_secret_secret = var.oidc_client_secret_arn != null ? [
+    {
+      name      = "OIDC_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.oidc_client_secret[0].arn
+    }
+  ] : []
+
+  user_auth_secret_secret = var.user_auth_secret_arn != null ? [
+    {
+      name      = "USER_AUTH_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.user_auth_secret[0].arn
+    }
+  ] : []
+
   saml_idp_metadata_url_secret = var.saml_idp_metadata_url_arn != null ? [
     {
       name      = "SAML_IDP_METADATA_URL"
       valueFrom = data.aws_secretsmanager_secret_version.saml_idp_metadata_url[0].arn
+    }
+  ] : []
+
+  saml_ca_certs_secret = var.saml_ca_certs_arn != null ? [
+    {
+      name      = "SAML_CA_CERTS"
+      valueFrom = data.aws_secretsmanager_secret_version.saml_ca_certs[0].arn
+    }
+  ] : []
+
+  saml_metadata_cert_secret = var.saml_metadata_cert_arn != null ? [
+    {
+      name      = "SAML_METADATA_CERT"
+      valueFrom = data.aws_secretsmanager_secret_version.saml_metadata_cert[0].arn
     }
   ] : []
 
@@ -171,7 +256,12 @@ locals {
     local.tracecat_base_secrets,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
-    local.saml_idp_metadata_url_secret
+    local.oidc_client_id_secret,
+    local.oidc_client_secret_secret,
+    local.user_auth_secret_secret,
+    local.saml_idp_metadata_url_secret,
+    local.saml_ca_certs_secret,
+    local.saml_metadata_cert_secret
   )
 
   tracecat_ui_secrets = [

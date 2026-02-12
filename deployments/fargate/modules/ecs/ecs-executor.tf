@@ -1,4 +1,4 @@
-# ECS Task Definition for Executor Service
+# ECS Task Definition for Executor service
 resource "aws_ecs_task_definition" "executor_task_definition" {
   family                   = "TracecatExecutorTaskDefinition"
   network_mode             = "awsvpc"
@@ -15,26 +15,9 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
 
   container_definitions = jsonencode([
     {
-      name  = "TracecatExecutorContainer"
-      image = "${var.tracecat_image}:${local.tracecat_image_tag}"
-      command = var.use_legacy_executor ? [
-        "python",
-        "-m",
-        "uvicorn",
-        "tracecat.api.executor:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8002"
-      ] : ["python", "-m", "tracecat.executor.worker"]
-      portMappings = [
-        {
-          containerPort = 8002
-          hostPort      = 8002
-          name          = "executor"
-          appProtocol   = "http"
-        }
-      ]
+      name    = "TracecatExecutorContainer"
+      image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      command = ["python", "-m", "tracecat.executor.worker"]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -73,17 +56,6 @@ resource "aws_ecs_service" "tracecat_executor" {
   service_connect_configuration {
     enabled   = true
     namespace = local.local_dns_namespace
-    service {
-      port_name      = "executor"
-      discovery_name = "executor-service"
-      timeout {
-        per_request_timeout_seconds = 1200 # 20 minutes
-      }
-      client_alias {
-        port     = 8002
-        dns_name = "executor-service"
-      }
-    }
 
     log_configuration {
       log_driver = "awslogs"
@@ -94,4 +66,8 @@ resource "aws_ecs_service" "tracecat_executor" {
       }
     }
   }
+
+  depends_on = [
+    aws_ecs_service.temporal_service
+  ]
 }

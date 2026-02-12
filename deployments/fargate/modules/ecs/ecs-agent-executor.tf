@@ -1,10 +1,10 @@
-# ECS Task Definition for Worker service
-resource "aws_ecs_task_definition" "worker_task_definition" {
-  family                   = "TracecatWorkerTaskDefinition"
+# ECS Task Definition for Agent executor service
+resource "aws_ecs_task_definition" "agent_executor_task_definition" {
+  family                   = "TracecatAgentExecutorTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.worker_cpu
-  memory                   = var.worker_memory
+  cpu                      = var.agent_executor_cpu
+  memory                   = var.agent_executor_memory
   execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
@@ -15,32 +15,33 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
 
   container_definitions = jsonencode([
     {
-      name    = "TracecatWorkerContainer"
+      name    = "TracecatAgentExecutorContainer"
       image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
-      command = ["python", "-m", "tracecat.dsl.worker"]
+      command = ["python", "-m", "tracecat.agent.worker"]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
           awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "worker"
+          awslogs-stream-prefix = "agent-executor"
         }
       }
-      environment = local.worker_env
-      secrets     = local.tracecat_base_secrets
+      environment = local.agent_executor_env
+      secrets     = local.executor_secrets
       dockerPullConfig = {
         maxAttempts = 3
-        backoffTime = 30
+        backoffTime = 10
       }
     }
   ])
 }
 
-resource "aws_ecs_service" "tracecat_worker" {
-  name                 = "tracecat-worker"
+resource "aws_ecs_service" "tracecat_agent_executor" {
+  name                 = "tracecat-agent-executor"
   cluster              = aws_ecs_cluster.tracecat_cluster.id
-  task_definition      = aws_ecs_task_definition.worker_task_definition.arn
-  desired_count        = var.worker_desired_count
+  task_definition      = aws_ecs_task_definition.agent_executor_task_definition.arn
+  launch_type          = "FARGATE"
+  desired_count        = var.agent_executor_desired_count
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
@@ -61,25 +62,12 @@ resource "aws_ecs_service" "tracecat_worker" {
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
         awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "service-connect-worker"
+        awslogs-stream-prefix = "service-connect-agent-executor"
       }
     }
   }
 
-  capacity_provider_strategy {
-    capacity_provider = "FARGATE"
-    weight            = 1
-    base              = 1
-  }
-
-  capacity_provider_strategy {
-    capacity_provider = "FARGATE_SPOT"
-    weight            = 1
-    base              = 0
-  }
-
   depends_on = [
-    aws_ecs_service.temporal_service,
-    aws_ecs_service.tracecat_api
+    aws_ecs_service.temporal_service
   ]
 }

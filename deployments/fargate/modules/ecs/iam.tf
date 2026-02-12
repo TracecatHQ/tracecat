@@ -52,16 +52,16 @@ resource "aws_iam_policy" "redis_iam_access" {
   })
 }
 
-# S3 access policy for blob storage
-resource "aws_iam_policy" "s3_attachments_access" {
+# S3 access policy for Tracecat blob storage buckets
+resource "aws_iam_policy" "s3_blob_access" {
   name        = "TracecatS3BlobStoragePolicy"
-  description = "Policy for S3 blob storage access with security restrictions"
+  description = "Policy for S3 blob storage access (attachments, registry, workflow)"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AllowBlobStorageOperations"
+        Sid    = "AllowBlobObjectOperations"
         Effect = "Allow"
         Action = [
           "s3:GetObject",
@@ -72,16 +72,13 @@ resource "aws_iam_policy" "s3_attachments_access" {
           "s3:HeadObject"
         ]
         Resource = [
-          "${aws_s3_bucket.attachments.arn}/*"
+          "${aws_s3_bucket.attachments.arn}/*",
+          "${aws_s3_bucket.registry.arn}/*",
+          "${aws_s3_bucket.workflow.arn}/*",
         ]
-        Condition = {
-          StringEquals = {
-            "s3:x-amz-server-side-encryption" = "AES256"
-          }
-        }
       },
       {
-        Sid    = "AllowBucketOperations"
+        Sid    = "AllowBlobBucketOperations"
         Effect = "Allow"
         Action = [
           "s3:ListBucket",
@@ -89,66 +86,9 @@ resource "aws_iam_policy" "s3_attachments_access" {
           "s3:HeadBucket"
         ]
         Resource = [
-          aws_s3_bucket.attachments.arn
-        ]
-        Condition = {
-          StringLike = {
-            "s3:prefix" = ["*"]
-          }
-        }
-      },
-      {
-        Sid    = "AllowPresignedURLGeneration"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject"
-        ]
-        Resource = [
-          "${aws_s3_bucket.attachments.arn}/*"
-        ]
-        Condition = {
-          StringEquals = {
-            "s3:ExistingObjectTag/AccessControlled" = "true"
-          }
-          StringLike = {
-            "aws:userid" = "${aws_iam_role.api_worker_task.unique_id}:*"
-          }
-        }
-      }
-    ]
-  })
-}
-
-# S3 access policy for registry storage (read-only, only for non-legacy executor)
-resource "aws_iam_policy" "s3_registry_access" {
-  count       = var.use_legacy_executor ? 0 : 1
-  name        = "TracecatS3RegistryStoragePolicy"
-  description = "Policy for S3 registry storage read access"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowRegistryReadOperations"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:HeadObject"
-        ]
-        Resource = [
-          "${aws_s3_bucket.registry[0].arn}/*"
-        ]
-      },
-      {
-        Sid    = "AllowRegistryBucketOperations"
-        Effect = "Allow"
-        Action = [
-          "s3:ListBucket",
-          "s3:GetBucketLocation",
-          "s3:HeadBucket"
-        ]
-        Resource = [
-          aws_s3_bucket.registry[0].arn
+          aws_s3_bucket.attachments.arn,
+          aws_s3_bucket.registry.arn,
+          aws_s3_bucket.workflow.arn,
         ]
       }
     ]
@@ -172,7 +112,12 @@ resource "aws_iam_policy" "secrets_access" {
           var.tracecat_signing_secret_arn,
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn,
+          var.oidc_client_id_arn,
+          var.oidc_client_secret_arn,
+          var.user_auth_secret_arn,
           var.saml_idp_metadata_url_arn,
+          var.saml_ca_certs_arn,
+          var.saml_metadata_cert_arn,
         ])
       }
     ]
@@ -300,14 +245,7 @@ resource "aws_iam_role_policy" "api_worker_task_db_access" {
 }
 # Attach S3 policy to API/Worker task role
 resource "aws_iam_role_policy_attachment" "api_worker_task_s3" {
-  policy_arn = aws_iam_policy.s3_attachments_access.arn
-  role       = aws_iam_role.api_worker_task.name
-}
-
-# Attach S3 registry policy to API/Worker task role (only for non-legacy executor)
-resource "aws_iam_role_policy_attachment" "api_worker_task_s3_registry" {
-  count      = var.use_legacy_executor ? 0 : 1
-  policy_arn = aws_iam_policy.s3_registry_access[0].arn
+  policy_arn = aws_iam_policy.s3_blob_access.arn
   role       = aws_iam_role.api_worker_task.name
 }
 

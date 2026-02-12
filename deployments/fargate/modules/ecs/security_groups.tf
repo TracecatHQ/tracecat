@@ -72,14 +72,6 @@ resource "aws_security_group" "caddy" {
     self        = true
   }
 
-  ingress {
-    description = "Allow Caddy to forward traffic to Metrics service"
-    protocol    = "tcp"
-    from_port   = 9000
-    to_port     = 9000
-    self        = true
-  }
-
   egress {
     protocol    = "-1"
     from_port   = 0
@@ -106,22 +98,6 @@ resource "aws_security_group" "core" {
   }
 
   ingress {
-    description = "Allow internal traffic to the Tracecat Worker service on port 8001"
-    from_port   = 8001
-    to_port     = 8001
-    protocol    = "tcp"
-    self        = true
-  }
-
-  ingress {
-    description = "Allow internal traffic to the Tracecat Executor service on port 8000"
-    from_port   = 8002
-    to_port     = 8002
-    protocol    = "tcp"
-    self        = true
-  }
-
-  ingress {
     description = "Allow internal traffic to the Tracecat UI service on port 3000"
     from_port   = 3000
     to_port     = 3000
@@ -133,14 +109,6 @@ resource "aws_security_group" "core" {
     description = "Allow internal traffic to the Temporal server on port 7233"
     from_port   = 7233
     to_port     = 7233
-    protocol    = "tcp"
-    self        = true
-  }
-
-  ingress {
-    description = "Allow inbound traffic for metrics service"
-    from_port   = 9000
-    to_port     = 9000
     protocol    = "tcp"
     self        = true
   }
@@ -274,16 +242,14 @@ resource "aws_vpc_endpoint" "s3" {
           "s3:HeadObject",
           "s3:HeadBucket"
         ]
-        Resource = concat(
-          [
-            aws_s3_bucket.attachments.arn,
-            "${aws_s3_bucket.attachments.arn}/*"
-          ],
-          var.use_legacy_executor ? [] : [
-            aws_s3_bucket.registry[0].arn,
-            "${aws_s3_bucket.registry[0].arn}/*"
-          ]
-        )
+        Resource = [
+          aws_s3_bucket.attachments.arn,
+          "${aws_s3_bucket.attachments.arn}/*",
+          aws_s3_bucket.registry.arn,
+          "${aws_s3_bucket.registry.arn}/*",
+          aws_s3_bucket.workflow.arn,
+          "${aws_s3_bucket.workflow.arn}/*",
+        ]
       }
     ]
   })

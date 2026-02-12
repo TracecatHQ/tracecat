@@ -98,6 +98,16 @@ output "s3_registry_bucket_arn" {
   value       = module.ecs.s3_registry_bucket_arn
 }
 
+output "s3_workflow_bucket_name" {
+  description = "The name of the S3 bucket used for workflow artifact storage"
+  value       = module.ecs.s3_workflow_bucket_name
+}
+
+output "s3_workflow_bucket_arn" {
+  description = "The ARN of the S3 bucket used for workflow artifact storage"
+  value       = module.ecs.s3_workflow_bucket_arn
+}
+
 # =============================================================================
 # DATABASE OUTPUTS
 # =============================================================================
@@ -130,4 +140,4 @@ output "latest_core_snapshot_encrypted" {
 output "latest_temporal_snapshot_encrypted" {
   description = "Whether the latest temporal database snapshot is encrypted (only available when using automatic snapshot selection)"
   value       = module.ecs.latest_temporal_snapshot_encrypted
-} 
+}

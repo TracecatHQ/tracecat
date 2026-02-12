@@ -73,13 +73,19 @@ variable "acm_certificate_arn" {
 
 variable "auth_types" {
   type    = string
-  default = "google_oauth,saml"
+  default = "saml"
 }
 
 variable "auth_allowed_domains" {
   type        = string
   description = "Comma separated list of allowed domains for authentication (e.g. `acme.com,acme.ai`)"
   default     = null
+}
+
+variable "auth_min_password_length" {
+  type        = number
+  description = "Minimum password length for local authentication"
+  default     = 12
 }
 
 variable "auth_superadmin_email" {
@@ -102,7 +108,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.53.21"
+  default = "1.0.0-beta.6"
 }
 
 variable "temporal_server_image" {
@@ -198,6 +204,36 @@ variable "feature_flags" {
   default     = ""
 }
 
+variable "ee_multi_tenant" {
+  type        = bool
+  description = "Enable enterprise multi-tenant mode"
+  default     = false
+}
+
+variable "result_externalization_enabled" {
+  type        = bool
+  description = "Enable externalization of large workflow payloads to blob storage"
+  default     = true
+}
+
+variable "collection_manifests_enabled" {
+  type        = bool
+  description = "Enable collection manifest externalization"
+  default     = true
+}
+
+variable "result_externalization_threshold_bytes" {
+  type        = number
+  description = "Threshold in bytes above which workflow payloads are externalized"
+  default     = 128000
+}
+
+variable "workflow_artifact_retention_days" {
+  type        = number
+  description = "Retention period in days for workflow artifacts in blob storage (0 disables expiration)"
+  default     = 30
+}
+
 ### Database Connection Pool
 
 variable "db_max_overflow" {
@@ -279,9 +315,87 @@ variable "oauth_client_secret_arn" {
   default     = null
 }
 
+variable "oidc_issuer" {
+  type        = string
+  description = "OIDC issuer URL (optional)"
+  default     = null
+}
+
+variable "oidc_scopes" {
+  type        = string
+  description = "OIDC scopes string (space-delimited)"
+  default     = "openid profile email"
+}
+
+variable "oidc_client_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the OIDC client ID (optional)"
+  default     = null
+}
+
+variable "oidc_client_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the OIDC client secret (optional)"
+  default     = null
+}
+
+variable "user_auth_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing USER_AUTH_SECRET (optional)"
+  default     = null
+}
+
 variable "saml_idp_metadata_url_arn" {
   type        = string
   description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"
+  default     = null
+}
+
+variable "saml_allow_unsolicited" {
+  type        = bool
+  description = "Allow unsolicited SAML responses"
+  default     = false
+}
+
+variable "saml_authn_requests_signed" {
+  type        = bool
+  description = "Require signed SAML authn requests"
+  default     = false
+}
+
+variable "saml_signed_assertions" {
+  type        = bool
+  description = "Require signed SAML assertions"
+  default     = true
+}
+
+variable "saml_signed_responses" {
+  type        = bool
+  description = "Require signed SAML responses"
+  default     = true
+}
+
+variable "saml_verify_ssl_entity" {
+  type        = bool
+  description = "Verify SSL certificates for SAML entity operations"
+  default     = true
+}
+
+variable "saml_verify_ssl_metadata" {
+  type        = bool
+  description = "Verify SSL certificates for SAML metadata operations"
+  default     = true
+}
+
+variable "saml_ca_certs_arn" {
+  type        = string
+  description = "The ARN of the secret containing SAML CA certs (optional)"
+  default     = null
+}
+
+variable "saml_metadata_cert_arn" {
+  type        = string
+  description = "The ARN of the secret containing SAML metadata cert (optional)"
   default     = null
 }
 
@@ -310,20 +424,6 @@ variable "temporal_auth_client_secret_arn" {
 variable "temporal_api_key_arn" {
   type        = string
   description = "The ARN of the secret containing the Temporal API key (optional)"
-  default     = null
-}
-
-### (Optional) Custom Integrations
-
-variable "remote_repository_package_name" {
-  type        = string
-  description = "The package name of the remote repository"
-  default     = null
-}
-
-variable "remote_repository_url" {
-  type        = string
-  description = "The URL of the remote repository"
   default     = null
 }
 
@@ -371,12 +471,6 @@ variable "worker_desired_count" {
   default     = 2
 }
 
-variable "use_legacy_executor" {
-  type        = bool
-  description = "Use legacy executor command (uvicorn HTTP server) for versions 0.53.x and below. Set to false for 0.54.0+."
-  default     = true
-}
-
 variable "executor_cpu" {
   type    = string
   default = "4096"
@@ -398,16 +492,56 @@ variable "executor_client_timeout" {
   default = "900"
 }
 
-variable "executor_payload_max_size_bytes" {
+variable "executor_queue" {
   type        = string
-  default     = "2097152"
-  description = "Maximum size of a payload in bytes the executor can return (default: 2MB)"
+  description = "Task queue for executor workers"
+  default     = "shared-action-queue"
 }
 
-variable "executor_ray_runtime_env_uv_cache_size_gb" {
+variable "executor_backend" {
   type        = string
-  default     = "5"
-  description = "Soft cap (in GiB) for Ray's uv runtime-env cache inside the executor container"
+  description = "Executor backend: direct, pool, ephemeral, or auto"
+  default     = "direct"
+}
+
+variable "executor_worker_pool_size" {
+  type        = string
+  description = "Executor worker pool size (optional; auto when null)"
+  default     = null
+}
+
+variable "agent_executor_cpu" {
+  type    = string
+  default = "4096"
+}
+
+variable "agent_executor_memory" {
+  type    = string
+  default = "8192"
+}
+
+variable "agent_executor_desired_count" {
+  type        = number
+  description = "Desired number of agent-executor instances to run"
+  default     = 1
+}
+
+variable "agent_queue" {
+  type        = string
+  description = "Task queue for agent executor workers"
+  default     = "shared-agent-queue"
+}
+
+variable "agent_backend" {
+  type        = string
+  description = "Agent executor backend: direct, pool, ephemeral, or auto"
+  default     = "direct"
+}
+
+variable "agent_executor_worker_pool_size" {
+  type        = string
+  description = "Agent executor worker pool size (optional; auto when null)"
+  default     = null
 }
 
 variable "temporal_cpu" {
@@ -531,27 +665,6 @@ variable "temporal_db_snapshot_name" {
   default     = null
 }
 
-### Prometheus Metrics
-
-variable "metrics_auth_username" {
-  description = "Username for basic auth on metrics endpoints"
-  type        = string
-  default     = "metrics"
-}
-
-variable "metrics_auth_password_hash" {
-  description = "Bcrypt hash of the password for basic auth on metrics endpoints"
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
-variable "enable_metrics" {
-  description = "Whether to expose metrics endpoints with basic auth protection"
-  type        = bool
-  default     = true
-}
-
 variable "sentry_dsn" {
   description = "The Sentry DSN to use for error reporting"
   type        = string
@@ -560,24 +673,6 @@ variable "sentry_dsn" {
 }
 
 # Redis Configuration
-
-variable "redis_host" {
-  type        = string
-  description = "Hostname of the Redis cluster or instance"
-  default     = null
-}
-
-variable "redis_port" {
-  type        = string
-  description = "Port Redis is listening on (default 6379)"
-  default     = "6379"
-}
-
-variable "redis_url" {
-  type        = string
-  description = "Full Redis connection URL (e.g. redis://:password@host:6379/0)"
-  default     = null
-}
 
 variable "redis_node_type" {
   type        = string

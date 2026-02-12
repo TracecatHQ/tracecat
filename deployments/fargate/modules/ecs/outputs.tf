@@ -73,13 +73,23 @@ output "s3_attachments_bucket_arn" {
 }
 
 output "s3_registry_bucket_name" {
-  value       = var.use_legacy_executor ? null : aws_s3_bucket.registry[0].bucket
-  description = "The name of the S3 bucket used for registry storage (null when use_legacy_executor is true)"
+  value       = aws_s3_bucket.registry.bucket
+  description = "The name of the S3 bucket used for registry storage"
 }
 
 output "s3_registry_bucket_arn" {
-  value       = var.use_legacy_executor ? null : aws_s3_bucket.registry[0].arn
-  description = "The ARN of the S3 bucket used for registry storage (null when use_legacy_executor is true)"
+  value       = aws_s3_bucket.registry.arn
+  description = "The ARN of the S3 bucket used for registry storage"
+}
+
+output "s3_workflow_bucket_name" {
+  value       = aws_s3_bucket.workflow.bucket
+  description = "The name of the S3 bucket used for workflow artifact storage"
+}
+
+output "s3_workflow_bucket_arn" {
+  value       = aws_s3_bucket.workflow.arn
+  description = "The ARN of the S3 bucket used for workflow artifact storage"
 }
 
 # Redis outputs

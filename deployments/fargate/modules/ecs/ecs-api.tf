@@ -40,7 +40,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
         backoffTime = 10
       }
       healthCheck = {
-        command     = ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/').raise_for_status()"]
+        command     = ["CMD", "curl", "-f", "http://localhost:8000/ready"]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -106,8 +106,7 @@ resource "aws_ecs_service" "tracecat_api" {
   }
 
   depends_on = [
-    aws_ecs_service.temporal_service,
-    aws_ecs_service.tracecat_executor
+    aws_ecs_service.temporal_service
   ]
 
 }
