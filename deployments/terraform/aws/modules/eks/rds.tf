@@ -69,6 +69,7 @@ resource "aws_db_instance" "tracecat" {
   instance_class        = var.rds_instance_class
   allocated_storage     = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5
+  storage_type          = var.rds_storage_type
 
   snapshot_identifier = var.rds_snapshot_identifier != "" ? var.rds_snapshot_identifier : null
 

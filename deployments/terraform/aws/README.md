@@ -82,6 +82,7 @@ capacity_reserved_pod_eni=8
 
 # Persistence services and Temporal mode
 rds_instance_class="db.t4g.medium"
+rds_storage_type="gp3"
 elasticache_node_type="cache.t3.micro"
 rds_database_insights_mode="advanced"
 ```
@@ -148,6 +149,7 @@ capacity_reserved_memory_mib=8192
 
 # Persistence services
 rds_instance_class="db.t4g.medium"
+rds_storage_type="gp3"
 elasticache_node_type="cache.t4g.small"
 rds_database_insights_mode="standard"
 ```
@@ -297,6 +299,17 @@ To deploy Temporal in self-hosted mode, set `temporal_mode` to `self-hosted`.
 
 ```bash
 export TF_VAR_temporal_mode="self-hosted"
+```
+
+RDS defaults are intentionally cost-optimized for non-Temporal-heavy deployments:
+`rds_instance_class="db.t4g.medium"`, `rds_allocated_storage=20`, `rds_storage_type="gp3"`.
+
+For Temporal self-hosting, use a larger starting profile:
+
+```bash
+export TF_VAR_rds_instance_class="db.r7g.2xlarge"
+export TF_VAR_rds_allocated_storage=100
+export TF_VAR_rds_storage_type="io2"
 ```
 
 To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
