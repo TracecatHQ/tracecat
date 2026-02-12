@@ -16,7 +16,6 @@ definition:
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
-      default: https://localhost:5601
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.

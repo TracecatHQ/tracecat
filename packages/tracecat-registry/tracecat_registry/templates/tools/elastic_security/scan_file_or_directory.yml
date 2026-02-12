@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Isolate endpoint
-  description: Isolate an endpoint using Elastic Security.
+  title: Scan file or directory on endpoint
+  description: Scan a file or directory on an endpoint using Elastic Security.
   display_group: Elastic Security
-  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointisolateaction
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscanaction
   namespace: tools.elastic_security
-  name: isolate_endpoint
+  name: scan_file_or_directory
   secrets:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
@@ -17,10 +17,13 @@ definition:
     endpoint_ids:
       type: list[str]
       description: Array of endpoint IDs to isolate. Must be at least one ID.
+    path:
+      type: str
+      description: The file or directory path to scan on the endpoint.
     comment:
       type: str
       description: Optional comment to include with the isolation action.
-      default: <comment>
+      default: Placeholder comment for isolation action.
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
@@ -29,10 +32,10 @@ definition:
       description: Whether to verify SSL certificates.
       default: true
   steps:
-    - ref: isolate_endpoint
+    - ref: scan_file_or_directory
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/isolate
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/scan
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
@@ -42,4 +45,6 @@ definition:
           endpoint_ids: ${{ inputs.endpoint_ids }}
           comment: ${{ inputs.comment }}
           agent_type: ${{ inputs.agent_type }}
-  returns: ${{ steps.isolate_endpoint.result.data }}
+          parameters:
+            path: ${{ inputs.path }}
+  returns: ${{ steps.scan_file_or_directory.result.data }}
