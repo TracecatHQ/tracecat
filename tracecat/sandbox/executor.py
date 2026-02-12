@@ -62,6 +62,28 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
+_PASTA_GATEWAY_IP = "10.255.255.1"
+
+
+def build_sandbox_resolv_conf() -> str:
+    """Build sandbox resolv.conf with pasta DNS plus host search/options lines.
+
+    In Kubernetes, short service names rely on search domains like
+    `*.svc.cluster.local` and resolver options from the pod's /etc/resolv.conf.
+    Preserve those lines while forcing nameserver to pasta's DNS gateway.
+    """
+    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
+    try:
+        host_resolv = Path("/etc/resolv.conf").read_text()
+        for line in host_resolv.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("search ") or stripped.startswith("options "):
+                lines.append(stripped)
+    except OSError:
+        pass
+    return "\n".join(lines) + "\n"
+
+
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"\bCLONE_NEWUSER\b|clone_newuser", re.IGNORECASE),
@@ -265,7 +287,7 @@ class NsjailExecutor:
         # Docker export leaves these empty since Docker manages them at runtime
         if network_enabled:
             resolv_conf_path = job_dir / "resolv.conf"
-            resolv_conf_path.write_text("nameserver 10.255.255.1\n")
+            resolv_conf_path.write_text(build_sandbox_resolv_conf())
 
             hosts_path = job_dir / "hosts"
             hosts_path.write_text(
@@ -720,7 +742,7 @@ class NsjailExecutor:
         # Network config: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
         # Docker export leaves /etc files empty since Docker manages them at runtime
         resolv_conf_path = job_dir / "resolv.conf"
-        resolv_conf_path.write_text("nameserver 10.255.255.1\n")
+        resolv_conf_path.write_text(build_sandbox_resolv_conf())
 
         hosts_path = job_dir / "hosts"
         hosts_path.write_text(

@@ -65,6 +65,10 @@ spec:
               mountPath: /var/lib/tracecat/sandbox-cache
             - name: tmp
               mountPath: /tmp
+            {{- if not .Values.tracecat.sandbox.disableNsjail }}
+            - name: dev-tun
+              mountPath: /dev/net/tun
+            {{- end }}
           resources:
             {{- toYaml .Values.executor.resources | nindent 12 }}
       volumes:
@@ -72,3 +76,9 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if not .Values.tracecat.sandbox.disableNsjail }}
+        - name: dev-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+        {{- end }}
