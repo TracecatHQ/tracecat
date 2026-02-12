@@ -138,6 +138,30 @@ export type AdminListOrgTiersData = {
   orgIds?: string[]
 }
 
+export type AdminDeleteOrganizationWithConfirmationData = {
+  orgId: string
+  confirm: string
+}
+
+export const adminDeleteOrganizationWithConfirmation = (
+  data: AdminDeleteOrganizationWithConfirmationData
+): CancelablePromise<void> =>
+  request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/organizations/{org_id}",
+    path: {
+      org_id: data.orgId,
+    },
+    query: {
+      confirm: data.confirm,
+    },
+    errors: {
+      400: "Bad Request",
+      404: "Not Found",
+      422: "Validation Error",
+    },
+  })
+
 export const adminListOrgTiers = (
   data: AdminListOrgTiersData
 ): CancelablePromise<OrganizationTierRead[]> =>

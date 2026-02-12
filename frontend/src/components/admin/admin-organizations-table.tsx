@@ -32,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { useAdminOrganizations, useAdminOrgTiers } from "@/hooks/use-admin"
 
 export function AdminOrganizationsTable() {
@@ -40,19 +41,24 @@ export function AdminOrganizationsTable() {
   const [domainsOrgId, setDomainsOrgId] = useState<string | null>(null)
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState("")
   const { organizations, deleteOrganization } = useAdminOrganizations()
   const orgIds = organizations?.map((org) => org.id) ?? []
   const { orgTiersByOrgId, isLoading: orgTiersLoading } =
     useAdminOrgTiers(orgIds)
 
   const handleDeleteOrganization = async () => {
-    if (selectedOrg) {
+    if (selectedOrg && deleteConfirmation.trim() === selectedOrg.name) {
       try {
-        await deleteOrganization(selectedOrg.id)
+        await deleteOrganization({
+          orgId: selectedOrg.id,
+          confirmation: deleteConfirmation.trim(),
+        })
       } catch (error) {
         console.error("Failed to delete organization", error)
       } finally {
         setSelectedOrg(null)
+        setDeleteConfirmation("")
       }
     }
   }
@@ -72,6 +78,7 @@ export function AdminOrganizationsTable() {
         onOpenChange={(isOpen) => {
           if (!isOpen) {
             setSelectedOrg(null)
+            setDeleteConfirmation("")
           }
         }}
       >
@@ -247,6 +254,7 @@ export function AdminOrganizationsTable() {
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
                           onClick={() => setSelectedOrg(row.original)}
+                          onSelect={() => setDeleteConfirmation("")}
                         >
                           Delete organization
                         </DropdownMenuItem>
@@ -267,12 +275,27 @@ export function AdminOrganizationsTable() {
               {selectedOrg?.name}&quot;? This action cannot be undone and will
               delete all associated data.
             </AlertDialogDescription>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Type <span className="font-medium">{selectedOrg?.name}</span> to
+                confirm.
+              </p>
+              <Input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                placeholder={selectedOrg?.name ?? ""}
+                autoComplete="off"
+              />
+            </div>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDeleteOrganization}
+              disabled={
+                !selectedOrg || deleteConfirmation.trim() !== selectedOrg.name
+              }
             >
               Delete
             </AlertDialogAction>
