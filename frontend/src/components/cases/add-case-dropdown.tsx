@@ -14,7 +14,7 @@ export function AddCaseDropdown() {
     return null
   }
 
-  if (!hasEntitlement("case_dropdowns")) {
+  if (!hasEntitlement("case_addons")) {
     return null
   }
 

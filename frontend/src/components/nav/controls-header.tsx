@@ -972,18 +972,18 @@ function CaseStatusControl({
   workspaceId: string
 }) {
   const { hasEntitlement } = useEntitlements()
-  const caseDurationsEnabled = hasEntitlement("case_durations")
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const { caseDurations, caseDurationsIsLoading } = useCaseDurations({
     caseId,
     workspaceId,
-    enabled: caseDurationsEnabled,
+    enabled: caseAddonsEnabled,
   })
   const { caseDurationDefinitions, caseDurationDefinitionsIsLoading } =
-    useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
+    useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
 
   return (
     <div className="min-w-0">
-      {caseDurationsEnabled ? (
+      {caseAddonsEnabled ? (
         <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
           <CaseDurationMetrics
             durations={caseDurations}

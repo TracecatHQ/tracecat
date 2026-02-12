@@ -107,7 +107,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
   const { hasEntitlement } = useEntitlements()
-  const agentPresetsEnabled = hasEntitlement("agent_presets")
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
   const [confirmDeleteChatId, setConfirmDeleteChatId] = useState<string | null>(
     null
@@ -280,7 +280,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: LayersIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
-    ...(agentPresetsEnabled
+    ...(agentAddonsEnabled
       ? [
           {
             title: "Agents",

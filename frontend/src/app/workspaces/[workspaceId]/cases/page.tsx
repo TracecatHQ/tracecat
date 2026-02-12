@@ -49,10 +49,10 @@ export default function CasesPage() {
   const { members } = useWorkspaceMembers(workspaceId)
   const { caseTags } = useCaseTagCatalog(workspaceId)
   const { hasEntitlement } = useEntitlements()
-  const caseDropdownsEnabled = hasEntitlement("case_dropdowns")
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const { dropdownDefinitions } = useCaseDropdownDefinitions(
     workspaceId,
-    caseDropdownsEnabled
+    caseAddonsEnabled
   )
 
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function CasesPage() {
         onUpdatedAtSortChange={setUpdatedAtSort}
         onLimitChange={setLimit}
         dropdownDefinitions={
-          caseDropdownsEnabled ? dropdownDefinitions : undefined
+          caseAddonsEnabled ? dropdownDefinitions : undefined
         }
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}

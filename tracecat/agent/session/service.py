@@ -530,7 +530,7 @@ class AgentSessionService(BaseWorkspaceService):
         async with self._build_agent_config(agent_session) as agent_config:
             if agent_config.tool_approvals:
                 await check_entitlement(
-                    self.session, self.role, Entitlement.AGENT_APPROVALS
+                    self.session, self.role, Entitlement.AGENT_ADDONS
                 )
             run_id = uuid.uuid4()
 

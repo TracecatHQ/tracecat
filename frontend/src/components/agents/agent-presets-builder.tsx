@@ -249,12 +249,12 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentPresetsEnabled = hasEntitlement("agent_presets")
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const activePresetId = presetId ?? NEW_PRESET_ID
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled: agentPresetsEnabled && !entitlementsLoading }
+    { enabled: agentAddonsEnabled && !entitlementsLoading }
   )
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
@@ -307,7 +307,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     workspaceId,
     selectedPresetId,
     {
-      enabled: agentPresetsEnabled && !entitlementsLoading,
+      enabled: agentAddonsEnabled && !entitlementsLoading,
     }
   )
 

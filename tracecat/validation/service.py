@@ -376,7 +376,7 @@ async def validate_dsl_actions(
     """
     val_res: list[ActionValidationResult] = []
     # Validate the actions
-    agent_approvals_entitled: bool | None = None
+    agent_addons_entitled: bool | None = None
     for act_stmt in dsl.actions:
         details: list[ValidationDetail] = []
         # We validate the action args, but keep them as is
@@ -397,21 +397,21 @@ async def validate_dsl_actions(
             act_stmt.action == "ai.agent"
             and act_stmt.args.get("tool_approvals") is not None
         ):
-            if agent_approvals_entitled is None:
+            if agent_addons_entitled is None:
                 if role.organization_id is None:
                     raise ValueError(
                         "Role must have organization_id to validate entitlements"
                     )
                 entitlement_svc = EntitlementService(TierService(session))
-                agent_approvals_entitled = await entitlement_svc.is_entitled(
-                    role.organization_id, Entitlement.AGENT_APPROVALS
+                agent_addons_entitled = await entitlement_svc.is_entitled(
+                    role.organization_id, Entitlement.AGENT_ADDONS
                 )
-            if not agent_approvals_entitled:
+            if not agent_addons_entitled:
                 details.append(
                     ValidationDetail(
                         type="action",
                         msg=(
-                            "`tool_approvals` requires the 'agent_approvals' entitlement. "
+                            "`tool_approvals` requires the 'agent_addons' entitlement. "
                             "Remove the field or upgrade your subscription tier."
                         ),
                         loc=(act_stmt.ref, "tool_approvals"),

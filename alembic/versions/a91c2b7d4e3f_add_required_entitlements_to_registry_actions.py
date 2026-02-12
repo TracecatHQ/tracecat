@@ -23,7 +23,7 @@ def upgrade() -> None:
         """
         UPDATE registry_action
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_tasks'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
         """
@@ -32,7 +32,7 @@ def upgrade() -> None:
         """
         UPDATE platform_registry_action
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_tasks'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
         """
@@ -41,7 +41,7 @@ def upgrade() -> None:
         """
         UPDATE registry_index
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_tasks'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
         """
@@ -50,7 +50,7 @@ def upgrade() -> None:
         """
         UPDATE platform_registry_index
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_tasks'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
         """
@@ -61,7 +61,7 @@ def upgrade() -> None:
         """
         UPDATE registry_action
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_durations'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name = 'get_case_metrics'
         """
@@ -70,7 +70,7 @@ def upgrade() -> None:
         """
         UPDATE platform_registry_action
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_durations'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name = 'get_case_metrics'
         """
@@ -79,7 +79,7 @@ def upgrade() -> None:
         """
         UPDATE registry_index
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_durations'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name = 'get_case_metrics'
         """
@@ -88,7 +88,7 @@ def upgrade() -> None:
         """
         UPDATE platform_registry_index
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_durations'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
         WHERE namespace = 'core.cases'
           AND name = 'get_case_metrics'
         """
@@ -99,7 +99,7 @@ def upgrade() -> None:
         """
         UPDATE registry_action
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_presets'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
         WHERE namespace = 'ai'
           AND name = 'preset_agent'
         """
@@ -108,7 +108,7 @@ def upgrade() -> None:
         """
         UPDATE platform_registry_action
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_presets'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
         WHERE namespace = 'ai'
           AND name = 'preset_agent'
         """
@@ -117,7 +117,7 @@ def upgrade() -> None:
         """
         UPDATE registry_index
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_presets'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
         WHERE namespace = 'ai'
           AND name = 'preset_agent'
         """
@@ -126,7 +126,7 @@ def upgrade() -> None:
         """
         UPDATE platform_registry_index
         SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_presets'))
+            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
         WHERE namespace = 'ai'
           AND name = 'preset_agent'
         """

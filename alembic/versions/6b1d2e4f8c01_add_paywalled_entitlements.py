@@ -22,7 +22,7 @@ def upgrade() -> None:
         """
         UPDATE tier
         SET entitlements = COALESCE(entitlements, '{}'::jsonb) ||
-            '{"agent_approvals": true, "agent_presets": true, "case_dropdowns": true, "case_durations": true, "case_tasks": true, "case_triggers": true}'::jsonb
+            '{"agent_addons": true, "case_addons": true}'::jsonb
         WHERE is_default = true
         """
     )
@@ -34,12 +34,8 @@ def downgrade() -> None:
         UPDATE tier
         SET entitlements = (
             COALESCE(entitlements, '{}'::jsonb)
-            - 'agent_approvals'
-            - 'agent_presets'
-            - 'case_dropdowns'
-            - 'case_durations'
-            - 'case_tasks'
-            - 'case_triggers'
+            - 'agent_addons'
+            - 'case_addons'
         )
         WHERE is_default = true
         """

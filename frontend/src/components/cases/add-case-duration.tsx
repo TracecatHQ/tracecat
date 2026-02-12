@@ -15,7 +15,7 @@ export function AddCaseDuration() {
     return null
   }
 
-  if (!hasEntitlement("case_durations")) {
+  if (!hasEntitlement("case_addons")) {
     return null
   }
 

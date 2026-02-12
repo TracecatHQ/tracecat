@@ -38,9 +38,7 @@ async def test_registry_actions_filtered_by_entitlements(test_role, monkeypatch)
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
-            update={"case_tasks": False, "case_durations": False}
-        ),
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"case_addons": False}),
     )
 
     async with RegistryActionsService.with_session(test_role) as service:

@@ -13,9 +13,7 @@ export default function AgentPresetsPage() {
   }>()
   const presetId = params?.presetId
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentApprovalsEnabled = hasEntitlement("agent_approvals")
-  const agentPresetsEnabled = hasEntitlement("agent_presets")
-  const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   useEffect(() => {
     document.title = "Agent Presets"
@@ -25,7 +23,7 @@ export default function AgentPresetsPage() {
     return <CenteredSpinner />
   }
 
-  if (!agentsFeatureEnabled) {
+  if (!agentAddonsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="mx-auto flex w-full h-full max-w-3xl flex-1 items-center justify-center py-12">

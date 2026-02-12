@@ -33,7 +33,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
 
     service_name = "case_dropdown_definitions"
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_definitions(self) -> Sequence[CaseDropdownDefinition]:
         """List all dropdown definitions for the workspace, ordered by position."""
         stmt = (
@@ -45,7 +45,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition(self, definition_id: uuid.UUID) -> CaseDropdownDefinition:
         """Get a single dropdown definition by ID."""
         stmt = (
@@ -64,7 +64,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition_by_ref(self, ref: str) -> CaseDropdownDefinition:
         """Get a single dropdown definition by its slug ref."""
         stmt = (
@@ -83,7 +83,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_definition(
         self, params: CaseDropdownDefinitionCreate
     ) -> CaseDropdownDefinition:
@@ -120,7 +120,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(definition)
         return definition
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_definition(
         self,
         definition: CaseDropdownDefinition,
@@ -163,7 +163,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(definition)
         return definition
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_definition(self, definition: CaseDropdownDefinition) -> None:
         """Delete a dropdown definition and all associated options/values."""
         await self.session.delete(definition)
@@ -190,7 +190,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Dropdown option {option_id} not found")
         return option
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def add_option(
         self,
         definition_id: uuid.UUID,
@@ -216,7 +216,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(option)
         return option
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_option(
         self,
         option_id: uuid.UUID,
@@ -236,14 +236,14 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(option)
         return option
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_option(self, option_id: uuid.UUID) -> None:
         """Delete a dropdown option."""
         option = await self._get_option(option_id)
         await self.session.delete(option)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def reorder_options(
         self, definition_id: uuid.UUID, option_ids: list[uuid.UUID]
     ) -> None:
@@ -310,14 +310,14 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             for row in rows
         ]
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_values_for_case_entitled(
         self, case_id: uuid.UUID
     ) -> list[CaseDropdownValueRead]:
         """List dropdown values with entitlement enforcement."""
         return await self.list_values_for_case(case_id)
 
-    @requires_entitlement(Entitlement.CASE_DROPDOWNS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def set_value(
         self,
         case_id: uuid.UUID,

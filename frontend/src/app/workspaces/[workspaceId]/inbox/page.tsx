@@ -9,9 +9,7 @@ import { useInbox } from "@/hooks/use-inbox"
 
 export default function InboxPage() {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentApprovalsEnabled = hasEntitlement("agent_approvals")
-  const agentPresetsEnabled = hasEntitlement("agent_presets")
-  const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   const {
     sessions,
@@ -25,7 +23,7 @@ export default function InboxPage() {
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
-  } = useInbox({ enabled: agentsFeatureEnabled })
+  } = useInbox({ enabled: agentAddonsEnabled })
 
   useEffect(() => {
     document.title = "Inbox"
@@ -35,7 +33,7 @@ export default function InboxPage() {
     return <CenteredSpinner />
   }
 
-  if (!agentsFeatureEnabled) {
+  if (!agentAddonsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">

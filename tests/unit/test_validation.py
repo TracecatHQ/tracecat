@@ -652,7 +652,6 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
     # Test OAuth token values
     ac_token_value = "__TEST_AC_TOKEN__"
     cc_token_value = "__TEST_CC_TOKEN__"
-
     # Create a test template action with both AC and CC OAuth secrets as optional
     test_action = TemplateAction(
         type="action",
@@ -874,7 +873,6 @@ async def test_validate_dsl_with_optional_oauth_credentials(
     """
 
     session, db_repo_id = db_session_with_repo
-
     # Create a template action with optional OAuth credentials (both AC and CC)
     test_action = TemplateAction(
         type="action",
@@ -973,9 +971,7 @@ async def test_agent_tool_approvals_requires_entitlement(
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
-            update={"agent_approvals": False}
-        ),
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": False}),
     )
 
     repo = Repository()
@@ -1027,7 +1023,7 @@ async def test_agent_tool_approvals_requires_entitlement(
         detail_msgs: set[str] = set()
     else:
         detail_msgs = {d.msg for d in detail}
-    assert any("agent_approvals" in msg for msg in detail_msgs)
+    assert any("agent_addons" in msg for msg in detail_msgs)
 
 
 @pytest.mark.integration
@@ -1040,7 +1036,7 @@ async def test_agent_tool_approvals_passes_with_entitlement(
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_approvals": True}),
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
     )
 
     repo = Repository()

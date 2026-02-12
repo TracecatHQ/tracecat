@@ -94,25 +94,18 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { hasEntitlement } = useEntitlements()
-  const caseTasksEnabled = hasEntitlement("case_tasks")
-  const caseDropdownsEnabled = hasEntitlement("case_dropdowns")
-  const caseDurationsEnabled = hasEntitlement("case_durations")
+  const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
     workspaceId,
   })
-  const { caseDurations, caseDurationsIsLoading, caseDurationsError } =
-    useCaseDurations({
-      caseId,
-      workspaceId,
-      enabled: caseDurationsEnabled,
-    })
-  const {
-    caseDurationDefinitions,
-    caseDurationDefinitionsIsLoading,
-    caseDurationDefinitionsError,
-  } = useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
+  useCaseDurations({
+    caseId,
+    workspaceId,
+    enabled: caseAddonsEnabled,
+  })
+  useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
   const { updateCase } = useUpdateCase({
     workspaceId,
     caseId,
@@ -122,7 +115,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { caseTags } = useCaseTagCatalog(workspaceId)
   const { dropdownDefinitions } = useCaseDropdownDefinitions(
     workspaceId,
-    caseDropdownsEnabled
+    caseAddonsEnabled
   )
   const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { toast } = useToast()
@@ -324,7 +317,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 />
               </div>
 
-              {caseTasksEnabled && (
+              {caseAddonsEnabled && (
                 <div className="mb-6">
                   <CaseTasksSection
                     caseId={caseId}
@@ -460,7 +453,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       />
                     </div>
                   </div>
-                  {caseDropdownsEnabled &&
+                  {caseAddonsEnabled &&
                     dropdownDefinitions?.map(
                       (def: CaseDropdownDefinitionRead) => {
                         const currentValue = caseData.dropdown_values?.find(

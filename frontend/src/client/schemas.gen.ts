@@ -7560,40 +7560,18 @@ export const $EffectiveEntitlements = {
       description: "Whether git sync is enabled",
       default: false,
     },
-    agent_approvals: {
+    agent_addons: {
       type: "boolean",
-      title: "Agent Approvals",
-      description: "Whether agent tool approvals are enabled",
+      title: "Agent Addons",
+      description:
+        "Whether add-on agent capabilities are enabled (approvals, presets)",
       default: false,
     },
-    agent_presets: {
+    case_addons: {
       type: "boolean",
-      title: "Agent Presets",
-      description: "Whether agent presets are enabled",
-      default: false,
-    },
-    case_dropdowns: {
-      type: "boolean",
-      title: "Case Dropdowns",
-      description: "Whether case dropdowns are enabled",
-      default: false,
-    },
-    case_durations: {
-      type: "boolean",
-      title: "Case Durations",
-      description: "Whether case durations are enabled",
-      default: false,
-    },
-    case_tasks: {
-      type: "boolean",
-      title: "Case Tasks",
-      description: "Whether case tasks are enabled",
-      default: false,
-    },
-    case_triggers: {
-      type: "boolean",
-      title: "Case Triggers",
-      description: "Whether case workflow triggers are enabled",
+      title: "Case Addons",
+      description:
+        "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
       default: false,
     },
   },
@@ -7621,29 +7599,17 @@ export const $EntitlementsDict = {
       title: "Git Sync",
       description: "Whether git sync is enabled",
     },
-    agent_approvals: {
+    agent_addons: {
       type: "boolean",
-      title: "Agent Approvals",
+      title: "Agent Addons",
+      description:
+        "Whether add-on agent capabilities are enabled (approvals, presets)",
     },
-    agent_presets: {
+    case_addons: {
       type: "boolean",
-      title: "Agent Presets",
-    },
-    case_dropdowns: {
-      type: "boolean",
-      title: "Case Dropdowns",
-    },
-    case_durations: {
-      type: "boolean",
-      title: "Case Durations",
-    },
-    case_tasks: {
-      type: "boolean",
-      title: "Case Tasks",
-    },
-    case_triggers: {
-      type: "boolean",
-      title: "Case Triggers",
+      title: "Case Addons",
+      description:
+        "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
     },
   },
   type: "object",
@@ -8179,7 +8145,9 @@ export const $FeatureFlag = {
   type: "string",
   enum: ["ai-ranking", "rbac"],
   title: "FeatureFlag",
-  description: "Feature flag enum reserved for engineering rollouts.",
+  description: `Feature flag enum reserved for engineering rollouts.
+
+NOTE: At least one member is required for valid OpenAPI schema generation.`,
 } as const
 
 export const $FeatureFlagsRead = {
