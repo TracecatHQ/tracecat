@@ -328,7 +328,6 @@ class GitHubAppService(BaseOrgService):
             self.logger.error("Failed to delete GitHub App credentials", error=str(e))
             raise GitHubAppError("Failed to delete GitHub App credentials") from e
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def get_github_app_credentials_status(self) -> dict[str, Any]:
         """Get the status of GitHub App credentials.
@@ -371,7 +370,6 @@ class GitHubAppService(BaseOrgService):
                 "created_at": None,
             }
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def get_github_app_credentials(self) -> GitHubAppCredentials:
         """Retrieve GitHub App credentials from organization secret.
@@ -413,7 +411,6 @@ class GitHubAppService(BaseOrgService):
                 "Failed to retrieve GitHub App credentials: invalid credential data"
             ) from e
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     @requires_entitlement(Entitlement.GIT_SYNC)
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
