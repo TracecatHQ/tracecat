@@ -1,33 +1,16 @@
 # Tracecat Helm Chart
 
-This Helm chart deploys Tracecat on Kubernetes with support for both internal subcharts (CloudNativePG, Valkey, MinIO, Temporal) and external managed services (RDS, ElastiCache, S3).
+This Helm chart deploys Tracecat on Kubernetes with external managed services (PostgreSQL, Redis, S3) and an optional self-hosted Temporal subchart.
 
 ## Prerequisites
 
-### 1. Install CloudNativePG operator (required for internal PostgreSQL)
-
-If using the internal PostgreSQL subchart (`postgres.enabled=true`), you must install the CloudNativePG operator first. The helm chart includes a `cluster` subchart that creates a PostgreSQL Cluster resource, but the operator must be installed separately to manage it.
-
-```bash
-kubectl apply --server-side -f \
-  https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/releases/cnpg-1.25.1.yaml
-```
-
-Verify the operator is running:
-
-```bash
-kubectl get pods -n cnpg-system
-```
-
-> **Note**: Skip this step if using external PostgreSQL (`externalPostgres.enabled=true`).
-
-### 2. Create namespace
+### 1. Create namespace
 
 ```bash
 kubectl create namespace tracecat
 ```
 
-### 3. Create core credentials secret
+### 2. Create core credentials secret
 
 ```bash
 # Generate credentials locally
@@ -46,16 +29,38 @@ kubectl create secret generic tracecat-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-## Installation
+### 3. Create external service secrets
 
-### Basic installation (internal services)
+```bash
+# PostgreSQL credentials
+kubectl create secret generic tracecat-postgres-credentials \
+  -n tracecat \
+  --from-literal=username=YOUR_PG_USER \
+  --from-literal=password=YOUR_PG_PASSWORD
+
+# Redis URL
+kubectl create secret generic tracecat-redis-credentials \
+  -n tracecat \
+  --from-literal=url='redis://:YOUR_REDIS_PASSWORD@YOUR_REDIS_HOST:6379'
+
+# S3 credentials (optional - not needed if using IRSA/IAM roles)
+kubectl create secret generic tracecat-s3-credentials \
+  -n tracecat \
+  --from-literal=accessKeyId=YOUR_ACCESS_KEY \
+  --from-literal=secretAccessKey=YOUR_SECRET_KEY
+```
+
+## Installation
 
 ```bash
 helm install tracecat ./tracecat \
   -n tracecat \
   --set secrets.existingSecret=tracecat-secrets \
   --set tracecat.auth.superadminEmail=admin@example.com \
-  --set ingress.host=tracecat.example.com
+  --set ingress.host=tracecat.example.com \
+  --set externalPostgres.host=your-db-host.example.com \
+  --set externalPostgres.auth.existingSecret=tracecat-postgres-credentials \
+  --set externalRedis.auth.existingSecret=tracecat-redis-credentials
 ```
 
 ### OrbStack (local development on macOS)
@@ -78,7 +83,7 @@ kubectl wait --namespace ingress-nginx \
   --timeout=120s
 ```
 
-**Step 2: Complete prerequisites 1-3** (install CNPG operator, create namespace, create secrets)
+**Step 2: Complete prerequisites** (create namespace, create secrets, set up external services)
 
 **Step 3: Install Tracecat**
 
@@ -118,35 +123,29 @@ See `examples/` for complete example configurations.
 |-----------|-------------|
 | `secrets.existingSecret` | Name of K8s secret with core credentials |
 | `tracecat.auth.superadminEmail` | Initial admin email (required on first install) |
-
-### Service replicas
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `api.replicas` | 2 | API service replicas |
-| `worker.replicas` | 4 | Temporal worker replicas |
-| `executor.replicas` | 2 | Action executor replicas |
-| `ui.replicas` | 1 | UI service replicas |
+| `externalPostgres.host` | PostgreSQL hostname |
+| `externalPostgres.auth.existingSecret` | Secret with `username` and `password` |
+| `externalRedis.auth.existingSecret` | Secret with `url` |
 
 ### Ingress
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `ingress.enabled` | true | Enable ingress |
-| `ingress.className` | "" | Ingress class name (nginx, alb, etc.) |
-| `ingress.host` | tracecat.example.com | Hostname |
-| `ingress.annotations` | {} | Ingress annotations |
-| `ingress.split` | false | Split ingress into separate UI/API resources |
-| `ingress.ui.annotations` | {} | UI ingress annotations (merged with `ingress.annotations`) |
-| `ingress.api.annotations` | {} | API ingress annotations (merged with `ingress.annotations`) |
-| `ingress.tls` | [] | TLS configuration |
+| `ingress.enabled` | `true` | Enable ingress |
+| `ingress.className` | `""` | Ingress class name (nginx, alb, etc.) |
+| `ingress.host` | `tracecat.example.com` | Hostname |
+| `ingress.annotations` | `{}` | Ingress annotations |
+| `ingress.split` | `false` | Split ingress into separate UI/API resources |
+| `ingress.ui.annotations` | `{}` | UI ingress annotations (merged with `ingress.annotations`) |
+| `ingress.api.annotations` | `{}` | API ingress annotations (merged with `ingress.annotations`) |
+| `ingress.tls` | `[]` | TLS configuration |
 
 ### Public URLs
 
-Public URLs are auto-generated based on `ingress.host` and TLS configuration:
+Public URLs are auto-generated from `ingress.host` and TLS configuration:
 
-- If `ingress.tls` is configured → `https://`
-- If `ingress.tls` is not set → `http://`
+- If `ingress.tls` is configured: `https://<host>`
+- Otherwise: `http://<host>`
 
 For deployments where TLS is terminated externally (e.g., AWS ALB with ACM certificates), set URLs explicitly:
 
@@ -160,9 +159,24 @@ urls:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `tracecat.logLevel` | INFO | LOG_LEVEL for backend services |
-| `tracecat.featureFlags` | `""` | Core flags (comma-separated) |
-| `enterprise.featureFlags` | "" | Enterprise-only flags appended to `tracecat.featureFlags` |
+| `tracecat.appEnv` | `production` | Application environment |
+| `tracecat.logLevel` | `INFO` | Log level for backend services |
+| `tracecat.allowOrigins` | `""` | CORS allowed origins |
+| `tracecat.featureFlags` | `""` | Core feature flags (comma-separated) |
+| `enterprise.featureFlags` | `""` | Enterprise-only flags appended to `tracecat.featureFlags` |
+| `enterprise.multiTenant` | `false` | Enable enterprise multi-tenant mode |
+
+### Service replicas and resources
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `api.replicas` | `1` | API service replicas |
+| `worker.replicas` | `1` | Temporal worker replicas |
+| `executor.replicas` | `1` | Action executor replicas |
+| `agentExecutor.replicas` | `1` | Agent executor replicas |
+| `ui.replicas` | `1` | UI service replicas |
+
+Each service also supports `resources.requests.cpu`, `resources.requests.memory`, `resources.limits.cpu`, and `resources.limits.memory`. See `values.yaml` for defaults.
 
 ### Sandbox (nsjail)
 
@@ -174,66 +188,123 @@ tracecat:
     disableNsjail: true
 ```
 
-### Internal services (subcharts)
+### Pod scheduling
+
+Global scheduling defaults applied to all Tracecat workloads:
+
+```yaml
+scheduling:
+  nodeSelector: {}
+  affinity: {}
+  topologySpreadConstraints: []
+  tolerations: []
+```
+
+### PostgreSQL
+
+External PostgreSQL is required. There is no bundled database.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `postgres.enabled` | true | Enable CloudNativePG PostgreSQL |
-| `redis.enabled` | true | Enable Valkey (Redis) |
-| `minio.enabled` | true | Enable MinIO for blob storage |
-| `temporal.enabled` | true | Enable Temporal server |
+| `externalPostgres.host` | | PostgreSQL hostname (required) |
+| `externalPostgres.port` | `5432` | PostgreSQL port |
+| `externalPostgres.database` | `tracecat` | Database name |
+| `externalPostgres.sslMode` | `prefer` | SSL mode (`disable`, `prefer`, `require`, `verify-ca`) |
+| `externalPostgres.auth.existingSecret` | | K8s secret with `username` and `password` keys |
+| `externalPostgres.auth.secretArn` | | AWS Secrets Manager ARN (JSON with `password` and optional `username`) |
+| `externalPostgres.auth.username` | `""` | Explicit username when using `secretArn` |
+| `externalPostgres.tls.verifyCA` | `false` | Enable TLS CA verification |
+| `externalPostgres.tls.caCert` | `""` | PEM-encoded CA certificate for server verification |
 
-### Temporal (internal subchart)
+You must provide either `auth.existingSecret` or `auth.secretArn` (or both). When both are set, the chart exports `TRACECAT__DB_PASS__ARN` and `TRACECAT__DB_PASS` together.
 
-The chart runs a Helm hook job after install/upgrade to create the `default` namespace and the search attributes in `tracecat.temporal.searchAttributes`. Workers wait for this setup before starting.
+For AWS RDS with TLS verification:
 
-For external Temporal (`temporal.enabled=false`), you must create the namespace and search attributes yourself.
+```yaml
+externalPostgres:
+  host: my-db.xxxx.us-east-1.rds.amazonaws.com
+  sslMode: require
+  auth:
+    existingSecret: tracecat-postgres-credentials
+  tls:
+    verifyCA: true
+    caCert: |
+      -----BEGIN CERTIFICATE-----
+      ...RDS CA bundle...
+      -----END CERTIFICATE-----
+```
 
-When using the internal Temporal subchart with an external Postgres (for example, RDS), override `temporal.server.config.persistence` (and TLS settings) as shown in `terraform/aws/modules/eks/helm.tf`, and ensure the `temporal` and `temporal_visibility` databases already exist. For internal Postgres, the chart bootstraps these databases on first cluster creation via `postgres.cluster.initdb`.
+### Redis
 
-### External services
-
-Configure these when using managed services (RDS, ElastiCache, etc.):
+External Redis is required. There is no bundled Redis.
 
 | Parameter | Description |
 |-----------|-------------|
-| `externalPostgres.enabled` | Use external PostgreSQL |
-| `externalPostgres.host` | PostgreSQL hostname |
-| `externalPostgres.auth.existingSecret` | Secret with `username` and `password` |
-| `externalPostgres.auth.secretArn` | AWS Secrets Manager ARN for `password` (and optional `username`) |
-| `externalPostgres.auth.username` | Optional username when using `secretArn` |
-| `externalRedis.enabled` | Use external Redis |
-| `externalRedis.auth.existingSecret` | Secret with `url` |
-| `externalRedis.auth.secretArn` | AWS Secrets Manager ARN with `url` |
-| `externalS3.enabled` | Use external S3 |
-| `externalS3.endpoint` | Custom endpoint for S3-compatible storage (leave empty for AWS S3) |
-| `externalS3.region` | AWS region for S3 |
-| `externalS3.auth.existingSecret` | Secret with `accessKeyId` and `secretAccessKey` (optional for IRSA) |
-| `externalTemporal.enabled` | Use external Temporal |
-| `externalTemporal.clusterUrl` | Temporal frontend host:port |
-| `externalTemporal.clusterQueue` | Temporal task queue for Tracecat workers |
-| `externalTemporal.auth.existingSecret` | Secret with `apiKey` |
-| `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with `apiKey` |
+| `externalRedis.auth.existingSecret` | K8s secret with `url` key (e.g., `redis://:password@host:6379`) |
+| `externalRedis.auth.secretArn` | AWS Secrets Manager ARN containing the raw Redis URL |
 
-Note: You can set both `externalPostgres.auth.secretArn` and `externalPostgres.auth.existingSecret` to export `TRACECAT__DB_PASS__ARN` and `TRACECAT__DB_PASS` together.
+You must provide either `auth.existingSecret` or `auth.secretArn`. For Redis with TLS, use `rediss://:password@host:port`.
 
-Notes:
-- Postgres Secrets Manager values should be JSON with `username` and `password` (or set `externalPostgres.auth.username` and store just the password as the secret string).
-- Redis and Temporal Secrets Manager values should be raw strings (URL / API key). For Redis with TLS+auth, use `rediss://:password@host:port`.
+### S3
 
-### Service account (IRSA)
-
-Shared service account used by `api`, `worker`, and `executor` pods.
+External S3-compatible storage is used for blob storage. Credentials are optional when using IRSA/IAM roles.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `serviceAccount.create` | true | Create the service account |
-| `serviceAccount.name` | "" | Override the service account name |
-| `serviceAccount.annotations` | {} | Annotations (e.g., `eks.amazonaws.com/role-arn`) |
+| `externalS3.endpoint` | `""` | Custom S3-compatible endpoint (leave empty for AWS S3) |
+| `externalS3.region` | `""` | AWS region |
+| `externalS3.auth.existingSecret` | | K8s secret with `accessKeyId` and `secretAccessKey` (optional for IRSA) |
+| `tracecat.blobStorage.endpoint` | `""` | Override endpoint (takes precedence over `externalS3.endpoint`) |
+| `tracecat.blobStorage.buckets.attachments` | `""` | Attachments bucket name |
+| `tracecat.blobStorage.buckets.registry` | `""` | Registry bucket name |
 
-### External Secrets Operator (ESO) integration
+### Temporal
 
-For GitOps workflows, you can use ESO to sync secrets from AWS Secrets Manager into Kubernetes automatically. This avoids storing secrets in Terraform state or manually creating K8s secrets.
+The chart supports two Temporal modes: a self-hosted subchart or an external cluster.
+
+#### Self-hosted (default)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `temporal.enabled` | `true` | Deploy Temporal as a subchart |
+| `temporal.clusterQueue` | `tracecat-task-queue` | Temporal task queue for Tracecat workers |
+
+When using the self-hosted subchart, you must configure `temporal.server.config.persistence` to point to your external database. The `temporal` and `temporal_visibility` databases must already exist. See `terraform/aws/modules/eks/helm.tf` for a production example.
+
+The chart runs a Helm hook job after install/upgrade to create the `default` namespace and the search attributes in `tracecat.temporal.searchAttributes`.
+
+#### External
+
+Set `temporal.enabled=false` and configure `externalTemporal`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `externalTemporal.enabled` | Enable external Temporal mode |
+| `externalTemporal.clusterUrl` | Temporal frontend `host:port` |
+| `externalTemporal.clusterNamespace` | Temporal namespace |
+| `externalTemporal.clusterQueue` | Temporal task queue for Tracecat workers |
+| `externalTemporal.auth.existingSecret` | K8s secret with `apiKey` key |
+| `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with API key |
+
+When using an external cluster, you must create the namespace and search attributes yourself.
+
+### Service account (IRSA)
+
+Shared service account used by `api`, `worker`, `executor`, and `agentExecutor` pods.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `serviceAccount.create` | `true` | Create the service account |
+| `serviceAccount.name` | `""` | Override the service account name |
+| `serviceAccount.annotations` | `{}` | Annotations (e.g., `eks.amazonaws.com/role-arn`) |
+
+### Reloader
+
+[Stakater Reloader](https://github.com/stakater/Reloader) annotations are enabled by default (`reloader.enabled: true`). Pods automatically restart when their referenced secrets are updated. This is useful for handling AWS Secrets Manager rotation (e.g., RDS password rotation).
+
+### External Secrets Operator (ESO)
+
+For GitOps workflows, ESO syncs secrets from AWS Secrets Manager into Kubernetes automatically, avoiding manual secret creation.
 
 **Prerequisites:**
 
@@ -246,22 +317,17 @@ For GitOps workflows, you can use ESO to sync secrets from AWS Secrets Manager i
 
 2. Create a `ClusterSecretStore` with IRSA authentication (typically done by platform team or Terraform).
 
-3. Store secrets in AWS Secrets Manager with expected JSON format:
-   ```json
-   {
-     "dbEncryptionKey": "<url-safe-base64-32-bytes>",
-     "serviceKey": "<hex-64-chars>",
-     "signingSecret": "<hex-64-chars>",
-     "userAuthSecret": "<hex-64-chars>"
-   }
-   ```
+3. Store secrets in AWS Secrets Manager with expected formats:
+   - Core secrets: JSON `{ "dbEncryptionKey": "...", "serviceKey": "...", "signingSecret": "...", "userAuthSecret": "..." }`
+   - PostgreSQL: JSON `{ "username": "...", "password": "..." }`
+   - Redis: raw URL string (e.g., `rediss://:password@host:port`)
+   - Temporal: raw API key string
 
 **Configuration:**
 
 ```yaml
-# Leave existingSecret empty - ESO will create it
 secrets:
-  existingSecret: ""
+  existingSecret: ""  # Leave empty - ESO creates it
 
 externalSecrets:
   enabled: true
@@ -273,24 +339,28 @@ externalSecrets:
     secretArn: "arn:aws:secretsmanager:us-east-1:123456789:secret:tracecat/core-AbCdEf"
     targetSecretName: "tracecat-secrets"
 
-  # Optional: PostgreSQL, Redis, Temporal credentials
   postgres:
     enabled: true
     secretArn: "arn:aws:secretsmanager:us-east-1:123456789:secret:rds!db-xxxx"
     targetSecretName: "tracecat-postgres-credentials"
-```
 
-For AWS production, the Terraform stack injects these values inline (see `terraform/aws/modules/eks/helm.tf`). For local examples, see `examples/values-minikube.yaml` and `examples/values-orbstack.yaml`.
+  redis:
+    enabled: true
+    secretArn: "arn:aws:secretsmanager:us-east-1:123456789:secret:tracecat/redis-xxxx"
+    targetSecretName: "tracecat-redis-credentials"
+```
 
 | Parameter | Description |
 |-----------|-------------|
 | `externalSecrets.enabled` | Enable ESO integration |
-| `externalSecrets.refreshInterval` | How often to sync secrets (default: 1m) |
+| `externalSecrets.refreshInterval` | How often to sync secrets (default: `1m`) |
 | `externalSecrets.clusterSecretStoreRef` | Name of existing ClusterSecretStore |
-| `externalSecrets.coreSecrets.secretArn` | AWS Secrets Manager ARN for core secrets |
-| `externalSecrets.postgres.secretArn` | ARN for PostgreSQL credentials (JSON with `username`, `password`) |
-| `externalSecrets.redis.secretArn` | ARN for Redis URL (raw string, e.g. `rediss://:password@host:port`) |
-| `externalSecrets.temporal.secretArn` | ARN for Temporal API key (raw string) |
+| `externalSecrets.coreSecrets.secretArn` | ARN for core Tracecat secrets |
+| `externalSecrets.postgres.secretArn` | ARN for PostgreSQL credentials |
+| `externalSecrets.redis.secretArn` | ARN for Redis URL |
+| `externalSecrets.temporal.secretArn` | ARN for Temporal API key |
+
+For AWS production, see `terraform/aws/modules/eks/helm.tf`.
 
 ## Upgrading
 

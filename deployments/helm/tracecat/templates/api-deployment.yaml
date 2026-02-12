@@ -21,9 +21,14 @@ spec:
         app.kubernetes.io/component: api
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
-      {{- if .Values.reloader.enabled }}
+      {{- if or .Values.reloader.enabled .Values.podAnnotations }}
       annotations:
+        {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       securityContext:

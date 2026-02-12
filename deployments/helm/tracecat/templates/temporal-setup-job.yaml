@@ -13,8 +13,14 @@ spec:
   backoffLimit: 10
   activeDeadlineSeconds: 600
   template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       containers:
         - name: temporal-setup
           image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0

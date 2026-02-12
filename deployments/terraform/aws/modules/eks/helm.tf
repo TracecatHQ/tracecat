@@ -351,28 +351,7 @@ resource "helm_release" "tracecat" {
     value = "${var.ui_memory_request_mib}Mi"
   }
 
-  # Disable internal subcharts (using AWS managed services)
-  set {
-    name  = "postgres.enabled"
-    value = "false"
-  }
-
-  set {
-    name  = "redis.enabled"
-    value = "false"
-  }
-
-  set {
-    name  = "minio.enabled"
-    value = "false"
-  }
-
   # External PostgreSQL (RDS)
-  set {
-    name  = "externalPostgres.enabled"
-    value = "true"
-  }
-
   set {
     name  = "externalPostgres.host"
     value = aws_db_instance.tracecat.address
@@ -400,11 +379,6 @@ resource "helm_release" "tracecat" {
   }
 
   # External Redis (ElastiCache)
-  set {
-    name  = "externalRedis.enabled"
-    value = "true"
-  }
-
   # ESO creates the secret; reference by target name
   set {
     name  = "externalRedis.auth.existingSecret"
@@ -412,11 +386,6 @@ resource "helm_release" "tracecat" {
   }
 
   # External S3 (uses IRSA - don't set endpoint to use default credential chain)
-  set {
-    name  = "externalS3.enabled"
-    value = "true"
-  }
-
   set {
     name  = "externalS3.region"
     value = local.aws_region

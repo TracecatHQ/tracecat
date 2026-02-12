@@ -22,11 +22,15 @@ spec:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migrations
         tracecat.com/access-postgres: "true"
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       restartPolicy: OnFailure
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
-      serviceAccountName: {{ include "tracecat.fullname" . }}-migrations
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
