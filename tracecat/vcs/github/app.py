@@ -17,7 +17,8 @@ from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
-from tracecat.service import BaseOrgService
+from tracecat.service import BaseOrgService, requires_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
@@ -38,6 +39,7 @@ class GitHubAppService(BaseOrgService):
     # ============================================================================
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def register_app(
         self,
         app_id: str,
@@ -109,6 +111,7 @@ class GitHubAppService(BaseOrgService):
         return config
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def register_existing_app(
         self,
         app_id: str,
@@ -150,6 +153,7 @@ class GitHubAppService(BaseOrgService):
         )
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def update_github_app_credentials(
         self,
         app_id: str | None = None,
@@ -237,6 +241,7 @@ class GitHubAppService(BaseOrgService):
         return config
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def save_github_app_credentials(
         self,
         app_id: str,
@@ -300,6 +305,7 @@ class GitHubAppService(BaseOrgService):
                 raise
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def delete_github_app_credentials(self) -> None:
         """Delete GitHub App credentials for the organization.
 
@@ -322,6 +328,8 @@ class GitHubAppService(BaseOrgService):
             self.logger.error("Failed to delete GitHub App credentials", error=str(e))
             raise GitHubAppError("Failed to delete GitHub App credentials") from e
 
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def get_github_app_credentials_status(self) -> dict[str, Any]:
         """Get the status of GitHub App credentials.
 
@@ -363,6 +371,8 @@ class GitHubAppService(BaseOrgService):
                 "created_at": None,
             }
 
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def get_github_app_credentials(self) -> GitHubAppCredentials:
         """Retrieve GitHub App credentials from organization secret.
 
@@ -403,6 +413,8 @@ class GitHubAppService(BaseOrgService):
                 "Failed to retrieve GitHub App credentials: invalid credential data"
             ) from e
 
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @requires_entitlement(Entitlement.GIT_SYNC)
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 

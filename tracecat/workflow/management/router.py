@@ -35,7 +35,6 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
-from tracecat.tiers.entitlements import Entitlement, require_entitlement
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -755,7 +754,6 @@ async def update_webhook(
     status_code=status.HTTP_201_CREATED,
     tags=["triggers"],
     response_model=CaseTriggerRead,
-    dependencies=[require_entitlement(Entitlement.CASE_TRIGGERS)],
 )
 async def create_case_trigger(
     role: WorkspaceUserRole,
@@ -780,7 +778,6 @@ async def create_case_trigger(
     "/{workflow_id}/case-trigger",
     tags=["triggers"],
     response_model=CaseTriggerRead,
-    dependencies=[require_entitlement(Entitlement.CASE_TRIGGERS)],
 )
 async def get_case_trigger(
     role: WorkspaceUserRole,
@@ -800,7 +797,6 @@ async def get_case_trigger(
     "/{workflow_id}/case-trigger",
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[require_entitlement(Entitlement.CASE_TRIGGERS)],
 )
 async def update_case_trigger(
     role: WorkspaceUserRole,

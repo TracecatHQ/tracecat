@@ -55,27 +55,14 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
-from tracecat.tiers.entitlements import Entitlement, require_entitlement
 
 router = APIRouter(
     prefix="/internal/cases", tags=["internal-cases"], include_in_schema=False
 )
 
-# Sub-routers for feature-gated routes (entitlement checks)
-task_router = APIRouter(
-    dependencies=[
-        require_entitlement(
-            Entitlement.CASE_TASKS, allow_user=False, allow_executor=True
-        )
-    ]
-)
-duration_router = APIRouter(
-    dependencies=[
-        require_entitlement(
-            Entitlement.CASE_DURATIONS, allow_user=False, allow_executor=True
-        )
-    ]
-)
+# Sub-routers for feature-gated routes (service-layer entitlement checks)
+task_router = APIRouter()
+duration_router = APIRouter()
 
 
 @router.get("")

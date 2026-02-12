@@ -91,10 +91,11 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
+from tracecat.tiers.enums import Entitlement
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:
@@ -1313,6 +1314,7 @@ class CaseTasksService(BaseWorkspaceService):
 
     service_name = "case_tasks"
 
+    @requires_entitlement(Entitlement.CASE_TASKS)
     async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
         """List all tasks for a case.
 
@@ -1336,6 +1338,7 @@ class CaseTasksService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @requires_entitlement(Entitlement.CASE_TASKS)
     async def get_task(self, task_id: uuid.UUID) -> CaseTask:
         """Get a task by ID.
 
@@ -1409,6 +1412,7 @@ class CaseTasksService(BaseWorkspaceService):
                 f"Invalid default_trigger_values for workflow '{workflow.title}': {e}"
             ) from e
 
+    @requires_entitlement(Entitlement.CASE_TASKS)
     async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
         """Create a new task for a case.
 
@@ -1475,6 +1479,7 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.refresh(task)
         return task
 
+    @requires_entitlement(Entitlement.CASE_TASKS)
     async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
         """Update a task.
 
@@ -1612,6 +1617,7 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.refresh(task)
         return task
 
+    @requires_entitlement(Entitlement.CASE_TASKS)
     async def delete_task(self, task_id: uuid.UUID) -> None:
         """Delete a task.
 

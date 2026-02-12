@@ -262,7 +262,7 @@ async def list_case_dropdown_values(
 ) -> list[CaseDropdownValueRead]:
     """List all dropdown values for a case."""
     service = CaseDropdownValuesService(session=session, role=role)
-    return await service.list_values_for_case(case_id)
+    return await service.list_values_for_case_entitled(case_id)
 
 
 @values_router.put(
