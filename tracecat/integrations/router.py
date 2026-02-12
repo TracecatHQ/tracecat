@@ -234,7 +234,9 @@ async def oauth_callback(
         ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
 
-    redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations/{key.id}?tab=overview&grant_type=authorization_code"
+    redirect_url = (
+        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations"
+    )
     return IntegrationOAuthCallback(
         status="connected",
         provider_id=key.id,

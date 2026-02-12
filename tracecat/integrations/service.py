@@ -10,10 +10,15 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 from slugify import slugify
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 
 from tracecat import config
-from tracecat.db.models import MCPIntegration, OAuthIntegration, WorkspaceOAuthProvider
+from tracecat.db.models import (
+    AgentPreset,
+    MCPIntegration,
+    OAuthIntegration,
+    WorkspaceOAuthProvider,
+)
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers import get_provider_class
@@ -1197,6 +1202,21 @@ class IntegrationService(BaseWorkspaceService):
         )
         if not mcp_integration:
             return False
+
+        id_str = str(mcp_integration_id)
+
+        # Remove stale ID references from agent presets in this workspace
+        await self.session.execute(
+            update(AgentPreset)
+            .where(
+                and_(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.mcp_integrations.isnot(None),
+                    AgentPreset.mcp_integrations.contains([id_str]),
+                )
+            )
+            .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
+        )
 
         await self.session.delete(mcp_integration)
         await self.session.commit()

@@ -1038,9 +1038,11 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         """Add MCP-specific authorization parameters.
 
         The resource parameter identifies the MCP server that the token will be used with.
+        Per RFC 8707 / MCP spec, this should be the base URL of the resource server
+        (matching the authorization server issuer), not the full MCP endpoint path.
         """
         params = super()._get_additional_authorize_params()
-        params["resource"] = self.mcp_server_uri
+        params["resource"] = self._get_base_url()
         return params
 
     @classmethod
@@ -1113,8 +1115,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     def _get_additional_token_params(self) -> dict[str, Any]:
         """Add MCP-specific token exchange parameters.
 
-        The resource parameter must be included in token requests per MCP spec.
+        The resource parameter must be included in token requests per MCP spec,
+        and must match the value used in the authorization request.
         """
         params = super()._get_additional_token_params()
-        params["resource"] = self.mcp_server_uri
+        params["resource"] = self._get_base_url()
         return params
