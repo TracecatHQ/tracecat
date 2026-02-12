@@ -730,9 +730,12 @@ export type AttachmentDeletedEventRead = {
   created_at: string
 }
 
+/**
+ * A URL to an audio file.
+ */
 export type AudioUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -810,8 +813,11 @@ export type BatchPositionUpdate = {
   trigger_position?: Position | null
 }
 
+/**
+ * Binary content, e.g. an audio or image file.
+ */
 export type BinaryContent = {
-  data: Blob | File
+  data: string
   media_type:
     | "audio/wav"
     | "audio/mpeg"
@@ -2109,9 +2115,12 @@ export type DataUIPart = {
   data: unknown
 }
 
+/**
+ * The URL of the document.
+ */
 export type DocumentUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -2257,8 +2266,17 @@ export type EditorParamRead = {
  * All keys are optional (total=False) to support partial overrides.
  */
 export type EntitlementsDict = {
+  /**
+   * Whether custom registry repositories are enabled
+   */
   custom_registry?: boolean
+  /**
+   * Whether SSO is enabled
+   */
   sso?: boolean
+  /**
+   * Whether git sync is enabled
+   */
   git_sync?: boolean
 }
 
@@ -2691,9 +2709,12 @@ export type HealthResponse = {
   status: string
 }
 
+/**
+ * A URL to an image.
+ */
 export type ImageUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -5307,7 +5328,7 @@ export type ToolResultBlock = {
 }
 
 export type ToolReturn = {
-  return_value: unknown
+  return_value: ToolReturnContent
   content?:
     | string
     | Array<
@@ -5323,6 +5344,18 @@ export type ToolReturn = {
   metadata?: unknown
   kind?: "tool-return"
 }
+
+export type ToolReturnContent =
+  | ImageUrl
+  | AudioUrl
+  | DocumentUrl
+  | VideoUrl
+  | BinaryContent
+  | Array<ToolReturnContent>
+  | {
+      [key: string]: ToolReturnContent
+    }
+  | unknown
 
 export type ToolUIPartInputAvailable = {
   type: string
@@ -5610,9 +5643,12 @@ export type VersionDiff = {
   total_changes?: number
 }
 
+/**
+ * A URL to a video.
+ */
 export type VideoUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null

@@ -11,37 +11,21 @@ type TierEntitlementDefinition = {
   description?: string
 }
 
-const ENTITLEMENT_PROPERTIES = $EntitlementsDict.properties as Record<
-  TierEntitlementKey,
-  {
-    title?: string
-    description?: string
-  }
->
+const ENTITLEMENT_PROPERTIES = $EntitlementsDict.properties
 
 export const TIER_ENTITLEMENT_KEYS = Object.keys(
   ENTITLEMENT_PROPERTIES
 ) as TierEntitlementKey[]
 
-function titleCaseFromSnakeCase(value: string): string {
-  return value
-    .split("_")
-    .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
-    .join(" ")
-}
-
 export const tierEntitlementsSchema = z.object(
-  Object.fromEntries(
-    TIER_ENTITLEMENT_KEYS.map((key) => [key, z.boolean()])
-  ) as Record<TierEntitlementKey, z.ZodBoolean>
+  Object.fromEntries(TIER_ENTITLEMENT_KEYS.map((key) => [key, z.boolean()]))
 )
 
 export const TIER_ENTITLEMENTS: TierEntitlementDefinition[] =
   TIER_ENTITLEMENT_KEYS.map((key) => ({
     key,
-    label:
-      ENTITLEMENT_PROPERTIES[key]?.title ?? titleCaseFromSnakeCase(String(key)),
-    description: ENTITLEMENT_PROPERTIES[key]?.description,
+    label: ENTITLEMENT_PROPERTIES[key].title,
+    description: ENTITLEMENT_PROPERTIES[key].description,
   }))
 
 export function withDefaultTierEntitlements(
