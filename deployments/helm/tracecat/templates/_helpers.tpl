@@ -122,70 +122,31 @@ PostgreSQL Helpers
 */}}
 
 {{/*
-PostgreSQL Host - CloudNativePG uses <name>-rw service for read-write access
+PostgreSQL Host
 */}}
 {{- define "tracecat.postgres.host" -}}
-{{- if .Values.postgres.enabled }}
-{{- printf "%s-rw" .Values.postgres.fullnameOverride }}
-{{- else if .Values.externalPostgres.enabled }}
-{{- .Values.externalPostgres.host }}
-{{- else }}
-{{- fail "Either postgres.enabled or externalPostgres.enabled must be true" }}
-{{- end }}
+{{- required "externalPostgres.host is required" .Values.externalPostgres.host }}
 {{- end }}
 
 {{/*
 PostgreSQL Port
 */}}
 {{- define "tracecat.postgres.port" -}}
-{{- if .Values.postgres.enabled }}
-{{- "5432" }}
-{{- else if .Values.externalPostgres.enabled }}
 {{- .Values.externalPostgres.port | default "5432" }}
-{{- else }}
-{{- "5432" }}
-{{- end }}
 {{- end }}
 
 {{/*
 PostgreSQL Database Name
 */}}
 {{- define "tracecat.postgres.database" -}}
-{{- if .Values.postgres.enabled }}
-{{- "app" }}{{/* CloudNativePG cluster chart creates 'app' database by default */}}
-{{- else if .Values.externalPostgres.enabled }}
 {{- .Values.externalPostgres.database | default "tracecat" }}
-{{- else }}
-{{- "tracecat" }}
-{{- end }}
 {{- end }}
 
 {{/*
 PostgreSQL SSL Mode
-CloudNativePG cluster uses "disable" by default for internal cluster communication
 */}}
 {{- define "tracecat.postgres.sslMode" -}}
-{{- if .Values.postgres.enabled }}
-{{- "disable" }}
-{{- else if .Values.externalPostgres.enabled }}
 {{- .Values.externalPostgres.sslMode | default "prefer" }}
-{{- else }}
-{{- "disable" }}
-{{- end }}
-{{- end }}
-
-{{/*
-PostgreSQL Secret Name - the secret containing username and password
-For CloudNativePG, this is auto-generated as <cluster-name>-app
-*/}}
-{{- define "tracecat.postgres.secretName" -}}
-{{- if .Values.postgres.enabled }}
-{{- printf "%s-app" .Values.postgres.fullnameOverride }}
-{{- else if .Values.externalPostgres.enabled }}
-{{- .Values.externalPostgres.auth.existingSecret }}
-{{- else }}
-{{- "" }}
-{{- end }}
 {{- end }}
 
 {{/*
@@ -193,12 +154,8 @@ PostgreSQL TLS CA ConfigMap Name
 Returns the name of the ConfigMap containing the CA certificate for TLS verification
 */}}
 {{- define "tracecat.postgres.caConfigMapName" -}}
-{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA }}
-{{- if .Values.externalPostgres.tls.existingConfigMap }}
-{{- .Values.externalPostgres.tls.existingConfigMap }}
-{{- else if .Values.externalPostgres.tls.caCert }}
+{{- if and .Values.externalPostgres.tls.verifyCA .Values.externalPostgres.tls.caCert }}
 {{- printf "%s-postgres-ca" (include "tracecat.fullname" .) }}
-{{- end }}
 {{- end }}
 {{- end }}
 
@@ -215,12 +172,12 @@ PostgreSQL TLS CA Volume
 Returns the volume definition for mounting the CA certificate
 */}}
 {{- define "tracecat.postgres.caVolume" -}}
-{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA (include "tracecat.postgres.caConfigMapName" .) }}
+{{- if and .Values.externalPostgres.tls.verifyCA (include "tracecat.postgres.caConfigMapName" .) }}
 - name: postgres-ca
   configMap:
     name: {{ include "tracecat.postgres.caConfigMapName" . }}
     items:
-      - key: {{ .Values.externalPostgres.tls.configMapKey | default "ca-bundle.pem" }}
+      - key: ca-bundle.pem
         path: ca-bundle.pem
 {{- end }}
 {{- end }}
@@ -230,7 +187,7 @@ PostgreSQL TLS CA Volume Mount
 Returns the volume mount definition for the CA certificate
 */}}
 {{- define "tracecat.postgres.caVolumeMount" -}}
-{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA (include "tracecat.postgres.caConfigMapName" .) }}
+{{- if and .Values.externalPostgres.tls.verifyCA (include "tracecat.postgres.caConfigMapName" .) }}
 - name: postgres-ca
   mountPath: /etc/tracecat/certs/postgres
   readOnly: true
@@ -242,39 +199,6 @@ Returns the volume mount definition for the CA certificate
 Redis/Valkey Helpers
 =============================================================================
 */}}
-
-{{/*
-Redis Host
-*/}}
-{{- define "tracecat.redis.host" -}}
-{{- if .Values.redis.enabled }}
-{{- .Values.redis.fullnameOverride }}
-{{- else if .Values.externalRedis.enabled }}
-{{- "external" }}{{/* External Redis uses URL from secret */}}
-{{- else }}
-{{- fail "Either redis.enabled or externalRedis.enabled must be true" }}
-{{- end }}
-{{- end }}
-
-{{/*
-Redis Port
-*/}}
-{{- define "tracecat.redis.port" -}}
-{{- "6379" }}
-{{- end }}
-
-{{/*
-Redis Secret Name - for external Redis containing the URL
-*/}}
-{{- define "tracecat.redis.secretName" -}}
-{{- if .Values.redis.enabled }}
-{{- "" }}{{/* Internal Valkey doesn't need a secret for URL */}}
-{{- else if .Values.externalRedis.enabled }}
-{{- .Values.externalRedis.auth.existingSecret }}
-{{- else }}
-{{- "" }}
-{{- end }}
-{{- end }}
 
 {{/*
 =============================================================================
@@ -317,8 +241,6 @@ Public S3 URL - used for presigned URLs
 {{- define "tracecat.publicS3Url" -}}
 {{- if .Values.urls.publicS3 }}
 {{- .Values.urls.publicS3 }}
-{{- else if .Values.minio.enabled }}
-{{- printf "%s://%s/s3" (include "tracecat.urlScheme" .) .Values.ingress.host }}
 {{- else }}
 {{- "" }}
 {{- end }}
@@ -337,12 +259,8 @@ Internal Blob Storage URL
 {{- define "tracecat.blobStorageEndpoint" -}}
 {{- if .Values.tracecat.blobStorage.endpoint }}
 {{- .Values.tracecat.blobStorage.endpoint }}
-{{- else if .Values.externalS3.enabled }}
-{{- .Values.externalS3.endpoint }}
-{{- else if .Values.minio.enabled }}
-{{- printf "http://%s:9000" .Values.minio.fullnameOverride }}
 {{- else }}
-{{- fail "tracecat.blobStorage.endpoint or externalS3.enabled is required when minio is disabled" }}
+{{- .Values.externalS3.endpoint }}
 {{- end }}
 {{- end }}
 
@@ -412,6 +330,54 @@ Temporal Namespace Retention
 {{- end }}
 {{- else }}
 {{- "720h" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace History Archival State
+*/}}
+{{- define "tracecat.temporalNamespaceHistoryArchivalState" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "history" "state" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace History Archival URI
+*/}}
+{{- define "tracecat.temporalNamespaceHistoryArchivalURI" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "history" "URI" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace Visibility Archival State
+*/}}
+{{- define "tracecat.temporalNamespaceVisibilityArchivalState" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "visibility" "state" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace Visibility Archival URI
+*/}}
+{{- define "tracecat.temporalNamespaceVisibilityArchivalURI" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "visibility" "URI" "" $values -}}
+{{- else -}}
+{{- "" -}}
 {{- end }}
 {{- end }}
 
@@ -509,20 +475,6 @@ Blob storage environment variables
 - name: TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
   value: {{ .Values.tracecat.blobStorage.buckets.workflow | quote }}
 {{- end }}
-{{- if .Values.minio.enabled }}
-{{- /* Use MinIO credentials from the MinIO secret */}}
-{{- $minioSecret := .Values.minio.auth.existingSecret | default .Values.minio.fullnameOverride | default (printf "%s-minio" .Release.Name) }}
-- name: AWS_ACCESS_KEY_ID
-  valueFrom:
-    secretKeyRef:
-      name: {{ $minioSecret }}
-      key: rootUser
-- name: AWS_SECRET_ACCESS_KEY
-  valueFrom:
-    secretKeyRef:
-      name: {{ $minioSecret }}
-      key: rootPassword
-{{- else if .Values.externalS3.enabled }}
 {{- if .Values.externalS3.region }}
 - name: AWS_REGION
   value: {{ .Values.externalS3.region | quote }}
@@ -542,7 +494,6 @@ Blob storage environment variables
       key: secretAccessKey
 {{- end }}
 {{- end }}
-{{- end }}
 
 {{/*
 PostgreSQL environment variables
@@ -553,23 +504,9 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 {{- $port := include "tracecat.postgres.port" . }}
 {{- $database := include "tracecat.postgres.database" . }}
 {{- $sslMode := include "tracecat.postgres.sslMode" . }}
-{{- if .Values.postgres.enabled }}
-{{- $secretName := include "tracecat.postgres.secretName" . }}
-- name: TRACECAT__POSTGRES_USER
-  valueFrom:
-    secretKeyRef:
-      name: {{ $secretName }}
-      key: username
-- name: TRACECAT__POSTGRES_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ $secretName }}
-      key: password
-- name: TRACECAT__DB_URI
-  value: "postgresql+psycopg://$(TRACECAT__POSTGRES_USER):$(TRACECAT__POSTGRES_PASSWORD)@{{ $host }}:{{ $port }}/{{ $database }}"
-{{- else if .Values.externalPostgres.enabled }}
 {{- $hasSecretArn := .Values.externalPostgres.auth.secretArn }}
-{{- $hasExistingSecret := .Values.externalPostgres.auth.existingSecret }}
+{{- $postgresSecretName := include "tracecat.secrets.postgresName" . }}
+{{- $hasExistingSecret := $postgresSecretName }}
 {{- if $hasSecretArn }}
 {{- if .Values.externalPostgres.auth.username }}
 - name: TRACECAT__DB_USER
@@ -578,7 +515,7 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      name: {{ $postgresSecretName }}
       key: username
 {{- end }}
 - name: TRACECAT__DB_PASS__ARN
@@ -589,13 +526,13 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      name: {{ $postgresSecretName }}
       key: username
 {{- end }}
 - name: TRACECAT__DB_PASS
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      name: {{ $postgresSecretName }}
       key: password
 {{- end }}
 - name: TRACECAT__DB_ENDPOINT
@@ -607,10 +544,7 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_SSLMODE
   value: {{ $sslMode | quote }}
 {{- if not (or $hasSecretArn $hasExistingSecret) }}
-{{- fail "externalPostgres.auth.existingSecret or externalPostgres.auth.secretArn is required when using external Postgres" }}
-{{- end }}
-{{- else }}
-{{- fail "PostgreSQL secret name is required" }}
+{{- fail "externalPostgres.auth.existingSecret, externalPostgres.auth.secretArn, or secrets.create.postgres.enabled is required" }}
 {{- end }}
 {{- end }}
 
@@ -619,12 +553,6 @@ Redis environment variables
 Constructs REDIS_URL from computed host/port or from external secret
 */}}
 {{- define "tracecat.env.redis" -}}
-{{- if .Values.redis.enabled }}
-{{- $host := include "tracecat.redis.host" . }}
-{{- $port := include "tracecat.redis.port" . }}
-- name: REDIS_URL
-  value: "redis://{{ $host }}:{{ $port }}"
-{{- else if .Values.externalRedis.enabled }}
 {{- if .Values.externalRedis.auth.secretArn }}
 - name: REDIS_URL__ARN
   value: {{ .Values.externalRedis.auth.secretArn | quote }}
@@ -635,8 +563,7 @@ Constructs REDIS_URL from computed host/port or from external secret
       name: {{ .Values.externalRedis.auth.existingSecret }}
       key: url
 {{- else }}
-{{- fail "externalRedis.auth.existingSecret or externalRedis.auth.secretArn is required when using external Redis" }}
-{{- end }}
+{{- fail "externalRedis.auth.existingSecret or externalRedis.auth.secretArn is required" }}
 {{- end }}
 {{- end }}
 
@@ -885,22 +812,12 @@ Otherwise, require the manual existingSecret.
 {{- .Values.externalSecrets.coreSecrets.targetSecretName }}
 {{- else if .Values.secrets.existingSecret }}
 {{- .Values.secrets.existingSecret }}
+{{- else if .Values.secrets.create.tracecat.enabled }}
+{{- required "secrets.create.tracecat.name is required when tracecat secret template is enabled" .Values.secrets.create.tracecat.name }}
 {{- else }}
-{{- fail "Either secrets.existingSecret or externalSecrets.coreSecrets (with secretArn) must be configured" }}
+{{- fail "Either secrets.existingSecret, secrets.create.tracecat.enabled, or externalSecrets.coreSecrets (with secretArn) must be configured" }}
 {{- end }}
 {{- end }}
-
-{{/*
-Get the effective OAuth secrets name.
-*/}}
-{{- define "tracecat.secrets.oauthName" -}}
-{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.oauthSecrets.enabled .Values.externalSecrets.oauthSecrets.secretArn }}
-{{- .Values.externalSecrets.oauthSecrets.targetSecretName }}
-{{- else }}
-{{- .Values.secrets.oauthSecret }}
-{{- end }}
-{{- end }}
-
 
 {{/*
 Get the effective PostgreSQL secrets name for external Postgres.
@@ -911,6 +828,8 @@ ESO-managed secret takes precedence over existingSecret.
 {{- .Values.externalSecrets.postgres.targetSecretName }}
 {{- else if .Values.externalPostgres.auth.existingSecret }}
 {{- .Values.externalPostgres.auth.existingSecret }}
+{{- else if .Values.secrets.create.postgres.enabled }}
+{{- required "secrets.create.postgres.name is required when postgres secret template is enabled" .Values.secrets.create.postgres.name }}
 {{- end }}
 {{- end }}
 
@@ -947,9 +866,10 @@ Validate required secrets - accepts either manual secret or ESO-managed secret
 */}}
 {{- define "tracecat.validateRequiredSecrets" -}}
 {{- $hasManualSecret := .Values.secrets.existingSecret -}}
+{{- $hasTemplatedSecret := .Values.secrets.create.tracecat.enabled -}}
 {{- $hasEsoSecret := and .Values.externalSecrets.enabled .Values.externalSecrets.coreSecrets.enabled .Values.externalSecrets.coreSecrets.secretArn -}}
-{{- if not (or $hasManualSecret $hasEsoSecret) -}}
-{{- fail "Core secrets required: set secrets.existingSecret OR enable externalSecrets with coreSecrets.secretArn" -}}
+{{- if not (or $hasManualSecret $hasTemplatedSecret $hasEsoSecret) -}}
+{{- fail "Core secrets required: set secrets.existingSecret, enable secrets.create.tracecat, or enable externalSecrets with coreSecrets.secretArn" -}}
 {{- end -}}
 {{- end -}}
 
@@ -967,15 +887,40 @@ Validate auth config on first install
 {{/*
 Validate infrastructure dependencies
 */}}
+{{- define "tracecat.validateTemporalSqlStore" -}}
+{{- $storeName := .storeName -}}
+{{- $storeConfig := .storeConfig -}}
+{{- if not $storeConfig -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- $pluginName := dig "pluginName" "" $storeConfig -}}
+{{- if and (ne $pluginName "postgres12") (ne $pluginName "postgres12_pgx") -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.pluginName must be postgres12 or postgres12_pgx" $storeName) -}}
+{{- end -}}
+{{- if not (dig "connectAddr" "" $storeConfig) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.connectAddr is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- if not (dig "databaseName" "" $storeConfig) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.databaseName is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- if not (dig "user" "" $storeConfig) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.user is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- if not (or (dig "existingSecret" "" $storeConfig) (dig "password" "" $storeConfig)) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.existingSecret (or sql.password) is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "tracecat.validateInfrastructure" -}}
-{{- if and (not .Values.postgres.enabled) (not .Values.externalPostgres.enabled) -}}
-{{- fail "Either postgres.enabled or externalPostgres.enabled must be true" -}}
-{{- end -}}
-{{- if and (not .Values.redis.enabled) (not .Values.externalRedis.enabled) -}}
-{{- fail "Either redis.enabled or externalRedis.enabled must be true" -}}
-{{- end -}}
 {{- if and (not .Values.temporal.enabled) (not .Values.externalTemporal.enabled) -}}
 {{- fail "Either temporal.enabled or externalTemporal.enabled must be true" -}}
+{{- end -}}
+{{- if .Values.temporal.enabled -}}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- $defaultSql := dig "temporal" "server" "config" "persistence" "datastores" "default" "sql" nil $values -}}
+{{- $visibilitySql := dig "temporal" "server" "config" "persistence" "datastores" "visibility" "sql" nil $values -}}
+{{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "default" "storeConfig" $defaultSql) -}}
+{{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "visibility" "storeConfig" $visibilitySql) -}}
 {{- end -}}
 {{- end -}}
 
@@ -1009,32 +954,17 @@ Uses ESO-aware secret name resolution.
 {{- end -}}
 
 {{/*
-API-specific secret env vars (OAuth, user auth)
+API-specific secret env vars (user auth)
 Uses ESO-aware secret name resolution.
 */}}
 {{- define "tracecat.env.secrets.api" -}}
 {{- $coreSecretName := include "tracecat.secrets.coreName" . }}
-{{- $oauthSecretName := include "tracecat.secrets.oauthName" . }}
 {{ include "tracecat.env.secrets" . }}
 - name: USER_AUTH_SECRET
   valueFrom:
     secretKeyRef:
       name: {{ $coreSecretName }}
       key: userAuthSecret
-{{- if $oauthSecretName }}
-- name: OAUTH_CLIENT_ID
-  valueFrom:
-    secretKeyRef:
-      name: {{ $oauthSecretName }}
-      key: oauthClientId
-      optional: true
-- name: OAUTH_CLIENT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ $oauthSecretName }}
-      key: oauthClientSecret
-      optional: true
-{{- end }}
 {{- end -}}
 
 {{/*

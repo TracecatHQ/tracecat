@@ -13,8 +13,14 @@ spec:
   backoffLimit: 10
   activeDeadlineSeconds: 600
   template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       containers:
         - name: temporal-setup
           image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0
@@ -22,6 +28,11 @@ spec:
           args:
             - |
               set -e
+
+              # Persistence bootstrap (DB create + schema setup/update) is handled by
+              # the Temporal subchart schema job via:
+              # temporal.server.config.persistence.datastores.*.sql.createDatabase/manageSchema.
+              # This hook only performs setup that requires a running Temporal frontend.
 
               # Wait for Temporal frontend to be healthy (with exponential backoff)
               echo "Waiting for Temporal frontend to be ready..."
@@ -45,14 +56,34 @@ spec:
 
               NAMESPACE="{{ include "tracecat.temporalNamespace" . }}"
               RETENTION="{{ include "tracecat.temporalNamespaceRetention" . }}"
+              HISTORY_ARCHIVAL_STATE="{{ include "tracecat.temporalNamespaceHistoryArchivalState" . }}"
+              HISTORY_ARCHIVAL_URI="{{ include "tracecat.temporalNamespaceHistoryArchivalURI" . }}"
+              VISIBILITY_ARCHIVAL_STATE="{{ include "tracecat.temporalNamespaceVisibilityArchivalState" . }}"
+              VISIBILITY_ARCHIVAL_URI="{{ include "tracecat.temporalNamespaceVisibilityArchivalURI" . }}"
 
-              # Create namespace (idempotent)
+              set -- --namespace "$NAMESPACE" --retention "$RETENTION"
+              if [ -n "$HISTORY_ARCHIVAL_STATE" ]; then
+                set -- "$@" --history-archival-state "$HISTORY_ARCHIVAL_STATE"
+              fi
+              if [ -n "$HISTORY_ARCHIVAL_URI" ]; then
+                set -- "$@" --history-uri "$HISTORY_ARCHIVAL_URI"
+              fi
+              if [ -n "$VISIBILITY_ARCHIVAL_STATE" ]; then
+                set -- "$@" --visibility-archival-state "$VISIBILITY_ARCHIVAL_STATE"
+              fi
+              if [ -n "$VISIBILITY_ARCHIVAL_URI" ]; then
+                set -- "$@" --visibility-uri "$VISIBILITY_ARCHIVAL_URI"
+              fi
+
+              # Reconcile namespace settings (idempotent)
               echo "Checking namespace..."
               if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
-                echo "Namespace '$NAMESPACE' already exists"
+                echo "Namespace '$NAMESPACE' already exists, reconciling settings..."
+                temporal operator namespace update "$@"
+                echo "Namespace updated"
               else
                 echo "Creating namespace '$NAMESPACE'..."
-                temporal operator namespace create "$NAMESPACE" --retention "$RETENTION"
+                temporal operator namespace create "$@"
                 echo "Namespace created"
               fi
 

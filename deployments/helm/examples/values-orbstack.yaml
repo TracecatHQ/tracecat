@@ -3,8 +3,8 @@
 ## Prerequisites:
 ##   1. OrbStack with Kubernetes enabled
 ##   2. NGINX Ingress Controller installed
-##   3. CloudNativePG operator installed
-##   4. tracecat-secrets Secret created in tracecat namespace
+##   3. tracecat-secrets Secret created in tracecat namespace
+##   4. External PostgreSQL, Redis, and S3-compatible storage configured
 ##
 ## See deployments/helm/README.md for full installation instructions.
 ##
@@ -23,21 +23,26 @@ ingress:
   enabled: true
   className: nginx
   host: tracecat.k8s.orb.local
-  annotations:
-    # Strip /s3 prefix for MinIO presigned URLs
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      rewrite ^/s3/(.*)$ /$1 break;
 
-# Use internal subcharts (default)
+# Temporal subchart
 temporal:
   enabled: true
-postgres:
-  enabled: true
-redis:
-  enabled: true
-minio:
-  enabled: true
+
+# External services (configure these for your environment)
+externalPostgres:
+  host: ""       # e.g. host.k8s.orb.local or your database host
+  port: 5432
+  database: tracecat
+  sslMode: disable
+  auth:
+    existingSecret: tracecat-postgres-credentials  # Secret with `username` and `password` keys
+
+externalRedis:
+  auth:
+    existingSecret: tracecat-redis-credentials  # Secret with `url` key
+
+externalS3:
+  endpoint: ""   # e.g. http://host.k8s.orb.local:9000 for a local MinIO
 
 # Replica overrides for local development (resources use chart defaults)
 api:

@@ -18,7 +18,7 @@ spec:
         app.kubernetes.io/component: worker
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
-      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) }}
+      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) .Values.podAnnotations }}
       annotations:
         {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
@@ -27,6 +27,9 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ .Values.tracecat.temporal.metrics.port | quote }}
         prometheus.io/path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- end }}
     spec:

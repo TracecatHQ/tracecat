@@ -29,6 +29,14 @@ resource "aws_eks_cluster" "tracecat" {
     security_group_ids      = [aws_security_group.eks_cluster.id]
   }
 
+  # Use IAM access entry API exclusively for cluster auth. Avoids the
+  # aws-auth ConfigMap attack surface (any kube-system ConfigMap writer
+  # can escalate to cluster admin). Access entries are IAM-controlled
+  # and CloudTrail-audited.
+  access_config {
+    authentication_mode = "API"
+  }
+
   # Enable logging for audit and API server
   enabled_cluster_log_types = ["api", "audit", "authenticator"]
 
@@ -42,11 +50,13 @@ resource "aws_eks_cluster" "tracecat" {
 
 # In pod-eni mode, pods attached to custom SecurityGroupPolicy SGs must still reach
 # CoreDNS endpoints on worker-node ENIs (cluster security group).
+# Use static keys so for_each is known at plan time (SG IDs are only known at apply).
+# This avoids the "Invalid for_each argument" error on first deployment.
 resource "aws_security_group_rule" "cluster_dns_from_tracecat_pod_sgs_udp" {
-  for_each = toset([
-    aws_security_group.tracecat_postgres_client.id,
-    aws_security_group.tracecat_redis_client.id
-  ])
+  for_each = {
+    postgres = aws_security_group.tracecat_postgres_client.id
+    redis    = aws_security_group.tracecat_redis_client.id
+  }
 
   type                     = "ingress"
   from_port                = 53
@@ -58,10 +68,10 @@ resource "aws_security_group_rule" "cluster_dns_from_tracecat_pod_sgs_udp" {
 }
 
 resource "aws_security_group_rule" "cluster_dns_from_tracecat_pod_sgs_tcp" {
-  for_each = toset([
-    aws_security_group.tracecat_postgres_client.id,
-    aws_security_group.tracecat_redis_client.id
-  ])
+  for_each = {
+    postgres = aws_security_group.tracecat_postgres_client.id
+    redis    = aws_security_group.tracecat_redis_client.id
+  }
 
   type                     = "ingress"
   from_port                = 53

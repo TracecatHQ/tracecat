@@ -22,6 +22,10 @@ spec:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migrations
         tracecat.com/access-postgres: "true"
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       restartPolicy: OnFailure
       securityContext:

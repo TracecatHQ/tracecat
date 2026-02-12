@@ -152,6 +152,17 @@ variable "rds_allocated_storage" {
   default     = 20
 }
 
+variable "rds_storage_type" {
+  description = "RDS storage type"
+  type        = string
+  default     = "gp3"
+
+  validation {
+    condition     = contains(["gp2", "gp3", "io1", "io2"], var.rds_storage_type)
+    error_message = "rds_storage_type must be one of: gp2, gp3, io1, io2."
+  }
+}
+
 variable "rds_master_username" {
   description = "Master username for RDS"
   type        = string

@@ -52,6 +52,7 @@ module "eks" {
   # Data Services Configuration
   rds_instance_class         = var.rds_instance_class
   rds_allocated_storage      = var.rds_allocated_storage
+  rds_storage_type           = var.rds_storage_type
   rds_master_username        = var.rds_master_username
   rds_snapshot_identifier    = var.rds_snapshot_identifier
   rds_database_insights_mode = var.rds_database_insights_mode
