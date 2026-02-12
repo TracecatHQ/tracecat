@@ -388,9 +388,11 @@ export function AdminTierEditDialog({
                             <FormLabel className="font-normal">
                               {entitlement.label}
                             </FormLabel>
-                            <FormDescription>
-                              {entitlement.description}
-                            </FormDescription>
+                            {entitlement.description ? (
+                              <FormDescription>
+                                {entitlement.description}
+                              </FormDescription>
+                            ) : null}
                           </div>
                         </FormItem>
                       )}

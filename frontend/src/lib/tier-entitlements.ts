@@ -8,25 +8,20 @@ type TierEntitlementsFormValue = Record<TierEntitlementKey, boolean>
 type TierEntitlementDefinition = {
   key: TierEntitlementKey
   label: string
-  description: string
+  description?: string
 }
 
 const ENTITLEMENT_PROPERTIES = $EntitlementsDict.properties as Record<
   TierEntitlementKey,
   {
     title?: string
+    description?: string
   }
 >
 
 export const TIER_ENTITLEMENT_KEYS = Object.keys(
   ENTITLEMENT_PROPERTIES
 ) as TierEntitlementKey[]
-
-const ENTITLEMENT_DESCRIPTIONS: Partial<Record<TierEntitlementKey, string>> = {
-  custom_registry: "Allow using non-default registry repositories.",
-  sso: "Allow SSO configuration for the organization.",
-  git_sync: "Allow syncing workflows with external git repositories.",
-}
 
 function titleCaseFromSnakeCase(value: string): string {
   return value
@@ -46,9 +41,7 @@ export const TIER_ENTITLEMENTS: TierEntitlementDefinition[] =
     key,
     label:
       ENTITLEMENT_PROPERTIES[key]?.title ?? titleCaseFromSnakeCase(String(key)),
-    description:
-      ENTITLEMENT_DESCRIPTIONS[key] ??
-      "Enable this feature for organizations on this tier.",
+    description: ENTITLEMENT_PROPERTIES[key]?.description,
   }))
 
 export function withDefaultTierEntitlements(
