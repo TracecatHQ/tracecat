@@ -334,6 +334,54 @@ Temporal Namespace Retention
 {{- end }}
 
 {{/*
+Temporal Namespace History Archival State
+*/}}
+{{- define "tracecat.temporalNamespaceHistoryArchivalState" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "history" "state" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace History Archival URI
+*/}}
+{{- define "tracecat.temporalNamespaceHistoryArchivalURI" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "history" "URI" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace Visibility Archival State
+*/}}
+{{- define "tracecat.temporalNamespaceVisibilityArchivalState" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "visibility" "state" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Temporal Namespace Visibility Archival URI
+*/}}
+{{- define "tracecat.temporalNamespaceVisibilityArchivalURI" -}}
+{{- if .Values.temporal.enabled }}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- dig "temporal" "server" "namespaceDefaults" "archival" "visibility" "URI" "" $values -}}
+{{- else -}}
+{{- "" -}}
+{{- end }}
+{{- end }}
+
+{{/*
 Temporal Queue
 */}}
 {{- define "tracecat.temporalQueue" -}}

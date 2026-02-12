@@ -341,6 +341,29 @@ temporal:
         namespace:
           - name: default
             retention: 720h
+    # Optional archival settings for self-hosted Temporal (chart 1.0.0-rc.1).
+    # These are rendered from temporal/templates/server-configmap.yaml.
+    # archival:
+    #   history:
+    #     state: "enabled"
+    #     enableRead: true
+    #     provider:
+    #       s3store:
+    #         region: "us-east-1"
+    #   visibility:
+    #     state: "enabled"
+    #     enableRead: true
+    #     provider:
+    #       s3store:
+    #         region: "us-east-1"
+    # namespaceDefaults:
+    #   archival:
+    #     history:
+    #       state: "enabled"
+    #       URI: "s3://your-bucket/temporal-history"
+    #     visibility:
+    #       state: "enabled"
+    #       URI: "s3://your-bucket/temporal-visibility"
 
 externalPostgres:
   host: "example-db.example.com"

@@ -51,14 +51,34 @@ spec:
 
               NAMESPACE="{{ include "tracecat.temporalNamespace" . }}"
               RETENTION="{{ include "tracecat.temporalNamespaceRetention" . }}"
+              HISTORY_ARCHIVAL_STATE="{{ include "tracecat.temporalNamespaceHistoryArchivalState" . }}"
+              HISTORY_ARCHIVAL_URI="{{ include "tracecat.temporalNamespaceHistoryArchivalURI" . }}"
+              VISIBILITY_ARCHIVAL_STATE="{{ include "tracecat.temporalNamespaceVisibilityArchivalState" . }}"
+              VISIBILITY_ARCHIVAL_URI="{{ include "tracecat.temporalNamespaceVisibilityArchivalURI" . }}"
 
-              # Create namespace (idempotent)
+              set -- --namespace "$NAMESPACE" --retention "$RETENTION"
+              if [ -n "$HISTORY_ARCHIVAL_STATE" ]; then
+                set -- "$@" --history-archival-state "$HISTORY_ARCHIVAL_STATE"
+              fi
+              if [ -n "$HISTORY_ARCHIVAL_URI" ]; then
+                set -- "$@" --history-uri "$HISTORY_ARCHIVAL_URI"
+              fi
+              if [ -n "$VISIBILITY_ARCHIVAL_STATE" ]; then
+                set -- "$@" --visibility-archival-state "$VISIBILITY_ARCHIVAL_STATE"
+              fi
+              if [ -n "$VISIBILITY_ARCHIVAL_URI" ]; then
+                set -- "$@" --visibility-uri "$VISIBILITY_ARCHIVAL_URI"
+              fi
+
+              # Reconcile namespace settings (idempotent)
               echo "Checking namespace..."
               if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
-                echo "Namespace '$NAMESPACE' already exists"
+                echo "Namespace '$NAMESPACE' already exists, reconciling settings..."
+                temporal operator namespace update "$@"
+                echo "Namespace updated"
               else
                 echo "Creating namespace '$NAMESPACE'..."
-                temporal operator namespace create "$NAMESPACE" --retention "$RETENTION"
+                temporal operator namespace create "$@"
                 echo "Namespace created"
               fi
 

@@ -357,12 +357,18 @@ The chart supports two Temporal modes: a self-hosted subchart or an external clu
 | `temporal.web.additionalEnvSecretName` | `""` | Optional secret for Temporal Web UI env vars (set to `temporal-ui-oidc` when using OIDC) |
 | `temporal.server.config.persistence.datastores.default.sql.existingSecret` | `tracecat-postgres-credentials` | Secret used for Temporal default store SQL password |
 | `temporal.server.config.persistence.datastores.visibility.sql.existingSecret` | `tracecat-postgres-credentials` | Secret used for Temporal visibility store SQL password |
+| `temporal.server.archival.history.state` | `disabled` | Cluster-level history archival state (`enabled` to turn on archival) |
+| `temporal.server.archival.visibility.state` | `disabled` | Cluster-level visibility archival state (`enabled` to turn on archival) |
+| `temporal.server.namespaceDefaults.archival.history.URI` | `""` | Default namespace history archival URI (for example `s3://bucket/temporal-history`) |
+| `temporal.server.namespaceDefaults.archival.visibility.URI` | `""` | Default namespace visibility archival URI (for example `s3://bucket/temporal-visibility`) |
 
 If you override `secrets.create.postgres.name`, also override both Temporal datastore `existingSecret` values to the same secret name.
 
 When using the self-hosted subchart, you must configure `temporal.server.config.persistence` to point to your external database. The `temporal` and `temporal_visibility` databases must already exist. See `terraform/aws/modules/eks/helm.tf` for a production example.
 
-The chart runs a Helm hook job after install/upgrade to create the `default` namespace and the search attributes in `tracecat.temporal.searchAttributes`.
+For Temporal chart `1.0.0-rc.1`, archival is rendered from `server.archival` and `server.namespaceDefaults` in `temporal/templates/server-configmap.yaml` (the bundled `values/values.archival.s3.yaml` still matches those active keys).
+
+The chart runs a Helm hook job after install/upgrade to reconcile the `default` namespace settings (retention + archival when configured) and the search attributes in `tracecat.temporal.searchAttributes`.
 
 #### External
 
