@@ -35,10 +35,24 @@ from tracecat.agent.common.config import (
     TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.sandbox.executor import build_sandbox_resolv_conf
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PASTA_GATEWAY_IP = "10.255.255.1"
+
+
+def build_sandbox_resolv_conf() -> str:
+    """Build sandbox resolv.conf with pasta DNS plus host search/options lines."""
+    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
+    try:
+        host_resolv = Path("/etc/resolv.conf").read_text()
+        for line in host_resolv.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("search ") or stripped.startswith("options "):
+                lines.append(stripped)
+    except OSError:
+        pass
+    return "\n".join(lines) + "\n"
 
 
 def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
@@ -245,17 +259,18 @@ def build_agent_nsjail_config(
     _validate_path(control_socket_path, "control_socket_path")
     # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
-    # Network isolation is always enabled (clone_newnet: true)
-    # When internet access is needed, we use pasta for userspace networking
-    # This provides network isolation while still allowing outbound connections
+    # Network behavior:
+    # - internet enabled: share pod netns (no pasta) for host DNS/routing reliability
+    # - internet disabled: isolate netns
+    clone_newnet = not enable_internet_access
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
         'hostname: "agent"',
         "keep_env: false",
         "",
-        "# Namespace isolation - network namespace is always isolated",
-        "clone_newnet: true",
+        "# Namespace isolation",
+        f"clone_newnet: {'true' if clone_newnet else 'false'}",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
@@ -273,24 +288,6 @@ def build_agent_nsjail_config(
         f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
     ]
 
-    # Userspace networking via pasta (when internet access is enabled)
-    # This provides outbound connectivity while maintaining network namespace isolation
-    if enable_internet_access:
-        lines.extend(
-            [
-                "",
-                "# Userspace networking via pasta - provides internet access with isolation",
-                "user_net {",
-                "  enable: true",
-                '  ip: "10.255.255.2"',
-                '  gw: "10.255.255.1"',
-                '  ip6: "fc00::2"',
-                '  gw6: "fc00::1"',
-                "  enable_dns: true",
-                "}",
-            ]
-        )
-
     # Optional mounts - only include if the directories exist in rootfs
     lib64_path = rootfs / "lib64"
     if lib64_path.exists():
@@ -302,6 +299,17 @@ def build_agent_nsjail_config(
     if sbin_path.exists():
         lines.append(
             f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
+        )
+
+    if enable_internet_access:
+        lines.extend(
+            [
+                "",
+                "# DNS config - use pod resolver files directly",
+                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
+            ]
         )
 
     # Bind mount /proc from host (read-only) instead of creating new procfs.
@@ -362,43 +370,6 @@ def build_agent_nsjail_config(
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
-
-    # Network config: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
-    # when enable_dns: true. Docker export leaves /etc files empty since Docker
-    # manages them at runtime. Write to socket_dir (not job_dir) because job_dir
-    # is mounted read-write at /work inside the sandbox.
-    if enable_internet_access:
-        resolv_conf_path = socket_dir / "resolv.conf"
-        resolv_conf_path.write_text(build_sandbox_resolv_conf())
-
-        hosts_path = socket_dir / "hosts"
-        hosts_path.write_text(
-            "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n"
-        )
-
-        # nsswitch.conf tells glibc how to resolve hostnames: check /etc/hosts
-        # first ("files"), then fall back to DNS. Without this, hostname
-        # resolution may fail even with valid /etc/hosts and /etc/resolv.conf.
-        nsswitch_path = socket_dir / "nsswitch.conf"
-        nsswitch_path.write_text(
-            "passwd:         files\n"
-            "group:          files\n"
-            "shadow:         files\n"
-            "hosts:          files dns\n"
-            "networks:       files\n"
-            "protocols:      files\n"
-            "services:       files\n"
-        )
-
-        lines.extend(
-            [
-                "",
-                "# Network config - DNS and hostname resolution",
-                f'mount {{ src: "{resolv_conf_path}" dst: "/etc/resolv.conf" is_bind: true rw: false }}',
-                f'mount {{ src: "{hosts_path}" dst: "/etc/hosts" is_bind: true rw: false }}',
-                f'mount {{ src: "{nsswitch_path}" dst: "/etc/nsswitch.conf" is_bind: true rw: false }}',
-            ]
-        )
 
     # Resource limits
     lines.extend(
