@@ -6,9 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.db.models import OrganizationTier, Tier
 from tracecat.exceptions import EntitlementRequired
 from tracecat.identifiers import OrganizationID
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 
@@ -52,6 +54,12 @@ async def is_org_entitled(
     entitlement: Entitlement,
 ) -> bool:
     """Check if an organization has a specific entitlement."""
+    if not config.TRACECAT__EE_MULTI_TENANT:
+        # Single-tenant mode: use static OSS/self-host defaults instead of DB tiers.
+        return bool(
+            getattr(tier_defaults.DEFAULT_ENTITLEMENTS, entitlement.value, False)
+        )
+
     org_tier, tier = await get_org_tier_and_resolved_tier(session, org_id)
 
     overrides = org_tier.entitlement_overrides or {} if org_tier is not None else {}
