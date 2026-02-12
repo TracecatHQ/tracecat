@@ -31,6 +31,7 @@ from tracecat.config import (
     SAML_SIGNED_RESPONSES,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
+    TRACECAT__EE_MULTI_TENANT,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
@@ -209,11 +210,17 @@ def metadata_cert_tempfile(metadata_cert_data: bytes):
 
 async def create_saml_client() -> Saml2Client:
     role = bootstrap_role()
-    saml_idp_metadata_url = await get_setting(
-        "saml_idp_metadata_url",
-        role=role,
-        default=SAML_IDP_METADATA_URL,
-    )
+
+    # In single-tenant mode, prefer explicit environment configuration over
+    # encrypted DB settings to support self-hosted deployments and safe fallback.
+    if not TRACECAT__EE_MULTI_TENANT and SAML_IDP_METADATA_URL:
+        saml_idp_metadata_url = SAML_IDP_METADATA_URL
+    else:
+        saml_idp_metadata_url = await get_setting(
+            "saml_idp_metadata_url",
+            role=role,
+            default=SAML_IDP_METADATA_URL,
+        )
     if not saml_idp_metadata_url:
         logger.error("SAML SSO metadata URL has not been configured")
         raise HTTPException(
